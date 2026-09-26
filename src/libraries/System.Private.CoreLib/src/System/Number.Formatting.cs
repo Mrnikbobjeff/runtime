@@ -919,6 +919,18 @@ namespace System
         public static string FormatFloat<TNumber>(TNumber value, string? format, NumberFormatInfo info)
             where TNumber : unmanaged, IBinaryFloatParseAndFormatInfo<TNumber>
         {
+            if (TNumber.IsFinite(value) && IsInvariantShortestFormat(format, info, out char expChar))
+            {
+                bool isNegative = TNumber.IsNegative(value);
+                int length = GetInvariantShortestLayout(value, isNegative, out ulong significand, out int digitCount, out int scale);
+                if (length > 0)
+                {
+                    string shortest = string.FastAllocateString(length);
+                    WriteInvariantShortest(GetFreshStringSpan(shortest), isNegative, significand, digitCount, scale, TNumber.MaxRoundTripDigits, expChar);
+                    return shortest;
+                }
+            }
+
             var vlb = new ValueListBuilder<char>(stackalloc char[CharStackBufferSize]);
             NumberBuffer number = new NumberBuffer(NumberBufferKind.FloatingPoint, stackalloc byte[TNumber.NumberBufferLength]);
             string result = FormatFloat(ref vlb, ref number, value, format, info) ?? vlb.AsSpan().ToString();
@@ -932,6 +944,31 @@ namespace System
         {
             Debug.Assert(typeof(TChar) == typeof(char) || typeof(TChar) == typeof(byte));
 
+            if (TNumber.IsFinite(value) && IsInvariantShortestFormat(format, info, out char expChar))
+            {
+                bool isNegative = TNumber.IsNegative(value);
+                int length = GetInvariantShortestLayout(value, isNegative, out ulong significand, out int digitCount, out int scale);
+                if (length > 0)
+                {
+                    if ((uint)length > (uint)destination.Length)
+                    {
+                        charsWritten = 0;
+                        return false;
+                    }
+
+                    WriteInvariantShortest(destination.Slice(0, length), isNegative, significand, digitCount, scale, TNumber.MaxRoundTripDigits, expChar);
+                    charsWritten = length;
+                    return true;
+                }
+            }
+
+            return TryFormatFloatSlow(value, format, info, destination, out charsWritten);
+        }
+
+        private static bool TryFormatFloatSlow<TNumber, TChar>(TNumber value, ReadOnlySpan<char> format, NumberFormatInfo info, Span<TChar> destination, out int charsWritten)
+            where TNumber : unmanaged, IBinaryFloatParseAndFormatInfo<TNumber>
+            where TChar : unmanaged, IUtfChar<TChar>
+        {
             var vlb = new ValueListBuilder<TChar>(stackalloc TChar[CharStackBufferSize]);
             NumberBuffer number = new NumberBuffer(NumberBufferKind.FloatingPoint, stackalloc byte[TNumber.NumberBufferLength]);
             string? s = FormatFloat(ref vlb, ref number, value, format, info);
@@ -943,6 +980,160 @@ namespace System
 
             vlb.Dispose();
             return success;
+        }
+
+        // The shortest round-trip formats ("", "G", "g", "R" and "r") with a NumberFormatInfo whose signs are "+" and "-"
+        // and whose decimal separator is "." (the invariant culture, en-US and many others) produce text that depends only
+        // on the shortest digits and their scale. That text is written straight from Zmij's significand and exponent,
+        // bypassing the NumberBuffer, NumberToString and the per-character culture lookups of FormatGeneral.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool IsInvariantShortestFormat(ReadOnlySpan<char> format, NumberFormatInfo info, out char expChar)
+        {
+            if (format.Length == 0)
+            {
+                expChar = 'E';
+            }
+            else if ((format.Length == 1) && ((char)(format[0] | 0x20) is 'g' or 'r'))
+            {
+                // Same exponent case as NumberToString: 'E' for "G"/"R", 'e' for "g"/"r".
+                expChar = (char)('E' | (format[0] & 0x20));
+            }
+            else
+            {
+                expChar = default;
+                return false;
+            }
+
+            return info.HasInvariantNumberSigns && (info._numberDecimalSeparator == ".");
+        }
+
+        // Computes the shortest round-trippable digits of a finite value and the length of its "G" text. Returns 0 when
+        // the type isn't supported by Zmij, in which case the caller takes the general path.
+        private static int GetInvariantShortestLayout<TNumber>(TNumber value, bool isNegative, out ulong significand, out int digitCount, out int scale)
+            where TNumber : unmanaged, IBinaryFloatParseAndFormatInfo<TNumber>
+        {
+            if (value == default)
+            {
+                // "0" or "-0", laid out as the single digit 0 with scale 1.
+                significand = 0;
+                digitCount = 1;
+                scale = 1;
+            }
+            else
+            {
+                if (!Zmij.TryGetShortest(value, out significand, out int exponent))
+                {
+                    digitCount = 0;
+                    scale = 0;
+                    return 0;
+                }
+
+                digitCount = FormattingHelpers.CountDigits(significand);
+                scale = digitCount + exponent;
+            }
+
+            // FormatGeneral with nMaxDigits = Math.Max(digitCount, MaxRoundTripDigits), which is MaxRoundTripDigits
+            // since the shortest digits never exceed it.
+            int maxDigits = TNumber.MaxRoundTripDigits;
+            Debug.Assert(digitCount <= maxDigits);
+
+            int length = isNegative ? 1 : 0;
+            if ((scale > maxDigits) || (scale < -3))
+            {
+                // d[.ddd]E+XX
+                int e = scale - 1;
+                length += digitCount + ((digitCount > 1) ? 1 : 0) + 2 + Math.Max(2, FormattingHelpers.CountDigits((uint)Math.Abs(e)));
+            }
+            else if (scale >= digitCount)
+            {
+                // ddd000
+                length += scale;
+            }
+            else if (scale > 0)
+            {
+                // ddd.ddd
+                length += digitCount + 1;
+            }
+            else
+            {
+                // 0.000ddd
+                length += 2 - scale + digitCount;
+            }
+
+            return length;
+        }
+
+        // Writes the text measured by GetInvariantShortestLayout; destination must be exactly that long.
+        private static void WriteInvariantShortest<TChar>(Span<TChar> destination, bool isNegative, ulong significand, int digitCount, int scale, int maxDigits, char expChar)
+            where TChar : unmanaged, IUtfChar<TChar>
+        {
+            Debug.Assert(typeof(TChar) == typeof(char) || typeof(TChar) == typeof(byte));
+
+            int pos = 0;
+            if (isNegative)
+            {
+                destination[pos++] = TChar.CastFrom('-');
+            }
+
+            if ((scale > maxDigits) || (scale < -3))
+            {
+                // Write the digits one slot to the right, then move the leading digit into that slot and put the
+                // decimal separator after it.
+                int end = pos + 1 + digitCount;
+                UInt64ToDecChars(destination, end, significand);
+                destination[pos] = destination[pos + 1];
+                if (digitCount > 1)
+                {
+                    destination[pos + 1] = TChar.CastFrom('.');
+                    pos = end;
+                }
+                else
+                {
+                    pos++;
+                }
+
+                destination[pos++] = TChar.CastFrom(expChar);
+
+                int e = scale - 1;
+                if (e < 0)
+                {
+                    destination[pos++] = TChar.CastFrom('-');
+                    e = -e;
+                }
+                else
+                {
+                    destination[pos++] = TChar.CastFrom('+');
+                }
+
+                int exponentDigits = Math.Max(2, FormattingHelpers.CountDigits((uint)e));
+                pos += exponentDigits;
+                UInt32ToDecChars(destination, pos, (uint)e, exponentDigits);
+            }
+            else if (scale >= digitCount)
+            {
+                UInt64ToDecChars(destination, pos + digitCount, significand);
+                pos += scale;
+                destination.Slice(pos - (scale - digitCount), scale - digitCount).Fill(TChar.CastFrom('0'));
+            }
+            else if (scale > 0)
+            {
+                // As above: write one slot to the right, then shift the integral digits back over the gap.
+                int end = pos + 1 + digitCount;
+                UInt64ToDecChars(destination, end, significand);
+                destination.Slice(pos + 1, scale).CopyTo(destination.Slice(pos));
+                destination[pos + scale] = TChar.CastFrom('.');
+                pos = end;
+            }
+            else
+            {
+                destination[pos] = TChar.CastFrom('0');
+                destination[pos + 1] = TChar.CastFrom('.');
+                destination.Slice(pos + 2, -scale).Fill(TChar.CastFrom('0'));
+                pos += 2 - scale + digitCount;
+                UInt64ToDecChars(destination, pos, significand);
+            }
+
+            Debug.Assert(pos == destination.Length);
         }
 
         /// <summary>Formats the specified value according to the specified format and info.</summary>

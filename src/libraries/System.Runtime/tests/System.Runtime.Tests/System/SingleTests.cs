@@ -1059,6 +1059,24 @@ namespace System.Tests
         }
 
         [Fact]
+        public static void ToString_ShortestInvariant_MatchesGeneralPath()
+        {
+            var values = new List<float>
+            {
+                0.0f, -0.0f, float.Epsilon, float.MaxValue, 1, 0.1f, 0.3f, 1.5f, 100, 123.456f, 16777216, 1e7f, 1e8f, 1e9f, 1e10f,
+                123456789, 1e-4f, 1e-5f, 1.17549435E-38f, 1.1754942E-38f,
+            };
+
+            var random = new Random(42);
+            for (int i = 0; i < 20_000; i++)
+            {
+                values.Add(BitConverter.Int32BitsToSingle(random.Next(int.MinValue, int.MaxValue)));
+            }
+
+            NumberFormatTestHelper.VerifyShortestInvariantMatchesGeneralPath(values);
+        }
+
+        [Fact]
         public static void TryFormat()
         {
             using (new ThreadCultureChange(CultureInfo.InvariantCulture))

@@ -1,6 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
+using System.Globalization;
+using System.Numerics;
 using System.Text;
 using Xunit;
 
@@ -8,6 +11,32 @@ namespace System.Tests
 {
     internal static class NumberFormatTestHelper
     {
+        private static readonly string[] s_shortestFormats = [null, "", "G", "g", "R", "r"];
+
+        // The shortest round-trip formats take a direct writer when the signs are "+"/"-" and the decimal separator is
+        // "."; any other separator takes the general NumberToString path. Checks that both agree apart from the separator,
+        // for ToString and for UTF-16 and UTF-8 TryFormat (including destinations that are one element too short).
+        internal static void VerifyShortestInvariantMatchesGeneralPath<T>(IEnumerable<T> values) where T : IFloatingPoint<T>
+        {
+            NumberFormatInfo general = (NumberFormatInfo)NumberFormatInfo.InvariantInfo.Clone();
+            general.NumberDecimalSeparator = ",";
+
+            foreach (T value in values)
+            {
+                if (!T.IsFinite(value))
+                {
+                    continue;
+                }
+
+                foreach (string format in s_shortestFormats)
+                {
+                    string expected = value.ToString(format, general).Replace(',', '.');
+                    Assert.Equal(expected, value.ToString(format, CultureInfo.InvariantCulture));
+                    TryFormatNumberTest(value, format, CultureInfo.InvariantCulture, expected, formatCasingMatchesOutput: false);
+                }
+            }
+        }
+
         internal static void TryFormatNumberTest<T>(T i, string format, IFormatProvider provider, string expected, bool formatCasingMatchesOutput = true) where T : ISpanFormattable, IUtf8SpanFormattable
         {
             // UTF16

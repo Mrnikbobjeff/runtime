@@ -37,9 +37,30 @@ namespace System
             public static bool TryRun<TNumber>(TNumber value, ref NumberBuffer number)
                 where TNumber : unmanaged, IBinaryFloatParseAndFormatInfo<TNumber>
             {
+                if (!TryGetShortest(value, out ulong significand, out int exponent))
+                {
+                    return false;
+                }
+
+                int length = FormattingHelpers.CountDigits(significand);
+                Debug.Assert(length <= 17);
+
+                int start = UInt64ToDecChars(number.Digits, length, significand);
+                Debug.Assert(start == 0);
+
+                number.Scale = length + exponent;
+                number.Digits[length] = (byte)('\0');
+                number.DigitsCount = length;
+                return true;
+            }
+
+            // Produces the shortest round-trippable value = significand * 10^exponent for a finite, non-zero double,
+            // float, Half or BFloat16, with no trailing decimal zeros in the significand. Returns false for other types.
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public static bool TryGetShortest<TNumber>(TNumber value, out ulong significand, out int exponent)
+                where TNumber : unmanaged, IBinaryFloatParseAndFormatInfo<TNumber>
+            {
                 ulong bits = TNumber.FloatToBits(value);
-                ulong significand;
-                int exponent;
 
                 if (typeof(TNumber) == typeof(double))
                 {
@@ -51,13 +72,15 @@ namespace System
                 }
                 else
                 {
+                    significand = 0;
+                    exponent = 0;
                     return false;
                 }
 
                 Debug.Assert(significand != 0);
 
                 // The producer may leave trailing decimal zeros (up to 16 for a value such as 0.1, which it yields as
-                // 10^16 * 10^-17); the number buffer wants them in the scale, so peel them in chunks.
+                // 10^16 * 10^-17); callers want them in the exponent, so peel them in chunks.
                 if (significand % 10 == 0)
                 {
                     while (significand % 100000000 == 0)
@@ -82,15 +105,6 @@ namespace System
                     }
                 }
 
-                int length = FormattingHelpers.CountDigits(significand);
-                Debug.Assert(length <= 17);
-
-                int start = UInt64ToDecChars(number.Digits, length, significand);
-                Debug.Assert(start == 0);
-
-                number.Scale = length + exponent;
-                number.Digits[length] = (byte)('\0');
-                number.DigitsCount = length;
                 return true;
             }
 

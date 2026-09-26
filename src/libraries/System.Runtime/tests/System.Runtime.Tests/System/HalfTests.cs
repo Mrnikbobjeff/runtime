@@ -1430,6 +1430,18 @@ namespace System.Tests
         }
 
         [Fact]
+        public static void ToString_ShortestInvariant_MatchesGeneralPath()
+        {
+            var values = new List<Half>(ushort.MaxValue + 1);
+            for (int bits = 0; bits <= ushort.MaxValue; bits++)
+            {
+                values.Add(BitConverter.UInt16BitsToHalf((ushort)bits));
+            }
+
+            NumberFormatTestHelper.VerifyShortestInvariantMatchesGeneralPath(values);
+        }
+
+        [Fact]
         public static void TryFormat()
         {
             using (new ThreadCultureChange(CultureInfo.InvariantCulture))

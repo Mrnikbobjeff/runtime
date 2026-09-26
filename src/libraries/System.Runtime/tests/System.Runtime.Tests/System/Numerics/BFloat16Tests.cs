@@ -1434,6 +1434,18 @@ namespace System.Numerics.Tests
         }
 
         [Fact]
+        public static void ToString_ShortestInvariant_MatchesGeneralPath()
+        {
+            var values = new List<BFloat16>(ushort.MaxValue + 1);
+            for (int bits = 0; bits <= ushort.MaxValue; bits++)
+            {
+                values.Add(BitConverter.UInt16BitsToBFloat16((ushort)bits));
+            }
+
+            NumberFormatTestHelper.VerifyShortestInvariantMatchesGeneralPath(values);
+        }
+
+        [Fact]
         public static void TryFormat()
         {
             using (new ThreadCultureChange(CultureInfo.InvariantCulture))

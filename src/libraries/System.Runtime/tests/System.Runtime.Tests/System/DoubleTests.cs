@@ -1360,6 +1360,60 @@ namespace System.Tests
         }
 
         [Fact]
+        public static void ToString_ShortestInvariant_MatchesGeneralPath()
+        {
+            var values = new List<double>
+            {
+                0.0, -0.0, double.Epsilon, double.MaxValue, 1, 0.1, 0.3, 1.5, 12.5, 100, 123.456, -60, Math.PI, Math.E,
+                1e15, 1e16, 1e17, 1e21, 1e22, 1e23, 1e-3, 1e-4, 1e-5, 1.5e-4, 1.5e-5, 0.001234, 123456789012345.6,
+                9007199254740991, 9007199254740992, 12345678901234567, 99999999999999999,
+                2.225073858507201E-308, 2.2250738585072014E-308, 2.9802322387695312E-08,
+            };
+
+            for (int e = -324; e <= 308; e++)
+            {
+                values.Add(double.Parse($"1E{e}", CultureInfo.InvariantCulture));
+                values.Add(double.Parse($"1.25E{e}", CultureInfo.InvariantCulture));
+            }
+
+            for (int e = -1074; e <= 1023; e += 7)
+            {
+                values.Add(Math.ScaleB(1.0, e));
+            }
+
+            var random = new Random(42);
+            for (int i = 0; i < 5_000; i++)
+            {
+                values.Add(BitConverter.Int64BitsToDouble(random.NextInt64(long.MinValue, long.MaxValue)));
+                values.Add(Math.Round(random.NextDouble() * Math.Pow(10, random.Next(0, 18)), random.Next(0, 6)));
+            }
+
+            values.AddRange(values.ConvertAll(v => -v));
+            NumberFormatTestHelper.VerifyShortestInvariantMatchesGeneralPath(values);
+        }
+
+        [Fact]
+        public static void ToString_Shortest_CustomSignsAndSeparator()
+        {
+            // Any NumberFormatInfo other than "+", "-" and "." takes the general path and keeps its own symbols.
+            NumberFormatInfo nfi = (NumberFormatInfo)NumberFormatInfo.InvariantInfo.Clone();
+            nfi.NegativeSign = "\u2212";
+            Assert.Equal("\u22121.5", (-1.5).ToString(nfi));
+            Assert.Equal("1E\u221205", 1e-5.ToString(nfi));
+            Assert.Equal("1E+20", 1e20.ToString(nfi));
+
+            nfi = (NumberFormatInfo)NumberFormatInfo.InvariantInfo.Clone();
+            nfi.PositiveSign = "#";
+            Assert.Equal("1E#20", 1e20.ToString("R", nfi));
+            Assert.Equal("-1.5", (-1.5).ToString("R", nfi));
+
+            nfi = (NumberFormatInfo)NumberFormatInfo.InvariantInfo.Clone();
+            nfi.NumberDecimalSeparator = "::";
+            Assert.Equal("-0::0001", (-0.0001).ToString("G", nfi));
+            Assert.Equal("1::5E-05", 1.5e-5.ToString("G", nfi));
+        }
+
+        [Fact]
         public static void TryFormat()
         {
             using (new ThreadCultureChange(CultureInfo.InvariantCulture))
