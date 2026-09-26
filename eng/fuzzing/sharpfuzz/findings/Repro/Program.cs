@@ -34,6 +34,25 @@ var checks = new (string Id, string Title, Func<(bool, string)> Check)[]
             $"match {nb.Index}:{nb.Length}, Groups[1].Success={nb.Groups[1].Success} (backtracking: '{Regex.Match("xx", @"x*(\Bx)").Groups[1].Value}')");
     }),
 
+    ("REGEX-5", "Match timeout not enforced: (){10000000}x with a 100 ms timeout", () =>
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
+        {
+            bool m = new Regex("(){10000000}x", RegexOptions.None, TimeSpan.FromMilliseconds(100)).IsMatch("x");
+            return (sw.ElapsedMilliseconds > 200, $"returned {m} after {sw.ElapsedMilliseconds} ms without RegexMatchTimeoutException");
+        }
+        catch (RegexMatchTimeoutException) { return (false, $"timed out after {sw.ElapsedMilliseconds} ms"); }
+    }),
+
+    ("REGEX-6", "Backtracking engines make \\W+ / -+ atomic before \\B and miss matches: -+\\B on \"--a\"", () =>
+    {
+        bool interp = Regex.IsMatch("--a", @"-+\B");
+        bool compiled = Regex.IsMatch("--a", @"-+\B", RegexOptions.Compiled);
+        bool nb = Regex.IsMatch("--a", @"-+\B", RegexOptions.NonBacktracking);
+        return (!interp || !compiled, $"interpreter {interp}, Compiled {compiled}, NonBacktracking {nb} (expected true: '-' then \\B between '-' and '-')");
+    }),
+
     ("JSON-1", "JsonElement.DeepEquals throws for numbers whose exponent doesn't fit in an int", () =>
     {
         if (DeepEquals is null) return (false, "JsonElement.DeepEquals not available (< .NET 9)");

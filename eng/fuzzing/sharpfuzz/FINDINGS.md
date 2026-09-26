@@ -18,7 +18,19 @@ present in this fork's 2020 sources.
 
 ## Campaign statistics
 
-_Campaign still running when this draft was committed; final numbers follow in the next commit._
+| | Regex | JSON |
+|---|---|---|
+| Wall-clock | 45 min | 45 min + ~8 min before a harness fix and restart (corpus resumed) |
+| Total execs (main + secondary) | 4.93 M | 30.8 M (run 2) |
+| Execs/s per instance | ~700 / ~1,100 | ~3,100 / ~6,700 |
+| Corpus | 9,652 / 9,696 | 4,071 / 3,952 |
+| Edges found | 13,986 (21.3% map) | 8,487 (12.9% map) |
+| Saved crashes | 285 | 154 in run 1 (all harness false positives, see below), **0** in run 2 |
+| Saved hangs | 2 (REGEX-5) | 3 (harness artefact, fixed; see below) |
+
+The 285 Regex crashes break down into 83 × REGEX-1 and 202 Interpreter vs NonBacktracking
+mismatches. Every one of the 202 was delta-minimized on the stock (uninstrumented) runtime and
+classified: all of them reduce to REGEX-2, REGEX-3, REGEX-4 or REGEX-6. Nothing was left over.
 
 ## Summary of findings
 
@@ -26,9 +38,10 @@ _Campaign still running when this draft was committed; final numbers follow in t
 |----|-----------|------|--------------------------|---------|
 | [REGEX-1](#regex-1) | `RegexParser` | Unhandled `IndexOutOfRangeException` from the `Regex` constructor | Low | .NET 8, 9, 10; this fork's 2020 source |
 | [REGEX-2](#regex-2) | `NonBacktracking` | Wrong match result (leftmost match skipped) | Medium | .NET 8, 9, 10 |
-| [REGEX-3](#regex-3) | `NonBacktracking` | Wrong match result (alternation priority with an empty branch) | Medium | .NET 8, 9, 10 |
+| [REGEX-3](#regex-3) | `NonBacktracking` | Wrong match result (ignores backtracking priority: empty branches, lazy quantifiers) | Medium | .NET 8, 9, 10 |
 | [REGEX-4](#regex-4) | `NonBacktracking` | Successful match reports a mandatory group as unmatched | Medium | .NET 8, 9, 10 |
-| [REGEX-5](#regex-5) | Interpreter and `RegexCompiler` | Match timeout not enforced for forward-only counted loops | Medium (DoS with untrusted patterns) | .NET 8 |
+| [REGEX-5](#regex-5) | Interpreter and `RegexCompiler` | Match timeout not enforced for forward-only counted loops | Medium (DoS with untrusted patterns) | .NET 8, 9, 10 |
+| [REGEX-6](#regex-6) | `RegexNode` auto-atomicity (default engines) | Wrong match result: `-+\B`, `\W+\B` miss valid matches | Medium | .NET 8, 9, 10; this fork's 2020 source |
 | [JSON-1](#json-1) | `JsonElement/JsonNode.DeepEquals` | `ArgumentOutOfRangeException` for valid numbers with large exponents | Low | .NET 9, 10 |
 | [JSON-2](#json-2) | `JsonSerializer` | Out-of-range literals read as ±Infinity but can't be written back | Informational (by design) | .NET 8, 9, 10 |
 | [JSON-3](#json-3) | `JsonElement/JsonNode.DeepEquals` | Wrong result: int overflow makes different numbers compare equal | Low–Medium | .NET 9, 10 |
@@ -88,7 +101,7 @@ the same matches.
 
 ### REGEX-3
 
-**NonBacktracking ignores alternation priority when a middle branch is empty.**
+**NonBacktracking doesn't follow backtracking priority: empty alternation branches, lazy quantifiers, zero-width branches in loops.**
 
 ```csharp
 Regex.Match("hh", "(x||.)h")                                    // 0:1  (empty branch, then 'h')
@@ -96,9 +109,27 @@ Regex.Match("hh", "(x||.)h", RegexOptions.NonBacktracking)      // 0:2  <-- '.' 
 Regex.Match("x",  "(a||.)*", RegexOptions.NonBacktracking)      // 0:1  (backtracking: 0:0)
 ```
 
-Two-branch forms (`(x|)h`, `(|.)h`) behave correctly. Three or more branches with an empty
-branch before a non-empty one don't. The fuzzer produced about a dozen variants (`(e||.)*`,
-`((..)||(.))*`, `(\u001E||.)*`, ...) that all reduce to this.
+This was the largest bucket, well over 100 of the 202 minimized mismatches. The common thread:
+backtracking takes a higher-priority choice that matches less (an empty branch, a lazy
+quantifier, a zero-width branch), and NonBacktracking returns the longer alternative instead.
+Minimized examples (backtracking vs NonBacktracking):
+
+| Pattern | Input | Backtracking | NonBacktracking |
+|---|---|---|---|
+| `(x\|\|.)h` | `hh` | `0:1, 1:1` | `0:2` |
+| `(a\|\|.)*` | `x` | `0:0, 1:0` | `0:1, 1:0` |
+| `($\|.*?)+` | `a` | `0:0, 1:0` | `0:1, 1:0` |
+| `($\|.*?)(x)` | `xx` | `0:1, 1:1` | `0:2` |
+| `(a??\|)` | `a` | `0:0, 1:0` | `0:1, 1:0` |
+| `(^\|a){5}a` | `aa` | `0:1` | `0:2` |
+| `(Q.??)*.` | `Qaa` | `0:2, 2:1` | `0:3` |
+| `(aaaa?)*a` | `aaaaaaa` | `0:5, 5:1, 6:1` | `0:7` |
+| `(.b\|)(.\|)}` | `,8}}` | `1:2, 3:1` | `2:2` |
+
+Two-branch forms like `(x|)h` and `(|.)h` behave correctly. The same priority problem shows up
+in capture values even when the overall match agrees, e.g. `(|(.)){3}J` on `aJ`: the backtracking
+`Split` gives `["", "a", "a", ""]`, but NonBacktracking reports group 1 as empty while its nested
+group 2 captured `a`.
 
 ### REGEX-4
 
@@ -111,7 +142,8 @@ var m = Regex.Match("xx", @"x*(\Bx)", RegexOptions.NonBacktracking);
 Regex.Split("aaaa", @"a*(\Ba.|a`)", RegexOptions.NonBacktracking)   // ["", ""]  (backtracking: ["", "aa", ""])
 ```
 
-It needs a `*` loop followed by a group starting with a `\B` anchor. `a+(\Ba)`, `a(\Ba)` and
+It needs a loop (`*`, `?`) followed by a group that starts with, or directly follows, a `\B`
+anchor. Also `a*\B(a)` and `(a?\Bb)` on `ab`. `a+(\Ba)`, `a(\Ba)` and
 `a*(\B.)` are fine. The overall match is right, but the capture pass loses the group, so any
 code that reads the group (including `Split`, `Replace` with `$1`, `Groups`) gets wrong
 results. This is beyond the documented NonBacktracking capture differences, which only concern
@@ -143,8 +175,41 @@ and one ~20-character pattern can hold a thread for minutes regardless of the ti
 this is a denial-of-service against the documented mitigation, consider reporting it privately
 (MSRC) rather than in a public issue.
 
+Reproduces on .NET 8.0.31, 9.0.20, 10.0.12 and 11 RC1 (`findings/Repro` uses `(){10000000}x`
+with a 100 ms timeout; it returns `true` after ~0.6 s on all four).
+
 Side observation: on .NET 8.0.31, `(?:){2222222}x` also crashes the interpreter with
 `IndexOutOfRangeException` in `RegexInterpreter.TrackPush`. That no longer reproduces on 11 RC1.
+
+### REGEX-6
+
+**The default (backtracking) engines wrongly make a non-word loop atomic before `\B`, and miss valid matches.**
+
+```csharp
+Regex.IsMatch("--a", @"-+\B")                              // false  <-- should be true
+Regex.IsMatch("--a", @"-+\B", RegexOptions.Compiled)       // false
+Regex.IsMatch("--a", @"-+\B", RegexOptions.NonBacktracking) // true (correct)
+Regex.Match(")-a", @"\W+\B")                              // no match; correct is 0:1 (")")
+```
+
+`-+` can match `"-"`, and `\B` then holds at position 1, between `-` and `-`, both non-word
+characters. Found by the NonBacktracking differential check: here NonBacktracking was right and
+the interpreter and `RegexCompiler` agreed with each other on the wrong answer. That's why the
+Interpreter vs Compiled comparison never flagged it.
+
+Root cause: in `RegexNode` (auto-atomicity, `CanBeMadeAtomic` in current `main`), a loop is made
+atomic when the next node is `NonBoundary` and the loop's set is `\W`/`\D` (`Setloop`), or its
+char is a non-word char (`Oneloop`). The reasoning is backwards. After a greedy non-word loop,
+the next character is a word char or the end of input, so `\B` fails there. The only way `\B`
+can succeed is by giving characters back, which atomicity forbids. The mirror rule, `\w+`
+followed by `\b`, is sound. The `NotDigitClass` case is wrong for a second reason: `\D`
+includes word characters. Affected forms include `-+\B`, `\W+\B`, `\W{1,}\B`, `\D+\B`,
+`-+(?=\B)`, and the lazy `-+?\B` / `\W+?\B`. The lazy forms are correct on .NET 8 and 9 and
+broke in .NET 10, when lazy loops became eligible (`Setlazy when allowLazy`). The greedy form is
+wrong on every version tested and in this fork's 2020 source
+(`src/libraries/System.Text.RegularExpressions/src/System/Text/RegularExpressions/RegexNode.cs:1557`
+and `:1593`). Suggested fix: drop the `NonBoundary` and `NonECMABoundary` cases from the
+auto-atomicity switch.
 
 ### JSON-1
 
@@ -208,6 +273,10 @@ behaviour; the harness now accepts them:
 - `Utf8JsonReader.GetString()`/`GetComment()`/`CopyString()` and `JsonDocument` validate UTF-8 and
   `\uXXXX` surrogate pairs lazily. Invalid text surfaces as `InvalidOperationException` when a
   string is materialized, not as `JsonException` while reading.
+- AFL++ saved 3 JSON "hangs" (5–8 s each), all long `//` comments. They came from the harness
+  feeding the incremental reader one byte at a time, which makes `Utf8JsonReader` rescan the
+  unfinished comment each time (O(n²); a contiguous read of the same input takes ~10 ms). The
+  harness now grows the window geometrically, the way real stream consumers do.
 - `JsonObject` can't hold duplicate (or, with `PropertyNameCaseInsensitive`, case-insensitively
   duplicate) keys. `JsonNode.Parse` succeeds and the `ArgumentException` surfaces when the object
   is first enumerated.
@@ -216,11 +285,13 @@ behaviour; the harness now accepts them:
 
 - The fork's own `master` (Aug 2020) was not fuzzed, because it can't be built without the
   dnceng feeds. REGEX-1 is confirmed in its source; the NonBacktracking engine (REGEX-2..4) and
-  `DeepEquals` (JSON-1, JSON-3) didn't exist yet in 2020.
+  `DeepEquals` (JSON-1, JSON-3) didn't exist yet in 2020. REGEX-6 is present in the 2020 source.
 - Stripping ReadyToRun code means everything in the two target assemblies is JIT-compiled with
   instrumentation, and only those two assemblies are instrumented. Coverage inside CoreLib
   (e.g. `double.Parse`, `Utf8Parser`, `Base64`) doesn't guide the fuzzer.
-- The NonBacktracking comparison only covers overall match positions plus `Replace`/`Split`.
-  Capture positions are intentionally not compared, because their semantics differ by design.
+- The NonBacktracking comparison covers overall match positions plus `Replace`/`Split`. Capture
+  positions are intentionally not compared, because their semantics differ by design. REGEX-2/3/4
+  are so frequent that they dominate the Regex crash output, so a longer campaign should either
+  wait for fixes or add suppressions for them, as was done for REGEX-1.
 - Campaign length was short (about 45 minutes per target, on 2 cores each). Longer runs, and
   AFL++ CmpLog (not available for managed code), would likely go deeper.

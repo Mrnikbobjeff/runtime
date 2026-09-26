@@ -295,7 +295,10 @@ public static class JsonTarget
 
                 consumed += (int)reader.BytesConsumed;
                 state = reader.CurrentState;
-                available = Math.Min(json.Length, available + 1 + (progressed ? seed % 5 : seed % 3));
+                // Like real stream consumers, grow the window geometrically while a token is incomplete;
+                // growing by a byte at a time makes the reader rescan long tokens quadratically.
+                int pending = available - consumed;
+                available = Math.Min(json.Length, available + 1 + (progressed ? seed % 5 : Math.Max(seed % 3, pending)));
             }
         }
         catch (JsonException e)
