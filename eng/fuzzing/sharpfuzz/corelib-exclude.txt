@@ -1,0 +1,36 @@
+# Type-name prefixes in System.Private.CoreLib that are NOT instrumented. Everything else is.
+# Runtime infrastructure: instrumenting it either recurses (the instrumentation itself needs
+# static-base and cast helpers) or floods the coverage map from background threads.
+Internal.
+Interop
+Microsoft.Win32.
+System.Runtime.
+System.StubHelpers.
+System.Threading.
+System.Diagnostics.Tracing.
+System.Diagnostics.StackTrace
+System.Diagnostics.StackFrame
+System.Diagnostics.Debugger
+System.GC
+System.AppContext
+System.StartupHookProvider
+System.Object
+System.RuntimeType
+System.RuntimeTypeHandle
+System.RuntimeMethodHandle
+System.RuntimeFieldHandle
+System.RuntimeArgumentHandle
+System.ModuleHandle
+System.Delegate
+System.MulticastDelegate
+System.Environment
+System.Exception
+System.ThrowHelper
+System.Activator
+System.WeakReference
+# Used by the SharpFuzz-generated Trace static constructor, before its buffer exists.
+System.IntPtr
+System.UIntPtr
+System.Security.
+<Module>
+<PrivateImplementationDetails>

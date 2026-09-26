@@ -1,13 +1,27 @@
 // Rewrites a ReadyToRun (mixed-mode) framework assembly as a plain IL-only
 // assembly so that SharpFuzz is willing to instrument it. The IL of every
 // method is still present in R2R images; we only drop the precompiled code.
+//
+//   StripR2R --list-types <assembly.dll>
+//     Prints the full names of all top-level types, one per line (used to build
+//     the SharpFuzz prefix list for System.Private.CoreLib).
 using dnlib.DotNet;
 using dnlib.DotNet.MD;
 using dnlib.DotNet.Writer;
 
+if (args.Length == 2 && args[0] == "--list-types")
+{
+    using var listed = ModuleDefMD.Load(args[1]);
+    foreach (TypeDef type in listed.Types)
+    {
+        Console.WriteLine(type.FullName);
+    }
+    return 0;
+}
+
 if (args.Length != 2)
 {
-    Console.Error.WriteLine("usage: StripR2R <input.dll> <output.dll>");
+    Console.Error.WriteLine("usage: StripR2R <input.dll> <output.dll> | StripR2R --list-types <assembly.dll>");
     return 1;
 }
 
