@@ -1,0 +1,6 @@
+# Toolchain, private dotnet root, instrumented assemblies and build output (setup.sh)
+.work/
+# AFL++ output directories (fuzz.sh)
+out/
+bin/
+obj/

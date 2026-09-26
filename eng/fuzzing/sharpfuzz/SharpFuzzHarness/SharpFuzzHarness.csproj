@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Built with the .NET 8 SDK (the only SDK reachable from the fuzzing box), but
+    compiled against the .NET 11 reference pack and pinned to run on the .NET 11
+    shared framework, whose System.Text.RegularExpressions / System.Text.Json have
+    been stripped of ReadyToRun code and instrumented by SharpFuzz (see setup.sh).
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TieredPGO>false</TieredPGO>
+    <DotNetVersion Condition="'$(DotNetVersion)' == ''">11.0.0-rc.1.26425.128</DotNetVersion>
+    <RuntimeFrameworkVersion>$(DotNetVersion)</RuntimeFrameworkVersion>
+    <RollForward>Disable</RollForward>
+    <!-- Run through the private dotnet root; no apphost for the pinned preview runtime is needed. -->
+    <UseAppHost>false</UseAppHost>
+    <!-- Directory containing the Microsoft.NETCore.App.Ref ref/net11.0 assemblies. -->
+    <NetRefDir Condition="'$(NetRefDir)' == ''">$(MSBuildThisFileDirectory)../.work/ref/ref/net11.0/</NetRefDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="SharpFuzz" Version="2.3.0" />
+  </ItemGroup>
+
+  <!-- Swap the net8.0 reference assemblies for the .NET 11 ones. -->
+  <Target Name="UseNet11ReferenceAssemblies" AfterTargets="ResolveTargetingPackAssets" Condition="Exists('$(NetRefDir)')">
+    <ItemGroup>
+      <Reference Remove="@(Reference)" Condition="'%(Reference.FrameworkReferenceName)' == 'Microsoft.NETCore.App'" />
+      <Reference Include="$(NetRefDir)*.dll" FrameworkReferenceName="Microsoft.NETCore.App" />
+    </ItemGroup>
+  </Target>
+
+</Project>
