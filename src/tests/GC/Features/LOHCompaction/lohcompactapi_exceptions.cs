@@ -3,15 +3,18 @@
 
 using System;
 using System.Runtime;
+using Xunit;
 
 
 
 namespace LOHCompactAPI
 {
-    class Program
+    public class Program
     {
 
-        public static int Main(string[] args)
+        [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             for(int i = 0; i <= 5; i++)
             {

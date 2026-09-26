@@ -2,34 +2,37 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b119294;
+
 using System;
 using System.Collections;
 //using System.Windows.Forms;
 using System.IO;
 using System.Text;
+using Xunit;
 
-class Test
+public class Test_b119294
 {
     public int[,] m_nSourceDestMap;
     public static int m_coSourceLength = 100;
     public static int m_coDestLength = 100;
-    static public int Main()
+    [OuterLoop]
+    [Fact]
+    static public void TestEntryPoint()
     {
         String testenv = Environment.GetEnvironmentVariable("URTBUILDENV");
         if ((testenv == null) || (testenv.ToUpper() != "FRE"))
         {
             Console.WriteLine("Skip the test since %URTBUILDENV% NEQ 'FRE'");
-            return 100;
         }
 
-        Test t = new Test();
+        Test_b119294 t = new Test_b119294();
 
         t.EstablishIdentityTransform();
-
-        return 100;
     }
 
-    public void EstablishIdentityTransform()
+    internal void EstablishIdentityTransform()
     {
         //MessageBox.Show("EstablishIdentityTransform() enter");
         int nSourceElements = m_coSourceLength;

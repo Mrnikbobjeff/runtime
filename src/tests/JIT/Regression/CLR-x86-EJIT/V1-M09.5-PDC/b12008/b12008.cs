@@ -2,27 +2,32 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-class Bug
+namespace b12008;
+
+using System;
+using Xunit;
+
+public class Bug
 {
-    public void Func(ref String str)
+    internal void Func(ref String str)
     {
         Console.WriteLine(str.ToString());
         str = "Abc";
     }
 
-    public void run()
+    internal void run()
     {
         String[] str = new String[10];
         str[0] = "DEF";
         Func(ref str[0]);
     }
 
-    public static int Main(String[] args)
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         (new Bug()).run();
         Console.WriteLine("Passed");
-        return 100;
     }
 }

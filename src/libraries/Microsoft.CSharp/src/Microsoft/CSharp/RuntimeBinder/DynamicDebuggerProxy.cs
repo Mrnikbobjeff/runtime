@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic;
 using System.Linq;
 using System.Linq.Expressions;
@@ -22,12 +23,14 @@ namespace Microsoft.CSharp.RuntimeBinder
         {
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         private DynamicBindingFailedException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
         }
     }
 
+    [RequiresDynamicCode(Binder.DynamicCodeWarning)]
     internal sealed class GetMemberValueBinder : GetMemberBinder
     {
         public GetMemberValueBinder(string name, bool ignoreCase)
@@ -51,7 +54,7 @@ namespace Microsoft.CSharp.RuntimeBinder
     internal sealed class DynamicMetaObjectProviderDebugView
     {
         [System.Diagnostics.DebuggerDisplay("{value}", Name = "{name, nq}", Type = "{type, nq}")]
-        internal class DynamicProperty
+        internal sealed class DynamicProperty
         {
             [System.Diagnostics.DebuggerBrowsable(System.Diagnostics.DebuggerBrowsableState.Never)]
             private readonly string name;
@@ -79,6 +82,8 @@ namespace Microsoft.CSharp.RuntimeBinder
         [System.Diagnostics.DebuggerBrowsable(System.Diagnostics.DebuggerBrowsableState.RootHidden)]
         internal DynamicProperty[] Items
         {
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+            [RequiresDynamicCode(Binder.DynamicCodeWarning)]
             get
             {
                 if (results == null || results.Count == 0)
@@ -106,6 +111,8 @@ namespace Microsoft.CSharp.RuntimeBinder
         [System.Diagnostics.DebuggerBrowsable(System.Diagnostics.DebuggerBrowsableState.Never)]
         private static readonly ParameterExpression parameter = Expression.Parameter(typeof(object), "debug");
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static object TryEvalBinaryOperators<T1, T2>(
             T1 arg1,
             T2 arg2,
@@ -128,6 +135,8 @@ namespace Microsoft.CSharp.RuntimeBinder
             return site.Target(site, arg1, arg2);
         }
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static object TryEvalUnaryOperators<T>(T obj, ExpressionType oper, Type accessibilityContext)
         {
             if (oper == ExpressionType.IsTrue || oper == ExpressionType.IsFalse)
@@ -148,6 +157,8 @@ namespace Microsoft.CSharp.RuntimeBinder
             return site.Target(site, obj);
         }
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static K TryEvalCast<T, K>(T obj, Type type, CSharpBinderFlags kind, Type accessibilityContext)
         {
             var site = CallSite<Func<CallSite, T, K>>.Create(Binder.Convert(kind, type, accessibilityContext));
@@ -198,6 +209,8 @@ namespace Microsoft.CSharp.RuntimeBinder
         /// Creates a delegate based on type array that describe its signature and invokes it.
         /// </summary>
         /// <returns>Result of invoking the delegate.</returns>
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private static object CreateDelegateAndInvoke(Type[] delegateSignatureTypes, CallSiteBinder binder, object[] args)
         {
             Type delegateType = Expression.GetDelegateType(delegateSignatureTypes);
@@ -223,6 +236,8 @@ namespace Microsoft.CSharp.RuntimeBinder
         /// <param name="accessibilityContext">Type that determines context in which method should be called.</param>
         /// <param name="typeArguments">Generic type arguments if there are any.</param>
         /// <returns>Result of method invocation.</returns>
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static object TryEvalMethodVarArgs(
             object[] methodArgs,
             Type[] argTypes,
@@ -231,8 +246,8 @@ namespace Microsoft.CSharp.RuntimeBinder
             Type accessibilityContext,
             Type[] typeArguments)
         {
-            Type[] delegateSignatureTypes = null;
-            CSharpArgumentInfo[] argInfos = null;
+            Type[] delegateSignatureTypes;
+            CSharpArgumentInfo[] argInfos;
 
             CreateDelegateSignatureAndArgumentInfos(
                 methodArgs,
@@ -273,6 +288,8 @@ namespace Microsoft.CSharp.RuntimeBinder
         /// <param name="accessibilityContext">Type that determines context in which method should be called.</param>
         /// <param name="isResultIndexed">Determines if COM binder should return a callable object.</param>
         /// <returns>Result of property invocation.</returns>
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static object TryGetMemberValue<T>(T obj, string propName, Type accessibilityContext, bool isResultIndexed)
         {
             // In most cases it's ok to use CSharpArgumentInfoFlags.None since target of property call is dynamic.
@@ -300,14 +317,16 @@ namespace Microsoft.CSharp.RuntimeBinder
         /// <param name="argFlags">Flags describing each argument.</param>
         /// <param name="accessibilityContext">Type that determines context in which method should be called.</param>
         /// <returns>Result of property invocation.</returns>
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static object TryGetMemberValueVarArgs(
             object[] propArgs,
             Type[] argTypes,
             CSharpArgumentInfoFlags[] argFlags,
             Type accessibilityContext)
         {
-            Type[] delegateSignatureTypes = null;
-            CSharpArgumentInfo[] argInfos = null;
+            Type[] delegateSignatureTypes;
+            CSharpArgumentInfo[] argInfos;
 
             CreateDelegateSignatureAndArgumentInfos(
                 propArgs,
@@ -333,6 +352,8 @@ namespace Microsoft.CSharp.RuntimeBinder
         /// <param name="valueFlags"></param>
         /// <param name="accessibilityContext">Type that determines context in which method should be called.</param>
         /// <returns>Result of property invocation.</returns>
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static object TrySetMemberValue<TObject, TValue>(
             TObject obj,
             string propName,
@@ -364,14 +385,16 @@ namespace Microsoft.CSharp.RuntimeBinder
         /// <param name="argFlags">Flags describing each argument.</param>
         /// <param name="accessibilityContext">Type that determines context in which method should be called.</param>
         /// <returns>Result of property invocation.</returns>
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static object TrySetMemberValueVarArgs(
             object[] propArgs,
             Type[] argTypes,
             CSharpArgumentInfoFlags[] argFlags,
             Type accessibilityContext)
         {
-            Type[] delegateSignatureTypes = null;
-            CSharpArgumentInfo[] argInfos = null;
+            Type[] delegateSignatureTypes;
+            CSharpArgumentInfo[] argInfos;
 
             CreateDelegateSignatureAndArgumentInfos(
                 propArgs,
@@ -386,6 +409,7 @@ namespace Microsoft.CSharp.RuntimeBinder
         }
 
         //Called when we don't know if the member is a property or a method
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         internal static object TryGetMemberValue(object obj, string name, bool ignoreException)
         {
             // if you want to ignore case for VB, this is how you set it .. make it a member and add a ctor to init it
@@ -417,9 +441,11 @@ namespace Microsoft.CSharp.RuntimeBinder
 
 #if ENABLECOMBINDER
         [System.Diagnostics.DebuggerBrowsable(System.Diagnostics.DebuggerBrowsableState.Never)]
-        private static readonly Type ComObjectType = typeof(object).Assembly.GetType("System.__ComObject");
+        private static readonly Type ComObjectType = Type.GetType("System.__ComObject, System.Private.CoreLib");
 #endif
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private static IList<KeyValuePair<string, object>> QueryDynamicObject(object obj)
         {
             IDynamicMetaObjectProvider ido = obj as IDynamicMetaObjectProvider;
@@ -452,17 +478,21 @@ namespace Microsoft.CSharp.RuntimeBinder
         }
 
         [Serializable]
-        internal class DynamicDebugViewEmptyException : Exception
+        internal sealed class DynamicDebugViewEmptyException : Exception
         {
             public DynamicDebugViewEmptyException()
             {
             }
 
-            protected DynamicDebugViewEmptyException(SerializationInfo info, StreamingContext context)
+            [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+            private DynamicDebugViewEmptyException(SerializationInfo info, StreamingContext context)
                 : base(info, context)
             {
             }
 
+#pragma warning disable CA1822
+            // This property value is used by the debugger EE as the message
+            // displayed when a dynamic object has no members.
             public string Empty
             {
                 get
@@ -470,6 +500,7 @@ namespace Microsoft.CSharp.RuntimeBinder
                     return SR.EmptyDynamicView;
                 }
             }
+#pragma warning restore CA1822
         }
     }
 }

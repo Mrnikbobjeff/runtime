@@ -1,10 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Reflection;
 
 namespace System
 {
@@ -19,8 +19,7 @@ namespace System
     {
         public virtual bool IsEnumDefined(object value)
         {
-            if (value == null)
-                throw new ArgumentNullException(nameof(value));
+            ArgumentNullException.ThrowIfNull(value);
 
             if (!IsEnum)
                 throw new ArgumentException(SR.Arg_MustBeEnum, nameof(value));
@@ -48,7 +47,7 @@ namespace System
             }
 
             // If an enum or integer value is passed in
-            if (Type.IsIntegerType(valueType))
+            if (IsIntegerType(valueType))
             {
                 Type underlyingType = GetEnumUnderlyingType();
                 // We cannot compare the types directly because valueType is always a runtime type but underlyingType might not be.
@@ -66,15 +65,14 @@ namespace System
 
         public virtual string? GetEnumName(object value)
         {
-            if (value == null)
-                throw new ArgumentNullException(nameof(value));
+            ArgumentNullException.ThrowIfNull(value);
 
             if (!IsEnum)
                 throw new ArgumentException(SR.Arg_MustBeEnum, nameof(value));
 
             Type valueType = value.GetType();
 
-            if (!(valueType.IsEnum || Type.IsIntegerType(valueType)))
+            if (!(valueType.IsEnum || IsIntegerType(valueType)))
                 throw new ArgumentException(SR.Arg_MustBeEnumBaseTypeOrEnum, nameof(value));
 
             Array values = GetEnumRawConstantValues();
@@ -94,7 +92,7 @@ namespace System
             if (!IsEnum)
                 throw new ArgumentException(SR.Arg_MustBeEnum, "enumType");
 
-            GetEnumData(out string[] names, out Array values);
+            GetEnumData(out string[] names, out _);
             return names;
         }
 
@@ -124,7 +122,7 @@ namespace System
             // Insertion Sort these values in ascending order.
             // We use this O(n^2) algorithm, but it turns out that most of the time the elements are already in sorted order and
             // the common case performance will be faster than quick sorting this.
-            IComparer comparer = Comparer<object>.Default;
+            Comparer comparer = Comparer.Default;
             for (int i = 1; i < values.Length; i++)
             {
                 int j = i;
@@ -132,7 +130,7 @@ namespace System
                 object val = values[i];
                 bool exchanged = false;
 
-                // Since the elements are sorted we only need to do one comparision, we keep the check for j inside the loop.
+                // Since the elements are sorted we only need to do one comparison, we keep the check for j inside the loop.
                 while (comparer.Compare(values[j - 1], val) > 0)
                 {
                     names[j] = names[j - 1];
@@ -176,8 +174,7 @@ namespace System
                     t == typeof(uint) ||
                     t == typeof(long) ||
                     t == typeof(ulong) ||
-                    t == typeof(char) ||
-                    t == typeof(bool);
+                    t == typeof(char);
         }
     }
 }

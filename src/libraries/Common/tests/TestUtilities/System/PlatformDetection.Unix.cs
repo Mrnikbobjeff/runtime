@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
 using System.IO;
 using System.Runtime.InteropServices;
 
@@ -14,44 +15,61 @@ namespace System
         // do it in a way that failures don't cascade.
         //
 
-        private static bool IsLinux => RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
+        public static bool IsLinux => RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
         public static bool IsOpenSUSE => IsDistroAndVersion("opensuse");
+        public static bool IsOpenSUSE16 => IsDistroAndVersion("opensuse", 16) || IsDistroAndVersion("opensuse-leap", 16);
         public static bool IsUbuntu => IsDistroAndVersion("ubuntu");
+        public static bool IsUbuntu26 => IsDistroAndVersion("ubuntu", 26);
+        public static bool IsUbuntu24 => IsDistroAndVersion("ubuntu", 24);
+        public static bool IsUbuntu24OrHigher => IsDistroAndVersionOrHigher("ubuntu", 24);
         public static bool IsDebian => IsDistroAndVersion("debian");
         public static bool IsAlpine => IsDistroAndVersion("alpine");
-        public static bool IsDebian8 => IsDistroAndVersion("debian", 8);
-        public static bool IsDebian10 => IsDistroAndVersion("debian", 10);
-        public static bool IsUbuntu1604 => IsDistroAndVersion("ubuntu", 16, 4);
-        public static bool IsUbuntu1704 => IsDistroAndVersion("ubuntu", 17, 4);
-        public static bool IsUbuntu1710 => IsDistroAndVersion("ubuntu", 17, 10);
-        public static bool IsUbuntu1710OrHigher => IsDistroAndVersionOrHigher("ubuntu", 17, 10);
-        public static bool IsUbuntu1804 => IsDistroAndVersion("ubuntu", 18, 04);
-        public static bool IsUbuntu1810OrHigher => IsDistroAndVersionOrHigher("ubuntu", 18, 10);
+        public static bool IsSLES => IsDistroAndVersion("sles");
         public static bool IsTizen => IsDistroAndVersion("tizen");
         public static bool IsFedora => IsDistroAndVersion("fedora");
+        public static bool IsLinuxBionic => IsBionic();
+        public static bool IsRedHatFamily => IsRedHatFamilyAndVersion();
+        public static bool IsAzureLinux => IsDistroAndVersionOrHigher("azurelinux", 3);
+        public static bool IsAzureLinux4OrHigher => IsDistroAndVersionOrHigher("azurelinux", 4);
+
+        public static bool IsMonoLinuxArm64 => IsMonoRuntime && IsLinux && IsArm64Process;
+        public static bool IsNotMonoLinuxArm64 => !IsMonoLinuxArm64;
+        public static bool IsQemuLinux => IsLinux && Environment.GetEnvironmentVariable("DOTNET_RUNNING_UNDER_QEMU") != null;
+        public static bool IsNotQemuLinux => !IsQemuLinux;
 
         // OSX family
-        public static bool IsOSXLike =>
-            RuntimeInformation.IsOSPlatform(OSPlatform.Create("IOS")) ||
-            RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ||
-            RuntimeInformation.IsOSPlatform(OSPlatform.Create("TVOS"));
+        public static bool IsApplePlatform => IsOSX || IsiOS || IstvOS || IsMacCatalyst;
         public static bool IsOSX => RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
         public static bool IsNotOSX => !IsOSX;
-        public static bool IsMacOsMojaveOrHigher => IsOSX && Environment.OSVersion.Version >= new Version(10, 14);
-        public static bool IsMacOsCatalinaOrHigher => IsOSX && Environment.OSVersion.Version >= new Version(10, 15);
+        public static bool IsMacOsAppleSilicon => IsOSX && IsArm64Process;
+        public static bool IsNotMacOsAppleSilicon => !IsMacOsAppleSilicon;
+        public static bool IsAppSandbox => Environment.GetEnvironmentVariable("APP_SANDBOX_CONTAINER_ID") != null;
+        public static bool IsNotAppSandbox => !IsAppSandbox;
+        public static bool IsApplePlatform26OrLater => IsApplePlatform && Environment.OSVersion.Version.Major >= 26;
 
-        // RedHat family covers RedHat and CentOS
-        public static bool IsRedHatFamily => IsRedHatFamilyAndVersion();
-        public static bool IsNotRedHatFamily => !IsRedHatFamily;
-        public static bool IsRedHatFamily7 => IsRedHatFamilyAndVersion(7);
-        public static bool IsNotFedoraOrRedHatFamily => !IsFedora && !IsRedHatFamily;
-        public static bool IsNotDebian10 => !IsDebian10;
-
-        public static bool IsSuperUser => IsBrowser || IsWindows ? false : libc.geteuid() == 0;
-
-        public static Version OpenSslVersion => !IsOSXLike && !IsWindows ?
+        public static Version OpenSslVersion => !IsApplePlatform && !IsWindows && !IsAndroid ?
             GetOpenSslVersion() :
             throw new PlatformNotSupportedException();
+
+        private static readonly Version s_openssl3Version = new Version(3, 0, 0);
+        private static readonly Version s_openssl3_4Version = new Version(3, 4, 0);
+        private static readonly Version s_openssl3_5Version = new Version(3, 5, 0);
+
+        public static bool IsOpenSsl3 => IsOpenSslVersionAtLeast(s_openssl3Version);
+        public static bool IsOpenSsl3_4 => IsOpenSslVersionAtLeast(s_openssl3_4Version);
+        public static bool IsOpenSsl3_5 => IsOpenSslVersionAtLeast(s_openssl3_5Version);
+
+        private static readonly Lazy<bool> s_isSymCryptOpenSsl = new(() =>
+        {
+            return IsAzureLinux &&
+                (
+                    File.Exists("/usr/lib/ossl-modules/symcryptprovider.so") ||
+                    File.Exists("/usr/lib64/ossl-modules/symcryptprovider.so")
+                );
+        });
+
+        public static bool IsSymCryptOpenSsl => s_isSymCryptOpenSsl.Value;
+        public static bool IsNotSymCryptOpenSsl => !IsSymCryptOpenSsl;
 
         /// <summary>
         /// If gnulibc is available, returns the release, such as "stable".
@@ -101,6 +119,19 @@ namespace System
             }
         }
 
+        public static bool OpenSslPresentOnSystem
+        {
+            get
+            {
+                if (IsWindows || IsAndroid || IsApplePlatform || IsBrowser)
+                {
+                    return false;
+                }
+
+                return Interop.OpenSslNoInit.OpenSslIsAvailable;
+            }
+        }
+
         private static Version s_opensslVersion;
         private static Version GetOpenSslVersion()
         {
@@ -123,6 +154,18 @@ namespace System
             }
 
             return s_opensslVersion;
+        }
+
+        // The "IsOpenSsl" properties answer false on Apple, even if OpenSSL is present for lightup,
+        // as they are answering the question "is OpenSSL the primary crypto provider".
+        private static bool IsOpenSslVersionAtLeast(Version minVersion)
+        {
+            if (IsApplePlatform || IsWindows || IsAndroid || IsBrowser)
+            {
+                return false;
+            }
+
+            return GetOpenSslVersion() >= minVersion;
         }
 
         private static Version ToVersion(string versionString)
@@ -149,6 +192,21 @@ namespace System
             }
         }
 
+        /// <summary>
+        /// Assume that Android environment variables but Linux OS mean Android libc
+        /// </summary>
+        private static bool IsBionic()
+        {
+            if (IsLinux)
+            {
+                if (!String.IsNullOrEmpty(Environment.GetEnvironmentVariable("ANDROID_STORAGE")))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         private static DistroInfo GetDistroInfo()
         {
             DistroInfo result = new DistroInfo();
@@ -161,7 +219,7 @@ namespace System
                 // What we want is major release as minor releases should be compatible.
                 result.VersionId = ToVersion(RuntimeInformation.OSDescription.Split()[1].Split('.')[0]);
             }
-            else if (IsIllumos)
+            else if (Isillumos)
             {
                 // examples:
                 //   on OmniOS
@@ -170,7 +228,7 @@ namespace System
                 //       SunOS 5.11 illumos-63878f749f
                 //   on SmartOS:
                 //       SunOS 5.11 joyent_20200408T231825Z
-                var versionDescription = RuntimeInformation.OSDescription.Split(' ')[2];
+                string versionDescription = RuntimeInformation.OSDescription.Split(' ')[2];
                 switch (versionDescription)
                 {
                     case string version when version.StartsWith("omnios"):
@@ -192,7 +250,8 @@ namespace System
                 // example:
                 //   SunOS 5.11 11.3
                 result.Id = "Solaris";
-                result.VersionId = ToVersion(RuntimeInformation.OSDescription.Split(' ')[2]); // e.g. 11.3
+                // we only need the major version; 11
+                result.VersionId = ToVersion(RuntimeInformation.OSDescription.Split(' ')[2].Split('.')[0]); // e.g. 11
             }
             else if (File.Exists("/etc/os-release"))
             {
@@ -204,7 +263,13 @@ namespace System
                     }
                     else if (line.StartsWith("VERSION_ID=", StringComparison.Ordinal))
                     {
-                        result.VersionId = ToVersion(line.Substring(11).Trim('"', '\''));
+                        string versionId = line.Substring(11).Trim('"', '\'');
+                        int dashIndex = versionId.IndexOf('_'); // Strip prerelease info if any (needed for Alpine Edge)
+                        if (dashIndex != -1)
+                        {
+                            versionId = versionId.Substring(0, dashIndex);
+                        }
+                        result.VersionId = ToVersion(versionId);
                     }
                 }
             }
@@ -301,16 +366,16 @@ namespace System
             public Version VersionId { get; set; }
         }
 
-        private static class libc
+        private static partial class @libc
         {
-            [DllImport("libc", SetLastError = true)]
-            public static extern unsafe uint geteuid();
+            [LibraryImport("libc", SetLastError = true)]
+            public static unsafe partial uint geteuid();
 
-            [DllImport("libc", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
-            public static extern IntPtr gnu_get_libc_release();
+            [LibraryImport("libc")]
+            public static partial IntPtr gnu_get_libc_release();
 
-            [DllImport("libc", CharSet = CharSet.Ansi, CallingConvention = CallingConvention.Cdecl)]
-            public static extern IntPtr gnu_get_libc_version();
+            [LibraryImport("libc")]
+            public static partial IntPtr gnu_get_libc_version();
         }
     }
 }

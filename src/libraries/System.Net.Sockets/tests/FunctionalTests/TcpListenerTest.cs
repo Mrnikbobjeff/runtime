@@ -22,7 +22,7 @@ namespace System.Net.Sockets.Tests
             AssertExtensions.Throws<ArgumentOutOfRangeException>("port", () => TcpListener.Create(66000));
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsSubsystemForLinux))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/18258")]
+        [Theory]
         [InlineData(0)]
         [InlineData(1)]
         [InlineData(2)]
@@ -40,6 +40,21 @@ namespace System.Net.Sockets.Tests
             Assert.Throws<InvalidOperationException>(() => listener.ExclusiveAddressUse = false);
             bool ignored = listener.ExclusiveAddressUse; // we can get it while active, just not set it
             listener.Stop();
+            Assert.False(listener.Active);
+        }
+
+        [Fact]
+        public void IDisposable_DisposeWorksAsStop()
+        {
+            var listener = new DerivedTcpListener(IPAddress.Loopback, 0);
+            using (listener)
+            {
+                Assert.False(listener.Active);
+                listener.Start();
+                Assert.True(listener.Active);
+            }
+            Assert.False(listener.Active);
+            listener.Dispose();
             Assert.False(listener.Active);
         }
 
@@ -86,7 +101,7 @@ namespace System.Net.Sockets.Tests
             listener.Stop();
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task Pending_TrueWhenWaitingRequest()
         {
             var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -105,7 +120,7 @@ namespace System.Net.Sockets.Tests
             Assert.Throws<InvalidOperationException>(() => listener.Pending());
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void Accept_Invalid_Throws()
         {
             var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -127,9 +142,18 @@ namespace System.Net.Sockets.Tests
         [Theory]
         [InlineData(0)] // Sync
         [InlineData(1)] // Async
-        [InlineData(2)] // APM
+        [InlineData(2)] // Async with Cancellation
+        [InlineData(3)] // APM
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51392", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/107981", TestPlatforms.Wasi)]
         public async Task Accept_AcceptsPendingSocketOrClient(int mode)
         {
+            if (OperatingSystem.IsWasi() && (mode == 0 || mode == 3))
+            {
+                // Sync and APM are not supported on WASI
+                return;
+            }
+
             var listener = new TcpListener(IPAddress.Loopback, 0);
             listener.Start();
 
@@ -140,6 +164,7 @@ namespace System.Net.Sockets.Tests
                 {
                     0 => listener.AcceptSocket(),
                     1 => await listener.AcceptSocketAsync(),
+                    2 => await listener.AcceptSocketAsync(CancellationToken.None),
                     _ => await Task.Factory.FromAsync(listener.BeginAcceptSocket, listener.EndAcceptSocket, null),
                 })
                 {
@@ -155,6 +180,7 @@ namespace System.Net.Sockets.Tests
                 {
                     0 => listener.AcceptTcpClient(),
                     1 => await listener.AcceptTcpClientAsync(),
+                    2 => await listener.AcceptTcpClientAsync(CancellationToken.None),
                     _ => await Task.Factory.FromAsync(listener.BeginAcceptTcpClient, listener.EndAcceptTcpClient, null),
                 })
                 {
@@ -185,6 +211,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/107981", TestPlatforms.Wasi)]
         public async Task Accept_StartAfterStop_AcceptsSuccessfully()
         {
             var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -221,6 +248,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.Wasi, "In wasi-libc ExclusiveAddressUse is emulated by fake SO_REUSEADDR")]
         public void ExclusiveAddressUse_SetStartListenerThenRead_ReadSuccessfully()
         {
             var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -235,6 +263,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.Wasi, "In wasi-libc ExclusiveAddressUse is emulated by fake SO_REUSEADDR")]
         public void ExclusiveAddressUse_SetStartAndStopListenerThenRead_ReadSuccessfully()
         {
             var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -250,6 +279,36 @@ namespace System.Net.Sockets.Tests
             listener.Stop();
 
             Assert.True(listener.ExclusiveAddressUse);
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        public void EndAcceptSocket_WhenStopped_ThrowsObjectDisposedException()
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+
+            IAsyncResult iar = listener.BeginAcceptSocket(callback: null, state: null);
+
+            // Give some time for the underlying OS operation to start:
+            Thread.Sleep(50);
+            listener.Stop();
+
+            Assert.Throws<ObjectDisposedException>(() => listener.EndAcceptSocket(iar));
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        public void EndAcceptTcpClient_WhenStopped_ThrowsObjectDisposedException()
+        {
+            var listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+
+            IAsyncResult iar = listener.BeginAcceptTcpClient(callback: null, state: null);
+
+            // Give some time for the underlying OS operation to start:
+            Thread.Sleep(50);
+            listener.Stop();
+
+            Assert.Throws<ObjectDisposedException>(() => listener.EndAcceptTcpClient(iar));
         }
 
         private sealed class DerivedTcpListener : TcpListener

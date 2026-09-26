@@ -6,16 +6,23 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.Loader;
+using Xunit;
 using TestLibrary;
 
-public class RunInALC
+[ActiveIssue("https://github.com/dotnet/runtime/issues/91388", typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.PlatformDoesNotSupportNativeTestAssets))]
+public class SameNameDifferentAssembly
 {
-    public static int Main(string[] args)
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/64127", typeof(PlatformDetection), nameof(PlatformDetection.PlatformDoesNotSupportNativeTestAssets))]
+    [ActiveIssue("Needs coreclr build", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoFULLAOT))]
+    [ActiveIssue("needs triage", TestPlatforms.Android)]
+    [ActiveIssue("missing assembly", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {
-            Assert.AreEqual(123, new CustomMarshalers.CustomMarshalerTest().ParseInt("123"));
-            Assert.AreEqual(123, new CustomMarshalers2.CustomMarshalerTest().ParseInt("123"));
+            Assert.Equal(123, new CustomMarshalers.CustomMarshalerTest().ParseInt("123"));
+            Assert.Equal(123, new CustomMarshalers2.CustomMarshalerTest().ParseInt("123"));
             return 100;
         }
         catch (Exception e)

@@ -4,7 +4,6 @@
 using System.Buffers;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 
 namespace System.Text.Json
 {
@@ -33,7 +32,6 @@ namespace System.Text.Json
         private int _consumed;
         private bool _inObject;
         private bool _isNotPrimitive;
-        internal char _numberFormat;
         private JsonTokenType _tokenType;
         private JsonTokenType _previousTokenType;
         private JsonReaderOptions _readerOptions;
@@ -41,7 +39,6 @@ namespace System.Text.Json
 
         private long _totalConsumed;
         private bool _isLastSegment;
-        internal bool _stringHasEscaping;
         private readonly bool _isMultiSegment;
         private bool _trailingCommaBeforeComment;
 
@@ -49,11 +46,15 @@ namespace System.Text.Json
         private SequencePosition _currentPosition;
         private readonly ReadOnlySequence<byte> _sequence;
 
-        private bool IsLastSpan => _isFinalBlock && (!_isMultiSegment || _isLastSegment);
+        private readonly bool IsLastSpan => _isFinalBlock && (!_isMultiSegment || _isLastSegment);
 
-        internal ReadOnlySequence<byte> OriginalSequence => _sequence;
+        internal readonly ReadOnlySequence<byte> OriginalSequence => _sequence;
 
-        internal ReadOnlySpan<byte> OriginalSpan => _sequence.IsEmpty ? _buffer : default;
+        internal readonly ReadOnlySpan<byte> OriginalSpan => _sequence.IsEmpty ? _buffer : default;
+
+        internal readonly int ValueLength => HasValueSequence ? checked((int)ValueSequence.Length) : ValueSpan.Length;
+
+        internal readonly bool AllowMultipleValues => _readerOptions.AllowMultipleValues;
 
         /// <summary>
         /// Gets the value of the last processed token as a ReadOnlySpan&lt;byte&gt; slice
@@ -73,7 +74,7 @@ namespace System.Text.Json
         /// Returns the total amount of bytes consumed by the <see cref="Utf8JsonReader"/> so far
         /// for the current instance of the <see cref="Utf8JsonReader"/> with the given UTF-8 encoded input text.
         /// </summary>
-        public long BytesConsumed
+        public readonly long BytesConsumed
         {
             get
             {
@@ -101,12 +102,12 @@ namespace System.Text.Json
         /// Tracks the recursive depth of the nested objects / arrays within the JSON text
         /// processed so far. This provides the depth of the current token.
         /// </summary>
-        public int CurrentDepth
+        public readonly int CurrentDepth
         {
             get
             {
                 int readerDepth = _bitStack.CurrentDepth;
-                if (TokenType == JsonTokenType.StartArray || TokenType == JsonTokenType.StartObject)
+                if (TokenType is JsonTokenType.StartArray or JsonTokenType.StartObject)
                 {
                     Debug.Assert(readerDepth >= 1);
                     readerDepth--;
@@ -115,12 +116,12 @@ namespace System.Text.Json
             }
         }
 
-        internal bool IsInArray => !_inObject;
+        internal readonly bool IsInArray => !_inObject;
 
         /// <summary>
         /// Gets the type of the last processed JSON token in the UTF-8 encoded JSON text.
         /// </summary>
-        public JsonTokenType TokenType => _tokenType;
+        public readonly JsonTokenType TokenType => _tokenType;
 
         /// <summary>
         /// Lets the caller know which of the two 'Value' properties to read to get the
@@ -132,11 +133,17 @@ namespace System.Text.Json
         public bool HasValueSequence { get; private set; }
 
         /// <summary>
+        /// Lets the caller know whether the current <see cref="ValueSpan" /> or <see cref="ValueSequence"/> properties
+        /// contain escape sequences per RFC 8259 section 7, and therefore require unescaping before being consumed.
+        /// </summary>
+        public bool ValueIsEscaped { get; private set; }
+
+        /// <summary>
         /// Returns the mode of this instance of the <see cref="Utf8JsonReader"/>.
         /// True when the reader was constructed with the input span containing the entire data to process.
         /// False when the reader was constructed knowing that the input span may contain partial data with more data to follow.
         /// </summary>
-        public bool IsFinalBlock => _isFinalBlock;
+        public readonly bool IsFinalBlock => _isFinalBlock;
 
         /// <summary>
         /// Gets the value of the last processed token as a ReadOnlySpan&lt;byte&gt; slice
@@ -157,13 +164,13 @@ namespace System.Text.Json
         /// input ReadOnlySequence&lt;byte&gt;. If the <see cref="Utf8JsonReader"/> was constructed
         /// with a ReadOnlySpan&lt;byte&gt; instead, this will always return a default <see cref="SequencePosition"/>.
         /// </summary>
-        public SequencePosition Position
+        public readonly SequencePosition Position
         {
             get
             {
                 if (_isInputSequence)
                 {
-                    Debug.Assert(_currentPosition.GetObject() != null);
+                    Debug.Assert(_currentPosition.GetObject() is not null);
                     return _sequence.GetPosition(_consumed, _currentPosition);
                 }
                 return default;
@@ -177,20 +184,19 @@ namespace System.Text.Json
         /// across async/await boundaries and hence this type is required to provide support for reading
         /// in more data asynchronously before continuing with a new instance of the <see cref="Utf8JsonReader"/>.
         /// </summary>
-        public JsonReaderState CurrentState => new JsonReaderState
-        {
-            _lineNumber = _lineNumber,
-            _bytePositionInLine = _bytePositionInLine,
-            _inObject = _inObject,
-            _isNotPrimitive = _isNotPrimitive,
-            _numberFormat = _numberFormat,
-            _stringHasEscaping = _stringHasEscaping,
-            _trailingCommaBeforeComment = _trailingCommaBeforeComment,
-            _tokenType = _tokenType,
-            _previousTokenType = _previousTokenType,
-            _readerOptions = _readerOptions,
-            _bitStack = _bitStack,
-        };
+        public readonly JsonReaderState CurrentState => new JsonReaderState
+        (
+            lineNumber: _lineNumber,
+            bytePositionInLine: _bytePositionInLine,
+            inObject: _inObject,
+            isNotPrimitive: _isNotPrimitive,
+            valueIsEscaped: ValueIsEscaped,
+            trailingCommaBeforeComment: _trailingCommaBeforeComment,
+            tokenType: _tokenType,
+            previousTokenType: _previousTokenType,
+            readerOptions: _readerOptions,
+            bitStack: _bitStack
+        );
 
         /// <summary>
         /// Constructs a new <see cref="Utf8JsonReader"/> instance.
@@ -215,8 +221,7 @@ namespace System.Text.Json
             _bytePositionInLine = state._bytePositionInLine;
             _inObject = state._inObject;
             _isNotPrimitive = state._isNotPrimitive;
-            _numberFormat = state._numberFormat;
-            _stringHasEscaping = state._stringHasEscaping;
+            ValueIsEscaped = state._valueIsEscaped;
             _trailingCommaBeforeComment = state._trailingCommaBeforeComment;
             _tokenType = state._tokenType;
             _previousTokenType = state._previousTokenType;
@@ -276,7 +281,7 @@ namespace System.Text.Json
 
             if (!retVal)
             {
-                if (_isFinalBlock && TokenType == JsonTokenType.None)
+                if (_isFinalBlock && TokenType is JsonTokenType.None && !_readerOptions.AllowMultipleValues)
                 {
                     ThrowHelper.ThrowJsonReaderException(ref this, ExceptionResource.ExpectedJsonTokens);
                 }
@@ -307,7 +312,7 @@ namespace System.Text.Json
         {
             if (!_isFinalBlock)
             {
-                throw ThrowHelper.GetInvalidOperationException_CannotSkipOnPartial();
+                ThrowHelper.ThrowInvalidOperationException_CannotSkipOnPartial();
             }
 
             SkipHelper();
@@ -318,7 +323,7 @@ namespace System.Text.Json
         {
             Debug.Assert(_isFinalBlock);
 
-            if (TokenType == JsonTokenType.PropertyName)
+            if (TokenType is JsonTokenType.PropertyName)
             {
                 bool result = Read();
                 // Since _isFinalBlock == true here, and the JSON token is not a primitive value or comment.
@@ -326,7 +331,7 @@ namespace System.Text.Json
                 Debug.Assert(result);
             }
 
-            if (TokenType == JsonTokenType.StartObject || TokenType == JsonTokenType.StartArray)
+            if (TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray)
             {
                 int depth = CurrentDepth;
                 do
@@ -371,41 +376,58 @@ namespace System.Text.Json
                 return true;
             }
 
-            return TrySkipHelper();
+            Utf8JsonReader restore = this;
+            bool success = TrySkipPartial(targetDepth: CurrentDepth);
+            if (!success)
+            {
+                // Roll back the reader if it contains partial data.
+                this = restore;
+            }
+
+            return success;
         }
 
-        private bool TrySkipHelper()
+        /// <summary>
+        /// Tries to skip the children of the current JSON token, advancing the reader even if there is not enough data.
+        /// The skip operation can be resumed later, provided that the same <paramref name="targetDepth" /> is passed.
+        /// </summary>
+        /// <param name="targetDepth">The target depth we want to eventually skip to.</param>
+        /// <returns>True if the entire JSON value has been skipped.</returns>
+        internal bool TrySkipPartial(int targetDepth)
         {
-            Debug.Assert(!_isFinalBlock);
+            Debug.Assert(0 <= targetDepth && targetDepth <= CurrentDepth);
 
-            Utf8JsonReader restore = this;
+            if (targetDepth == CurrentDepth)
+            {
+                // This is the first call to TrySkipHelper.
+                if (TokenType is JsonTokenType.PropertyName)
+                {
+                    // Skip any property name tokens preceding the value.
+                    if (!Read())
+                    {
+                        return false;
+                    }
+                }
 
-            if (TokenType == JsonTokenType.PropertyName)
+                if (TokenType is not (JsonTokenType.StartObject or JsonTokenType.StartArray))
+                {
+                    // The next value is not an object or array, so there is nothing to skip.
+                    return true;
+                }
+            }
+
+            // Start or resume iterating through the JSON object or array.
+            do
             {
                 if (!Read())
                 {
-                    goto Restore;
+                    return false;
                 }
             }
+            while (targetDepth < CurrentDepth);
 
-            if (TokenType == JsonTokenType.StartObject || TokenType == JsonTokenType.StartArray)
-            {
-                int depth = CurrentDepth;
-                do
-                {
-                    if (!Read())
-                    {
-                        goto Restore;
-                    }
-                }
-                while (depth < CurrentDepth);
-            }
-
+            Debug.Assert(targetDepth == CurrentDepth);
             return true;
-
-        Restore:
-            this = restore;
-            return false;
         }
 
         /// <summary>
@@ -428,12 +450,13 @@ namespace System.Text.Json
         ///     if required. The look up text is matched as is, without any modifications to it.
         ///   </para>
         /// </remarks>
-        public bool ValueTextEquals(ReadOnlySpan<byte> utf8Text)
+        public readonly bool ValueTextEquals(ReadOnlySpan<byte> utf8Text)
         {
             if (!IsTokenTypeString(TokenType))
             {
-                throw ThrowHelper.GetInvalidOperationException_ExpectedStringComparison(TokenType);
+                ThrowHelper.ThrowInvalidOperationException_ExpectedStringComparison(TokenType);
             }
+
             return TextEqualsHelper(utf8Text);
         }
 
@@ -457,20 +480,20 @@ namespace System.Text.Json
         ///     if required. The look up text is matched as is, without any modifications to it.
         ///   </para>
         /// </remarks>
-        public bool ValueTextEquals(string? text)
+        public readonly bool ValueTextEquals(string? text)
         {
             return ValueTextEquals(text.AsSpan());
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool TextEqualsHelper(ReadOnlySpan<byte> otherUtf8Text)
+        private readonly bool TextEqualsHelper(ReadOnlySpan<byte> otherUtf8Text)
         {
             if (HasValueSequence)
             {
                 return CompareToSequence(otherUtf8Text);
             }
 
-            if (_stringHasEscaping)
+            if (ValueIsEscaped)
             {
                 return UnescapeAndCompare(otherUtf8Text);
             }
@@ -498,11 +521,11 @@ namespace System.Text.Json
         ///     if required. The look up text is matched as is, without any modifications to it.
         ///   </para>
         /// </remarks>
-        public bool ValueTextEquals(ReadOnlySpan<char> text)
+        public readonly unsafe bool ValueTextEquals(ReadOnlySpan<char> text)
         {
             if (!IsTokenTypeString(TokenType))
             {
-                throw ThrowHelper.GetInvalidOperationException_ExpectedStringComparison(TokenType);
+                ThrowHelper.ThrowInvalidOperationException_ExpectedStringComparison(TokenType);
             }
 
             if (MatchNotPossible(text.Length))
@@ -512,42 +535,34 @@ namespace System.Text.Json
 
             byte[]? otherUtf8TextArray = null;
 
-            Span<byte> otherUtf8Text;
+            scoped Span<byte> otherUtf8Text;
 
             int length = checked(text.Length * JsonConstants.MaxExpansionFactorWhileTranscoding);
 
-            if (length > JsonConstants.StackallocThreshold)
+            if (length > JsonConstants.StackallocByteThreshold)
             {
                 otherUtf8TextArray = ArrayPool<byte>.Shared.Rent(length);
                 otherUtf8Text = otherUtf8TextArray;
             }
             else
             {
-                // Cannot create a span directly since it gets passed to instance methods on a ref struct.
-                unsafe
-                {
-                    byte* ptr = stackalloc byte[JsonConstants.StackallocThreshold];
-                    otherUtf8Text = new Span<byte>(ptr, JsonConstants.StackallocThreshold);
-                }
+                otherUtf8Text = stackalloc byte[JsonConstants.StackallocByteThreshold];
             }
 
-            ReadOnlySpan<byte> utf16Text = MemoryMarshal.AsBytes(text);
-            OperationStatus status = JsonWriterHelper.ToUtf8(utf16Text, otherUtf8Text, out int consumed, out int written);
+            OperationStatus status = JsonWriterHelper.ToUtf8(text, otherUtf8Text, out int written);
             Debug.Assert(status != OperationStatus.DestinationTooSmall);
             bool result;
-            if (status > OperationStatus.DestinationTooSmall)   // Equivalent to: (status == NeedMoreData || status == InvalidData)
+            if (status == OperationStatus.InvalidData)
             {
                 result = false;
             }
             else
             {
                 Debug.Assert(status == OperationStatus.Done);
-                Debug.Assert(consumed == utf16Text.Length);
-
                 result = TextEqualsHelper(otherUtf8Text.Slice(0, written));
             }
 
-            if (otherUtf8TextArray != null)
+            if (otherUtf8TextArray is not null)
             {
                 otherUtf8Text.Slice(0, written).Clear();
                 ArrayPool<byte>.Shared.Return(otherUtf8TextArray);
@@ -556,11 +571,11 @@ namespace System.Text.Json
             return result;
         }
 
-        private bool CompareToSequence(ReadOnlySpan<byte> other)
+        private readonly bool CompareToSequence(ReadOnlySpan<byte> other)
         {
             Debug.Assert(HasValueSequence);
 
-            if (_stringHasEscaping)
+            if (ValueIsEscaped)
             {
                 return UnescapeSequenceAndCompare(other);
             }
@@ -592,7 +607,7 @@ namespace System.Text.Json
             return true;
         }
 
-        private bool UnescapeAndCompare(ReadOnlySpan<byte> other)
+        private readonly bool UnescapeAndCompare(ReadOnlySpan<byte> other)
         {
             Debug.Assert(!HasValueSequence);
             ReadOnlySpan<byte> localSpan = ValueSpan;
@@ -613,7 +628,7 @@ namespace System.Text.Json
             return JsonReaderHelper.UnescapeAndCompare(localSpan.Slice(idx), other.Slice(idx));
         }
 
-        private bool UnescapeSequenceAndCompare(ReadOnlySpan<byte> other)
+        private readonly bool UnescapeSequenceAndCompare(ReadOnlySpan<byte> other)
         {
             Debug.Assert(HasValueSequence);
             Debug.Assert(!ValueSequence.IsSingleSegment);
@@ -674,11 +689,11 @@ namespace System.Text.Json
         // Otherwise, return false.
         private static bool IsTokenTypeString(JsonTokenType tokenType)
         {
-            return tokenType == JsonTokenType.PropertyName || tokenType == JsonTokenType.String;
+            return tokenType is JsonTokenType.PropertyName or JsonTokenType.String;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private bool MatchNotPossible(int charTextLength)
+        private readonly bool MatchNotPossible(int charTextLength)
         {
             if (HasValueSequence)
             {
@@ -701,7 +716,7 @@ namespace System.Text.Json
             //      - For non-ASCII UTF-16 characters outside of the BMP, transcoding = 2x, (surrogate pairs - 2 characters transcode to 4 UTF-8 bytes)
 
             if (sourceLength < charTextLength
-                || sourceLength / (_stringHasEscaping ? JsonConstants.MaxExpansionFactorWhileEscaping : JsonConstants.MaxExpansionFactorWhileTranscoding) > charTextLength)
+                || sourceLength / (ValueIsEscaped ? JsonConstants.MaxExpansionFactorWhileEscaping : JsonConstants.MaxExpansionFactorWhileTranscoding) > charTextLength)
             {
                 return true;
             }
@@ -709,12 +724,12 @@ namespace System.Text.Json
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]
-        private bool MatchNotPossibleSequence(int charTextLength)
+        private readonly bool MatchNotPossibleSequence(int charTextLength)
         {
             long sourceLength = ValueSequence.Length;
 
             if (sourceLength < charTextLength
-                || sourceLength / (_stringHasEscaping ? JsonConstants.MaxExpansionFactorWhileEscaping : JsonConstants.MaxExpansionFactorWhileTranscoding) > charTextLength)
+                || sourceLength / (ValueIsEscaped ? JsonConstants.MaxExpansionFactorWhileEscaping : JsonConstants.MaxExpansionFactorWhileTranscoding) > charTextLength)
             {
                 return true;
             }
@@ -801,6 +816,7 @@ namespace System.Text.Json
         {
             bool retVal = false;
             ValueSpan = default;
+            ValueIsEscaped = false;
 
             if (!HasMoreData())
             {
@@ -914,7 +930,7 @@ namespace System.Text.Json
                         return false;
                     }
 
-                    if (_tokenType != JsonTokenType.EndArray && _tokenType != JsonTokenType.EndObject)
+                    if (_tokenType is not JsonTokenType.EndArray and not JsonTokenType.EndObject)
                     {
                         ThrowHelper.ThrowJsonReaderException(ref this, ExceptionResource.InvalidEndOfJsonNonPrimitive);
                     }
@@ -976,17 +992,13 @@ namespace System.Text.Json
                     _tokenType = JsonTokenType.Number;
                     _consumed += numberOfBytes;
                     _bytePositionInLine += numberOfBytes;
-                    return true;
                 }
                 else if (!ConsumeValue(first))
                 {
                     return false;
                 }
 
-                if (_tokenType == JsonTokenType.StartObject || _tokenType == JsonTokenType.StartArray)
-                {
-                    _isNotPrimitive = true;
-                }
+                _isNotPrimitive = _tokenType is JsonTokenType.StartObject or JsonTokenType.StartArray;
                 // Intentionally fall out of the if-block to return true
             }
             return true;
@@ -996,15 +1008,49 @@ namespace System.Text.Json
         {
             // Create local copy to avoid bounds checks.
             ReadOnlySpan<byte> localBuffer = _buffer;
+#if NET
+            // A vectorized SearchValues-based scan to the first non-whitespace byte is fastest on most
+            // runtimes, so we go straight to it. On Mono/WASM AOT (browser) the fixed per-call SIMD
+            // entry cost is high relative to the short inter-token whitespace runs typical of JSON,
+            // and reconstructing the line/byte-position bookkeeping needs up to two more vectorized
+            // passes (CountNewLines), so short runs regress there. The browser path therefore uses the
+            // plain scalar loop below instead. OperatingSystem.IsBrowser() folds to a constant per
+            // target, so only one path survives in codegen and non-browser output is unchanged from a
+            // direct vectorized scan.
+            if (!OperatingSystem.IsBrowser())
+            {
+                ReadOnlySpan<byte> remaining = localBuffer.Slice(_consumed);
+                int idx = remaining.IndexOfFirstNonWhiteSpace();
+                if (idx > 0)
+                {
+                    // Reproduce the scalar loop's line/byte-position bookkeeping for the skipped run.
+                    (int newLines, int lastLineFeedIndex) = JsonReaderHelper.CountNewLines(remaining.Slice(0, idx));
+                    _lineNumber += newLines;
+                    if (lastLineFeedIndex >= 0)
+                    {
+                        // Byte positions on the current line start after the last line feed character.
+                        _bytePositionInLine = idx - lastLineFeedIndex - 1;
+                    }
+                    else
+                    {
+                        _bytePositionInLine += idx;
+                    }
+
+                    _consumed += idx;
+                }
+
+                return;
+            }
+#endif
             for (; _consumed < localBuffer.Length; _consumed++)
             {
                 byte val = localBuffer[_consumed];
 
-                // JSON RFC 8259 section 2 says only these 4 characters count, not all of the Unicode defintions of whitespace.
-                if (val != JsonConstants.Space &&
-                    val != JsonConstants.CarriageReturn &&
-                    val != JsonConstants.LineFeed &&
-                    val != JsonConstants.Tab)
+                // JSON RFC 8259 section 2 says only these 4 characters count, not all of the Unicode definitions of whitespace.
+                if (val is not JsonConstants.Space and
+                           not JsonConstants.CarriageReturn and
+                           not JsonConstants.LineFeed and
+                           not JsonConstants.Tab)
                 {
                     break;
                 }
@@ -1217,7 +1263,7 @@ namespace System.Text.Json
             Debug.Assert(
                 ((_consumed < _buffer.Length) &&
                 !_isNotPrimitive &&
-                JsonConstants.Delimiters.IndexOf(_buffer[_consumed]) >= 0)
+                JsonConstants.Delimiters.Contains(_buffer[_consumed]))
                 || (_isNotPrimitive ^ (_consumed >= (uint)_buffer.Length)));
 
             return true;
@@ -1252,8 +1298,8 @@ namespace System.Text.Json
                 first = _buffer[_consumed];
             }
 
-            // The next character must be a key / value seperator. Validate and skip.
-            if (first != JsonConstants.KeyValueSeperator)
+            // The next character must be a key / value separator. Validate and skip.
+            if (first != JsonConstants.KeyValueSeparator)
             {
                 ThrowHelper.ThrowJsonReaderException(ref this, ExceptionResource.ExpectedSeparatorAfterPropertyNameNotFound, first);
             }
@@ -1285,7 +1331,7 @@ namespace System.Text.Json
                 {
                     _bytePositionInLine += idx + 2; // Add 2 for the start and end quotes.
                     ValueSpan = localBuffer.Slice(0, idx);
-                    _stringHasEscaping = false;
+                    ValueIsEscaped = false;
                     _tokenType = JsonTokenType.String;
                     _consumed += idx + 2;
                     return true;
@@ -1384,7 +1430,7 @@ namespace System.Text.Json
         Done:
             _bytePositionInLine++;  // Add 1 for the end quote
             ValueSpan = data.Slice(0, idx);
-            _stringHasEscaping = true;
+            ValueIsEscaped = true;
             _tokenType = JsonTokenType.String;
             _consumed += idx + 2;
             return true;
@@ -1415,7 +1461,6 @@ namespace System.Text.Json
             // TODO: https://github.com/dotnet/runtime/issues/27837
             Debug.Assert(data.Length > 0);
 
-            _numberFormat = default;
             consumed = 0;
             int i = 0;
 
@@ -1428,7 +1473,7 @@ namespace System.Text.Json
             Debug.Assert(signResult == ConsumeNumberResult.OperationIncomplete);
 
             byte nextByte = data[i];
-            Debug.Assert(nextByte >= '0' && nextByte <= '9');
+            Debug.Assert(nextByte is >= (byte)'0' and <= (byte)'9');
 
             if (nextByte == '0')
             {
@@ -1460,14 +1505,14 @@ namespace System.Text.Json
 
                 Debug.Assert(result == ConsumeNumberResult.OperationIncomplete);
                 nextByte = data[i];
-                if (nextByte != '.' && nextByte != 'E' && nextByte != 'e')
+                if (nextByte is not ((byte)'.' or (byte)'E' or (byte)'e'))
                 {
                     _bytePositionInLine += i;
                     ThrowHelper.ThrowJsonReaderException(ref this, ExceptionResource.ExpectedEndOfDigitNotFound, nextByte);
                 }
             }
 
-            Debug.Assert(nextByte == '.' || nextByte == 'E' || nextByte == 'e');
+            Debug.Assert(nextByte is (byte)'.' or (byte)'E' or (byte)'e');
 
             if (nextByte == '.')
             {
@@ -1484,16 +1529,15 @@ namespace System.Text.Json
 
                 Debug.Assert(result == ConsumeNumberResult.OperationIncomplete);
                 nextByte = data[i];
-                if (nextByte != 'E' && nextByte != 'e')
+                if (nextByte is not ((byte)'E' or (byte)'e'))
                 {
                     _bytePositionInLine += i;
                     ThrowHelper.ThrowJsonReaderException(ref this, ExceptionResource.ExpectedNextDigitEValueNotFound, nextByte);
                 }
             }
 
-            Debug.Assert(nextByte == 'E' || nextByte == 'e');
+            Debug.Assert(nextByte is (byte)'E' or (byte)'e');
             i++;
-            _numberFormat = JsonConstants.ScientificNotationFormat;
 
             signResult = ConsumeSign(ref data, ref i);
             if (signResult == ConsumeNumberResult.NeedMoreData)
@@ -1525,7 +1569,7 @@ namespace System.Text.Json
             return true;
         }
 
-        private ConsumeNumberResult ConsumeNegativeSign(ref ReadOnlySpan<byte> data, ref int i)
+        private ConsumeNumberResult ConsumeNegativeSign(ref ReadOnlySpan<byte> data, scoped ref int i)
         {
             byte nextByte = data[i];
 
@@ -1552,15 +1596,15 @@ namespace System.Text.Json
             return ConsumeNumberResult.OperationIncomplete;
         }
 
-        private ConsumeNumberResult ConsumeZero(ref ReadOnlySpan<byte> data, ref int i)
+        private ConsumeNumberResult ConsumeZero(ref ReadOnlySpan<byte> data, scoped ref int i)
         {
             Debug.Assert(data[i] == (byte)'0');
             i++;
-            byte nextByte = default;
+            byte nextByte;
             if (i < data.Length)
             {
                 nextByte = data[i];
-                if (JsonConstants.Delimiters.IndexOf(nextByte) >= 0)
+                if (JsonConstants.Delimiters.Contains(nextByte))
                 {
                     return ConsumeNumberResult.Success;
                 }
@@ -1580,7 +1624,7 @@ namespace System.Text.Json
                 }
             }
             nextByte = data[i];
-            if (nextByte != '.' && nextByte != 'E' && nextByte != 'e')
+            if (nextByte is not ((byte)'.' or (byte)'E' or (byte)'e'))
             {
                 _bytePositionInLine += i;
                 ThrowHelper.ThrowJsonReaderException(ref this,
@@ -1591,7 +1635,7 @@ namespace System.Text.Json
             return ConsumeNumberResult.OperationIncomplete;
         }
 
-        private ConsumeNumberResult ConsumeIntegerDigits(ref ReadOnlySpan<byte> data, ref int i)
+        private ConsumeNumberResult ConsumeIntegerDigits(ref ReadOnlySpan<byte> data, scoped ref int i)
         {
             byte nextByte = default;
             for (; i < data.Length; i++)
@@ -1616,7 +1660,7 @@ namespace System.Text.Json
                     return ConsumeNumberResult.NeedMoreData;
                 }
             }
-            if (JsonConstants.Delimiters.IndexOf(nextByte) >= 0)
+            if (JsonConstants.Delimiters.Contains(nextByte))
             {
                 return ConsumeNumberResult.Success;
             }
@@ -1624,7 +1668,7 @@ namespace System.Text.Json
             return ConsumeNumberResult.OperationIncomplete;
         }
 
-        private ConsumeNumberResult ConsumeDecimalDigits(ref ReadOnlySpan<byte> data, ref int i)
+        private ConsumeNumberResult ConsumeDecimalDigits(ref ReadOnlySpan<byte> data, scoped ref int i)
         {
             if (i >= data.Length)
             {
@@ -1646,7 +1690,7 @@ namespace System.Text.Json
             return ConsumeIntegerDigits(ref data, ref i);
         }
 
-        private ConsumeNumberResult ConsumeSign(ref ReadOnlySpan<byte> data, ref int i)
+        private ConsumeNumberResult ConsumeSign(ref ReadOnlySpan<byte> data, scoped ref int i)
         {
             if (i >= data.Length)
             {
@@ -1659,7 +1703,7 @@ namespace System.Text.Json
             }
 
             byte nextByte = data[i];
-            if (nextByte == '+' || nextByte == '-')
+            if (nextByte is (byte)'+' or (byte)'-')
             {
                 i++;
                 if (i >= data.Length)
@@ -1734,6 +1778,11 @@ namespace System.Text.Json
 
             if (_bitStack.CurrentDepth == 0)
             {
+                if (_readerOptions.AllowMultipleValues)
+                {
+                    return ReadFirstToken(marker) ? ConsumeTokenResult.Success : ConsumeTokenResult.NotEnoughDataRollBackState;
+                }
+
                 ThrowHelper.ThrowJsonReaderException(ref this, ExceptionResource.ExpectedEndAfterSingleJson, marker);
             }
 
@@ -1856,6 +1905,11 @@ namespace System.Text.Json
 
             if (_bitStack.CurrentDepth == 0 && _tokenType != JsonTokenType.None)
             {
+                if (_readerOptions.AllowMultipleValues)
+                {
+                    return ReadFirstToken(first) ? ConsumeTokenResult.Success : ConsumeTokenResult.NotEnoughDataRollBackState;
+                }
+
                 ThrowHelper.ThrowJsonReaderException(ref this, ExceptionResource.ExpectedEndAfterSingleJson, first);
             }
 
@@ -2020,7 +2074,7 @@ namespace System.Text.Json
             }
             else
             {
-                Debug.Assert(_tokenType == JsonTokenType.EndArray || _tokenType == JsonTokenType.EndObject);
+                Debug.Assert(_tokenType is JsonTokenType.EndArray or JsonTokenType.EndObject);
                 if (_inObject)
                 {
                     Debug.Assert(first != JsonConstants.CloseBrace);
@@ -2060,7 +2114,7 @@ namespace System.Text.Json
             return ConsumeTokenResult.NotEnoughDataRollBackState;
         }
 
-        private bool SkipAllComments(ref byte marker)
+        private bool SkipAllComments(scoped ref byte marker)
         {
             while (marker == JsonConstants.Slash)
             {
@@ -2095,7 +2149,7 @@ namespace System.Text.Json
             return false;
         }
 
-        private bool SkipAllComments(ref byte marker, ExceptionResource resource)
+        private bool SkipAllComments(scoped ref byte marker, ExceptionResource resource)
         {
             while (marker == JsonConstants.Slash)
             {
@@ -2194,6 +2248,11 @@ namespace System.Text.Json
             }
             else if (_bitStack.CurrentDepth == 0)
             {
+                if (_readerOptions.AllowMultipleValues)
+                {
+                    return ReadFirstToken(marker) ? ConsumeTokenResult.Success : ConsumeTokenResult.NotEnoughDataRollBackState;
+                }
+
                 ThrowHelper.ThrowJsonReaderException(ref this, ExceptionResource.ExpectedEndAfterSingleJson, marker);
             }
             else if (marker == JsonConstants.ListSeparator)
@@ -2318,7 +2377,7 @@ namespace System.Text.Json
         private bool SkipSingleLineComment(ReadOnlySpan<byte> localBuffer, out int idx)
         {
             idx = FindLineSeparator(localBuffer);
-            int toConsume = 0;
+            int toConsume;
             if (idx != -1)
             {
                 toConsume = idx;
@@ -2413,7 +2472,7 @@ namespace System.Text.Json
             }
 
             byte next = localBuffer[1];
-            if (localBuffer[0] == 0x80 && (next == 0xA8 || next == 0xA9))
+            if (localBuffer[0] == 0x80 && (next is 0xA8 or 0xA9))
             {
                 ThrowHelper.ThrowJsonReaderException(ref this, ExceptionResource.UnexpectedEndOfLineSeparator);
             }
@@ -2529,7 +2588,7 @@ namespace System.Text.Json
         }
 
         [DebuggerBrowsable(DebuggerBrowsableState.Never)]
-        private string DebuggerDisplay => $"TokenType = {DebugTokenType} (TokenStartIndex = {TokenStartIndex}) Consumed = {BytesConsumed}";
+        private string DebuggerDisplay => $"TokenType = {DebugTokenType}, TokenStartIndex = {TokenStartIndex}, Consumed = {BytesConsumed}";
 
         // Using TokenType.ToString() (or {TokenType}) fails to render in the debug window. The
         // message "The runtime refused to evaluate the expression at this time." is shown. This
@@ -2555,11 +2614,9 @@ namespace System.Text.Json
         private ReadOnlySpan<byte> GetUnescapedSpan()
         {
             ReadOnlySpan<byte> span = HasValueSequence ? ValueSequence.ToArray() : ValueSpan;
-            if (_stringHasEscaping)
+            if (ValueIsEscaped)
             {
-                int idx = span.IndexOf(JsonConstants.BackSlash);
-                Debug.Assert(idx != -1);
-                span = JsonReaderHelper.GetUnescapedSpan(span, idx);
+                span = JsonReaderHelper.GetUnescaped(span);
             }
 
             return span;

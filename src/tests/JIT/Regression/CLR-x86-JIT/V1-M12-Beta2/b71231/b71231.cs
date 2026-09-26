@@ -2,16 +2,22 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-class X
+namespace b71231;
+
+using System;
+using Xunit;
+
+public class X
 {
     static short sh_8712 = 8712;
     static short sh_m973 = -973;
     static ushort us_8712 = 8712;
     static ushort us_973 = 973;
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         short sh3 = (short)(sh_8712 * sh_m973);
         ushort us3 = (ushort)(us_8712 * us_973);
@@ -25,6 +31,5 @@ class X
         Console.WriteLine(us_8712);
         Console.WriteLine(us_973);
         Console.WriteLine(us3);
-        return 100;
     }
 }

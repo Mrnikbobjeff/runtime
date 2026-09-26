@@ -7,8 +7,9 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Xunit;
 
-public class Test {
+public class Test_Finalize {
 
     public class Dummy 
     {
@@ -47,7 +48,8 @@ public class Test {
         }    
     }
 
-    public static int Main() 
+    [Fact]
+    public static int TestEntryPoint() 
     {
         CreateObj temp = new CreateObj();
         GCHandle handle = temp.RunTest();

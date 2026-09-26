@@ -7,6 +7,8 @@
 using System;
 using System.IO;
 using System.Runtime.CompilerServices;
+using Xunit;
+using TestLibrary;
 
 public class Bar
 {
@@ -125,9 +127,11 @@ public struct InlinedVal
 }
 
 
-public class Test
+public class Test_GenMethInlined_Multinested
 {
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		Bar.BarMeth_In();
 		Bar.BarMeth_NotIn();

@@ -6,7 +6,7 @@ using System.Diagnostics;
 
 namespace System.Xml
 {
-    internal class BinHexDecoder : IncrementalReadDecoder
+    internal sealed class BinHexDecoder : IncrementalReadDecoder
     {
         //
         // Fields
@@ -37,76 +37,43 @@ namespace System.Xml
             }
         }
 
-        internal override unsafe int Decode(char[] chars, int startPos, int len)
+        internal override int Decode(char[] chars, int startPos, int len)
         {
-            if (chars == null)
-            {
-                throw new ArgumentNullException(nameof(chars));
-            }
-            if (len < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(len));
-            }
-            if (startPos < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startPos));
-            }
-            if (chars.Length - startPos < len)
-            {
-                throw new ArgumentOutOfRangeException(nameof(len));
-            }
+            ArgumentNullException.ThrowIfNull(chars);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(len);
+            ArgumentOutOfRangeException.ThrowIfNegative(startPos);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(len, chars.Length - startPos);
 
             if (len == 0)
             {
                 return 0;
             }
 
-            int bytesDecoded, charsDecoded;
-            fixed (char* pChars = &chars[startPos])
-            {
-                fixed (byte* pBytes = &_buffer![_curIndex])
-                {
-                    Decode(pChars, pChars + len, pBytes, pBytes + (_endIndex - _curIndex),
-                            ref _hasHalfByteCached, ref _cachedHalfByte, out charsDecoded, out bytesDecoded);
-                }
-            }
+            Decode(chars.AsSpan(startPos, len), _buffer.AsSpan(_curIndex, _endIndex - _curIndex),
+                ref _hasHalfByteCached, ref _cachedHalfByte,
+                out int charsDecoded, out int bytesDecoded);
+
             _curIndex += bytesDecoded;
             return charsDecoded;
         }
 
-        internal override unsafe int Decode(string str, int startPos, int len)
+        internal override int Decode(string str, int startPos, int len)
         {
-            if (str == null)
-            {
-                throw new ArgumentNullException(nameof(str));
-            }
-            if (len < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(len));
-            }
-            if (startPos < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startPos));
-            }
-            if (str.Length - startPos < len)
-            {
-                throw new ArgumentOutOfRangeException(nameof(len));
-            }
+            ArgumentNullException.ThrowIfNull(str);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(len);
+            ArgumentOutOfRangeException.ThrowIfNegative(startPos);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(len, str.Length - startPos);
 
             if (len == 0)
             {
                 return 0;
             }
 
-            int bytesDecoded, charsDecoded;
-            fixed (char* pChars = str)
-            {
-                fixed (byte* pBytes = &_buffer![_curIndex])
-                {
-                    Decode(pChars + startPos, pChars + startPos + len, pBytes, pBytes + (_endIndex - _curIndex),
-                            ref _hasHalfByteCached, ref _cachedHalfByte, out charsDecoded, out bytesDecoded);
-                }
-            }
+            Decode(str.AsSpan(startPos, len), _buffer.AsSpan(_curIndex, _endIndex - _curIndex),
+                ref _hasHalfByteCached, ref _cachedHalfByte,
+                out int charsDecoded, out int bytesDecoded);
 
             _curIndex += bytesDecoded;
             return charsDecoded;
@@ -135,13 +102,8 @@ namespace System.Xml
         //
         // Static methods
         //
-        public static unsafe byte[] Decode(char[] chars, bool allowOddChars)
+        public static byte[] Decode(ReadOnlySpan<char> chars, bool allowOddChars)
         {
-            if (chars == null)
-            {
-                throw new ArgumentNullException(nameof(chars));
-            }
-
             int len = chars.Length;
             if (len == 0)
             {
@@ -149,28 +111,19 @@ namespace System.Xml
             }
 
             byte[] bytes = new byte[(len + 1) / 2];
-            int bytesDecoded, charsDecoded;
             bool hasHalfByteCached = false;
             byte cachedHalfByte = 0;
 
-            fixed (char* pChars = &chars[0])
-            {
-                fixed (byte* pBytes = &bytes[0])
-                {
-                    Decode(pChars, pChars + len, pBytes, pBytes + bytes.Length, ref hasHalfByteCached, ref cachedHalfByte, out charsDecoded, out bytesDecoded);
-                }
-            }
+            Decode(chars, bytes, ref hasHalfByteCached, ref cachedHalfByte, out _, out int bytesDecoded);
 
             if (hasHalfByteCached && !allowOddChars)
             {
-                throw new XmlException(SR.Xml_InvalidBinHexValueOddCount, new string(chars));
+                throw new XmlException(SR.Xml_InvalidBinHexValueOddCount, (string?)null);
             }
 
             if (bytesDecoded < bytes.Length)
             {
-                byte[] tmp = new byte[bytesDecoded];
-                Buffer.BlockCopy(bytes, 0, tmp, 0, bytesDecoded);
-                bytes = tmp;
+                Array.Resize(ref bytes, bytesDecoded);
             }
 
             return bytes;
@@ -180,41 +133,41 @@ namespace System.Xml
         // Private methods
         //
 
-        private static unsafe void Decode(char* pChars, char* pCharsEndPos,
-                                    byte* pBytes, byte* pBytesEndPos,
-                                    ref bool hasHalfByteCached, ref byte cachedHalfByte,
-                                    out int charsDecoded, out int bytesDecoded)
+        private static void Decode(ReadOnlySpan<char> chars,
+                                   Span<byte> bytes,
+                                   ref bool hasHalfByteCached, ref byte cachedHalfByte,
+                                   out int charsDecoded, out int bytesDecoded)
         {
-#if DEBUG
-            Debug.Assert(pCharsEndPos - pChars >= 0);
-            Debug.Assert(pBytesEndPos - pBytes >= 0);
-#endif
+            int iByte = 0;
+            int iChar = 0;
 
-            char* pChar = pChars;
-            byte* pByte = pBytes;
-            XmlCharType xmlCharType = XmlCharType.Instance;
-            while (pChar < pCharsEndPos && pByte < pBytesEndPos)
+            for (; iChar < chars.Length; iChar++)
             {
+                if ((uint)iByte >= (uint)bytes.Length)
+                {
+                    break; // ran out of space in the destination buffer
+                }
+
                 byte halfByte;
-                char ch = *pChar++;
+                char ch = chars[iChar];
 
                 int val = HexConverter.FromChar(ch);
                 if (val != 0xFF)
                 {
                     halfByte = (byte)val;
                 }
-                else if (xmlCharType.IsWhiteSpace(ch))
+                else if (XmlCharType.IsWhiteSpace(ch))
                 {
                     continue;
                 }
                 else
                 {
-                    throw new XmlException(SR.Xml_InvalidBinHexValue, new string(pChars, 0, (int)(pCharsEndPos - pChars)));
+                    throw new XmlException(SR.Xml_InvalidBinHexValue, ch.ToString());
                 }
 
                 if (hasHalfByteCached)
                 {
-                    *pByte++ = (byte)((cachedHalfByte << 4) + halfByte);
+                    bytes[iByte++] = (byte)((cachedHalfByte << 4) + halfByte);
                     hasHalfByteCached = false;
                 }
                 else
@@ -224,8 +177,8 @@ namespace System.Xml
                 }
             }
 
-            bytesDecoded = (int)(pByte - pBytes);
-            charsDecoded = (int)(pChar - pChars);
+            bytesDecoded = iByte;
+            charsDecoded = iChar;
         }
     }
 }

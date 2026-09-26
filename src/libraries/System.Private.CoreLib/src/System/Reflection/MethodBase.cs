@@ -1,22 +1,29 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Globalization;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace System.Reflection
 {
     public abstract partial class MethodBase : MemberInfo
     {
+        internal const int MaxStackAllocArgCount = 4;
+
         protected MethodBase() { }
 
         public abstract ParameterInfo[] GetParameters();
         public abstract MethodAttributes Attributes { get; }
         public virtual MethodImplAttributes MethodImplementationFlags => GetMethodImplementationFlags();
         public abstract MethodImplAttributes GetMethodImplementationFlags();
+
+        [RequiresUnreferencedCode("Trimming may change method bodies. For example it can change some instructions, remove branches or local variables.")]
         public virtual MethodBody? GetMethodBody() { throw new InvalidOperationException(); }
+
         public virtual CallingConventions CallingConvention => CallingConventions.Standard;
 
         public bool IsAbstract => (Attributes & MethodAttributes.Abstract) != 0;
@@ -65,17 +72,16 @@ namespace System.Reflection
             // so it can become a simple test
             if (right is null)
             {
-                // return true/false not the test result https://github.com/dotnet/runtime/issues/4207
-                return (left is null) ? true : false;
+                return left is null;
             }
 
             // Try fast reference equality and opposite null check prior to calling the slower virtual Equals
-            if ((object?)left == (object)right)
+            if (ReferenceEquals(left, right))
             {
                 return true;
             }
 
-            return (left is null) ? false : left.Equals(right);
+            return left is not null && left.Equals(right);
         }
 
         public static bool operator !=(MethodBase? left, MethodBase? right) => !(left == right);
@@ -116,5 +122,112 @@ namespace System.Reflection
                 sbParamList.Append("...");
             }
         }
+
+        internal virtual Type[] GetParameterTypes()
+        {
+            ReadOnlySpan<ParameterInfo> paramInfo = GetParametersAsSpan();
+            if (paramInfo.Length == 0)
+            {
+                return [];
+            }
+
+            Type[] parameterTypes = new Type[paramInfo.Length];
+            for (int i = 0; i < paramInfo.Length; i++)
+                parameterTypes[i] = paramInfo[i].ParameterType;
+
+            return parameterTypes;
+        }
+
+#if !NATIVEAOT
+        internal static object? HandleTypeMissing(ParameterInfo paramInfo, RuntimeType sigType)
+        {
+            if (paramInfo.DefaultValue == DBNull.Value)
+            {
+                throw new ArgumentException(SR.Arg_VarMissNull, "parameters");
+            }
+
+            object? arg = paramInfo.DefaultValue;
+
+            if (sigType.IsNullableOfT)
+            {
+                if (arg is not null)
+                {
+                    // For nullable Enum types, the ParameterInfo.DefaultValue returns a raw value which
+                    // needs to be parsed to the Enum type, for more info: https://github.com/dotnet/runtime/issues/12924
+                    Type argumentType = sigType.GetGenericArguments()[0];
+                    if (argumentType.IsEnum)
+                    {
+                        arg = Enum.ToObject(argumentType, arg);
+                    }
+                }
+            }
+
+            return arg;
+        }
+
+        [Flags]
+        internal enum InvokerStrategy : int
+        {
+            HasBeenInvoked_ObjSpanArgs = 0x1,
+            StrategyDetermined_ObjSpanArgs = 0x2,
+
+            HasBeenInvoked_Obj4Args = 0x4,
+            StrategyDetermined_Obj4Args = 0x8,
+
+            HasBeenInvoked_RefArgs = 0x10,
+            StrategyDetermined_RefArgs = 0x20,
+        }
+
+        [Flags]
+        internal enum InvokerArgFlags : int
+        {
+            IsValueType = 0x1,
+            IsValueType_ByRef_Or_Pointer = 0x2,
+            IsNullableOfT = 0x4,
+        }
+
+        [InlineArray(MaxStackAllocArgCount)]
+        internal struct ArgumentData<T>
+        {
+            private T _arg0;
+        }
+
+        // Helper struct to avoid intermediate object[] allocation in calls to the native reflection stack.
+        // When argument count <= MaxStackAllocArgCount, define a local of these helper structs.
+        // For argument count > MaxStackAllocArgCount, do a stackalloc of void* pointers along with
+        // GCReportingRegistration to safely track references.
+        [StructLayout(LayoutKind.Sequential)]
+        internal ref struct StackAllocatedArguments
+        {
+            public StackAllocatedArguments(object? obj1, object? obj2, object? obj3, object? obj4)
+            {
+                _args[0] = obj1;
+                _args[1] = obj2;
+                _args[2] = obj3;
+                _args[3] = obj4;
+            }
+
+            internal ArgumentData<object?> _args;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal ref struct StackAllocatedArgumentsWithCopyBack
+        {
+            internal ArgumentData<object?> _args;
+            internal ArgumentData<bool> _shouldCopyBack;
+        }
+
+        // Helper struct to avoid intermediate IntPtr[] allocation and RegisterForGCReporting in calls to the native reflection stack.
+        [InlineArray(MaxStackAllocArgCount)]
+        internal ref struct StackAllocatedByRefs
+        {
+            // We're intentionally taking advantage of the runtime functionality, even if the language functionality won't work
+            // CS9184: 'Inline arrays' language feature is not supported for inline array types with element field which is either a 'ref' field, or has type that is not valid as a type argument.
+
+#pragma warning disable CS9184
+            internal ref byte _arg0;
+#pragma warning restore CS9184
+        }
+#endif
     }
 }

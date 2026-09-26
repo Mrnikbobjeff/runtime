@@ -2,11 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b52572
 {
     using System;
 
-    class AA
+    public class AA
     {
         static void Grind() { throw new Exception(); }
 
@@ -23,7 +24,9 @@ namespace Test
                 } while (B > A);
             }
         }
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

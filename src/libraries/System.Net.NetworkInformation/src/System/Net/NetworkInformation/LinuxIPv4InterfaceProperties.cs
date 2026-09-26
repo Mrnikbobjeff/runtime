@@ -2,10 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.IO;
+using System.Runtime.Versioning;
 
 namespace System.Net.NetworkInformation
 {
-    internal class LinuxIPv4InterfaceProperties : UnixIPv4InterfaceProperties
+    internal sealed class LinuxIPv4InterfaceProperties : UnixIPv4InterfaceProperties
     {
         private readonly LinuxNetworkInterface _linuxNetworkInterface;
         private readonly bool _isForwardingEnabled;
@@ -17,10 +18,13 @@ namespace System.Net.NetworkInformation
             _isForwardingEnabled = GetIsForwardingEnabled();
         }
 
+        [UnsupportedOSPlatform("linux")]
         public override bool IsAutomaticPrivateAddressingActive { get { throw new PlatformNotSupportedException(SR.net_InformationUnavailableOnPlatform); } }
 
+        [UnsupportedOSPlatform("linux")]
         public override bool IsAutomaticPrivateAddressingEnabled { get { throw new PlatformNotSupportedException(SR.net_InformationUnavailableOnPlatform); } }
 
+        [UnsupportedOSPlatform("linux")]
         public override bool IsDhcpEnabled { get { throw new PlatformNotSupportedException(SR.net_InformationUnavailableOnPlatform); } }
 
         public override bool IsForwardingEnabled { get { return _isForwardingEnabled; } }
@@ -31,13 +35,13 @@ namespace System.Net.NetworkInformation
 
         private bool GetIsForwardingEnabled()
         {
-            string[] paths = new string[]
-            {
+            ReadOnlySpan<string> paths =
+            [
                 // /proc/sys/net/ipv4/conf/<name>/forwarding
                 Path.Join(NetworkFiles.Ipv4ConfigFolder, _linuxNetworkInterface.Name, NetworkFiles.ForwardingFileName),
                 // Fall back to global forwarding config /proc/sys/net/ipv4/ip_forward
                 NetworkFiles.Ipv4GlobalForwardingFile
-            };
+            ];
 
             for (int i = 0; i < paths.Length; i++)
             {
@@ -48,8 +52,7 @@ namespace System.Net.NetworkInformation
                 {
                     return StringParsingHelpers.ParseRawIntFile(paths[i]) == 1;
                 }
-                catch (IOException) { }
-                catch (UnauthorizedAccessException) { }
+                catch (NetworkInformationException ex) when (ex.InnerException is IOException or UnauthorizedAccessException) { }
             }
 
             return false;

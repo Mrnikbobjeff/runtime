@@ -14,14 +14,19 @@ namespace System.Net.Http.Functional.Tests
     {
         public HttpClientHandler_Connect_Test(ITestOutputHelper output) : base(output) { }
 
-        [Fact]
-        public async Task ConnectMethod_Success()
+        [Theory]
+        [InlineData(HttpStatusCode.OK)]
+        [InlineData(HttpStatusCode.Created)]
+        [InlineData(HttpStatusCode.Accepted)]
+        [InlineData(HttpStatusCode.NoContent)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/129223", TestPlatforms.Wasi)]
+        public async Task ConnectMethod_Success(HttpStatusCode statusCode)
         {
             await LoopbackServer.CreateServerAsync(async (server, url) =>
             {
                 using (HttpClient client = CreateHttpClient())
                 {
-                    HttpRequestMessage request = new HttpRequestMessage(new HttpMethod("CONNECT"), url) { Version = UseVersion };
+                    HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Connect, url) { Version = UseVersion };
                     request.Headers.Host = "foo.com:345";
 
                     // We need to use ResponseHeadersRead here, otherwise we will hang trying to buffer the response body.
@@ -41,7 +46,7 @@ namespace System.Net.Http.Functional.Tests
                             }
                         }
 
-                        Task serverTask = connection.SendResponseAsync(HttpStatusCode.OK);
+                        Task serverTask = connection.SendResponseAsync(statusCode);
                         await TestHelper.WhenAllCompletedOrAnyFailed(responseTask, serverTask).ConfigureAwait(false);
 
                         using (Stream clientStream = await (await responseTask).Content.ReadAsStreamAsync(TestAsync))
@@ -52,7 +57,7 @@ namespace System.Net.Http.Functional.Tests
 
                             TextReader clientReader = new StreamReader(clientStream);
                             TextWriter clientWriter = new StreamWriter(clientStream) { AutoFlush = true };
-                            TextWriter serverWriter = connection.Writer;
+                            TextWriter serverWriter = new StreamWriter(connection.Stream, leaveOpen: true) { AutoFlush = true };
 
                             const string helloServer = "hello server";
                             const string helloClient = "hello client";
@@ -74,13 +79,14 @@ namespace System.Net.Http.Functional.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/129223", TestPlatforms.Wasi)]
         public async Task ConnectMethod_Fails()
         {
             await LoopbackServer.CreateServerAsync(async (server, url) =>
             {
                 using (HttpClient client = CreateHttpClient())
                 {
-                    HttpRequestMessage request = new HttpRequestMessage(new HttpMethod("CONNECT"), url) { Version = UseVersion };
+                    HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Connect, url) { Version = UseVersion };
                     request.Headers.Host = "foo.com:345";
                     // We need to use ResponseHeadersRead here, otherwise we will hang trying to buffer the response body.
                     Task<HttpResponseMessage> responseTask = client.SendAsync(TestAsync, request,  HttpCompletionOption.ResponseHeadersRead);

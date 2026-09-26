@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Globalization;
 
 namespace System.Buffers.Text
 {
@@ -124,6 +125,22 @@ namespace System.Buffers.Text
                 return false;
             }
 
+            // Per ISO 8601 (Date and time — Representations for information interchange), 24:00:00 represents end of a calendar day
+            // (same instant as next day's 00:00:00), but only when minute, second, and fraction are all zero.
+            // We treat it as hour=0 and add one day at the end.
+            bool isEndOfDay = false;
+            if (hour == 24)
+            {
+                if (minute != 0 || second != 0 || fraction != 0)
+                {
+                    value = default;
+                    return false;
+                }
+
+                hour = 0;
+                isEndOfDay = true;
+            }
+
             if (((uint)hour) > 23)
             {
                 value = default;
@@ -144,18 +161,27 @@ namespace System.Buffers.Text
 
             Debug.Assert(fraction >= 0 && fraction <= Utf8Constants.MaxDateTimeFraction); // All of our callers to date parse the fraction from fixed 7-digit fields so this value is trusted.
 
-            int[] days = DateTime.IsLeapYear(year) ? s_daysToMonth366 : s_daysToMonth365;
+            ReadOnlySpan<int> days = DateTime.IsLeapYear(year) ? GregorianCalendar.DaysToMonth366 : GregorianCalendar.DaysToMonth365;
             int yearMinusOne = year - 1;
             int totalDays = (yearMinusOne * 365) + (yearMinusOne / 4) - (yearMinusOne / 100) + (yearMinusOne / 400) + days[month - 1] + day - 1;
             long ticks = totalDays * TimeSpan.TicksPerDay;
             int totalSeconds = (hour * 3600) + (minute * 60) + second;
             ticks += totalSeconds * TimeSpan.TicksPerSecond;
             ticks += fraction;
+
+            // If hour was originally 24 (end of day per ISO 8601), add one day to advance to next day's 00:00:00
+            if (isEndOfDay)
+            {
+                ticks += TimeSpan.TicksPerDay;
+                if ((ulong)ticks > DateTime.MaxTicks)
+                {
+                    value = default;
+                    return false;
+                }
+            }
+
             value = new DateTime(ticks: ticks, kind: kind);
             return true;
         }
-
-        private static readonly int[] s_daysToMonth365 = { 0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365 };
-        private static readonly int[] s_daysToMonth366 = { 0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366 };
     }
 }

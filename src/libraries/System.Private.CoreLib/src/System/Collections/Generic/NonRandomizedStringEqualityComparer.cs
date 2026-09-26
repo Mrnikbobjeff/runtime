@@ -1,10 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
 using System.Diagnostics;
-using System.Globalization;
+using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
-using Internal.Runtime.CompilerServices;
 
 namespace System.Collections.Generic
 {
@@ -20,9 +20,9 @@ namespace System.Collections.Generic
         // that was passed in to the ctor. The caller chooses one of these singletons so that the
         // GetUnderlyingEqualityComparer method can return the correct value.
 
-        internal static readonly NonRandomizedStringEqualityComparer WrappedAroundDefaultComparer = new OrdinalComparer(EqualityComparer<string?>.Default);
-        internal static readonly NonRandomizedStringEqualityComparer WrappedAroundStringComparerOrdinal = new OrdinalComparer(StringComparer.Ordinal);
-        internal static readonly NonRandomizedStringEqualityComparer WrappedAroundStringComparerOrdinalIgnoreCase = new OrdinalIgnoreCaseComparer(StringComparer.OrdinalIgnoreCase);
+        private static readonly NonRandomizedStringEqualityComparer WrappedAroundDefaultComparer = new OrdinalComparer(EqualityComparer<string?>.Default);
+        private static readonly NonRandomizedStringEqualityComparer WrappedAroundStringComparerOrdinal = new OrdinalComparer(StringComparer.Ordinal);
+        private static readonly NonRandomizedStringEqualityComparer WrappedAroundStringComparerOrdinalIgnoreCase = new OrdinalIgnoreCaseComparer(StringComparer.OrdinalIgnoreCase);
 
         private readonly IEqualityComparer<string?> _underlyingComparer;
 
@@ -33,6 +33,8 @@ namespace System.Collections.Generic
         }
 
         // This is used by the serialization engine.
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         protected NonRandomizedStringEqualityComparer(SerializationInfo information, StreamingContext context)
             : this(EqualityComparer<string?>.Default)
         {
@@ -72,10 +74,9 @@ namespace System.Collections.Generic
             info.SetType(typeof(GenericEqualityComparer<string>));
         }
 
-        private sealed class OrdinalComparer : NonRandomizedStringEqualityComparer
+        private sealed class OrdinalComparer : NonRandomizedStringEqualityComparer, IAlternateEqualityComparer<ReadOnlySpan<char>, string?>
         {
-            internal OrdinalComparer(IEqualityComparer<string?> wrappedComparer)
-                : base(wrappedComparer)
+            internal OrdinalComparer(IEqualityComparer<string?> wrappedComparer) : base(wrappedComparer)
             {
             }
 
@@ -87,16 +88,31 @@ namespace System.Collections.Generic
                 return obj.GetNonRandomizedHashCode();
             }
 
+            int IAlternateEqualityComparer<ReadOnlySpan<char>, string?>.GetHashCode(ReadOnlySpan<char> span) =>
+                string.GetNonRandomizedHashCode(span);
+
+            bool IAlternateEqualityComparer<ReadOnlySpan<char>, string?>.Equals(ReadOnlySpan<char> span, string? target)
+            {
+                // See explanation in StringEqualityComparer.Equals.
+                if (span.IsEmpty && target is null)
+                {
+                    return false;
+                }
+
+                return span.SequenceEqual(target);
+            }
+
+            string IAlternateEqualityComparer<ReadOnlySpan<char>, string?>.Create(ReadOnlySpan<char> span) =>
+                span.ToString();
         }
 
-        private sealed class OrdinalIgnoreCaseComparer : NonRandomizedStringEqualityComparer
+        private sealed class OrdinalIgnoreCaseComparer : NonRandomizedStringEqualityComparer, IAlternateEqualityComparer<ReadOnlySpan<char>, string?>
         {
-            internal OrdinalIgnoreCaseComparer(IEqualityComparer<string?> wrappedComparer)
-                : base(wrappedComparer)
+            internal OrdinalIgnoreCaseComparer(IEqualityComparer<string?> wrappedComparer) : base(wrappedComparer)
             {
             }
 
-            public override bool Equals(string? x, string? y) => string.EqualsOrdinalIgnoreCase(x, y);
+            public override bool Equals(string? x, string? y) => string.Equals(x, y, StringComparison.OrdinalIgnoreCase);
 
             public override int GetHashCode(string? obj)
             {
@@ -104,10 +120,51 @@ namespace System.Collections.Generic
                 return obj.GetNonRandomizedHashCodeOrdinalIgnoreCase();
             }
 
+            int IAlternateEqualityComparer<ReadOnlySpan<char>, string?>.GetHashCode(ReadOnlySpan<char> span) =>
+                string.GetNonRandomizedHashCodeOrdinalIgnoreCase(span);
+
+            bool IAlternateEqualityComparer<ReadOnlySpan<char>, string?>.Equals(ReadOnlySpan<char> span, string? target)
+            {
+                // See explanation in StringEqualityComparer.Equals.
+                if (span.IsEmpty && target is null)
+                {
+                    return false;
+                }
+
+                return span.EqualsOrdinalIgnoreCase(target);
+            }
+
+            string IAlternateEqualityComparer<ReadOnlySpan<char>, string?>.Create(ReadOnlySpan<char> span) =>
+                span.ToString();
+
             internal override RandomizedStringEqualityComparer GetRandomizedEqualityComparer()
             {
                 return RandomizedStringEqualityComparer.Create(_underlyingComparer, ignoreCase: true);
             }
+        }
+
+        public static IEqualityComparer<string>? GetStringComparer(object comparer)
+        {
+            // Special-case EqualityComparer<string>.Default, StringComparer.Ordinal, and StringComparer.OrdinalIgnoreCase.
+            // We use a non-randomized comparer for improved perf, falling back to a randomized comparer if the
+            // hash buckets become unbalanced.
+
+            if (ReferenceEquals(comparer, EqualityComparer<string>.Default))
+            {
+                return WrappedAroundDefaultComparer;
+            }
+
+            if (ReferenceEquals(comparer, StringComparer.Ordinal))
+            {
+                return WrappedAroundStringComparerOrdinal;
+            }
+
+            if (ReferenceEquals(comparer, StringComparer.OrdinalIgnoreCase))
+            {
+                return WrappedAroundStringComparerOrdinalIgnoreCase;
+            }
+
+            return null;
         }
     }
 }

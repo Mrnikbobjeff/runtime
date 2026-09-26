@@ -31,7 +31,7 @@ namespace System.Collections.Immutable.Tests
         {
             int operationCount = this.RandomOperationsCount;
             var expected = new SortedSet<int>();
-            var actual = ImmutableSortedSet<int>.Empty;
+            ImmutableSortedSet<int> actual = ImmutableSortedSet<int>.Empty;
 
             int seed = unchecked((int)DateTime.Now.Ticks);
             Debug.WriteLine("Using random seed {0}", seed);
@@ -49,7 +49,7 @@ namespace System.Collections.Immutable.Tests
                         break;
                     case Operation.Union:
                         int inputLength = random.Next(100);
-                        int[] values = Enumerable.Range(0, inputLength).Select(i => random.Next()).ToArray();
+                        IEnumerable<int> values = Enumerable.Range(0, inputLength).Select(i => random.Next()).ToArray();
                         Debug.WriteLine("Adding {0} elements to the set.", inputLength);
                         expected.UnionWith(values);
                         actual = actual.Union(values);
@@ -66,7 +66,7 @@ namespace System.Collections.Immutable.Tests
 
                         break;
                     case Operation.Except:
-                        var elements = expected.Where(el => random.Next(2) == 0).ToArray();
+                        int[] elements = expected.Where(el => random.Next(2) == 0).ToArray();
                         Debug.WriteLine("Removing {0} elements from the set.", elements.Length);
                         expected.ExceptWith(elements);
                         actual = actual.Except(elements);
@@ -75,6 +75,96 @@ namespace System.Collections.Immutable.Tests
 
                 Assert.Equal<int>(expected.ToList(), actual.ToList());
             }
+        }
+
+        [Fact]
+        public void SetEqualsMismatchedComparersOriginInsensitiveOtherSensitive()
+        {
+            var ignoreCaseSet = ImmutableSortedSet.Create(StringComparer.OrdinalIgnoreCase, "a");
+            var sensitiveSet = ImmutableSortedSet.Create(StringComparer.Ordinal, "a", "A");
+
+            Assert.True(ignoreCaseSet.SetEquals(sensitiveSet));
+        }
+
+        [Fact]
+        public void SetEqualsMismatchedComparersOriginSensitiveOtherInsensitive()
+        {
+            var sensitiveSetMain = ImmutableSortedSet.Create(StringComparer.Ordinal, "a");
+            var insensitiveMutable = new SortedSet<string>(StringComparer.OrdinalIgnoreCase) { "a", "A" };
+
+            Assert.True(sensitiveSetMain.SetEquals(insensitiveMutable));
+        }
+
+        [Fact]
+        public void SetEqualsICollectionWithDuplicatesValidatesCorrectness()
+        {
+            var ignoreCaseSet = ImmutableSortedSet.Create(StringComparer.OrdinalIgnoreCase, "a");
+            var listWithDupes = new List<string> { "a", "a", "a", "a" };
+
+            Assert.True(ignoreCaseSet.SetEquals(listWithDupes));
+        }
+
+        [Fact]
+        public void SetEqualsDifferentContent()
+        {
+            var ignoreCaseSet = ImmutableSortedSet.Create(StringComparer.OrdinalIgnoreCase, "a");
+            var setB = ImmutableSortedSet.Create(StringComparer.Ordinal, "b");
+
+            Assert.False(ignoreCaseSet.SetEquals(setB));
+        }
+
+        [Fact]
+        public void SetEqualsMismatchedComparersOtherCountSmaller()
+        {
+            var originTwoElements = ImmutableSortedSet.Create(StringComparer.OrdinalIgnoreCase, "a", "b");
+            var otherOneElement = ImmutableSortedSet.Create(StringComparer.Ordinal, "a");
+
+            Assert.False(originTwoElements.SetEquals(otherOneElement));
+        }
+
+        [Fact]
+        public void SetEqualsMatchedComparersDifferentCounts()
+        {
+            var matchedSet1 = ImmutableSortedSet.Create(StringComparer.Ordinal, "a", "b");
+            var matchedSet2 = ImmutableSortedSet.Create(StringComparer.Ordinal, "a");
+
+            Assert.False(matchedSet1.SetEquals(matchedSet2));
+        }
+
+        [Fact]
+        public void SetEqualsMatchedComparersSameContent()
+        {
+            var matchedSet1 = ImmutableSortedSet.Create(StringComparer.Ordinal, "a", "b");
+            var matchedSet2 = ImmutableSortedSet.Create(StringComparer.Ordinal, "a", "b");
+
+            Assert.True(matchedSet1.SetEquals(matchedSet2));
+        }
+
+        [Fact]
+        public void SetEqualsEmptySetsDifferentComparers()
+        {
+            var empty1 = ImmutableSortedSet<string>.Empty.WithComparer(StringComparer.Ordinal);
+            var empty2 = ImmutableSortedSet<string>.Empty.WithComparer(StringComparer.OrdinalIgnoreCase);
+
+            Assert.True(empty1.SetEquals(empty2));
+        }
+
+        [Fact]
+        public void SetEqualsMismatchedComparersOriginSensitiveOtherInsensitiveSameCount()
+        {
+            var sensitiveSet = ImmutableSortedSet.Create(StringComparer.Ordinal, "a", "A");
+            var insensitiveSet = ImmutableSortedSet.Create(StringComparer.OrdinalIgnoreCase, "a", "b");
+
+            Assert.False(sensitiveSet.SetEquals(insensitiveSet));
+        }
+
+        [Fact]
+        public void SetEqualsMismatchedComparersOtherIsLarger()
+        {
+            var origin = ImmutableSortedSet.Create(StringComparer.OrdinalIgnoreCase, "a");
+            var other = ImmutableSortedSet.Create(StringComparer.Ordinal, "a", "b");
+
+            Assert.False(origin.SetEquals(other));
         }
 
         [Fact]
@@ -95,14 +185,14 @@ namespace System.Collections.Immutable.Tests
         [Fact]
         public void ChangeSortComparer()
         {
-            var ordinalSet = ImmutableSortedSet<string>.Empty
+            ImmutableSortedSet<string> ordinalSet = ImmutableSortedSet<string>.Empty
                 .WithComparer(StringComparer.Ordinal)
                 .Add("apple")
                 .Add("APPLE");
             Assert.Equal(2, ordinalSet.Count); // claimed count
             Assert.False(ordinalSet.Contains("aPpLe"));
 
-            var ignoreCaseSet = ordinalSet.WithComparer(StringComparer.OrdinalIgnoreCase);
+            ImmutableSortedSet<string> ignoreCaseSet = ordinalSet.WithComparer(StringComparer.OrdinalIgnoreCase);
             Assert.Equal(1, ignoreCaseSet.Count);
             Assert.True(ignoreCaseSet.Contains("aPpLe"));
         }
@@ -110,14 +200,14 @@ namespace System.Collections.Immutable.Tests
         [Fact]
         public void ToUnorderedTest()
         {
-            var result = ImmutableSortedSet<int>.Empty.Add(3).ToImmutableHashSet();
+            ImmutableHashSet<int> result = ImmutableSortedSet<int>.Empty.Add(3).ToImmutableHashSet();
             Assert.True(result.Contains(3));
         }
 
         [Fact]
         public void ToImmutableSortedSetFromArrayTest()
         {
-            var set = new[] { 1, 2, 2 }.ToImmutableSortedSet();
+            ImmutableSortedSet<int> set = new[] { 1, 2, 2 }.ToImmutableSortedSet();
             Assert.Same(Comparer<int>.Default, set.KeyComparer);
             Assert.Equal(2, set.Count);
         }
@@ -137,7 +227,7 @@ namespace System.Collections.Immutable.Tests
         public void ToImmutableSortedSetFromEnumerableTest(int[] input, int[] expectedOutput)
         {
             IEnumerable<int> enumerableInput = input.Select(i => i); // prevent querying for indexable interfaces
-            var set = enumerableInput.ToImmutableSortedSet();
+            ImmutableSortedSet<int> set = enumerableInput.ToImmutableSortedSet();
             Assert.Equal((IEnumerable<int>)expectedOutput, set.ToArray());
         }
 
@@ -156,14 +246,14 @@ namespace System.Collections.Immutable.Tests
         public void UnionWithEnumerableTest(int[] input, int[] expectedOutput)
         {
             IEnumerable<int> enumerableInput = input.Select(i => i); // prevent querying for indexable interfaces
-            var set = ImmutableSortedSet.Create(1).Union(enumerableInput);
+            ImmutableSortedSet<int> set = ImmutableSortedSet.Create(1).Union(enumerableInput);
             Assert.Equal((IEnumerable<int>)expectedOutput, set.ToArray());
         }
 
         [Fact]
         public void IndexOfTest()
         {
-            var set = ImmutableSortedSet<int>.Empty;
+            ImmutableSortedSet<int> set = ImmutableSortedSet<int>.Empty;
             Assert.Equal(~0, set.IndexOf(5));
 
             set = ImmutableSortedSet<int>.Empty.Union(Enumerable.Range(1, 10).Select(n => n * 10)); // 10, 20, 30, ... 100
@@ -180,7 +270,7 @@ namespace System.Collections.Immutable.Tests
             Assert.Equal(~9, set.IndexOf(95));
             Assert.Equal(~10, set.IndexOf(105));
 
-            var nullableSet = ImmutableSortedSet<int?>.Empty;
+            ImmutableSortedSet<int?> nullableSet = ImmutableSortedSet<int?>.Empty;
             Assert.Equal(~0, nullableSet.IndexOf(null));
             nullableSet = nullableSet.Add(null).Add(0);
             Assert.Equal(0, nullableSet.IndexOf(null));
@@ -189,11 +279,11 @@ namespace System.Collections.Immutable.Tests
         [Fact]
         public void IndexGetTest()
         {
-            var set = ImmutableSortedSet<int>.Empty
+            ImmutableSortedSet<int> set = ImmutableSortedSet<int>.Empty
                 .Union(Enumerable.Range(1, 10).Select(n => n * 10)); // 10, 20, 30, ... 100
 
             int i = 0;
-            foreach (var item in set)
+            foreach (int item in set)
             {
                 AssertAreSame(item, set[i++]);
             }
@@ -205,10 +295,10 @@ namespace System.Collections.Immutable.Tests
         [Fact]
         public void ReverseTest()
         {
-            var range = Enumerable.Range(1, 10);
-            var set = ImmutableSortedSet<int>.Empty.Union(range);
-            var expected = range.Reverse().ToList();
-            var actual = set.Reverse().ToList();
+            IEnumerable<int> range = Enumerable.Range(1, 10);
+            ImmutableSortedSet<int> set = ImmutableSortedSet<int>.Empty.Union(range);
+            List<int> expected = range.Reverse().ToList();
+            List<int> actual = set.Reverse().ToList();
             Assert.Equal<int>(expected, actual);
         }
 
@@ -257,23 +347,23 @@ namespace System.Collections.Immutable.Tests
         [Fact]
         public void UnionOptimizationsTest()
         {
-            var set = ImmutableSortedSet.Create(1, 2, 3);
-            var builder = set.ToBuilder();
+            ImmutableSortedSet<int> set = ImmutableSortedSet.Create(1, 2, 3);
+            ImmutableSortedSet<int>.Builder builder = set.ToBuilder();
 
             Assert.Same(set, ImmutableSortedSet.Create<int>().Union(builder));
             Assert.Same(set, set.Union(ImmutableSortedSet.Create<int>()));
 
-            var smallSet = ImmutableSortedSet.Create(1);
-            var unionSet = smallSet.Union(set);
+            ImmutableSortedSet<int> smallSet = ImmutableSortedSet.Create(1);
+            ImmutableSortedSet<int> unionSet = smallSet.Union(set);
             Assert.Same(set, unionSet); // adding a larger set to a smaller set is reversed, and then the smaller in this case has nothing unique
         }
 
         [Fact]
         public void Create()
         {
-            var comparer = StringComparer.OrdinalIgnoreCase;
+            StringComparer comparer = StringComparer.OrdinalIgnoreCase;
 
-            var set = ImmutableSortedSet.Create<string>();
+            ImmutableSortedSet<string> set = ImmutableSortedSet.Create<string>();
             Assert.Equal(0, set.Count);
             Assert.Same(Comparer<string>.Default, set.KeyComparer);
 
@@ -289,11 +379,19 @@ namespace System.Collections.Immutable.Tests
             Assert.Equal(1, set.Count);
             Assert.Same(comparer, set.KeyComparer);
 
-            set = ImmutableSortedSet.Create("a", "b");
+            set = ImmutableSortedSet.Create(new [] { "a", "b" });
             Assert.Equal(2, set.Count);
             Assert.Same(Comparer<string>.Default, set.KeyComparer);
 
-            set = ImmutableSortedSet.Create(comparer, "a", "b");
+            set = ImmutableSortedSet.Create((ReadOnlySpan<string>)new[] { "a", "b" });
+            Assert.Equal(2, set.Count);
+            Assert.Same(Comparer<string>.Default, set.KeyComparer);
+
+            set = ImmutableSortedSet.Create(comparer, new[] { "a", "b" });
+            Assert.Equal(2, set.Count);
+            Assert.Same(comparer, set.KeyComparer);
+
+            set = ImmutableSortedSet.Create(comparer, (ReadOnlySpan<string>)new[] { "a", "b" });
             Assert.Equal(2, set.Count);
             Assert.Same(comparer, set.KeyComparer);
 
@@ -321,6 +419,7 @@ namespace System.Collections.Immutable.Tests
             Assert.Equal("b", list[1]);
             Assert.Equal(0, list.IndexOf("a"));
             Assert.Equal(1, list.IndexOf("b"));
+            Assert.Equal(-1, list.IndexOf(null));
             Assert.Throws<NotSupportedException>(() => list.Add("b"));
             Assert.Throws<NotSupportedException>(() => list[3] = "c");
             Assert.Throws<NotSupportedException>(() => list.Clear());
@@ -329,14 +428,18 @@ namespace System.Collections.Immutable.Tests
             Assert.Throws<NotSupportedException>(() => list.RemoveAt(0));
             Assert.True(list.IsFixedSize);
             Assert.True(list.IsReadOnly);
+
+            list = ImmutableSortedSet.Create(1, 2, 3);
+            Assert.Equal(-1, list.IndexOf(null));
+            Assert.Equal(-1, list.IndexOf("a"));
         }
 
         [Fact]
         public void EnumeratorRecyclingMisuse()
         {
-            var collection = ImmutableSortedSet.Create<int>();
-            var enumerator = collection.GetEnumerator();
-            var enumeratorCopy = enumerator;
+            ImmutableSortedSet<int> collection = ImmutableSortedSet.Create<int>();
+            ImmutableSortedSet<int>.Enumerator enumerator = collection.GetEnumerator();
+            ImmutableSortedSet<int>.Enumerator enumeratorCopy = enumerator;
             Assert.False(enumerator.MoveNext());
             enumerator.Dispose();
             Assert.Throws<ObjectDisposedException>(() => enumerator.MoveNext());
@@ -356,7 +459,7 @@ namespace System.Collections.Immutable.Tests
             enumerator.Dispose();
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public void DebuggerAttributesValid()
         {
             DebuggerAttributes.ValidateDebuggerDisplayReferences(ImmutableSortedSet.Create<int>());
@@ -370,7 +473,7 @@ namespace System.Collections.Immutable.Tests
             Assert.Equal(set, items);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public static void TestDebuggerAttributes_Null()
         {
             Type proxyType = DebuggerAttributes.GetProxyType(ImmutableSortedSet.Create("1", "2", "3"));
@@ -381,13 +484,13 @@ namespace System.Collections.Immutable.Tests
         [Fact]
         public void SymmetricExceptWithComparerTests()
         {
-            var set = ImmutableSortedSet.Create<string>("a").WithComparer(StringComparer.OrdinalIgnoreCase);
+            ImmutableSortedSet<string> set = ImmutableSortedSet.Create<string>("a").WithComparer(StringComparer.OrdinalIgnoreCase);
             var otherCollection = new[] {"A"};
 
             var expectedSet = new SortedSet<string>(set, set.KeyComparer);
             expectedSet.SymmetricExceptWith(otherCollection);
 
-            var actualSet = set.SymmetricExcept(otherCollection);
+            ImmutableSortedSet<string> actualSet = set.SymmetricExcept(otherCollection);
             CollectionAssertAreEquivalent(expectedSet.ToList(), actualSet.ToList());
         }
 
@@ -396,8 +499,8 @@ namespace System.Collections.Immutable.Tests
         {
             var array = new[] { 1, 2, 3 }.ToImmutableSortedSet();
 
-            ref readonly var safeRef = ref array.ItemRef(1);
-            ref var unsafeRef = ref Unsafe.AsRef(safeRef);
+            ref readonly int safeRef = ref array.ItemRef(1);
+            ref int unsafeRef = ref Unsafe.AsRef(in safeRef);
 
             Assert.Equal(2, array.ItemRef(1));
 

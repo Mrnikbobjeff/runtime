@@ -5,7 +5,7 @@ using System.Collections.Generic;
 
 namespace System.Formats.Asn1
 {
-    internal class SetOfValueComparer : IComparer<ReadOnlyMemory<byte>>
+    internal sealed class SetOfValueComparer : IComparer<ReadOnlyMemory<byte>>
     {
         internal static SetOfValueComparer Instance { get; } = new SetOfValueComparer();
 
@@ -15,18 +15,11 @@ namespace System.Formats.Asn1
         internal static int Compare(ReadOnlySpan<byte> x, ReadOnlySpan<byte> y)
         {
             int min = Math.Min(x.Length, y.Length);
-            int diff;
+            int diffIndex = x.CommonPrefixLength(y);
 
-            for (int i = 0; i < min; i++)
+            if (diffIndex != min)
             {
-                int xVal = x[i];
-                byte yVal = y[i];
-                diff = xVal - yVal;
-
-                if (diff != 0)
-                {
-                    return diff;
-                }
+                return (int)x[diffIndex] - y[diffIndex];
             }
 
             // The sorting rules (T-REC-X.690-201508 sec 11.6) say that the shorter one
@@ -38,10 +31,8 @@ namespace System.Formats.Asn1
             // have hit end-of-contents, making it already different.
             //
             // This is here because the spec says it should be, but no values are known
-            // which will make diff != 0.
-            diff = x.Length - y.Length;
-
-            return diff;
+            // which will make the result non-zero.
+            return x.Length - y.Length;
         }
     }
 }

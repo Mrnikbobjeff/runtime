@@ -1,13 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <DebugType>None</DebugType>
     <Optimize>True</Optimize>
-    <CLRTestTargetUnsupported Condition="'$(TargetArchitecture)' == 'wasm'" >True</CLRTestTargetUnsupported>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="TypeIntrinsicsEnums.ilproj" />
+  </ItemGroup>
   <ItemGroup>
     <Compile Include="TypeIntrinsics.cs" />
     <Compile Include="TypeIntrinsics.IsAssignableFrom.cs" />
     <Compile Include="TypeIntrinsics.IsAssignableTo.cs" />
+    <Compile Include="TypeIntrinsics.GetEnumUnderlyingType.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(TestLibraryProjectPath)" />
   </ItemGroup>
 </Project>

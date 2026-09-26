@@ -9,7 +9,7 @@ namespace Microsoft.Win32.SafeHandles
 {
     internal sealed class SafeX509ExtensionHandle : SafeHandle
     {
-        private SafeX509ExtensionHandle() :
+        public SafeX509ExtensionHandle() :
             base(IntPtr.Zero, ownsHandle: true)
         {
         }
@@ -17,26 +17,6 @@ namespace Microsoft.Win32.SafeHandles
         protected override bool ReleaseHandle()
         {
             Interop.Crypto.X509ExtensionDestroy(handle);
-            SetHandle(IntPtr.Zero);
-            return true;
-        }
-
-        public override bool IsInvalid
-        {
-            get { return handle == IntPtr.Zero; }
-        }
-    }
-
-    internal sealed class SafeEkuExtensionHandle : SafeHandle
-    {
-        private SafeEkuExtensionHandle() :
-            base(IntPtr.Zero, ownsHandle: true)
-        {
-        }
-
-        protected override bool ReleaseHandle()
-        {
-            Interop.Crypto.ExtendedKeyUsageDestory(handle);
             SetHandle(IntPtr.Zero);
             return true;
         }

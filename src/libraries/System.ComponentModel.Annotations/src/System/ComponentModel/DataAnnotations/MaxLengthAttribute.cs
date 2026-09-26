@@ -3,6 +3,7 @@
 
 using System.Collections;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
 
@@ -24,6 +25,7 @@ namespace System.ComponentModel.DataAnnotations
         ///     The maximum allowable length of collection/string data.
         ///     Value must be greater than zero.
         /// </param>
+        [RequiresUnreferencedCode(CountPropertyHelper.RequiresUnreferencedCodeMessage)]
         public MaxLengthAttribute(int length)
             : base(() => DefaultErrorMessageString)
         {
@@ -34,6 +36,7 @@ namespace System.ComponentModel.DataAnnotations
         ///     Initializes a new instance of the <see cref="MaxLengthAttribute" /> class.
         ///     The maximum allowable length supported by the database will be used.
         /// </summary>
+        [RequiresUnreferencedCode(CountPropertyHelper.RequiresUnreferencedCodeMessage)]
         public MaxLengthAttribute()
             : base(() => DefaultErrorMessageString)
         {
@@ -59,6 +62,7 @@ namespace System.ComponentModel.DataAnnotations
         ///     <c>true</c> if the value is null or less than or equal to the specified maximum length, otherwise <c>false</c>
         /// </returns>
         /// <exception cref="InvalidOperationException">Length is zero or less than negative one.</exception>
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode", Justification = "The ctors are marked with RequiresUnreferencedCode.")]
         public override bool IsValid(object? value)
         {
             // Check the lengths for legality
@@ -70,15 +74,12 @@ namespace System.ComponentModel.DataAnnotations
             {
                 return true;
             }
+
             if (value is string str)
             {
                 length = str.Length;
             }
-            else if (CountPropertyHelper.TryGetCount(value, out var count))
-            {
-                length = count;
-            }
-            else
+            else if (!CountPropertyHelper.TryGetCount(value, out length))
             {
                 throw new InvalidCastException(SR.Format(SR.LengthAttribute_InvalidValueType, value.GetType()));
             }
@@ -92,8 +93,16 @@ namespace System.ComponentModel.DataAnnotations
         /// <param name="name">The name to include in the formatted string.</param>
         /// <returns>A localized string to describe the maximum acceptable length.</returns>
         public override string FormatErrorMessage(string name) =>
-            // An error occurred, so we know the value is greater than the maximum if it was specified
-            string.Format(CultureInfo.CurrentCulture, ErrorMessageString, name, Length);
+            FormatMessage(ErrorMessageString, name);
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// <c>{0}</c> is replaced with <paramref name="name" /> and <c>{1}</c> is replaced with <see cref="Length" />.
+        /// </remarks>
+        public override string FormatMessage([StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, string name)
+        {
+            return string.Format(CultureInfo.CurrentCulture, format, name, Length);
+        }
 
         /// <summary>
         ///     Checks that Length has a legal value.
@@ -110,6 +119,9 @@ namespace System.ComponentModel.DataAnnotations
 
     internal static class CountPropertyHelper
     {
+        internal const string RequiresUnreferencedCodeMessage = "Uses reflection to get the 'Count' property on types that don't implement ICollection. This 'Count' property may be trimmed. Ensure it is preserved.";
+
+        [RequiresUnreferencedCode(RequiresUnreferencedCodeMessage)]
         public static bool TryGetCount(object value, out int count)
         {
             Debug.Assert(value != null);

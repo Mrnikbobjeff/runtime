@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.CSharp;
-using Microsoft.VisualBasic;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.Serialization;
+using Microsoft.CSharp;
+using Microsoft.VisualBasic;
 
 namespace System.CodeDom.Compiler
 {
@@ -88,10 +88,7 @@ namespace System.CodeDom.Compiler
 
         private static CompilerInfo GetCompilerInfoForLanguageNoThrow(string language)
         {
-            if (language == null)
-            {
-                throw new ArgumentNullException(nameof(language));
-            }
+            ArgumentNullException.ThrowIfNull(language);
 
             CompilerInfo value;
             s_compilerLanguages.TryGetValue(language.Trim(), out value);
@@ -100,10 +97,7 @@ namespace System.CodeDom.Compiler
 
         private static CompilerInfo GetCompilerInfoForExtensionNoThrow(string extension)
         {
-            if (extension == null)
-            {
-                throw new ArgumentNullException(nameof(extension));
-            }
+            ArgumentNullException.ThrowIfNull(extension);
 
             CompilerInfo value;
             s_compilerExtensions.TryGetValue(extension.Trim(), out value);
@@ -116,7 +110,7 @@ namespace System.CodeDom.Compiler
 
         public virtual LanguageOptions LanguageOptions => LanguageOptions.None;
 
-        [Obsolete("Callers should not use the ICodeGenerator interface and should instead use the methods directly on the CodeDomProvider class. Those inheriting from CodeDomProvider must still implement this interface, and should exclude this warning or also obsolete this method.")]
+        [Obsolete("ICodeGenerator has been deprecated. Use the methods directly on the CodeDomProvider class instead. Classes inheriting from CodeDomProvider must still implement this interface, and should suppress this warning or also mark this method as obsolete.")]
         public abstract ICodeGenerator CreateGenerator();
 
 #pragma warning disable 618 // obsolete
@@ -125,10 +119,10 @@ namespace System.CodeDom.Compiler
         public virtual ICodeGenerator CreateGenerator(string fileName) => CreateGenerator();
 #pragma warning restore 618
 
-        [Obsolete("Callers should not use the ICodeCompiler interface and should instead use the methods directly on the CodeDomProvider class. Those inheriting from CodeDomProvider must still implement this interface, and should exclude this warning or also obsolete this method.")]
+        [Obsolete("ICodeCompiler has been deprecated. Use the methods directly on the CodeDomProvider class instead. Classes inheriting from CodeDomProvider must still implement this interface, and should suppress this warning or also mark this method as obsolete.")]
         public abstract ICodeCompiler CreateCompiler();
 
-        [Obsolete("Callers should not use the ICodeParser interface and should instead use the methods directly on the CodeDomProvider class. Those inheriting from CodeDomProvider must still implement this interface, and should exclude this warning or also obsolete this method.")]
+        [Obsolete("ICodeParser has been deprecated. Use the methods directly on the CodeDomProvider class instead. Classes inheriting from CodeDomProvider must still implement this interface, and should suppress this warning or also mark this method as obsolete.")]
         public virtual ICodeParser CreateParser() => null;
 
         public virtual TypeConverter GetConverter(Type type) => TypeDescriptor.GetConverter(type);
@@ -215,10 +209,6 @@ namespace System.CodeDom.Compiler
         private sealed class ConfigurationErrorsException : SystemException
         {
             public ConfigurationErrorsException(string message) : base(message) { }
-            public ConfigurationErrorsException(SerializationInfo info, StreamingContext context) : base(info, context)
-            {
-                throw new PlatformNotSupportedException();
-            }
         }
     }
 }

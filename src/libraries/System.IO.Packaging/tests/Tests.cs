@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers.Binary;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -10,11 +11,11 @@ using Xunit;
 
 namespace System.IO.Packaging.Tests
 {
-    public class Tests : FileCleanupTestBase
+    public partial class Tests : FileCleanupTestBase
     {
-        private const string Mime_MediaTypeNames_Text_Xml = "text/xml";
+        internal const string Mime_MediaTypeNames_Text_Xml = "text/xml";
         private const string Mime_MediaTypeNames_Image_Jpeg = "image/jpeg"; // System.Net.Mime.MediaTypeNames.Image.Jpeg
-        private const string s_DocumentXml = @"<Hello>Test</Hello>";
+        internal const string s_DocumentXml = @"<Hello>Test</Hello>";
         private const string s_ResourceXml = @"<Resource>Test</Resource>";
 
         private FileInfo GetTempFileInfoFromExistingFile(string existingFileName, [CallerMemberName] string memberName = null, [CallerLineNumber] int lineNumber = 0)
@@ -60,6 +61,118 @@ namespace System.IO.Packaging.Tests
                 package.CreateRelationship(PackUriHelper.CreatePartUri(new Uri("MyFile2.xml", UriKind.Relative)),
                                            TargetMode.Internal, "http://my-fancy-relationship.com");
             }
+        }
+
+        [Theory]
+        [InlineData(FileAccess.Write)]
+        [InlineData(FileAccess.ReadWrite)]
+        public void GetStreamCreate_OverwritesExistingPartContentWithoutLeftoverBytes(FileAccess overwriteAccess)
+        {
+            FileInfo file = GetTempFileInfoWithExtension(".zip");
+            Uri partUri = PackUriHelper.CreatePartUri(new Uri("MyFile.bin", UriKind.Relative));
+            byte[] original = Enumerable.Repeat((byte)'A', 5000).ToArray();
+            byte[] replacement = Enumerable.Repeat((byte)'B', 10).ToArray();
+
+            using (Package package = Package.Open(file.FullName, FileMode.Create, FileAccess.ReadWrite))
+            {
+                PackagePart part = package.CreatePart(partUri, System.Net.Mime.MediaTypeNames.Application.Octet);
+                using Stream s = part.GetStream(FileMode.Create, FileAccess.Write);
+                s.Write(original, 0, original.Length);
+            }
+
+            using (Package package = Package.Open(file.FullName, FileMode.Open, FileAccess.ReadWrite))
+            {
+                PackagePart part = package.GetPart(partUri);
+                using Stream s = part.GetStream(FileMode.Create, overwriteAccess);
+
+                // The optimized discard path must still yield a seekable, empty, length-reporting stream.
+                Assert.True(s.CanSeek);
+                Assert.Equal(0L, s.Length);
+
+                s.Write(replacement, 0, replacement.Length);
+            }
+
+            using (Package package = Package.Open(file.FullName, FileMode.Open, FileAccess.Read))
+            {
+                PackagePart part = package.GetPart(partUri);
+                using Stream s = part.GetStream(FileMode.Open, FileAccess.Read);
+                using MemoryStream actual = new MemoryStream();
+                s.CopyTo(actual);
+                Assert.Equal(replacement, actual.ToArray());
+            }
+        }
+
+        [Fact]
+        public void Open_ContentTypesEntryDeclaredSizeExceedsMaximum_ThrowsFileFormatException()
+        {
+            // Regression test: Package.Open's default ReadWrite access automatically parses the mandatory
+            // [Content_Types].xml part during Open(). This part is package metadata, not user content, so
+            // its declared (but untrusted) uncompressed size must be bounded to a sane maximum. Otherwise a
+            // small, corrupt, or maliciously crafted archive could declare an implausibly large entry that
+            // gets eagerly buffered in memory (as a MemoryStream sized to the declared value) when the
+            // package is opened for ReadWrite access.
+            FileInfo file = GetTempFileInfoWithExtension(".zip");
+
+            using (Package package = Package.Open(file.FullName, FileMode.Create, FileAccess.ReadWrite))
+            {
+                PackagePart part = package.CreatePart(
+                    PackUriHelper.CreatePartUri(new Uri("MyFile.xml", UriKind.Relative)),
+                    Mime_MediaTypeNames_Text_Xml,
+                    CompressionOption.Normal);
+                using Stream s = part.GetStream(FileMode.Create, FileAccess.Write);
+                byte[] content = Encoding.UTF8.GetBytes(s_DocumentXml);
+                s.Write(content, 0, content.Length);
+            }
+
+            byte[] archiveBytes = File.ReadAllBytes(file.FullName);
+            // Comfortably above the 4 MB cap, but small enough that a regression in the guard would not
+            // risk a large allocation while running this test.
+            PatchContentTypesUncompressedSize(archiveBytes, oversizedUncompressedSize: 5_000_000);
+            File.WriteAllBytes(file.FullName, archiveBytes);
+
+            Assert.Throws<FileFormatException>(() => Package.Open(file.FullName, FileMode.Open, FileAccess.ReadWrite));
+        }
+
+        // Patches the declared uncompressed size field (in both the local file header and the central
+        // directory record) for the "[Content_Types].xml" entry within a raw, in-memory zip byte array.
+        private static void PatchContentTypesUncompressedSize(byte[] archiveBytes, uint oversizedUncompressedSize)
+        {
+            const string EntryName = "[Content_Types].xml";
+            byte[] nameBytes = Encoding.ASCII.GetBytes(EntryName);
+            ReadOnlySpan<byte> localHeaderSignature = [0x50, 0x4B, 0x03, 0x04];
+            ReadOnlySpan<byte> centralDirectorySignature = [0x50, 0x4B, 0x01, 0x02];
+
+            int patchedCount = 0;
+            int searchStart = 0;
+            Span<byte> archiveSpan = archiveBytes;
+            while (true)
+            {
+                int nameIndex = archiveSpan.Slice(searchStart).IndexOf((ReadOnlySpan<byte>)nameBytes);
+                if (nameIndex < 0)
+                {
+                    break;
+                }
+                nameIndex += searchStart;
+                searchStart = nameIndex + 1;
+
+                // Local file header: fixed 30-byte header immediately precedes the file name; the
+                // uncompressed size field is the 4 bytes located 8 bytes before the file name starts.
+                if (nameIndex >= 30 && archiveSpan.Slice(nameIndex - 30, 4).SequenceEqual(localHeaderSignature))
+                {
+                    BinaryPrimitives.WriteUInt32LittleEndian(archiveSpan.Slice(nameIndex - 8, 4), oversizedUncompressedSize);
+                    patchedCount++;
+                }
+                // Central directory file header: fixed 46-byte header immediately precedes the file name;
+                // the uncompressed size field is the 4 bytes located 22 bytes before the file name starts.
+                else if (nameIndex >= 46 && archiveSpan.Slice(nameIndex - 46, 4).SequenceEqual(centralDirectorySignature))
+                {
+                    BinaryPrimitives.WriteUInt32LittleEndian(archiveSpan.Slice(nameIndex - 22, 4), oversizedUncompressedSize);
+                    patchedCount++;
+                }
+            }
+
+            // Sanity check: both the local header and central directory copies must have been found and patched.
+            Assert.Equal(2, patchedCount);
         }
 
         [Fact]
@@ -179,6 +292,26 @@ namespace System.IO.Packaging.Tests
             {
                 Assert.Throws<FileFormatException>(() => Package.Open(ms, FileMode.Open, FileAccess.ReadWrite));
             }
+        }
+
+        [Fact]
+        public void PackageOpen_Open_InvalidContent_Throws()
+        {
+            string temp = GetTempFileInfoWithExtension(".docx").FullName;
+
+            using (FileStream fs = File.OpenWrite(temp))
+            {
+                byte[] bytes = File.ReadAllBytes("plain.docx");
+                bytes.AsSpan(500, 500).Clear(); // garble it
+                fs.Write(bytes, 0, bytes.Length);
+            }
+
+            AssertExtensions.ThrowsAny<InvalidDataException, ArgumentOutOfRangeException>(
+                () => Package.Open(temp, FileMode.Open, FileAccess.Read, FileShare.Read));
+
+            // Package should not have held a stream open on the file; if it did, this operation will
+            // throw IOException (unless the finalizer runs first, and it will not do so deterministically)
+            File.Move(temp, GetTestFilePath());
         }
 
         [Fact]
@@ -3678,7 +3811,7 @@ namespace System.IO.Packaging.Tests
         [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "Desktop doesn't support Package.Open with FileAccess.Write")]
         public void ZipPackage_CreateWithFileAccessWrite()
         {
-            string packageName = "test.zip";
+            string packageName = Path.Combine(TestDirectory, "test.zip");
 
             using (Package package = Package.Open(packageName, FileMode.Create, FileAccess.Write))
             {
@@ -3747,68 +3880,6 @@ namespace System.IO.Packaging.Tests
                     Assert.All(partRelationships, relationship => Assert.Equal(PartRelationshipType, relationship.RelationshipType));
 
                     Assert.Single(packageRelationships, relationship => relationship.TargetUri == part.Uri);
-                }
-            }
-        }
-
-        [Fact]
-        [OuterLoop]
-        public void VeryLargePart()
-        {
-            // FileAccess.Write is important, this tells ZipPackage to open the underlying ZipArchive in
-            // ZipArchiveMode.Create mode as opposed to ZipArchiveMode.Update
-            // When ZipArchive is opened in Create it will write entries directly to the zip stream
-            // When ZipArchive is opened in Update it will write uncompressed data to memory until
-            // the archive is closed.
-            using (Stream stream = new MemoryStream())
-            {
-                Uri partUri = PackUriHelper.CreatePartUri(new Uri("test.bin", UriKind.Relative));
-
-                // should compress *very well*
-                byte[] buffer =  new byte[1024 * 1024];
-                for (int i = 0; i < buffer.Length; i++)
-                {
-                    buffer[i] = (byte)(i % 2);
-                }
-
-                const long SizeInMb = 6 * 1024; // 6GB
-                long totalLength = SizeInMb * buffer.Length;
-
-                // issue on .NET Framework we cannot use FileAccess.Write on a ZipArchive
-                using (Package package = Package.Open(stream, FileMode.Create, PlatformDetection.IsNetFramework ? FileAccess.ReadWrite : FileAccess.Write))
-                {
-                    PackagePart part = package.CreatePart(partUri,
-                                                          System.Net.Mime.MediaTypeNames.Application.Octet,
-                                                          CompressionOption.Fast);
-
-
-                    using (Stream partStream = part.GetStream())
-                    {
-                        for (long i = 0; i < SizeInMb; i++)
-                        {
-                            partStream.Write(buffer, 0, buffer.Length);
-                        }
-                    }
-                }
-
-                // reopen for read and make sure we can get the part length & data matches
-                stream.Seek(0, SeekOrigin.Begin);
-                using (Package readPackage = Package.Open(stream))
-                {
-                    PackagePart part = readPackage.GetPart(partUri);
-
-                    using (Stream partStream = part.GetStream())
-                    {
-                        Assert.Equal(totalLength, partStream.Length);
-                        byte[] readBuffer = new byte[buffer.Length];
-                        for (long i = 0; i < SizeInMb; i++)
-                        {
-                            int actualRead = partStream.Read(readBuffer, 0, readBuffer.Length);
-
-                            Assert.Equal(actualRead, readBuffer.Length);
-                            Assert.True(buffer.AsSpan().SequenceEqual(readBuffer));
-                        }
-                    }
                 }
             }
         }
@@ -3960,6 +4031,106 @@ namespace System.IO.Packaging.Tests
                 PackUriHelper.Create(packageUri, partUri, badFragment);
             });
 
+        }
+
+        [Theory]
+#if NET
+        [InlineData(CompressionOption.NotCompressed, CompressionOption.Normal, 0)]
+        [InlineData(CompressionOption.Normal, CompressionOption.Normal, 0)]
+        [InlineData(CompressionOption.Maximum, CompressionOption.Normal, 2)]
+        [InlineData(CompressionOption.Fast, CompressionOption.Normal, 6)]
+        [InlineData(CompressionOption.SuperFast, CompressionOption.Normal, 6)]
+#else
+        [InlineData(CompressionOption.NotCompressed, CompressionOption.NotCompressed, 0)]
+        [InlineData(CompressionOption.Normal, CompressionOption.Normal, 0)]
+        [InlineData(CompressionOption.Maximum, CompressionOption.Maximum, 2)]
+        [InlineData(CompressionOption.Fast, CompressionOption.Fast, 4)]
+        [InlineData(CompressionOption.SuperFast, CompressionOption.SuperFast, 6)]
+#endif
+        public void Roundtrip_Compression_Option(CompressionOption createdCompressionOption, CompressionOption expectedCompressionOption, ushort expectedZipFileBitFlags)
+        {
+            var documentPath = "untitled.txt";
+            Uri partUriDocument = PackUriHelper.CreatePartUri(new Uri(documentPath, UriKind.Relative));
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                Package package = Package.Open(ms, FileMode.Create, FileAccess.ReadWrite);
+                PackagePart part = package.CreatePart(partUriDocument, "application/text", createdCompressionOption);
+
+                package.Flush();
+                package.Close();
+                (package as IDisposable).Dispose();
+
+                ms.Seek(0, SeekOrigin.Begin);
+
+                var zipBytes = ms.ToArray();
+                var generalBitFlags = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(zipBytes.AsSpan(6));
+
+                package = Package.Open(ms, FileMode.Open, FileAccess.Read);
+                part = package.GetPart(partUriDocument);
+
+                Assert.Equal(expectedZipFileBitFlags, generalBitFlags);
+                Assert.Equal(expectedCompressionOption, part.CompressionOption);
+            }
+        }
+
+        [Fact]
+        public void Package_OpenOrCreate_ReadEntryWithoutWrite_DoesNotThrowOnDispose()
+        {
+            // Regression test: Opening a package with OpenOrCreate/ReadWrite on a non-expandable
+            // MemoryStream, then reading an entry without writing, should not throw on Dispose.
+            // Previously, the ZipArchive would attempt to rewrite even when no changes were made.
+
+            // First, create a valid package
+            byte[] packageData;
+            using (var ms = new MemoryStream())
+            {
+                using (Package package = Package.Open(ms, FileMode.Create, FileAccess.ReadWrite))
+                {
+                    var partUri = PackUriHelper.CreatePartUri(new Uri("test.xml", UriKind.Relative));
+                    PackagePart part = package.CreatePart(partUri, Mime_MediaTypeNames_Text_Xml);
+                    using (Stream partStream = part.GetStream())
+                    using (StreamWriter sw = new StreamWriter(partStream))
+                    {
+                        sw.Write(s_DocumentXml);
+                    }
+                }
+                packageData = ms.ToArray();
+            }
+
+            // Create a non-expandable MemoryStream (fixed-size buffer)
+            byte[] originalData = (byte[])packageData.Clone();
+            var stream = new MemoryStream(packageData, writable: true);
+
+            // This should not throw - opening and disposing without changes
+            using (Package package = Package.Open(stream, FileMode.OpenOrCreate, FileAccess.ReadWrite))
+            {
+                // Just access parts without modifying
+                var parts = package.GetParts();
+                Assert.NotEmpty(parts);
+            }
+
+            // Verify the stream was not modified (no rewrite occurred)
+            Assert.Equal(originalData.Length, stream.Length);
+            Assert.True(originalData.AsSpan().SequenceEqual(packageData),
+                "Stream content should be unchanged when no modifications were made");
+        }
+
+        [Fact]
+        public void Cannot_Modify_Package_On_Unseekable_Stream()
+        {
+            var ba = File.ReadAllBytes("plain.docx");
+
+            using (MemoryStream ms = new MemoryStream())
+            {
+                ms.Write(ba, 0, ba.Length);
+                ms.Seek(0, SeekOrigin.Begin);
+
+                using (WrappedStream ws = new WrappedStream(ms, true, true, false))
+                {
+                    Assert.Throws<ArgumentException>(() => Package.Open(ws, FileMode.Open, FileAccess.ReadWrite));
+                }
+            }
         }
 
         private const string DocumentRelationshipType = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument";

@@ -1,10 +1,10 @@
 #include <config.h>
 #include <mono/utils/mono-compiler.h>
+#include <mono/eglib/glib.h>
 
 #if defined (HOST_WASM)
 
 #include "mono/utils/mono-dl.h"
-#include "mono/utils/mono-embed.h"
 #include "mono/utils/mono-path.h"
 
 #include <stdlib.h>
@@ -12,7 +12,10 @@
 #include <ctype.h>
 #include <string.h>
 #include <glib.h>
+
+#ifndef HOST_WASI
 #include <dlfcn.h>
+#endif
 
 const char *
 mono_dl_get_so_prefix (void)
@@ -29,20 +32,6 @@ mono_dl_get_so_suffixes (void)
 	};
 	return suffixes;
 }
-
-int
-mono_dl_get_executable_path (char *buf, int buflen)
-{
-	strncpy (buf, "/managed", buflen); //This is a packaging convertion that our tooling should enforce
-	return 0;
-}
-
-const char*
-mono_dl_get_system_dir (void)
-{
-	return NULL;
-}
-
 
 void*
 mono_dl_lookup_symbol (MonoDl *module, const char *name)
@@ -62,33 +51,33 @@ mono_dl_convert_flags (int mono_flags, int native_flags)
 {
 	int lflags = native_flags;
 
-#ifdef ENABLE_NETCORE
+#ifndef HOST_WASI // On WASI, these flags are undefined and not required
+
 	// Specifying both will default to LOCAL
 	if (mono_flags & MONO_DL_GLOBAL && !(mono_flags & MONO_DL_LOCAL))
 		lflags |= RTLD_GLOBAL;
-	else 
+	else
 		lflags |= RTLD_LOCAL;
-#else
-	lflags = mono_flags & MONO_DL_LOCAL ? RTLD_LOCAL : RTLD_GLOBAL;
-#endif
 
 	if (mono_flags & MONO_DL_LAZY)
 		lflags |= RTLD_LAZY;
 	else
 		lflags |= RTLD_NOW;
 
+#endif
+
 	return lflags;
 }
 
 void *
-mono_dl_open_file (const char *file, int flags)
+mono_dl_open_file (const char *file, int flags, MonoError *error)
 {
 	// Actual dlopen is done in driver.c:wasm_dl_load()
 	return NULL;
 }
 
 void
-mono_dl_close_handle (MonoDl *module)
+mono_dl_close_handle (MonoDl *module, MonoError *error)
 {
 }
 

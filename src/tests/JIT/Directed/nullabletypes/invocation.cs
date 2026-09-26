@@ -6,6 +6,11 @@
 //</Description>
 
 
+namespace JitTest_Directed_nullabletypes_invocation;
+
+using JitTest_Directed_nullabletypes_invokecommon;
+using Xunit;
+
 using System;
 
 
@@ -47,7 +52,7 @@ struct CloseGenImplGenAndImplStruct<T> : BaseInter, GenInter<int>
 
 class Foo { }
 
-class NullableTests
+public class NullableTests
 {
     static Struct?  s = default(Struct);
     static ImplStruct? imps = default(ImplStruct);
@@ -55,31 +60,33 @@ class NullableTests
     static CloseGenImplStruct? cgis = default(CloseGenImplStruct);
     static CloseGenImplGenAndImplStruct<int>? cgiis = default(CloseGenImplGenAndImplStruct<int>);
 
+    [OuterLoop]
+    [Fact]
     public static void Run()
     {
-        Test.Eval(s.Value.Foo() == 0x0001);
-        Test.Eval(((Struct)((object)s)).Foo() == 0x0001);
-        Test.Eval(((Struct)((ValueType)s)).Foo() == 0x0001);
+        Test_nullabletypes.Eval(s.Value.Foo() == 0x0001);
+        Test_nullabletypes.Eval(((Struct)((object)s)).Foo() == 0x0001);
+        Test_nullabletypes.Eval(((Struct)((ValueType)s)).Foo() == 0x0001);
 
-        Test.Eval(imps.Value.Foo() == 0x0010);
-        Test.Eval(((ImplStruct)(object)imps).Foo() == 0x0010);
-        Test.Eval(((ImplStruct)(ValueType)imps).Foo() == 0x0010);
-        Test.Eval(((BaseInter)imps).Foo() == 0x0010);
+        Test_nullabletypes.Eval(imps.Value.Foo() == 0x0010);
+        Test_nullabletypes.Eval(((ImplStruct)(object)imps).Foo() == 0x0010);
+        Test_nullabletypes.Eval(((ImplStruct)(ValueType)imps).Foo() == 0x0010);
+        Test_nullabletypes.Eval(((BaseInter)imps).Foo() == 0x0010);
 
-        Test.Eval(ogis.Value.Foo() == 0x0100);
-        Test.Eval(((OpenGenImplStruct<int>)(object)ogis).Foo() == 0x0100);
-        Test.Eval(((OpenGenImplStruct<int>)(ValueType)ogis).Foo() == 0x0100);
-        Test.Eval(((GenInter<int>)ogis).Foo() == 0x0100);
+        Test_nullabletypes.Eval(ogis.Value.Foo() == 0x0100);
+        Test_nullabletypes.Eval(((OpenGenImplStruct<int>)(object)ogis).Foo() == 0x0100);
+        Test_nullabletypes.Eval(((OpenGenImplStruct<int>)(ValueType)ogis).Foo() == 0x0100);
+        Test_nullabletypes.Eval(((GenInter<int>)ogis).Foo() == 0x0100);
 
-        Test.Eval(cgis.Value.Foo() == 0x1000);
-        Test.Eval(((CloseGenImplStruct)(object)cgis).Foo() == 0x1000);
-        Test.Eval(((CloseGenImplStruct)(ValueType)cgis).Foo() == 0x1000);
-        Test.Eval(((GenInter<int>)cgis).Foo() == 0x1000);
+        Test_nullabletypes.Eval(cgis.Value.Foo() == 0x1000);
+        Test_nullabletypes.Eval(((CloseGenImplStruct)(object)cgis).Foo() == 0x1000);
+        Test_nullabletypes.Eval(((CloseGenImplStruct)(ValueType)cgis).Foo() == 0x1000);
+        Test_nullabletypes.Eval(((GenInter<int>)cgis).Foo() == 0x1000);
 
-        Test.Eval(cgiis.Value.Foo() == 0x1001);
-        Test.Eval(((CloseGenImplGenAndImplStruct<int>)(object)cgiis).Foo() == 0x1001);
-        Test.Eval(((CloseGenImplGenAndImplStruct<int>)(ValueType)cgiis).Foo() == 0x1001);
-        Test.Eval(((GenInter<int>)cgiis).Foo() == 0x1001);
-        Test.Eval(((BaseInter)cgiis).Foo() == 0x0110);
+        Test_nullabletypes.Eval(cgiis.Value.Foo() == 0x1001);
+        Test_nullabletypes.Eval(((CloseGenImplGenAndImplStruct<int>)(object)cgiis).Foo() == 0x1001);
+        Test_nullabletypes.Eval(((CloseGenImplGenAndImplStruct<int>)(ValueType)cgiis).Foo() == 0x1001);
+        Test_nullabletypes.Eval(((GenInter<int>)cgiis).Foo() == 0x1001);
+        Test_nullabletypes.Eval(((BaseInter)cgiis).Foo() == 0x0110);
     }
 }

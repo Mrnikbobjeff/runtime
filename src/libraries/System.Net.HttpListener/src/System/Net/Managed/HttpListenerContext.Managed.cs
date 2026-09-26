@@ -12,7 +12,7 @@ namespace System.Net
 {
     public sealed unsafe partial class HttpListenerContext
     {
-        private HttpConnection _connection;
+        private readonly HttpConnection _connection;
 
         internal HttpListenerContext(HttpConnection connection)
         {
@@ -45,15 +45,13 @@ namespace System.Net
             }
         }
 
-        internal IPrincipal? ParseBasicAuthentication(string authData) =>
-            TryParseBasicAuth(authData, out HttpStatusCode errorCode, out string? username, out string? password) ?
+        internal static IPrincipal? ParseBasicAuthentication(string authData) =>
+            TryParseBasicAuth(authData, out _, out string? username, out string? password) ?
                 new GenericPrincipal(new HttpListenerBasicIdentity(username, password), Array.Empty<string>()) :
                 null;
 
         internal static bool IsBasicHeader(string header) =>
-            header.Length >= 6 &&
-            header[5] == ' ' &&
-            string.Compare(header, 0, AuthenticationTypes.Basic, 0, 5, StringComparison.OrdinalIgnoreCase) == 0;
+            header.StartsWith("Basic ", StringComparison.OrdinalIgnoreCase);
 
         internal static bool TryParseBasicAuth(string headerValue, out HttpStatusCode errorCode, [NotNullWhen(true)] out string? username, [NotNullWhen(true)] out string? password)
         {
@@ -86,17 +84,16 @@ namespace System.Net
             }
         }
 
-        public Task<HttpListenerWebSocketContext> AcceptWebSocketAsync(string subProtocol, int receiveBufferSize, TimeSpan keepAliveInterval)
+        public Task<HttpListenerWebSocketContext> AcceptWebSocketAsync(string? subProtocol, int receiveBufferSize, TimeSpan keepAliveInterval)
         {
             return HttpWebSocket.AcceptWebSocketAsyncCore(this, subProtocol, receiveBufferSize, keepAliveInterval);
         }
 
-        [EditorBrowsable(EditorBrowsableState.Never)]
-        public Task<HttpListenerWebSocketContext> AcceptWebSocketAsync(string subProtocol, int receiveBufferSize, TimeSpan keepAliveInterval, ArraySegment<byte> internalBuffer)
+        public Task<HttpListenerWebSocketContext> AcceptWebSocketAsync(string? subProtocol, int receiveBufferSize, TimeSpan keepAliveInterval, ArraySegment<byte> internalBuffer)
         {
             WebSocketValidate.ValidateArraySegment(internalBuffer, nameof(internalBuffer));
             HttpWebSocket.ValidateOptions(subProtocol, receiveBufferSize, HttpWebSocket.MinSendBufferSize, keepAliveInterval);
-            return HttpWebSocket.AcceptWebSocketAsyncCore(this, subProtocol, receiveBufferSize, keepAliveInterval, internalBuffer);
+            return HttpWebSocket.AcceptWebSocketAsyncCore(this, subProtocol, receiveBufferSize, keepAliveInterval);
         }
     }
 }

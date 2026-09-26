@@ -2,14 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b49322
 {
     using System;
 
-    class AA
+    public class AA
     {
         static ulong m_ul;
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             try
             {
@@ -27,7 +30,6 @@ namespace Test
                 }
             }
             catch (Exception) { }
-            return 100;
         }
     }
 }

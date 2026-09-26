@@ -2,27 +2,35 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace System.Text.Json.Serialization.Converters
 {
     /// Converter for <cref>System.Collections.Generic.List{TElement}</cref>.
     internal sealed class ListOfTConverter<TCollection, TElement>
         : IEnumerableDefaultConverter<TCollection, TElement>
-        where TCollection: List<TElement>
+        where TCollection : List<TElement>
     {
+        internal override bool CanPopulate => true;
+
         protected override void Add(in TElement value, ref ReadStack state)
         {
             ((TCollection)state.Current.ReturnValue!).Add(value);
         }
 
-        protected override void CreateCollection(ref Utf8JsonReader reader, ref ReadStack state, JsonSerializerOptions options)
+        protected override void CreateCollection(ref Utf8JsonReader reader, scoped ref ReadStack state, JsonSerializerOptions options)
         {
-            if (state.Current.JsonClassInfo.CreateObject == null)
+            if (state.ParentProperty?.TryGetPrePopulatedValue(ref state) == true)
             {
-                ThrowHelper.ThrowNotSupportedException_SerializationNotSupported(state.Current.JsonClassInfo.Type);
+                return;
             }
 
-            state.Current.ReturnValue = state.Current.JsonClassInfo.CreateObject();
+            if (state.Current.JsonTypeInfo.CreateObject is null)
+            {
+                ThrowHelper.ThrowNotSupportedException_SerializationNotSupported(state.Current.JsonTypeInfo.Type);
+            }
+
+            state.Current.ReturnValue = state.Current.JsonTypeInfo.CreateObject();
         }
 
         protected override bool OnWriteResume(Utf8JsonWriter writer, TCollection value, JsonSerializerOptions options, ref WriteStack state)
@@ -33,7 +41,7 @@ namespace System.Text.Json.Serialization.Converters
             int index = state.Current.EnumeratorIndex;
             JsonConverter<TElement> elementConverter = GetElementConverter(ref state);
 
-            if (elementConverter.CanUseDirectReadOrWrite && state.Current.NumberHandling == null)
+            if (elementConverter.CanUseDirectReadOrWrite && state.Current.NumberHandling is null)
             {
                 // Fast path that avoids validation and extra indirection.
                 for (; index < list.Count; index++)
@@ -52,7 +60,9 @@ namespace System.Text.Json.Serialization.Converters
                         return false;
                     }
 
-                    if (ShouldFlush(writer, ref state))
+                    state.Current.EndCollectionElement();
+
+                    if (ShouldFlush(ref state, writer))
                     {
                         state.Current.EnumeratorIndex = ++index;
                         return false;

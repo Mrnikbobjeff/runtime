@@ -1,146 +1,64 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections.Generic;
-using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Net.Http.QPack;
 
 namespace System.Net.Http
 {
-    public class HttpMethod : IEquatable<HttpMethod>
+    public partial class HttpMethod : IEquatable<HttpMethod>
     {
         private readonly string _method;
-        private readonly byte[]? _http3EncodedBytes;
         private int _hashcode;
 
-        private static readonly HttpMethod s_getMethod = new HttpMethod("GET", http3StaticTableIndex: H3StaticTable.MethodGet);
-        private static readonly HttpMethod s_putMethod = new HttpMethod("PUT", http3StaticTableIndex: H3StaticTable.MethodPut);
-        private static readonly HttpMethod s_postMethod = new HttpMethod("POST", http3StaticTableIndex: H3StaticTable.MethodPost);
-        private static readonly HttpMethod s_deleteMethod = new HttpMethod("DELETE", http3StaticTableIndex: H3StaticTable.MethodDelete);
-        private static readonly HttpMethod s_headMethod = new HttpMethod("HEAD", http3StaticTableIndex: H3StaticTable.MethodHead);
-        private static readonly HttpMethod s_optionsMethod = new HttpMethod("OPTIONS", http3StaticTableIndex: H3StaticTable.MethodOptions);
-        private static readonly HttpMethod s_traceMethod = new HttpMethod("TRACE");
-        private static readonly HttpMethod s_patchMethod = new HttpMethod("PATCH");
-        private static readonly HttpMethod s_connectMethod = new HttpMethod("CONNECT", http3StaticTableIndex: H3StaticTable.MethodConnect);
+        public static HttpMethod Get { get; } = new("GET", H3StaticTable.MethodGet);
+        public static HttpMethod Put { get; } = new("PUT", H3StaticTable.MethodPut);
+        public static HttpMethod Post { get; } = new("POST", H3StaticTable.MethodPost);
+        public static HttpMethod Delete { get; } = new("DELETE", H3StaticTable.MethodDelete);
+        public static HttpMethod Head { get; } = new("HEAD", H3StaticTable.MethodHead);
+        public static HttpMethod Options { get; } = new("OPTIONS", H3StaticTable.MethodOptions);
+        public static HttpMethod Trace { get; } = new("TRACE", http3StaticTableIndex: -1);
+        public static HttpMethod Patch { get; } = new("PATCH", http3StaticTableIndex: -1);
 
-        private static readonly Dictionary<HttpMethod, HttpMethod> s_knownMethods = new Dictionary<HttpMethod, HttpMethod>(9)
-        {
-            { s_getMethod, s_getMethod },
-            { s_putMethod, s_putMethod },
-            { s_postMethod, s_postMethod },
-            { s_deleteMethod, s_deleteMethod },
-            { s_headMethod, s_headMethod },
-            { s_optionsMethod, s_optionsMethod },
-            { s_traceMethod, s_traceMethod },
-            { s_patchMethod, s_patchMethod },
-            { s_connectMethod, s_connectMethod },
-        };
+        /// <summary>Gets the HTTP QUERY protocol method.</summary>
+        /// <value>The HTTP QUERY method.</value>
+        public static HttpMethod Query { get; } = new("QUERY", http3StaticTableIndex: -1);
 
-        public static HttpMethod Get
-        {
-            get { return s_getMethod; }
-        }
+        /// <summary>Gets the HTTP CONNECT protocol method.</summary>
+        /// <value>The HTTP CONNECT method.</value>
+        public static HttpMethod Connect { get; } = new("CONNECT", H3StaticTable.MethodConnect);
 
-        public static HttpMethod Put
-        {
-            get { return s_putMethod; }
-        }
-
-        public static HttpMethod Post
-        {
-            get { return s_postMethod; }
-        }
-
-        public static HttpMethod Delete
-        {
-            get { return s_deleteMethod; }
-        }
-
-        public static HttpMethod Head
-        {
-            get { return s_headMethod; }
-        }
-
-        public static HttpMethod Options
-        {
-            get { return s_optionsMethod; }
-        }
-
-        public static HttpMethod Trace
-        {
-            get { return s_traceMethod; }
-        }
-
-        public static HttpMethod Patch
-        {
-            get { return s_patchMethod; }
-        }
-
-        // Don't expose CONNECT as static property, since it's used by the transport to connect to a proxy.
-        // CONNECT is not used by users directly.
-
-        internal static HttpMethod Connect
-        {
-            get { return s_connectMethod; }
-        }
-
-        public string Method
-        {
-            get { return _method; }
-        }
-
-        internal byte[]? Http3EncodedBytes
-        {
-            get { return _http3EncodedBytes; }
-        }
+        public string Method => _method;
 
         public HttpMethod(string method)
         {
-            if (string.IsNullOrEmpty(method))
-            {
-                throw new ArgumentException(SR.net_http_argument_empty_string, nameof(method));
-            }
-            if (HttpRuleParser.GetTokenLength(method, 0) != method.Length)
+            ArgumentException.ThrowIfNullOrWhiteSpace(method);
+            if (!HttpRuleParser.IsToken(method))
             {
                 throw new FormatException(SR.net_http_httpmethod_format_error);
             }
 
             _method = method;
+            Initialize(method);
         }
 
-        private HttpMethod(string method, int? http3StaticTableIndex)
-            : this(method)
+        private HttpMethod(string method, int http3StaticTableIndex)
         {
-            _http3EncodedBytes = http3StaticTableIndex != null ?
-                QPackEncoder.EncodeStaticIndexedHeaderFieldToArray(http3StaticTableIndex.GetValueOrDefault()) :
-                QPackEncoder.EncodeLiteralHeaderFieldWithStaticNameReferenceToArray(H3StaticTable.MethodGet, method);
+            _method = method;
+            Initialize(http3StaticTableIndex);
         }
 
-        #region IEquatable<HttpMethod> Members
+        // SocketsHttpHandler-specific implementation has extra init logic.
+        partial void Initialize(int http3Index);
+        partial void Initialize(string method);
 
-        public bool Equals(HttpMethod? other)
-        {
-            if ((object?)other == null)
-            {
-                return false;
-            }
+        public bool Equals([NotNullWhen(true)] HttpMethod? other) =>
+            other is not null &&
+            string.Equals(_method, other._method, StringComparison.OrdinalIgnoreCase);
 
-            if (object.ReferenceEquals(_method, other._method))
-            {
-                // Strings are static, so there is a good chance that two equal methods use the same reference
-                // (unless they differ in case).
-                return true;
-            }
-
-            return string.Equals(_method, other._method, StringComparison.OrdinalIgnoreCase);
-        }
-
-        #endregion
-
-        public override bool Equals(object? obj)
-        {
-            return Equals(obj as HttpMethod);
-        }
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
+            obj is HttpMethod method &&
+            Equals(method);
 
         public override int GetHashCode()
         {
@@ -152,48 +70,59 @@ namespace System.Net.Http
             return _hashcode;
         }
 
-        public override string ToString()
-        {
-            return _method;
-        }
+        public override string ToString() => _method;
 
-        public static bool operator ==(HttpMethod? left, HttpMethod? right)
-        {
-            return (object?)left == null || (object?)right == null ?
-                ReferenceEquals(left, right) :
-                left.Equals(right);
-        }
+        public static bool operator ==(HttpMethod? left, HttpMethod? right) =>
+            left is null || right is null
+                ? ReferenceEquals(left, right)
+                : left.Equals(right);
 
-        public static bool operator !=(HttpMethod? left, HttpMethod? right)
-        {
-            return !(left == right);
-        }
+        public static bool operator !=(HttpMethod? left, HttpMethod? right) =>
+            !(left == right);
 
-        /// <summary>
-        /// Returns a singleton method instance with a capitalized method name for the supplied method
-        /// if it's known; otherwise, returns the original.
-        /// </summary>
-        internal static HttpMethod Normalize(HttpMethod method)
-        {
-            // _http3EncodedBytes is only set for the singleton instances, so if it's not null,
-            // we can avoid the dictionary lookup.  Otherwise, look up the method instance in the
-            // dictionary and return the normalized instance if it's found.
-            Debug.Assert(method != null);
-            return
-                method._http3EncodedBytes is null && s_knownMethods.TryGetValue(method, out HttpMethod? normalized) ? normalized :
-                method;
-        }
+        /// <summary>Parses the provided <paramref name="method"/> into an <see cref="HttpMethod"/> instance.</summary>
+        /// <param name="method">The method to parse.</param>
+        /// <returns>An <see cref="HttpMethod"/> instance for the provided <paramref name="method"/>.</returns>
+        /// <remarks>
+        /// This method may return a singleton instance for known methods; for example, it may return <see cref="Get"/>
+        /// if "GET" is specified. The parsing is performed in a case-insensitive manner, so it may also return <see cref="Get"/>
+        /// if "get" is specified. For unknown methods, a new <see cref="HttpMethod"/> instance is returned, with the
+        /// same validation being performed as by the <see cref="HttpMethod(string)"/> constructor.
+        /// </remarks>
+        public static HttpMethod Parse(ReadOnlySpan<char> method) =>
+            GetKnownMethod(method) ??
+            new HttpMethod(method.ToString());
 
-        internal bool MustHaveRequestBody
+        internal static HttpMethod? GetKnownMethod(ReadOnlySpan<char> method)
         {
-            get
+            if (method.Length >= 3) // 3 == smallest known method
             {
-                // Normalize before calling this
-                Debug.Assert(ReferenceEquals(this, Normalize(this)));
+                HttpMethod? match = (method[0] | 0x20) switch
+                {
+                    'c' => Connect,
+                    'd' => Delete,
+                    'g' => Get,
+                    'h' => Head,
+                    'o' => Options,
+                    'p' => method.Length switch
+                    {
+                        3 => Put,
+                        4 => Post,
+                        _ => Patch,
+                    },
+                    'q' => Query,
+                    't' => Trace,
+                    _ => null,
+                };
 
-                return !ReferenceEquals(this, HttpMethod.Get) && !ReferenceEquals(this, HttpMethod.Head) && !ReferenceEquals(this, HttpMethod.Connect) &&
-                       !ReferenceEquals(this, HttpMethod.Options) && !ReferenceEquals(this, HttpMethod.Delete);
+                if (match is not null &&
+                    method.Equals(match._method, StringComparison.OrdinalIgnoreCase))
+                {
+                    return match;
+                }
             }
+
+            return null;
         }
     }
 }

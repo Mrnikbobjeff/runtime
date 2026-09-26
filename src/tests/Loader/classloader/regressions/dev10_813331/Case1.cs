@@ -1,11 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Xunit;
+using TestLibrary;
 //Non-generic classes A and B
 
 public class HelloWorld
 {
-    public static int Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static int TestEntryPoint()
     {
         try { B b = new B(GetName()); }
         catch (System.Exception) 

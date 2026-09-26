@@ -8,20 +8,21 @@ using System.Linq.Expressions;
 using System.Numerics;
 using System.Reflection;
 using System.Reflection.Metadata;
-using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Text;
+using TestLibrary;
+using Xunit;
 
 internal class ClassWithStatic
 {
     public const int StaticValue = 0x666;
-    
+
     [ThreadStatic]
     public static int Static = StaticValue;
 }
 
-internal class Program
+public class Program
 {
     const int LineCountInitialValue = 0x12345678;
 
@@ -43,10 +44,10 @@ internal class Program
 
     private static bool WriteLine()
     {
-        Console.WriteLine("Hello CoreRT R2R running on CoreCLR!");
+        Console.WriteLine("Hello R2R running on CoreCLR!");
         return true;
     }
-    
+
     private static bool IsInstanceOf()
     {
         object obj = TextFileName;
@@ -76,7 +77,7 @@ internal class Program
             return false;
         }
     }
-    
+
     private unsafe static bool CheckNonGCThreadLocalStatic()
     {
         fixed (int *lineCountPtr = &LineCount)
@@ -110,7 +111,7 @@ internal class Program
         Console.WriteLine($@"Int: {objInt:X8}");
         return objInt == LineCount;
     }
-    
+
     private static bool BoxUnbox()
     {
         bool success = true;
@@ -230,7 +231,7 @@ internal class Program
         Console.WriteLine("BoxUnboxToNQ: {0}", o);
         return BoxUnboxToNQ1((ValueType)o);
     }
-    
+
     private static bool CastClassWithCharTest()
     {
         char? s = HelperCreateChar();
@@ -265,7 +266,7 @@ internal class Program
                 return false;
             }
         }
-        
+
         var testClass = new RuntimeMethodHandleMethods();
         {
             MethodInfo mi = GetMethodInfo<Func<object, string, object>>((object p1, string p2) => testClass.InstanceMethod(p1, p2));
@@ -275,8 +276,8 @@ internal class Program
                 return false;
             }
         }
-        
-        
+
+
         {
             MethodInfo mi = GetMethodInfo<Func<string, object, object>>((string p1, object p2) => testClass.GenericMethod<string>(p1, p2));
             if (mi.Name != "GenericMethod")
@@ -379,7 +380,7 @@ internal class Program
             return line2 != null;
         }
     }
-    
+
     private static bool ConstructListOfInt()
     {
         List<int> listOfInt = new List<int>();
@@ -394,7 +395,7 @@ internal class Program
             return false;
         }
     }
-    
+
     private static bool ManipulateListOfInt()
     {
         List<int> listOfInt = new List<int>();
@@ -516,19 +517,19 @@ internal class Program
     class DisposeClass : IDisposable
     {
         public static bool DisposedFlag = false;
-        
+
         public DisposeClass()
         {
             Console.WriteLine("DisposeClass created!");
         }
-    
+
         public void Dispose()
         {
             Console.WriteLine("DisposeClass disposed!");
             DisposedFlag = true;
         }
     }
-    
+
     struct DisposeStruct : IDisposable
     {
         public static bool DisposedFlag = false;
@@ -539,7 +540,7 @@ internal class Program
             DisposedFlag = true;
         }
     }
-    
+
     private static bool DisposeStructTest()
     {
         using (var disposeStruct = new DisposeStruct())
@@ -557,7 +558,7 @@ internal class Program
         }
         return DisposeClass.DisposedFlag;
     }
-    
+
     private static bool DisposeEnumeratorTest()
     {
         List<string> listOfString = new List<string>();
@@ -568,22 +569,22 @@ internal class Program
         return true;
     }
 
-    private static bool DisposeEnumeratorTestWithConstrainedCall()
+    private static unsafe bool DisposeEnumeratorTestWithConstrainedCall()
     {
-        string thisAssembly = Assembly.GetExecutingAssembly().Location;
-
-        using (var fs = new FileStream(thisAssembly, FileMode.Open, FileAccess.Read))
+        Assembly assembly = Assembly.GetExecutingAssembly();
+        if (!assembly.TryGetRawMetadata(out byte* metadata, out int length))
         {
-            using (var pereader = new PEReader(fs))
-            {
-                var reader = pereader.GetMetadataReader();
-                var methodDefinitionHandleCollection = reader.MethodDefinitions;
-                foreach (var methodDefinitionHandle in methodDefinitionHandleCollection)
-                {
-                    break;
-                }
-            }
+            return false;
         }
+
+        MetadataReader reader = new MetadataReader(metadata, length);
+        MethodDefinitionHandleCollection methodDefinitionHandleCollection = reader.MethodDefinitions;
+        foreach (MethodDefinitionHandle methodDefinitionHandle in methodDefinitionHandleCollection)
+        {
+            break;
+        }
+
+        GC.KeepAlive(assembly);
         return true;
     }
 
@@ -622,7 +623,7 @@ internal class Program
         Console.WriteLine("Array.Empty<string> enumeration passed");
         return true;
     }
-    
+
     private static bool CreateLocalClassInstance()
     {
         var testClass = new TestClass(1234);
@@ -656,7 +657,7 @@ internal class Program
     }
 
     private class GenException<T> : Exception {}
-    
+
     private static bool GenericTryCatch<T>()
     {
         Exception thrown = new GenException<T>();
@@ -729,7 +730,7 @@ internal class Program
         success = GenericTryCatch<ValX1<ValX2<int,string>>>() && success;
         success = GenericTryCatch<ValX2<ValX2<ValX1<int>,ValX3<int,string, ValX1<ValX2<int,string>>>>,ValX2<ValX1<int>,ValX3<int,string, ValX1<ValX2<int,string>>>>>>() && success;
         success = GenericTryCatch<ValX3<ValX1<int[][,,,]>,ValX2<object[,,,][][],Guid[][][]>,ValX3<double[,,,,,,,,,,],Guid[][][][,,,,][,,,,][][][],string[][][][][][][][][][][]>>>();
-        
+
         return success;
     }
 
@@ -757,7 +758,7 @@ internal class Program
             {
                 return -42;
             }
-    
+
             return t.CompareTo(o);
         }
     }
@@ -767,12 +768,11 @@ internal class Program
         int intResult = InstanceMethodCaller<int>.Compare(122, 123);
         const int ExpectedIntResult = -42;
         Console.WriteLine("Int result: {0}, expected: {1}", intResult, ExpectedIntResult);
-        
+
         int stringResult = InstanceMethodCaller<string>.Compare("hello", "world");
-        const int ExpectedStringResult = -1;
-        Console.WriteLine("String result: {0}, expected: {1}", stringResult, ExpectedStringResult);
-        
-        return intResult == ExpectedIntResult && stringResult == ExpectedStringResult;
+        Console.WriteLine("String result: {0}, expected: less than zero", stringResult);
+
+        return intResult == ExpectedIntResult && stringResult < 0;
     }
 
     private static string GetTypeName<T>()
@@ -800,7 +800,7 @@ internal class Program
         {
             return CompareArgName(GetTypeName<T>(), typeArgName);
         }
-        
+
         public bool CheckInstanceTypeArg(string typeArgName)
         {
             return CompareArgName(GetTypeName<T>(), typeArgName);
@@ -820,23 +820,23 @@ internal class Program
     struct GenericStruct<T>
     {
         public T FieldOfT;
-        
+
         public GenericStruct(T fieldOfT)
         {
             FieldOfT = fieldOfT;
         }
     }
-    
+
     class GenericClass<T>
     {
         public T FieldOfT;
-        
+
         public GenericClass(T fieldOfT)
         {
             FieldOfT = fieldOfT;
         }
     }
-    
+
     private static bool ThisObjGenericLookupTest()
     {
         Console.WriteLine("ThisObjGenericLookup:");
@@ -956,15 +956,15 @@ internal class Program
         return success;
     }
 
-    private enum ByteEnum : byte
+    public enum ByteEnum : byte
     {
         Value0,
         Value1,
         Value2,
         Value3,
     }
-    
-    private enum IntEnum : int
+
+    public enum IntEnum : int
     {
         Value0,
         Value1,
@@ -976,7 +976,7 @@ internal class Program
     {
         Console.WriteLine("ByteEnum.Value1.GetHashCode: ", ByteEnum.Value1.GetHashCode());
         Console.WriteLine("IntEnum.Value3.GetHashCode: ", IntEnum.Value3.GetHashCode());
-        
+
         ByteEnum[] byteEnumValues = { ByteEnum.Value3, ByteEnum.Value1, ByteEnum.Value0, ByteEnum.Value2, };
         foreach (ByteEnum enumValue in byteEnumValues)
         {
@@ -986,7 +986,7 @@ internal class Program
                 return false;
             }
         }
-        
+
         IntEnum[] intEnumValues = { IntEnum.Value2, IntEnum.Value0, IntEnum.Value1, IntEnum.Value3, };
         foreach (IntEnum enumValue in intEnumValues)
         {
@@ -1154,7 +1154,7 @@ internal class Program
 
         success &= classWithVirtual.VirtualCalledFlag;
 
-        
+
         var bc = new BaseClass();
         success &= (bc.MyGvm<int>() == 100);
 
@@ -1236,6 +1236,48 @@ internal class Program
         if (versionBubbleLocalStruct.StoredValue == null) return false; // ToString method should update struct in place.
 
         return true;
+    }
+
+    private interface IUnboxingStubTest
+    {
+        int GetValue();
+    }
+
+    private readonly struct UnboxingStubTest : IUnboxingStubTest
+    {
+        private readonly int _value;
+
+        public UnboxingStubTest(int value)
+        {
+            _value = value;
+        }
+
+        public int GetValue() => _value;
+    }
+
+    private readonly struct GenericUnboxingStubTest<T> : IUnboxingStubTest
+    {
+        private readonly int _value;
+
+        public GenericUnboxingStubTest(int value)
+        {
+            _value = value;
+        }
+
+        public int GetValue() => _value + typeof(T).Name.Length;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int CallUnboxingStubTest(IUnboxingStubTest value) => value.GetValue();
+
+    private static bool BoxedInterfaceUnboxingStubTest()
+    {
+        return CallUnboxingStubTest(new UnboxingStubTest(42)) == 42;
+    }
+
+    private static bool BoxedInterfaceGenericUnboxingStubTest()
+    {
+        return CallUnboxingStubTest(new GenericUnboxingStubTest<string>(42)) == 42 + nameof(String).Length;
     }
 
     enum TestEnum
@@ -1483,9 +1525,10 @@ internal class Program
     private unsafe static bool ExplicitlySizedStructTest()
     {
         {
+            Console.WriteLine($"sizeof(ExplicitlySizedStructSequential) != 0x14 {sizeof(ExplicitlySizedStructSequential)} != 0x14");
             if (sizeof(ExplicitlySizedStructSequential) != 0x14)
                 return false;
-            
+
             ExplicitlySizedStructSequential str = new ExplicitlySizedStructSequential();
             str.Set(100, 200, 300);
             Console.WriteLine(str.ToString());
@@ -1494,9 +1537,10 @@ internal class Program
         }
 
         {
+            Console.WriteLine($"sizeof(ExplicitlySizedStructSequentialSizeTooSmall) != 0x14 {sizeof(ExplicitlySizedStructSequentialSizeTooSmall)} != 0x14");
             if (sizeof(ExplicitlySizedStructSequentialSizeTooSmall) != 0x14)
                 return false;
-            
+
             ExplicitlySizedStructSequentialSizeTooSmall str2 = new ExplicitlySizedStructSequentialSizeTooSmall();
             str2.Set(100, 200, 300);
             Console.WriteLine(str2.ToString());
@@ -1505,9 +1549,10 @@ internal class Program
         }
 
         {
+            Console.WriteLine($"sizeof(ExplicitlySizedStructExplicit) != 0x15 {sizeof(ExplicitlySizedStructExplicit)} != 0x15");
             if (sizeof(ExplicitlySizedStructExplicit) != 0x15)
                 return false;
-            
+
             ExplicitlySizedStructExplicit str3 = new ExplicitlySizedStructExplicit();
             str3.Set(100, 200, 300);
             Console.WriteLine(str3.ToString());
@@ -1516,9 +1561,10 @@ internal class Program
         }
 
         {
+            Console.WriteLine($"sizeof(ExplicitlySizedStructExplicitSizeTooSmall) != 0x15 {sizeof(ExplicitlySizedStructExplicitSizeTooSmall)} != 0x15");
             if (sizeof(ExplicitlySizedStructExplicitSizeTooSmall) != 0x15)
                 return false;
-            
+
             ExplicitlySizedStructExplicitSizeTooSmall str4 = new ExplicitlySizedStructExplicitSizeTooSmall();
             str4.Set(100, 200, 300);
             Console.WriteLine(str4.ToString());
@@ -1527,9 +1573,10 @@ internal class Program
         }
 
         {
+            Console.WriteLine($"sizeof(ExplicitlySizedStructExplicitSizeZero) != sizeof(NormalStruct) {sizeof(ExplicitlySizedStructExplicitSizeZero)} != {sizeof(NormalStruct)}");
             if (sizeof(ExplicitlySizedStructExplicitSizeZero) != sizeof(NormalStruct))
                 return false;
-            
+
             ExplicitlySizedStructExplicitSizeZero str5 = new ExplicitlySizedStructExplicitSizeZero();
             str5.Set(100, 200, 300);
             Console.WriteLine(str5.ToString());
@@ -1538,9 +1585,10 @@ internal class Program
         }
 
         {
-            if (sizeof(ExplicitlySizedStructAuto) != sizeof(NormalStruct))
+            Console.WriteLine($"sizeof(ExplicitlySizedStructAuto) != sizeof(NormalStruct) {sizeof(ExplicitlySizedStructAuto)} != {sizeof(NormalStruct)}");
+            if ((sizeof(IntPtr) == 8) && sizeof(ExplicitlySizedStructAuto) != sizeof(NormalStruct)) // This test isn't right for 32 bit platforms
                 return false;
-            
+
             ExplicitlySizedStructAuto str6 = new ExplicitlySizedStructAuto();
             str6.Set(100, 200, 300);
             Console.WriteLine(str6.ToString());
@@ -1549,9 +1597,10 @@ internal class Program
         }
 
         {
-            if (sizeof(ExplicitlySizedStructAutoSizeTooSmall) != sizeof(NormalStruct))
+            Console.WriteLine($"sizeof(ExplicitlySizedStructAutoSizeTooSmall) != sizeof(NormalStruct) {sizeof(ExplicitlySizedStructAutoSizeTooSmall)} != {sizeof(NormalStruct)}");
+            if ((sizeof(IntPtr) == 8) && sizeof(ExplicitlySizedStructAutoSizeTooSmall) != sizeof(NormalStruct)) // This test isn't right for 32 bit platforms
                 return false;
-            
+
             ExplicitlySizedStructAutoSizeTooSmall str7 = new ExplicitlySizedStructAutoSizeTooSmall();
             str7.Set(100, 200, 300);
             Console.WriteLine(str7.ToString());
@@ -1604,7 +1653,7 @@ internal class Program
     {
         Type typeGenericStructString = typeof(GenericStructForLdtoken<string>);
         Type typeGenericStructObject = typeof(GenericStructForLdtoken<object>);
-        
+
         RuntimeMethodHandle rmh;
         rmh = HelperILCode.GetNonGenericFunctionMethodHandle();
         if (!CheckMethodHandle(rmh, typeGenericStructString, null))
@@ -1748,7 +1797,7 @@ internal class Program
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static bool ArrayLdtokenTests()
     {
-        // We're testing that mapping from ldtoken to RuntimeMethodHandle works for various ways that 
+        // We're testing that mapping from ldtoken to RuntimeMethodHandle works for various ways that
         // ldtokens can be referenced (either via a generic token, or not.
         // (there are slightly different codepaths in crossgen for this)
         // Incorrect encoding will trigger a BadImageFormatException
@@ -1780,8 +1829,8 @@ internal class Program
     }
     struct BlittableStruct<T>
     {
-	public ExplicitLayoutStruct16 _explict;
-        public override string ToString() { return $"{_explict}"; }
+	public ExplicitLayoutStruct16 _explicit;
+        public override string ToString() { return $"{_explicit}"; }
     }
 
     struct StructWithGenericBlittableStruct
@@ -1791,14 +1840,14 @@ internal class Program
         public override string ToString() { return $"{_blittableGeneric}{_int}"; }
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveOptimization)]    
+    [MethodImpl(MethodImplOptions.AggressiveOptimization)]
     private static bool TestWithStructureNonBlittableFieldDueToGenerics_StringCompare(ref StructWithGenericBlittableStruct input)
     {
         StructWithGenericBlittableStruct s = new StructWithGenericBlittableStruct();
-        s._blittableGeneric._explict.x = 1;
-        s._blittableGeneric._explict.y = 2;
-        s._blittableGeneric._explict.z = 3;
-        s._blittableGeneric._explict.w = 4;
+        s._blittableGeneric._explicit.x = 1;
+        s._blittableGeneric._explicit.y = 2;
+        s._blittableGeneric._explicit.z = 3;
+        s._blittableGeneric._explicit.w = 4;
         s._int = 5;
 
         Console.WriteLine(input);
@@ -1811,22 +1860,357 @@ internal class Program
     private static bool TestWithStructureNonBlittableFieldDueToGenerics()
     {
         StructWithGenericBlittableStruct s = new StructWithGenericBlittableStruct();
-        s._blittableGeneric._explict.x = 1;
-        s._blittableGeneric._explict.y = 2;
-        s._blittableGeneric._explict.z = 3;
-        s._blittableGeneric._explict.w = 4;
+        s._blittableGeneric._explicit.x = 1;
+        s._blittableGeneric._explicit.y = 2;
+        s._blittableGeneric._explicit.z = 3;
+        s._blittableGeneric._explicit.w = 4;
         s._int = 5;
 
         return TestWithStructureNonBlittableFieldDueToGenerics_StringCompare(ref s);
     }
 
-    public static int Main(string[] args)
+    private static object s_knownObject = new object();
+
+    struct SingleElementStruct_I1 { public sbyte _val; }
+    struct SingleElementStruct_I2 { public short _val; }
+    struct SingleElementStruct_I4 { public int _val; }
+    struct SingleElementStruct_I8 { public double _val; }
+    struct SingleElementStruct_U1 { public sbyte _val; }
+    struct SingleElementStruct_U2 { public short _val; }
+    struct SingleElementStruct_U4 { public int _val; }
+    struct SingleElementStruct_U8 { public double _val; }
+    struct SingleElementStruct_R4 { public float _val; }
+    struct SingleElementStruct_R8 { public double _val; }
+    struct SingleElementStruct_Obj { public object _val; }
+    struct SingleElementStruct_Ptr { public object _val; }
+    unsafe struct SingleElementStruct_FuncPtr { public delegate*<string, int> _val; }
+    [StructLayout(LayoutKind.Explicit, Size = 0x4)] public unsafe struct SingleElementStruct_Empty {}
+    struct SingleElementStruct_IntEnum { public IntEnum _val; }
+
+    struct SingleElementStruct_NestedI1 { public SingleElementStruct_I1 _val; }
+    struct SingleElementStruct_NestedI2 { public SingleElementStruct_I2 _val; }
+    struct SingleElementStruct_NestedI4 { public SingleElementStruct_I4 _val; }
+    struct SingleElementStruct_NestedI8 { public SingleElementStruct_I8 _val; }
+    struct SingleElementStruct_NestedU1 { public SingleElementStruct_U1 _val; }
+    struct SingleElementStruct_NestedU2 { public SingleElementStruct_U2 _val; }
+    struct SingleElementStruct_NestedU4 { public SingleElementStruct_U4 _val; }
+    struct SingleElementStruct_NestedU8 { public SingleElementStruct_U8 _val; }
+    struct SingleElementStruct_NestedR4 { public SingleElementStruct_R4 _val; }
+    struct SingleElementStruct_NestedR8 { public SingleElementStruct_R8 _val; }
+    struct SingleElementStruct_NestedObj { public SingleElementStruct_Obj _val; }
+    struct SingleElementStruct_NestedPtr { public SingleElementStruct_Ptr _val; }
+    struct SingleElementStruct_NestedFuncPtr { public SingleElementStruct_FuncPtr _val; }
+    struct SingleElementStruct_NestedEmpty { public SingleElementStruct_Empty _val; }
+    struct SingleElementStruct_NestedIntEnum { public SingleElementStruct_IntEnum _val; }
+
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_I1(SingleElementStruct_I1 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_I2(SingleElementStruct_I2 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_I4(SingleElementStruct_I4 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_I8(SingleElementStruct_I8 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_U1(SingleElementStruct_U1 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_U2(SingleElementStruct_U2 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_U4(SingleElementStruct_U4 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_U8(SingleElementStruct_U8 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_R4(SingleElementStruct_R4 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_R8(SingleElementStruct_R8 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_Obj(SingleElementStruct_Obj _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_Ptr(SingleElementStruct_Ptr _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_FuncPtr(SingleElementStruct_FuncPtr _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_Empty(SingleElementStruct_Empty _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_IntEnum(SingleElementStruct_IntEnum _, object obj) { return obj == s_knownObject; }
+
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedI1(SingleElementStruct_NestedI1 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedI2(SingleElementStruct_NestedI2 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedI4(SingleElementStruct_NestedI4 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedI8(SingleElementStruct_NestedI8 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedU1(SingleElementStruct_NestedU1 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedU2(SingleElementStruct_NestedU2 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedU4(SingleElementStruct_NestedU4 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedU8(SingleElementStruct_NestedU8 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedR4(SingleElementStruct_NestedR4 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedR8(SingleElementStruct_NestedR8 _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedObj(SingleElementStruct_NestedObj _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedPtr(SingleElementStruct_NestedPtr _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedFuncPtr(SingleElementStruct_NestedFuncPtr _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedEmpty(SingleElementStruct_NestedEmpty _, object obj) { return obj == s_knownObject; }
+    [MethodImpl(MethodImplOptions.NoInlining)] static bool TestSES_NestedIntEnum(SingleElementStruct_NestedIntEnum _, object obj) { return obj == s_knownObject; }
+
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static bool TestSingleElementStructABI()
+    {
+        if (!TestSES_I1(default(SingleElementStruct_I1), s_knownObject)) return false;
+        if (!TestSES_I2(default(SingleElementStruct_I2), s_knownObject)) return false;
+        if (!TestSES_I4(default(SingleElementStruct_I4), s_knownObject)) return false;
+        if (!TestSES_I8(default(SingleElementStruct_I8), s_knownObject)) return false;
+        if (!TestSES_U1(default(SingleElementStruct_U1), s_knownObject)) return false;
+        if (!TestSES_U2(default(SingleElementStruct_U2), s_knownObject)) return false;
+        if (!TestSES_U4(default(SingleElementStruct_U4), s_knownObject)) return false;
+        if (!TestSES_U8(default(SingleElementStruct_U8), s_knownObject)) return false;
+        if (!TestSES_R4(default(SingleElementStruct_R4), s_knownObject)) return false;
+        if (!TestSES_R8(default(SingleElementStruct_R8), s_knownObject)) return false;
+        if (!TestSES_Obj(default(SingleElementStruct_Obj), s_knownObject)) return false;
+        if (!TestSES_Ptr(default(SingleElementStruct_Ptr), s_knownObject)) return false;
+        if (!TestSES_FuncPtr(default(SingleElementStruct_FuncPtr), s_knownObject)) return false;
+        if (!TestSES_Empty(default(SingleElementStruct_Empty), s_knownObject)) return false;
+        if (!TestSES_IntEnum(default(SingleElementStruct_IntEnum), s_knownObject)) return false;
+
+        if (!TestSES_NestedI1(default(SingleElementStruct_NestedI1), s_knownObject)) return false;
+        if (!TestSES_NestedI2(default(SingleElementStruct_NestedI2), s_knownObject)) return false;
+        if (!TestSES_NestedI4(default(SingleElementStruct_NestedI4), s_knownObject)) return false;
+        if (!TestSES_NestedI8(default(SingleElementStruct_NestedI8), s_knownObject)) return false;
+        if (!TestSES_NestedU1(default(SingleElementStruct_NestedU1), s_knownObject)) return false;
+        if (!TestSES_NestedU2(default(SingleElementStruct_NestedU2), s_knownObject)) return false;
+        if (!TestSES_NestedU4(default(SingleElementStruct_NestedU4), s_knownObject)) return false;
+        if (!TestSES_NestedU8(default(SingleElementStruct_NestedU8), s_knownObject)) return false;
+        if (!TestSES_NestedR4(default(SingleElementStruct_NestedR4), s_knownObject)) return false;
+        if (!TestSES_NestedR8(default(SingleElementStruct_NestedR8), s_knownObject)) return false;
+        if (!TestSES_NestedObj(default(SingleElementStruct_NestedObj), s_knownObject)) return false;
+        if (!TestSES_NestedPtr(default(SingleElementStruct_NestedPtr), s_knownObject)) return false;
+        if (!TestSES_NestedFuncPtr(default(SingleElementStruct_NestedFuncPtr), s_knownObject)) return false;
+        if (!TestSES_NestedEmpty(default(SingleElementStruct_NestedEmpty), s_knownObject)) return false;
+        if (!TestSES_NestedIntEnum(default(SingleElementStruct_NestedIntEnum), s_knownObject)) return false;
+
+        return true;
+    }
+
+    public enum ShortEnum : short
+    {
+    }
+    public enum LongEnum : long
+    {
+    }
+
+    public struct LongIntEnumStruct
+    {
+        public LongEnum _1;
+        public IntEnum _2;
+        public LongEnum _3;
+        public IntEnum _4;
+    }
+
+    public struct LongIntEnumStructFieldStruct
+    {
+        public byte _0;
+        public LongIntEnumStruct _struct;
+    }
+
+    public struct IntShortEnumStruct
+    {
+        public IntEnum _1;
+        public ShortEnum _2;
+        public IntEnum _3;
+        public ShortEnum _4;
+    }
+
+    public struct IntShortEnumStructFieldStruct
+    {
+        public byte _0;
+        public IntShortEnumStruct _struct;
+    }
+
+    public struct ShortByteEnumStruct
+    {
+        public ShortEnum _1;
+        public ByteEnum _2;
+        public ShortEnum _3;
+        public ByteEnum _4;
+    }
+
+    public struct ShortByteEnumStructFieldStruct
+    {
+        public byte _0;
+        public ShortByteEnumStruct _struct;
+    }
+
+    [StructLayout(LayoutKind.Auto)]
+    public struct LongIntEnumStructAuto
+    {
+        public LongEnum _1;
+        public IntEnum _2;
+        public LongEnum _3;
+        public IntEnum _4;
+    }
+
+    public struct LongIntEnumStructAutoFieldStruct
+    {
+        public byte _0;
+        public LongIntEnumStructAuto _struct;
+    }
+
+    [StructLayout(LayoutKind.Auto)]
+    public struct IntShortEnumStructAuto
+    {
+        public IntEnum _1;
+        public ShortEnum _2;
+        public IntEnum _3;
+        public ShortEnum _4;
+    }
+
+    public struct IntShortEnumStructAutoFieldStruct
+    {
+        public byte _0;
+        public IntShortEnumStructAuto _struct;
+    }
+
+    [StructLayout(LayoutKind.Auto)]
+    public struct ShortByteEnumStructAuto
+    {
+        public ShortEnum _1;
+        public ByteEnum _2;
+        public ShortEnum _3;
+        public ByteEnum _4;
+    }
+
+    public struct ShortByteEnumStructAutoFieldStruct
+    {
+        public byte _0;
+        public ShortByteEnumStructAuto _struct;
+    }
+
+    public static void SetFieldOnStruct<T>(object obj, string name, int value)
+    {
+        var field = typeof(T).GetField(name);
+        object setValueObject = value;
+        if (Marshal.SizeOf(field.FieldType.GetEnumUnderlyingType()) == 1)
+        {
+            setValueObject = (byte)value;
+        }
+        if (Marshal.SizeOf(field.FieldType.GetEnumUnderlyingType()) == 2)
+        {
+            setValueObject = (short)value;
+        }
+        if (Marshal.SizeOf(field.FieldType.GetEnumUnderlyingType()) == 8)
+        {
+            setValueObject = (long)value;
+        }
+
+        field.SetValue(obj, setValueObject);
+    }
+
+    public static T GetStructWithValues<T>()
+    {
+        object obj = Activator.CreateInstance(typeof(T));
+        SetFieldOnStruct<T>(obj, "_1", 1);
+        SetFieldOnStruct<T>(obj, "_2", 2);
+        SetFieldOnStruct<T>(obj, "_3", 3);
+        SetFieldOnStruct<T>(obj, "_4", 4);
+        return (T)obj;
+    }
+
+    public static bool TestEnumLayoutAlignments()
+    {
+        {
+            var val = GetStructWithValues<LongIntEnumStruct>();
+            if (((int)val._1) != 1)
+                throw new Exception();
+            if (((int)val._2) != 2)
+                throw new Exception();
+            if (((int)val._3) != 3)
+                throw new Exception();
+            if (((int)val._4) != 4)
+                throw new Exception();
+
+            var valStruct = default(LongIntEnumStructFieldStruct);
+            valStruct._struct = val;
+            Console.WriteLine(valStruct.ToString());
+        }
+
+        {
+            var val = GetStructWithValues<IntShortEnumStruct>();
+            if (((int)val._1) != 1)
+                throw new Exception();
+            if (((int)val._2) != 2)
+                throw new Exception();
+            if (((int)val._3) != 3)
+                throw new Exception();
+            if (((int)val._4) != 4)
+                throw new Exception();
+
+            var valStruct = default(IntShortEnumStructFieldStruct);
+            valStruct._struct = val;
+            Console.WriteLine(valStruct.ToString());
+        }
+
+        {
+            var val = GetStructWithValues<ShortByteEnumStruct>();
+            if (((int)val._1) != 1)
+                throw new Exception();
+            if (((int)val._2) != 2)
+                throw new Exception();
+            if (((int)val._3) != 3)
+                throw new Exception();
+            if (((int)val._4) != 4)
+                throw new Exception();
+
+            var valStruct = default(ShortByteEnumStructFieldStruct);
+            valStruct._struct = val;
+            Console.WriteLine(valStruct.ToString());
+        }
+
+        {
+            var val = GetStructWithValues<LongIntEnumStructAuto>();
+            if (((int)val._1) != 1)
+                throw new Exception();
+            if (((int)val._2) != 2)
+                throw new Exception();
+            if (((int)val._3) != 3)
+                throw new Exception();
+            if (((int)val._4) != 4)
+                throw new Exception();
+
+            var valStruct = default(LongIntEnumStructAutoFieldStruct);
+            valStruct._struct = val;
+            Console.WriteLine(valStruct.ToString());
+        }
+
+        {
+            var val = GetStructWithValues<IntShortEnumStructAuto>();
+            if (((int)val._1) != 1)
+                throw new Exception();
+            if (((int)val._2) != 2)
+                throw new Exception();
+            if (((int)val._3) != 3)
+                throw new Exception();
+            if (((int)val._4) != 4)
+                throw new Exception();
+
+            var valStruct = default(IntShortEnumStructAutoFieldStruct);
+            valStruct._struct = val;
+            Console.WriteLine(valStruct.ToString());
+        }
+
+        {
+            var val = GetStructWithValues<ShortByteEnumStructAuto>();
+            if (((int)val._1) != 1)
+                throw new Exception();
+            if (((int)val._2) != 2)
+                throw new Exception();
+            if (((int)val._3) != 3)
+                throw new Exception();
+            if (((int)val._4) != 4)
+                throw new Exception();
+
+            var valStruct = default(ShortByteEnumStructAutoFieldStruct);
+            valStruct._struct = val;
+            Console.WriteLine(valStruct.ToString());
+        }
+
+        return true;
+    }
+
+    public static int Main()
     {
         _passedTests = new List<string>();
         _failedTests = new List<string>();
 
         TextFileName = EmitTextFileForTesting();
 
+        RunTest("CallMethodUsingMemberRefToDerivedWhereMethodIsActuallyOnBase_NonGenericCaller", HelperILDllTests.CallMethodUsingMemberRefToDerivedWhereMethodIsActuallyOnBase_NonGenericCaller());
+        RunTest("CallMethodUsingMemberRefToDerivedWhereMethodIsActuallyOnBase_GenericCaller", HelperILDllTests.CallMethodUsingMemberRefToDerivedWhereMethodIsActuallyOnBase_GenericCaller());
+        RunTest("CallMethodUsingMemberRefToDerivedWhereMethodIsActuallyOnBase_GenericCreateDelegate", HelperILDllTests.CallMethodUsingMemberRefToDerivedWhereMethodIsActuallyOnBase_GenericCreateDelegate());
+        RunTest("CallGenMethodUsingMemberRefToDerivedWhereMethodIsActuallyOnBase_NonGenericCaller", HelperILDllTests.CallGenMethodUsingMemberRefToDerivedWhereMethodIsActuallyOnBase_NonGenericCaller());
+        RunTest("CallGenMethodUsingMemberRefToDerivedWhereMethodIsActuallyOnBase_GenericCaller", HelperILDllTests.CallGenMethodUsingMemberRefToDerivedWhereMethodIsActuallyOnBase_GenericCaller());
         RunTest("NewString", NewString());
         RunTest("WriteLine", WriteLine());
         RunTest("IsInstanceOf", IsInstanceOf());
@@ -1878,6 +2262,8 @@ internal class Program
         RunTest("ObjectGetTypeOnGenericParamTest", ObjectGetTypeOnGenericParamTest());
         RunTest("ObjectToStringOnGenericParamTestSByte", ObjectToStringOnGenericParamTestSByte());
         RunTest("ObjectToStringOnGenericParamTestVersionBubbleLocalStruct", ObjectToStringOnGenericParamTestVersionBubbleLocalStruct());
+        RunTest("BoxedInterfaceUnboxingStubTest", BoxedInterfaceUnboxingStubTest());
+        RunTest("BoxedInterfaceGenericUnboxingStubTest", BoxedInterfaceGenericUnboxingStubTest());
         RunTest("EnumValuesToStringTest", EnumValuesToStringTest());
         RunTest("DelegateFromAnotherModuleTest", DelegateFromAnotherModuleTest());
         RunTest("SealedDefaultInterfaceMethodTest", SealedDefaultInterfaceMethodTest());
@@ -1888,7 +2274,8 @@ internal class Program
         RunTest("ArrayLdtokenTests", ArrayLdtokenTests());
         RunTest("TestGenericMDArrayBehavior", TestGenericMDArrayBehavior());
         RunTest("TestWithStructureNonBlittableFieldDueToGenerics", TestWithStructureNonBlittableFieldDueToGenerics());
-
+        RunTest("TestSingleElementStructABI", TestSingleElementStructABI());
+        RunTest("TestEnumLayoutAlignments", TestEnumLayoutAlignments());
         File.Delete(TextFileName);
 
         Console.WriteLine($@"{_passedTests.Count} tests pass:");
@@ -1896,7 +2283,7 @@ internal class Program
         {
             Console.WriteLine($@"    {testName}");
         }
-        
+
         if (_failedTests.Count == 0)
         {
             Console.WriteLine($@"All {_passedTests.Count} tests pass!");
@@ -1904,12 +2291,12 @@ internal class Program
         }
         else
         {
-            Console.Error.WriteLine($@"{_failedTests.Count} test failed:");
+            Console.Error.WriteLine($@"{_failedTests.Count} tests failed:");
             foreach (string testName in _failedTests)
             {
                 Console.Error.WriteLine($@"    {testName}");
             }
-            return 1;
+            return 101;
         }
     }
 

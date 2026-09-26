@@ -6,8 +6,10 @@
 using System;
 using System.IO;
 using System.Runtime.CompilerServices;
+using Xunit;
+using TestLibrary;
 
-public class Test {
+public class Test_finalizeio {
 
     public class Dummy {
 
@@ -51,7 +53,10 @@ public class Test {
         }
     }
 
-    public static int Main() {
+    [ActiveIssue("PlatformDetection.IsPreciseGcSupported false on mono", TestRuntimes.Mono)]
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint() {
         CreateObj temp = new CreateObj();
 
         using (StreamWriter writer = File.CreateText("temp.txt"))

@@ -1,91 +1,122 @@
-Requirements to build dotnet/runtime on Windows.
-========================
+# Requirements to Set Up the Build Environment on Windows
 
-These instructions will lead you through the requirements to build dotnet/runtime on Windows.
+- [Tools and Configuration](#tools-and-configuration)
+  - [Git for Windows](#git-for-windows)
+  - [Enable Long Paths](#enable-long-paths)
+  - [Visual Studio](#visual-studio)
+    - [Workloads](#workloads)
+    - [Individual Development Tools](#individual-development-tools)
+  - [Powershell](#powershell)
+  - [The .NET SDK](#the-net-sdk)
+- [Setting Environment Variables on Windows](#setting-environment-variables-on-windows)
 
-----------------
-# Environment
+To build the runtime repo on *Windows*, you will need to install *Visual Studio*, as well as certain development tools that go with it, independently of the IDE, which are described in the following sections.
 
-You must install several components to build the dotnet/runtime repository. These instructions were tested on Windows 10 Pro, version 1903.
+## Tools and Configuration
 
-## Enable Long Paths
+### Git for Windows
 
-The runtime repository requires long paths to be enabled. Follow [the instructions provided here](https://docs.microsoft.com/en-us/windows/win32/fileio/naming-a-file#enable-long-paths-in-windows-10-version-1607-and-later) to enable that feature.
+- First of all, download and install [Git for Windows](https://git-scm.com/download/win) (minimum required version is 2.22.0).
+- The installer by default should add `Git` to your `PATH` environment variable, or at least have a checkbox where you can instruct it to do so. If it doesn't, or you'd prefer to set it later yourself, you can follow the instructions in the [Setting Environment Variables on Windows](#setting-environment-variables-on-windows) section of this doc.
 
-If using Git for Windows you might need to also configure long paths there. Using an admin terminal simply type:
-```cmd
+### Enable Long Paths
+
+The runtime repo requires long paths to be enabled both, on Windows itself and on *Git*. To configure them on *Git*, open a terminal with administrator privileges and enter the following command:
+
+```powershell
 git config --system core.longpaths true
 ```
 
-## Visual Studio
+The reason this has to be done is that *Git for Windows* is compiled with **MSYS**, which uses a version of the Windows API that has a filepath limit of 260 characters total, as opposed to the usual limit of 4096 on macOS and Linux.
 
-- Install [Visual Studio 2019](https://visualstudio.microsoft.com/downloads/). The Community edition is available free of charge.
+Next, to configure the long paths for Windows itself, follow the instructions provided [in this link](https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation?tabs=registry#enable-long-paths-in-windows-10-version-1607-and-later).
 
-Visual Studio 2019 installation process:
-- It's recommended to use 'Workloads' installation approach. The following are the minimum requirements:
-  - .NET Desktop Development with all default components.
-  - Desktop Development with C++ with all default components.
-- To build for Arm32 or Arm64, make sure that you have the right architecture-specific compilers installed. In the "Individual components" window, in the "Compilers, build tools, and runtimes" section:
-  - For Arm32, check the box for "MSVC v142 - VS 2019 C++ ARM build tools (v14.23 or newer)".
-  - For Arm64, check the box for "MSVC v142 - VS 2019 C++ ARM64 build tools (v14.23 or newer)".
-- To build the tests, you will need some additional components:
-  - Windows 10 SDK component version 10.0.18362 or newer. This component is installed by default as a part of 'Desktop Development with C++' workload.
-  - C++/CLI support for v142 build tools (v14.23 or newer)
+If long paths are not enabled, you might start running into issues since trying to clone the repo. Especially with libraries that have very long filenames, you might get errors like `Unable to create file: Filename too long` during the cloning process.
 
-A `.vsconfig` file is included in the root of the dotnet/runtime repository that includes all components needed to build the dotnet/runtime repository. You can [import `.vsconfig` in your Visual Studio installer](https://docs.microsoft.com/en-us/visualstudio/install/import-export-installation-configurations?view=vs-2019#import-a-configuration) to install all necessary components.
+### Visual Studio
 
-The dotnet/runtime repository requires at least Visual Studio 2019 16.6.
+Download and install the [latest version of Visual Studio](https://visualstudio.microsoft.com/downloads/) (minimum version required is VS 2022 17.8). The **Community Edition** is available free of charge. Note that as we ramp up on a given release, the libraries code may start using preview language features. While older versions of the IDE may still succeed in building the projects, the IDE may report mismatched diagnostics in the *Errors and Warnings* window. Using the latest public preview of Visual Studio fixes these cases and helps ensure the IDE experience is well behaved and displays what we would expect it to properly.
 
-## CMake
+Note that Visual Studio and its development tools are required, regardless of whether you plan to use the IDE or not.
 
-- Install [CMake](https://cmake.org/download) for Windows.
-- Add its location (e.g. C:\Program Files (x86)\CMake\bin) to the PATH environment variable.
-  The installation script has a check box to do this, but you can do it yourself after the fact following the instructions at [Adding to the Default PATH variable](#adding-to-the-default-path-variable).
+#### Workloads
 
-The dotnet/runtime repository requires at least CMake 3.15.5.
+It is highly recommended to use the *Workloads* approach, as that installs the full bundles, which include all the necessary tools for the repo to work properly. Open up *Visual Studio Installer*, and click on *Modify* on the Visual Studio installation you plan to use. There, click on the *Workloads* tab (usually selected by default), and install the following bundles:
 
-## Python
+- .NET desktop development
+- Desktop development with C++
 
-- Install [Python](https://www.python.org/downloads/) for Windows.
-- Add its location (e.g. C:\Python*\) to the PATH environment variable.
-  The installation script has a check box to do this, but you can do it yourself after the fact following the instructions at [Adding to the Default PATH variable](#adding-to-the-default-path-variable).
+To build the tests and do ARM64 development, you'll need some additional components. You can find them by clicking on the *Individual components* tab in the *Visual Studio Installer*:
 
-The dotnet/runtime repository requires at least Python 3.7.4.
+- For Arm64: *MSVC v143 - VS 2022 C++ ARM64/ARM64EC build tools (Latest)*
+- For building tests: *C++/CLI support for v143 build tools (Latest)*
 
-## Git
+Alternatively, there is also a `.vsconfig` file included at the root of the runtime repo. It includes all the necessary components required, outlined in a JSON format that Visual Studio can read and parse. You can boot up Visual Studio directly and [import this `.vsconfig` file](https://learn.microsoft.com/visualstudio/install/import-export-installation-configurations?view=vs-2022#import-a-configuration) instead of installing the workloads yourself. It is worth mentioning however, that while we are very careful in maintaining this file up-to-date, sometimes it might get a tad obsolete and miss important components. So, it is always a good idea to double check that the full workloads are installed.
 
-- Install [Git](https://git-for-windows.github.io/) for Windows.
-- Add its location (e.g. C:\Program Files\Git\cmd) to the PATH environment variable.
-  The installation script has a check box to do this, but you can do it yourself after the fact following the instructions at [Adding to the Default PATH variable](#adding-to-the-default-path-variable).
+#### Individual Development Tools
 
-The dotnet/runtime repository requires at least Git 2.22.0.
+All the tools you need should've been installed by Visual Studio at this point. Some of those tools, however, may not have been installed or you might prefer installing them yourself from their own sources. The main process for this is to download their installers and follow their setup. Said installers usually also prompt you to add them automatically to your `PATH` environment variable. If you miss this option, or prefer to set them yourself later on, you can follow the instructions in the [Setting Environment Variables on Windows](#setting-environment-variables-on-windows) section of this doc.
 
-## PowerShell
+Here are the links where you can download these tools:
 
-- Ensure that `powershell.exe` is accessible via the PATH environment variable. Typically this is `%SYSTEMROOT%\System32\WindowsPowerShell\v1.0\` and its automatically set upon Windows installation.
-- Powershell version must be 3.0 or higher. Use `$PSVersionTable.PSVersion` to determine the engine version.
+- *CMake*: https://cmake.org/download (minimum required version is 3.26)
+- *Ninja*: https://github.com/ninja-build/ninja/releases (latest version is most recommended)
+- *Python*: https://www.python.org/downloads/windows (minimum required version is 3.7.4)
 
-## .NET SDK
+**NOTE:** If you plan on using *MSBuild* instead of *Ninja* to build the native components, then the minimum required CMake version is 3.21 instead. This is because the VS2022 generator doesn't exist in CMake until said version.
 
-While not strictly needed to build or test this repository, having the .NET SDK installed lets you browse solution files in this repository with Visual Studio and use the dotnet.exe command to run .NET applications in the 'normal' way.
-We use this in the [Using Your Build](../testing/using-your-build.md) instructions.
-The minimum required version of the SDK is specified in the [global.json file](https://github.com/dotnet/runtime/blob/master/global.json#L3). [You can find the installers and binaries for nightly builds of .NET SDK here](https://github.com/dotnet/installer#installers-and-binaries).
+### Powershell
 
-Alternatively, to avoid modifying your machine state, you can use the repository's locally acquired SDK by passing in the solution to load via the `-vs` switch:
+The runtime repo also uses some `powershell` scripts as part of the Windows builds, so ensure it is accessible via your `PATH` environment variable. It is located in `%SYSTEMROOT%\System32\WindowsPowerShell\v1.0` and should be all set since you first installed Windows, but it never hurts to double check.
 
-```
-build.cmd -vs System.Text.RegularExpressions
+<!-- TODO: Talk about the new Powershell, which is multi-platform and is in active development, as opposed to Windows Powershell that is in just maintenance mode now. -->
+The minimum required version is 3.0, and your Windows installation should have it. You can verify this by checking the `$PSVersionTable.PSVersion` variable in a Powershell terminal.
+
+### The .NET SDK
+
+While not strictly needed to build or test this repository, having the .NET SDK installed lets you browse solution files in the codebase with Visual Studio and use the `dotnet.exe` command to build and run .NET applications in the 'normal' way.
+
+We use this in the [build testing with the installed SDK](/docs/workflow/testing/using-your-build-with-installed-sdk.md), and [build testing with dev shipping packages](/docs/workflow/testing/using-dev-shipping-packages.md) instructions. The minimum required version of the SDK is specified in the [global.json file](https://github.com/dotnet/runtime/blob/main/global.json#L3). You can find the nightly installers and binaries for the latest development builds over in the [SDK repo](https://github.com/dotnet/sdk#installing-the-sdk).
+
+Alternatively, if you would rather avoid modifying your machine state, you can use the repository's locally acquired SDK by passing in the solution to load via the `-vs` switch. For example:
+
+```cmd
+.\build.cmd -vs System.Text.RegularExpressions
 ```
 
-This will set the `DOTNET_ROOT` and `PATH` environment variables to point to the locally acquired SDK under `runtime\.dotnet\` and will launch the Visual Studio instance which is registered for the `sln` extension.
+This will set the `DOTNET_ROOT` and `PATH` environment variables to point to the locally acquired SDK under the `.dotnet` directory found at the root of the repo for the duration of this terminal session. Then, it will launch the Visual Studio instance that is registered for the `.slnx` extension, and open the solution you passed as argument to the command-line.
 
-## Adding to the default PATH variable
+## Installing dependencies with winget
 
-The commands above need to be on your command lookup path.   Some installers will automatically add them to the path as part of the installation, but if not here is how you can do it.
+All the tools mentioned above can be installed with the [Windows Package Manager](https://learn.microsoft.com/windows/package-manager/winget/):
+```ps1
+winget install -e --id Kitware.CMake
+winget install -e --id Python.Python.3.14
+winget install -e --id Git.Git
+winget install -e --id Ninja-build.Ninja
+winget install -e --id Microsoft.VisualStudio.Community --override "--passive --wait --config $PWD\.vsconfig"
+```
 
-You can, of course, add a directory to the PATH environment variable with the syntax `set PATH=%PATH%;DIRECTORY_TO_ADD_TO_PATH`.
+The last command installs the components listed in the repo's [`.vsconfig`](https://github.com/dotnet/runtime/blob/main/.vsconfig), so run it from the root of your clone.
 
-However, the change above will only last until the command windows close.
-You can make your change to the PATH variable persistent by going to  Control Panel -> System And Security -> System -> Advanced system settings -> Environment Variables,
-and select the 'Path' variable in the 'System variables' (if you want to change it for all users) or 'User variables' (if you only want to change it for the current user).
-Simply edit the PATH variable's value and add the directory (with a semicolon separator).
+## Setting Environment Variables on Windows
+
+As mentioned in the sections above, the commands that run the development tools have to be in your `PATH` environment variable. Their installers usually have the option to do it automatically for you enabled by the default, but if for any reason you need to set them yourself, here is how you can do it. There are two options. You can make them last only for that terminal instance, or you can set them directly to the system to make them permanent.
+
+**Temporary for the Duration of the Terminal Session**
+
+If you're on *Command Prompt*, issue the following command:
+
+```cmd
+set PATH=%PATH%;<path_to_directory_you_want_to_add>
+```
+
+If you're on *Powershell*, then the command looks like this:
+
+```powershell
+$Env:PATH += ";<path_to_directory_you_want_to_add>"
+```
+
+**Permanently on the System**
+
+To make your environment variables changes persistent, open *Control Panel*. There, click on *System and Security* -> *System* -> *Advanced System Settings* -> *Environment Variables*. Then, there you'll notice there are two `PATH` environment variables: One under `User Variables`, and one under `System Variables`. If you want to make the changes persistent only for your current user, then edit the former one, and if you want them to spread across all accounts in that machine, then edit the latter one.

@@ -2,12 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic;
 using System.Linq.Expressions;
 using System.Runtime.InteropServices;
 
 namespace Microsoft.CSharp.RuntimeBinder.ComInterop
 {
+    [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+    [RequiresDynamicCode(Binder.DynamicCodeWarning)]
     internal sealed class BoundDispEvent : DynamicObject
     {
         private readonly object _rcw;
@@ -73,7 +76,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
         /// <returns>The original event with handler added.</returns>
         private object InPlaceAdd(object handler)
         {
-            Requires.NotNull(handler, nameof(handler));
+            Requires.NotNull(handler);
             VerifyHandler(handler);
 
             ComEventsSink comEventSink = ComEventsSink.FromRuntimeCallableWrapper(_rcw, _sourceIid, true);
@@ -88,7 +91,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
         /// <returns>The original event with handler removed.</returns>
         private object InPlaceSubtract(object handler)
         {
-            Requires.NotNull(handler, nameof(handler));
+            Requires.NotNull(handler);
             VerifyHandler(handler);
 
             ComEventsSink comEventSink = ComEventsSink.FromRuntimeCallableWrapper(_rcw, _sourceIid, false);

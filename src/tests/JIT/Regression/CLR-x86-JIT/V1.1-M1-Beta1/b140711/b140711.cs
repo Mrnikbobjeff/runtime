@@ -2,12 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-class BadMath
+namespace b140711;
+
+using System;
+using Xunit;
+
+public class BadMath
 {
     public static double[,] Res = new double[2, 40];
-    static int Main(string[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
 
         double t0 = 1.5;

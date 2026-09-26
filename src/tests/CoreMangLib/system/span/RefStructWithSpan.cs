@@ -4,6 +4,8 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 ref struct MyStruct<A, B>
 {
@@ -44,11 +46,12 @@ ref struct MyStruct<A, B>
     }
 }
 
-class My
+public class My
 {
+    private static volatile bool TestComplete;
     static void Stress()
     {
-        for (; ; )
+        while (!TestComplete)
         {
             GC.Collect();
             Thread.Sleep(1);
@@ -58,7 +61,7 @@ class My
     static void Churn()
     {
         Random r = new Random();
-        for (; ; )
+        while (!TestComplete)
         {
             var a = new int[1 + r.Next(100)];
             a[0] = a.Length;
@@ -68,7 +71,10 @@ class My
 
     public static int[][] g = new int[10000][];
 
-    static int Main()
+    [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+    [OuterLoop]
+    [SkipOnCoreClr("Incompatible with GC stress", RuntimeTestModes.AnyGCStress)]
+    public static int TestEntryPoint()
     {
         int[] empty = new int[] { 1 };
         for (int i = 0; i < g.Length; i++)
@@ -77,9 +83,9 @@ class My
         var t = new Thread(Stress);
         t.IsBackground = true;
         t.Start();
-        t = new Thread(Churn);
-        t.IsBackground = true;
-        t.Start();
+        var t2 = new Thread(Churn);
+        t2.IsBackground = true;
+        t2.Start();
 
         int result = 100; // pass
         try
@@ -90,6 +96,10 @@ class My
         {
             result = 1; // fail
         }
+
+        TestComplete = true;
+        t.Join();
+        t2.Join();
         return result;
     }
 }

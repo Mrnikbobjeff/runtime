@@ -7,24 +7,14 @@ namespace System.Configuration
 {
     public sealed class SettingValueElement : ConfigurationElement
     {
-        private static volatile ConfigurationPropertyCollection _properties;
+        private static ConfigurationPropertyCollection _properties;
         private static readonly XmlDocument _document = new XmlDocument();
 
         private XmlNode _valueXml;
         private bool _isModified;
 
-        protected internal override ConfigurationPropertyCollection Properties
-        {
-            get
-            {
-                if (_properties == null)
-                {
-                    _properties = new ConfigurationPropertyCollection();
-                }
-
-                return _properties;
-            }
-        }
+        protected internal override ConfigurationPropertyCollection Properties =>
+            _properties ??= new ConfigurationPropertyCollection();
 
         public XmlNode ValueXml
         {

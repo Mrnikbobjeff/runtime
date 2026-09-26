@@ -7,8 +7,9 @@
 // Best-scoring C# .NET Core version as of 2017-09-01
 
 /* The Computer Language Benchmarks Game
+using TestLibrary;
    http://benchmarksgame.alioth.debian.org/
- 
+
    Regex-Redux by Josh Goldfoot
    order variants by execution time by Anthony Lloyd
 */
@@ -17,10 +18,8 @@ using System;
 using System.IO;
 using System.Threading.Tasks;
 using System.Text.RegularExpressions;
-using Microsoft.Xunit.Performance;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
+using TestLibrary;
 
 namespace BenchmarksGame
 {
@@ -40,7 +39,12 @@ namespace BenchmarksGame
             return r + " " + c;
         }
 
-        public static int Main(string[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/41472", typeof(PlatformDetection), nameof(PlatformDetection.IsNotMultithreadingSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/54906", TestPlatforms.Android)]
+        [ActiveIssue("((null) error) * Assertion at runtime/src/mono/mono/metadata/assembly.c:2049, condition `is_ok (error)' not met, function:mono_assembly_load_friends, Could not load file or assembly 'xunit.performance.core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67066efe964d3b03' or one of its dependencies.", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             var helpers = new TestHarnessHelpers(bigInput: false);
 
@@ -54,21 +58,6 @@ namespace BenchmarksGame
             }
 
             return 100;
-        }
-
-        [Benchmark(InnerIterationCount = 14)]
-        public static void RunBench()
-        {
-            var helpers = new TestHarnessHelpers(bigInput: true);
-
-            Benchmark.Iterate(() =>
-            {
-                using (var inputStream = helpers.GetInputStream())
-                using (var input = new StreamReader(inputStream))
-                {
-                    Assert.Equal(helpers.ExpectedLength, Bench(input, false));
-                }
-            });
         }
 
         static int Bench(TextReader inputReader, bool verbose)

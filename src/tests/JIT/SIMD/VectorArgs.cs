@@ -4,6 +4,9 @@
 
 using System;
 using System.Numerics;
+using Xunit;
+
+namespace SIMDTests.VectorArgsTests;
 
 internal class Color
 {
@@ -29,7 +32,7 @@ internal class Color
     public Vector<float> RGB { get { return _rgb; } }
 }
 
-internal partial class VectorTest
+public partial class VectorTest : VectorTestBase
 {
     private static int VectorArgs()
     {
@@ -59,7 +62,8 @@ internal partial class VectorTest
         return Pass;
     }
 
-    private static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         return VectorArgs();
     }

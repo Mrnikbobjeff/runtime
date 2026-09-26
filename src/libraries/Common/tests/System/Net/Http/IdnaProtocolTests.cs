@@ -15,19 +15,12 @@ namespace System.Net.Http.Functional.Tests
 
     public abstract class IdnaProtocolTests : HttpClientHandlerTestBase
     {
-        protected abstract bool SupportsIdna { get; }
-
         public IdnaProtocolTests(ITestOutputHelper output) : base(output) { }
 
         [Theory]
         [MemberData(nameof(InternationalHostNames))]
         public async Task InternationalUrl_UsesIdnaEncoding_Success(string hostname)
         {
-            if (!SupportsIdna)
-            {
-                return;
-            }
-
             Uri uri = new Uri($"http://{hostname}/");
 
             await LoopbackServer.CreateServerAsync(async (server, serverUrl) =>
@@ -40,7 +33,7 @@ namespace System.Net.Http.Functional.Tests
 
                 using (HttpClient client = CreateHttpClient(handler))
                 {
-                    Task<HttpResponseMessage> getResponseTask = client.GetAsync(uri);
+                    Task<HttpResponseMessage> getResponseTask = client.GetAsync(TestAsync, uri);
                     Task<List<string>> serverTask = server.AcceptConnectionSendResponseAndCloseAsync();
 
                     await TestHelper.WhenAllCompletedOrAnyFailed(getResponseTask, serverTask);
@@ -59,11 +52,6 @@ namespace System.Net.Http.Functional.Tests
         [MemberData(nameof(InternationalHostNames))]
         public async Task InternationalRequestHeaderValues_UsesIdnaEncoding_Success(string hostname)
         {
-            if (!SupportsIdna)
-            {
-                return;
-            }
-
             Uri uri = new Uri($"http://{hostname}/");
 
             await LoopbackServer.CreateServerAsync(async (server, serverUrl) =>
@@ -91,11 +79,6 @@ namespace System.Net.Http.Functional.Tests
         [MemberData(nameof(InternationalHostNames))]
         public async Task InternationalResponseHeaderValues_UsesIdnaDecoding_Success(string hostname)
         {
-            if (!SupportsIdna)
-            {
-                return;
-            }
-
             Uri uri = new Uri($"http://{hostname}/");
 
             await LoopbackServer.CreateServerAsync(async (server, serverUrl) =>

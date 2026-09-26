@@ -16,6 +16,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
             CloseHandle _
                 Lib "kernel32" (ByVal hObject As IntPtr) As Integer
 
+#Disable Warning CA1838 ' Avoid 'StringBuilder' parameters for P/Invokes
         <DllImport(
              "kernel32",
              CharSet:=CharSet.Auto,
@@ -32,6 +33,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
              ByVal lpFileSystemNameBuffer As IntPtr,
              ByVal nFileSystemNameSize As Integer) As Integer
         End Function
+#Enable Warning CA1838
 
         ''' <summary>
         ''' Given a 32-bit SHFILEOPSTRUCT, call the appropriate SHFileOperation function
@@ -207,10 +209,6 @@ Namespace Microsoft.VisualBasic.CompilerServices
         ''' <param name="uFlags">Flags that indicate the meaning of the dwItem1 and dwItem2 parameter. See ShellChangeNotificationFlags.</param>
         ''' <param name="dwItem1">First event-dependent value.</param>
         ''' <param name="dwItem2">Second event-dependent value.</param>
-        ''' <remarks>
-        ''' Win 95/98/Me: SHChangeNotify is supported by Microsoft Layer for Unicode.
-        ''' To use this http://msdn.microsoft.com/library/default.asp?url=/library/en-us/mslu/winprog/microsoft_layer_for_unicode_on_windows_95_98_me_systems.asp
-        ''' </remarks>
         <DllImport("shell32.dll", CharSet:=CharSet.Auto, SetLastError:=True)>
         Friend Shared Sub SHChangeNotify(ByVal wEventId As UInt32, ByVal uFlags As UInt32,
                 ByVal dwItem1 As IntPtr, ByVal dwItem2 As IntPtr)

@@ -2,9 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-struct test
+namespace b48248;
+
+using System;
+using Xunit;
+
+public struct test
 {
     public String str;
     public int int1;
@@ -26,13 +30,13 @@ struct test
         int6 = i;
         int7 = i;
     }
-    public static int Main(String[] args)
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         test t = new test();
 
         if (t.str != null)
             Console.WriteLine("Got String");
-
-        return 100;
     }
 }

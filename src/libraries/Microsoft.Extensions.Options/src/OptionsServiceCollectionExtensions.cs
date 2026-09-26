@@ -4,8 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
-using System.Linq;
-using System.Reflection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 
@@ -23,12 +21,9 @@ namespace Microsoft.Extensions.DependencyInjection
         /// <returns>The <see cref="IServiceCollection"/> so that additional calls can be chained.</returns>
         public static IServiceCollection AddOptions(this IServiceCollection services)
         {
-            if (services == null)
-            {
-                throw new ArgumentNullException(nameof(services));
-            }
+            ArgumentNullException.ThrowIfNull(services);
 
-            services.TryAdd(ServiceDescriptor.Singleton(typeof(IOptions<>), typeof(OptionsManager<>)));
+            services.TryAdd(ServiceDescriptor.Singleton(typeof(IOptions<>), typeof(UnnamedOptionsManager<>)));
             services.TryAdd(ServiceDescriptor.Scoped(typeof(IOptionsSnapshot<>), typeof(OptionsManager<>)));
             services.TryAdd(ServiceDescriptor.Singleton(typeof(IOptionsMonitor<>), typeof(OptionsMonitor<>)));
             services.TryAdd(ServiceDescriptor.Transient(typeof(IOptionsFactory<>), typeof(OptionsFactory<>)));
@@ -37,8 +32,51 @@ namespace Microsoft.Extensions.DependencyInjection
         }
 
         /// <summary>
+        /// Adds services required for using options and enforces options validation check on start rather than at run time.
+        /// </summary>
+        /// <remarks>
+        /// The <see cref="OptionsBuilderExtensions.ValidateOnStart{TOptions}(OptionsBuilder{TOptions})"/> extension is called by this method.
+        /// </remarks>
+        /// <typeparam name="TOptions">The options type to be configured.</typeparam>
+        /// <param name="services">The <see cref="IServiceCollection"/> to add the services to.</param>
+        /// <param name="name">The name of the options instance.</param>
+        /// <returns>The <see cref="OptionsBuilder{TOptions}"/> so that configure calls can be chained in it.</returns>
+        public static OptionsBuilder<TOptions> AddOptionsWithValidateOnStart<
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions>(
+            this IServiceCollection services,
+            string? name = null)
+            where TOptions : class
+        {
+            return new OptionsBuilder<TOptions>(services, name ?? Options.Options.DefaultName).ValidateOnStart();
+        }
+
+        /// <summary>
+        /// Adds services required for using options and enforces options validation check on start rather than at run time.
+        /// </summary>
+        /// <remarks>
+        /// The <see cref="OptionsBuilderExtensions.ValidateOnStart{TOptions}(OptionsBuilder{TOptions})"/> extension is called by this method.
+        /// The validator registration is not scoped to <paramref name="name"/>. The name selects the options instance
+        /// evaluated during startup; the validator determines which names it validates.
+        /// </remarks>
+        /// <typeparam name="TOptions">The options type to be configured.</typeparam>
+        /// <typeparam name="TValidateOptions">The <see cref="IValidateOptions{TOptions}"/> validator type.</typeparam>
+        /// <param name="services">The <see cref="IServiceCollection"/> to add the services to.</param>
+        /// <param name="name">The name of the options instance.</param>
+        /// <returns>The <see cref="OptionsBuilder{TOptions}"/> so that configure calls can be chained in it.</returns>
+        public static OptionsBuilder<TOptions> AddOptionsWithValidateOnStart<
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] TOptions,
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] TValidateOptions>(
+            this IServiceCollection services,
+            string? name = null)
+            where TOptions : class
+            where TValidateOptions : class, IValidateOptions<TOptions>
+        {
+            services.AddOptions().TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<TOptions>, TValidateOptions>());
+            return new OptionsBuilder<TOptions>(services, name ?? Options.Options.DefaultName).ValidateOnStart();
+        }
+        /// <summary>
         /// Registers an action used to configure a particular type of options.
-        /// Note: These are run before all <seealso cref="PostConfigure{TOptions}(IServiceCollection, Action{TOptions})"/>.
+        /// Note: These are run before all <see cref="PostConfigure{TOptions}(IServiceCollection, Action{TOptions})"/>.
         /// </summary>
         /// <typeparam name="TOptions">The options type to be configured.</typeparam>
         /// <param name="services">The <see cref="IServiceCollection"/> to add the services to.</param>
@@ -49,25 +87,18 @@ namespace Microsoft.Extensions.DependencyInjection
 
         /// <summary>
         /// Registers an action used to configure a particular type of options.
-        /// Note: These are run before all <seealso cref="PostConfigure{TOptions}(IServiceCollection, Action{TOptions})"/>.
+        /// Note: These are run before all <see cref="PostConfigure{TOptions}(IServiceCollection, Action{TOptions})"/>.
         /// </summary>
         /// <typeparam name="TOptions">The options type to be configured.</typeparam>
         /// <param name="services">The <see cref="IServiceCollection"/> to add the services to.</param>
         /// <param name="name">The name of the options instance.</param>
         /// <param name="configureOptions">The action used to configure the options.</param>
         /// <returns>The <see cref="IServiceCollection"/> so that additional calls can be chained.</returns>
-        public static IServiceCollection Configure<TOptions>(this IServiceCollection services, string name, Action<TOptions> configureOptions)
+        public static IServiceCollection Configure<TOptions>(this IServiceCollection services, string? name, Action<TOptions> configureOptions)
             where TOptions : class
         {
-            if (services == null)
-            {
-                throw new ArgumentNullException(nameof(services));
-            }
-
-            if (configureOptions == null)
-            {
-                throw new ArgumentNullException(nameof(configureOptions));
-            }
+            ArgumentNullException.ThrowIfNull(services);
+            ArgumentNullException.ThrowIfNull(configureOptions);
 
             services.AddOptions();
             services.AddSingleton<IConfigureOptions<TOptions>>(new ConfigureNamedOptions<TOptions>(name, configureOptions));
@@ -86,7 +117,7 @@ namespace Microsoft.Extensions.DependencyInjection
 
         /// <summary>
         /// Registers an action used to initialize a particular type of options.
-        /// Note: These are run after all <seealso cref="Configure{TOptions}(IServiceCollection, Action{TOptions})"/>.
+        /// Note: These are run after all <see cref="Configure{TOptions}(IServiceCollection, Action{TOptions})"/>.
         /// </summary>
         /// <typeparam name="TOptions">The options type to be configured.</typeparam>
         /// <param name="services">The <see cref="IServiceCollection"/> to add the services to.</param>
@@ -97,25 +128,18 @@ namespace Microsoft.Extensions.DependencyInjection
 
         /// <summary>
         /// Registers an action used to configure a particular type of options.
-        /// Note: These are run after all <seealso cref="Configure{TOptions}(IServiceCollection, Action{TOptions})"/>.
+        /// Note: These are run after all <see cref="Configure{TOptions}(IServiceCollection, Action{TOptions})"/>.
         /// </summary>
         /// <typeparam name="TOptions">The options type to be configure.</typeparam>
         /// <param name="services">The <see cref="IServiceCollection"/> to add the services to.</param>
         /// <param name="name">The name of the options instance.</param>
         /// <param name="configureOptions">The action used to configure the options.</param>
         /// <returns>The <see cref="IServiceCollection"/> so that additional calls can be chained.</returns>
-        public static IServiceCollection PostConfigure<TOptions>(this IServiceCollection services, string name, Action<TOptions> configureOptions)
+        public static IServiceCollection PostConfigure<TOptions>(this IServiceCollection services, string? name, Action<TOptions> configureOptions)
             where TOptions : class
         {
-            if (services == null)
-            {
-                throw new ArgumentNullException(nameof(services));
-            }
-
-            if (configureOptions == null)
-            {
-                throw new ArgumentNullException(nameof(configureOptions));
-            }
+            ArgumentNullException.ThrowIfNull(services);
+            ArgumentNullException.ThrowIfNull(configureOptions);
 
             services.AddOptions();
             services.AddSingleton<IPostConfigureOptions<TOptions>>(new PostConfigureOptions<TOptions>(name, configureOptions));
@@ -124,7 +148,7 @@ namespace Microsoft.Extensions.DependencyInjection
 
         /// <summary>
         /// Registers an action used to post configure all instances of a particular type of options.
-        /// Note: These are run after all <seealso cref="Configure{TOptions}(IServiceCollection, Action{TOptions})"/>.
+        /// Note: These are run after all <see cref="Configure{TOptions}(IServiceCollection, Action{TOptions})"/>.
         /// </summary>
         /// <typeparam name="TOptions">The options type to be configured.</typeparam>
         /// <param name="services">The <see cref="IServiceCollection"/> to add the services to.</param>
@@ -146,28 +170,38 @@ namespace Microsoft.Extensions.DependencyInjection
             where TConfigureOptions : class
                 => services.ConfigureOptions(typeof(TConfigureOptions));
 
-        private static bool IsAction(Type type)
-            => (type.GetTypeInfo().IsGenericType && type.GetGenericTypeDefinition() == typeof(Action<>));
-
         private static IEnumerable<Type> FindConfigurationServices(Type type)
         {
-            IEnumerable<Type> serviceTypes = type
-                .GetTypeInfo()
-                .ImplementedInterfaces
-                .Where(t => t.GetTypeInfo().IsGenericType)
-                .Where(t =>
-                    t.GetGenericTypeDefinition() == typeof(IConfigureOptions<>) ||
-                    t.GetGenericTypeDefinition() == typeof(IPostConfigureOptions<>) ||
-                    t.GetGenericTypeDefinition() == typeof(IValidateOptions<>));
-            if (!serviceTypes.Any())
+            foreach (Type t in GetInterfacesOnType(type))
             {
-                throw new InvalidOperationException(
-                    IsAction(type)
-                    ? SR.Error_NoConfigurationServicesAndAction
-                    : SR.Error_NoConfigurationServices);
+                if (t.IsGenericType)
+                {
+                    Type gtd = t.GetGenericTypeDefinition();
+                    if (gtd == typeof(IConfigureOptions<>) ||
+                        gtd == typeof(IPostConfigureOptions<>) ||
+                        gtd == typeof(IValidateOptions<>))
+                    {
+                        yield return t;
+                    }
+                }
             }
-            return serviceTypes;
+
+            // Extracted the suppression to a local function as trimmer currently doesn't handle suppressions
+            // on iterator methods correctly.
+            [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2070:UnrecognizedReflectionPattern",
+                Justification = "This method only looks for interfaces referenced in its code. " +
+                    "The trimmer will keep the interface and thus all of its implementations in that case. " +
+                    "The call to GetInterfaces may return less results in trimmed apps, but it will " +
+                    "include the interfaces this method looks for if they should be there.")]
+            static Type[] GetInterfacesOnType(Type t)
+                => t.GetInterfaces();
         }
+
+        private static void ThrowNoConfigServices(Type type) =>
+            throw new InvalidOperationException(
+                type.IsGenericType && type.GetGenericTypeDefinition() == typeof(Action<>) ?
+                    SR.Error_NoConfigurationServicesAndAction :
+                    SR.Error_NoConfigurationServices);
 
         /// <summary>
         /// Registers a type that will have all of its <see cref="IConfigureOptions{TOptions}"/>,
@@ -182,11 +216,19 @@ namespace Microsoft.Extensions.DependencyInjection
             [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type configureType)
         {
             services.AddOptions();
-            IEnumerable<Type> serviceTypes = FindConfigurationServices(configureType);
-            foreach (Type serviceType in serviceTypes)
+
+            bool added = false;
+            foreach (Type serviceType in FindConfigurationServices(configureType))
             {
                 services.AddTransient(serviceType, configureType);
+                added = true;
             }
+
+            if (!added)
+            {
+                ThrowNoConfigServices(configureType);
+            }
+
             return services;
         }
 
@@ -201,11 +243,20 @@ namespace Microsoft.Extensions.DependencyInjection
         public static IServiceCollection ConfigureOptions(this IServiceCollection services, object configureInstance)
         {
             services.AddOptions();
-            IEnumerable<Type> serviceTypes = FindConfigurationServices(configureInstance.GetType());
-            foreach (Type serviceType in serviceTypes)
+            Type configureType = configureInstance.GetType();
+
+            bool added = false;
+            foreach (Type serviceType in FindConfigurationServices(configureType))
             {
                 services.AddSingleton(serviceType, configureInstance);
+                added = true;
             }
+
+            if (!added)
+            {
+                ThrowNoConfigServices(configureType);
+            }
+
             return services;
         }
 
@@ -225,16 +276,14 @@ namespace Microsoft.Extensions.DependencyInjection
         /// <param name="services">The <see cref="IServiceCollection"/> to add the services to.</param>
         /// <param name="name">The name of the options instance.</param>
         /// <returns>The <see cref="OptionsBuilder{TOptions}"/> so that configure calls can be chained in it.</returns>
-        public static OptionsBuilder<TOptions> AddOptions<TOptions>(this IServiceCollection services, string name)
+        public static OptionsBuilder<TOptions> AddOptions<TOptions>(this IServiceCollection services, string? name)
             where TOptions : class
         {
-            if (services == null)
-            {
-                throw new ArgumentNullException(nameof(services));
-            }
+            ArgumentNullException.ThrowIfNull(services);
 
             services.AddOptions();
             return new OptionsBuilder<TOptions>(services, name);
         }
+
     }
 }

@@ -32,16 +32,106 @@ namespace System.Collections.Immutable.Tests
         }
 
         [Fact]
+        public void SetEqualsMismatchedComparersOriginInsensitiveOtherSensitive()
+        {
+            var ignoreCaseSet = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "a");
+            var sensitiveSet = ImmutableHashSet.Create(StringComparer.Ordinal, "a", "A");
+
+            Assert.True(ignoreCaseSet.SetEquals(sensitiveSet));
+        }
+
+        [Fact]
+        public void SetEqualsMismatchedComparersOriginSensitiveOtherInsensitive()
+        {
+            var sensitiveSetMain = ImmutableHashSet.Create(StringComparer.Ordinal, "a");
+            var insensitiveMutable = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "a", "A" };
+
+            Assert.True(sensitiveSetMain.SetEquals(insensitiveMutable));
+        }
+
+        [Fact]
+        public void SetEqualsICollectionWithDuplicatesValidatesCorrectness()
+        {
+            var ignoreCaseSet = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "a");
+            var listWithDupes = new List<string> { "a", "a", "a", "a" };
+
+            Assert.True(ignoreCaseSet.SetEquals(listWithDupes));
+        }
+
+        [Fact]
+        public void SetEqualsDifferentContent()
+        {
+            var ignoreCaseSet = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "a");
+            var setB = ImmutableHashSet.Create(StringComparer.Ordinal, "b");
+
+            Assert.False(ignoreCaseSet.SetEquals(setB));
+        }
+
+        [Fact]
+        public void SetEqualsMismatchedComparersOtherCountSmaller()
+        {
+            var originTwoElements = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "a", "b");
+            var otherOneElement = ImmutableHashSet.Create(StringComparer.Ordinal, "a");
+
+            Assert.False(originTwoElements.SetEquals(otherOneElement));
+        }
+
+        [Fact]
+        public void SetEqualsMatchedComparersDifferentCounts()
+        {
+            var matchedSet1 = ImmutableHashSet.Create(StringComparer.Ordinal, "a", "b");
+            var matchedSet2 = ImmutableHashSet.Create(StringComparer.Ordinal, "a");
+
+            Assert.False(matchedSet1.SetEquals(matchedSet2));
+        }
+
+        [Fact]
+        public void SetEqualsMatchedComparersSameContent()
+        {
+            var matchedSet1 = ImmutableHashSet.Create(StringComparer.Ordinal, "a", "b");
+            var matchedSet2 = ImmutableHashSet.Create(StringComparer.Ordinal, "a", "b");
+
+            Assert.True(matchedSet1.SetEquals(matchedSet2));
+        }
+
+        [Fact]
+        public void SetEqualsEmptySetsDifferentComparers()
+        {
+            var empty1 = ImmutableHashSet<string>.Empty.WithComparer(StringComparer.Ordinal);
+            var empty2 = ImmutableHashSet<string>.Empty.WithComparer(StringComparer.OrdinalIgnoreCase);
+
+            Assert.True(empty1.SetEquals(empty2));
+        }
+
+        [Fact]
+        public void SetEqualsMismatchedComparersOriginSensitiveOtherInsensitiveSameCount()
+        {
+            var sensitiveSet = ImmutableHashSet.Create(StringComparer.Ordinal, "a", "A");
+            var insensitiveSet = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "a", "b");
+
+            Assert.False(sensitiveSet.SetEquals(insensitiveSet));
+        }
+
+        [Fact]
+        public void SetEqualsMismatchedComparersOtherIsLarger()
+        {
+            var origin = ImmutableHashSet.Create(StringComparer.OrdinalIgnoreCase, "a");
+            var other = ImmutableHashSet.Create(StringComparer.Ordinal, "a", "b");
+
+            Assert.False(origin.SetEquals(other));
+        }
+
+        [Fact]
         public void ChangeUnorderedEqualityComparer()
         {
-            var ordinalSet = ImmutableHashSet<string>.Empty
+            ImmutableHashSet<string> ordinalSet = ImmutableHashSet<string>.Empty
                 .WithComparer(StringComparer.Ordinal)
                 .Add("apple")
                 .Add("APPLE");
             Assert.Equal(2, ordinalSet.Count); // claimed count
             Assert.False(ordinalSet.Contains("aPpLe"));
 
-            var ignoreCaseSet = ordinalSet.WithComparer(StringComparer.OrdinalIgnoreCase);
+            ImmutableHashSet<string> ignoreCaseSet = ordinalSet.WithComparer(StringComparer.OrdinalIgnoreCase);
             Assert.Equal(1, ignoreCaseSet.Count);
             Assert.True(ignoreCaseSet.Contains("aPpLe"));
         }
@@ -49,33 +139,33 @@ namespace System.Collections.Immutable.Tests
         [Fact]
         public void ToSortTest()
         {
-            var set = ImmutableHashSet<string>.Empty
+            ImmutableHashSet<string> set = ImmutableHashSet<string>.Empty
                 .Add("apple")
                 .Add("APPLE");
-            var sorted = set.ToImmutableSortedSet();
+            ImmutableSortedSet<string> sorted = set.ToImmutableSortedSet();
             CollectionAssertAreEquivalent(set.ToList(), sorted.ToList());
         }
 
         [Fact]
         public void EnumeratorWithHashCollisionsTest()
         {
-            var emptySet = this.EmptyTyped<int>().WithComparer(new BadHasher<int>());
+            ImmutableHashSet<int> emptySet = this.EmptyTyped<int>().WithComparer(new BadHasher<int>());
             this.EnumeratorTestHelper(emptySet, null, 3, 1, 5);
         }
 
         [Fact]
         public void EnumeratorWithHashCollisionsTest_RefType()
         {
-            var emptySet = this.EmptyTyped<string>().WithComparer(new BadHasher<string>());
+            ImmutableHashSet<string> emptySet = this.EmptyTyped<string>().WithComparer(new BadHasher<string>());
             this.EnumeratorTestHelper(emptySet, null, "c", "a", "e");
         }
 
         [Fact]
         public void EnumeratorRecyclingMisuse()
         {
-            var collection = ImmutableHashSet.Create<int>().Add(5);
-            var enumerator = collection.GetEnumerator();
-            var enumeratorCopy = enumerator;
+            ImmutableHashSet<int> collection = ImmutableHashSet.Create<int>().Add(5);
+            ImmutableHashSet<int>.Enumerator enumerator = collection.GetEnumerator();
+            ImmutableHashSet<int>.Enumerator enumeratorCopy = enumerator;
             Assert.True(enumerator.MoveNext());
             Assert.False(enumerator.MoveNext());
             enumerator.Dispose();
@@ -100,9 +190,9 @@ namespace System.Collections.Immutable.Tests
         [Fact]
         public void Create()
         {
-            var comparer = StringComparer.OrdinalIgnoreCase;
+            StringComparer comparer = StringComparer.OrdinalIgnoreCase;
 
-            var set = ImmutableHashSet.Create<string>();
+            ImmutableHashSet<string> set = ImmutableHashSet.Create<string>();
             Assert.Equal(0, set.Count);
             Assert.Same(EqualityComparer<string>.Default, set.KeyComparer);
 
@@ -118,11 +208,19 @@ namespace System.Collections.Immutable.Tests
             Assert.Equal(1, set.Count);
             Assert.Same(comparer, set.KeyComparer);
 
-            set = ImmutableHashSet.Create("a", "b");
+            set = ImmutableHashSet.Create(new[] { "a", "b" });
             Assert.Equal(2, set.Count);
             Assert.Same(EqualityComparer<string>.Default, set.KeyComparer);
 
-            set = ImmutableHashSet.Create(comparer, "a", "b");
+            set = ImmutableHashSet.Create((ReadOnlySpan<string>)new[] { "a", "b" });
+            Assert.Equal(2, set.Count);
+            Assert.Same(EqualityComparer<string>.Default, set.KeyComparer);
+
+            set = ImmutableHashSet.Create(comparer, new[] { "a", "b" });
+            Assert.Equal(2, set.Count);
+            Assert.Same(comparer, set.KeyComparer);
+
+            set = ImmutableHashSet.Create(comparer, (ReadOnlySpan<string>)new[] { "a", "b" });
             Assert.Equal(2, set.Count);
             Assert.Same(comparer, set.KeyComparer);
 
@@ -151,7 +249,7 @@ namespace System.Collections.Immutable.Tests
         {
             var set = ImmutableHashSet.Create<int>(new BadHasher<int>(), 5, 6);
             Assert.Same(set, set.Remove(2));
-            var setAfterRemovingFive = set.Remove(5);
+            ImmutableHashSet<int> setAfterRemovingFive = set.Remove(5);
             Assert.Equal(1, setAfterRemovingFive.Count);
             Assert.Equal(new[] { 6 }, setAfterRemovingFive);
         }
@@ -166,12 +264,12 @@ namespace System.Collections.Immutable.Tests
         {
             var set = ImmutableHashSet.Create<string>(new BadHasher<string>(), "a", "b");
             Assert.Same(set, set.Remove("c"));
-            var setAfterRemovingA = set.Remove("a");
+            ImmutableHashSet<string> setAfterRemovingA = set.Remove("a");
             Assert.Equal(1, setAfterRemovingA.Count);
             Assert.Equal(new[] { "b" }, setAfterRemovingA);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public void DebuggerAttributesValid()
         {
             DebuggerAttributes.ValidateDebuggerDisplayReferences(ImmutableHashSet.Create<string>());
@@ -182,7 +280,7 @@ namespace System.Collections.Immutable.Tests
             Assert.Equal(set, items);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public static void TestDebuggerAttributes_Null()
         {
             Type proxyType = DebuggerAttributes.GetProxyType(ImmutableHashSet.Create<string>());
@@ -193,13 +291,13 @@ namespace System.Collections.Immutable.Tests
         [Fact]
         public void SymmetricExceptWithComparerTests()
         {
-            var set = ImmutableHashSet.Create<string>("a").WithComparer(StringComparer.OrdinalIgnoreCase);
+            ImmutableHashSet<string> set = ImmutableHashSet.Create<string>("a").WithComparer(StringComparer.OrdinalIgnoreCase);
             var otherCollection = new[] { "A" };
 
             var expectedSet = new HashSet<string>(set, set.KeyComparer);
             expectedSet.SymmetricExceptWith(otherCollection);
 
-            var actualSet = set.SymmetricExcept(otherCollection);
+            ImmutableHashSet<string> actualSet = set.SymmetricExcept(otherCollection);
             CollectionAssertAreEquivalent(expectedSet.ToList(), actualSet.ToList());
         }
 

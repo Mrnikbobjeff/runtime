@@ -4,7 +4,7 @@
 using System.Net.Sockets;
 using System.Net.Test.Common;
 using System.Threading.Tasks;
-
+using Microsoft.DotNet.XUnitExtensions;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -22,6 +22,7 @@ namespace System.Net.NetworkInformation.Tests
         [Fact]
         public void BasicTest_GetNetworkInterfaces_AtLeastOne()
         {
+
             Assert.NotEqual<int>(0, NetworkInterface.GetAllNetworkInterfaces().Length);
         }
 
@@ -47,11 +48,17 @@ namespace System.Net.NetworkInformation.Tests
 
                 _log.WriteLine("SupportsMulticast: " + nic.SupportsMulticast);
                 _log.WriteLine("GetPhysicalAddress(): " + nic.GetPhysicalAddress());
+
+                if (nic.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
+                {
+                    var physicalAddressLength = nic.GetPhysicalAddress().GetAddressBytes().Length;
+                    Assert.True(physicalAddressLength == 0 || physicalAddressLength == 6);
+                }
             }
         }
 
         [Fact]
-        [PlatformSpecific(TestPlatforms.Linux)]  // Some APIs are not supported on Linux
+        [PlatformSpecific(TestPlatforms.Linux|TestPlatforms.Android)]  // Some APIs are not supported on Linux and Android
         public void BasicTest_AccessInstanceProperties_NoExceptions_Linux()
         {
             foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
@@ -81,10 +88,14 @@ namespace System.Net.NetworkInformation.Tests
 
                 _log.WriteLine("SupportsMulticast: " + nic.SupportsMulticast);
                 _log.WriteLine("GetPhysicalAddress(): " + nic.GetPhysicalAddress());
+
+                if (nic.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
+                {
+                    Assert.Equal(6, nic.GetPhysicalAddress().GetAddressBytes().Length);
+                }
             }
         }
 
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/1332")]
         [Fact]
         [PlatformSpecific(TestPlatforms.OSX|TestPlatforms.FreeBSD)]
         public void BasicTest_AccessInstanceProperties_NoExceptions_Bsd()
@@ -99,7 +110,7 @@ namespace System.Net.NetworkInformation.Tests
                 string id = nic.Id;
                 Assert.False(string.IsNullOrEmpty(id), "NetworkInterface.Id should not be null or empty.");
                 _log.WriteLine("ID: " + id);
-                Assert.Throws<PlatformNotSupportedException>(() => nic.IsReceiveOnly);
+                Assert.False(nic.IsReceiveOnly);
                 _log.WriteLine("Type: " + nic.NetworkInterfaceType);
                 _log.WriteLine("Status: " + nic.OperationalStatus);
                 _log.WriteLine("Speed: " + nic.Speed);
@@ -111,6 +122,11 @@ namespace System.Net.NetworkInformation.Tests
                 {
                     // Ethernet, WIFI and loopback should have known status.
                     Assert.True((nic.OperationalStatus == OperationalStatus.Up) || (nic.OperationalStatus == OperationalStatus.Down));
+                }
+
+                if (nic.NetworkInterfaceType == NetworkInterfaceType.Ethernet)
+                {
+                    Assert.Equal(6, nic.GetPhysicalAddress().GetAddressBytes().Length);
                 }
             }
         }
@@ -147,8 +163,8 @@ namespace System.Net.NetworkInformation.Tests
             _log.WriteLine("Loopback IPv4 index: " + NetworkInterface.LoopbackInterfaceIndex);
         }
 
-        [Fact]
         [Trait("IPv6", "true")]
+        [ConditionalFact(typeof(Socket), nameof(Socket.OSSupportsIPv6))]
         public void BasicTest_StaticIPv6LoopbackIndex_MatchesLoopbackNetworkInterface()
         {
             Assert.True(Capability.IPv6Support());
@@ -171,8 +187,8 @@ namespace System.Net.NetworkInformation.Tests
             }
         }
 
-        [Fact]
         [Trait("IPv6", "true")]
+        [ConditionalFact(typeof(Socket), nameof(Socket.OSSupportsIPv6))]
         public void BasicTest_StaticIPv6LoopbackIndex_ExceptionIfV6NotSupported()
         {
             Assert.True(Capability.IPv6Support());
@@ -203,8 +219,9 @@ namespace System.Net.NetworkInformation.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsSubsystemForLinux))] // https://github.com/dotnet/runtime/issues/20029 and https://github.com/Microsoft/WSL/issues/3561
+        [Fact]
         [PlatformSpecific(TestPlatforms.Linux)]  // Some APIs are not supported on Linux
+        [SkipOnPlatform(TestPlatforms.LinuxBionic, "Bionic is not normal Linux, has no normal /proc")]
         public void BasicTest_GetIPInterfaceStatistics_Success_Linux()
         {
             foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
@@ -252,19 +269,24 @@ namespace System.Net.NetworkInformation.Tests
         }
 
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsSubsystemForLinux))] // https://github.com/dotnet/runtime/issues/20029 and https://github.com/Microsoft/WSL/issues/3561
+        [Fact]
         public void BasicTest_GetIsNetworkAvailable_Success()
         {
             Assert.True(NetworkInterface.GetIsNetworkAvailable());
         }
 
-        [Theory]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/34690", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
-        [PlatformSpecific(~(TestPlatforms.OSX|TestPlatforms.FreeBSD))]
+        [ConditionalTheory]
+        [SkipOnPlatform(TestPlatforms.OSX | TestPlatforms.FreeBSD | TestPlatforms.OpenBSD, "Expected behavior is different on OSX, FreeBSD, or OpenBSD")]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.MacCatalyst | TestPlatforms.tvOS, "Not supported on Browser, iOS, MacCatalyst, or tvOS.")]
         [InlineData(false)]
         [InlineData(true)]
         public async Task NetworkInterface_LoopbackInterfaceIndex_MatchesReceivedPackets(bool ipv6)
         {
+            if (ipv6 && !Socket.OSSupportsIPv6)
+            {
+                throw new SkipTestException("IPv6 is not supported");
+            }
+
             using (var client = new Socket(SocketType.Dgram, ProtocolType.Udp))
             using (var server = new Socket(SocketType.Dgram, ProtocolType.Udp))
             {
@@ -282,6 +304,29 @@ namespace System.Net.NetworkInformation.Tests
                 Assert.Equal(
                     (await receivedTask).PacketInformation.Interface,
                     ipv6 ? NetworkInterface.IPv6LoopbackInterfaceIndex : NetworkInterface.LoopbackInterfaceIndex);
+            }
+        }
+
+        [ConditionalFact]
+        public void NetworkInterface_UnicastLLA_ScopeIdSet()
+        {
+            bool foundLla = false;
+            foreach (NetworkInterface nic in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                IPInterfaceProperties prop = nic.GetIPProperties();
+                foreach (UnicastIPAddressInformation info in prop.UnicastAddresses)
+                {
+                    if (info.Address.IsIPv6LinkLocal)
+                    {
+                        foundLla = true;
+                        Assert.NotEqual(0, info.Address.ScopeId);
+                    }
+                }
+            }
+
+            if (!foundLla)
+            {
+                throw new SkipTestException("Did not find any LLA");
             }
         }
     }

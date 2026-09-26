@@ -5,7 +5,7 @@ using System.Collections.ObjectModel;
 
 namespace System.ServiceModel.Syndication
 {
-    internal class NullNotAllowedCollection<TCollectionItem> : Collection<TCollectionItem> where TCollectionItem : class
+    internal sealed class NullNotAllowedCollection<TCollectionItem> : Collection<TCollectionItem> where TCollectionItem : class
     {
         public NullNotAllowedCollection() : base()
         {
@@ -13,20 +13,14 @@ namespace System.ServiceModel.Syndication
 
         protected override void InsertItem(int index, TCollectionItem item)
         {
-            if (item == null)
-            {
-                throw new ArgumentNullException(nameof(item));
-            }
+            ArgumentNullException.ThrowIfNull(item);
 
             base.InsertItem(index, item);
         }
 
         protected override void SetItem(int index, TCollectionItem item)
         {
-            if (item == null)
-            {
-                throw new ArgumentNullException(nameof(item));
-            }
+            ArgumentNullException.ThrowIfNull(item);
 
             base.SetItem(index, item);
         }

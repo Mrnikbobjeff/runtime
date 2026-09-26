@@ -39,7 +39,7 @@ namespace System.Security.Cryptography.Pkcs
             get
             {
                 if (index < 0 || index >= _recipients.Count)
-                    throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                    throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLess);
 
                 return _recipients[index];
             }
@@ -55,8 +55,7 @@ namespace System.Security.Cryptography.Pkcs
 
         public int Add(CmsRecipient recipient)
         {
-            if (recipient == null)
-                throw new ArgumentNullException(nameof(recipient));
+            ArgumentNullException.ThrowIfNull(recipient);
 
             int indexOfNewItem = _recipients.Count;
             _recipients.Add(recipient);
@@ -65,8 +64,7 @@ namespace System.Security.Cryptography.Pkcs
 
         public void Remove(CmsRecipient recipient)
         {
-            if (recipient == null)
-                throw new ArgumentNullException(nameof(recipient));
+            ArgumentNullException.ThrowIfNull(recipient);
 
             _recipients.Remove(recipient);
         }
@@ -83,12 +81,12 @@ namespace System.Security.Cryptography.Pkcs
 
         public void CopyTo(Array array, int index)
         {
-            if (array == null)
-                throw new ArgumentNullException(nameof(array));
+            ArgumentNullException.ThrowIfNull(array);
+
             if (array.Rank != 1)
                 throw new ArgumentException(SR.Arg_RankMultiDimNotSupported);
             if (index < 0 || index >= array.Length)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLess);
             if (index > array.Length - Count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -101,10 +99,10 @@ namespace System.Security.Cryptography.Pkcs
 
         public void CopyTo(CmsRecipient[] array, int index)
         {
-            if (array == null)
-                throw new ArgumentNullException(nameof(array));
+            ArgumentNullException.ThrowIfNull(array);
+
             if (index < 0 || index >= array.Length)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLess);
             if (index > array.Length - Count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
 

@@ -18,28 +18,27 @@
 #include <mono/metadata/class-internals.h>
 #include <mono/metadata/debug-helpers.h>
 #include <mono/metadata/icall-internals.h>
+#include <mono/metadata/jit-info.h>
 #include <mono/metadata/loader.h>
 #include <mono/metadata/loader-internals.h>
 #include <mono/metadata/metadata-internals.h>
 #include <mono/metadata/mono-config.h>
 #include <mono/metadata/mono-gc.h>
-#include <mono/metadata/mono-perfcounters.h>
 #include <mono/metadata/object-internals.h>
 #include <mono/metadata/runtime.h>
 #include <mono/metadata/tabledefs.h>
 #include <mono/metadata/threads.h>
 #include <mono/metadata/threads-types.h>
-#include <mono/mini/jit.h>
+#include <mono/jit/jit.h>
 #include <mono/utils/atomic.h>
 #include <mono/utils/hazard-pointer.h>
 #include <mono/utils/lock-free-alloc.h>
 #include <mono/utils/lock-free-queue.h>
 #include <mono/utils/mono-conc-hashtable.h>
 #include <mono/utils/mono-coop-mutex.h>
-#include <mono/utils/mono-counters.h>
 #include <mono/utils/mono-logger-internals.h>
 #include <mono/utils/mono-linked-list-set.h>
-#include <mono/utils/mono-membar.h>
+#include <mono/utils/mono-memory-model.h>
 #include <mono/utils/mono-mmap.h>
 #include <mono/utils/mono-os-mutex.h>
 #include <mono/utils/mono-os-semaphore.h>
@@ -49,6 +48,7 @@
 #include <mono/utils/mono-error-internals.h>
 #include <mono/utils/mono-publib.h>
 #include <mono/utils/os-event.h>
+#include <mono/utils/w32subset.h>
 #include "log.h"
 #include "helper.h"
 
@@ -68,12 +68,12 @@
 #ifdef HAVE_SYS_MMAN_H
 #include <sys/mman.h>
 #endif
-#ifndef HOST_WIN32
+#ifdef HAVE_SYS_SOCKET_H
 #include <sys/socket.h>
 #endif
-#if defined (HAVE_SYS_ZLIB)
+#ifndef DISABLE_LOG_PROFILER_GZ
 #include <zlib.h>
-#endif
+#endif // DISABLE_LOG_PROFILER_GZ
 
 #ifdef HOST_WIN32
 #include <winsock2.h>
@@ -129,13 +129,8 @@ static gint32 sync_points_ctr,
               domain_names_ctr,
               context_loads_ctr,
               context_unloads_ctr,
-              sample_ubins_ctr,
               sample_usyms_ctr,
-              sample_hits_ctr,
-              counter_descriptors_ctr,
-              counter_samples_ctr,
-              perfcounter_descriptors_ctr,
-              perfcounter_samples_ctr;
+              sample_hits_ctr;
 
 // Pending data to be written to the log, for a single thread.
 // Threads periodically flush their own LogBuffers by calling safe_send
@@ -194,6 +189,8 @@ typedef struct {
 	int small_id;
 } MonoProfilerThread;
 
+static MonoMethodDesc *log_profiler_take_heapshot_method;
+
 // Default value in `profiler_tls` for new threads.
 #define MONO_PROFILER_THREAD_ZERO ((MonoProfilerThread *) NULL)
 
@@ -204,6 +201,24 @@ typedef struct {
 
 #define PROF_TLS_SET(VAL) mono_thread_info_set_tools_data (VAL)
 #define PROF_TLS_GET mono_thread_info_get_tools_data
+
+static int32_t
+domain_get_id (MonoDomain *domain)
+{
+	return 1;
+}
+
+static int32_t
+context_get_id (MonoAppContext *context)
+{
+	return 1;
+}
+
+static int32_t
+context_get_domain_id (MonoAppContext *context)
+{
+	return 1;
+}
 
 static uintptr_t
 thread_id (void)
@@ -270,33 +285,11 @@ struct _BinaryObject {
 	char *name;
 };
 
-typedef struct MonoCounterAgent {
-	MonoCounter *counter;
-	// MonoCounterAgent specific data :
-	void *value;
-	size_t value_size;
-	guint32 index;
-	gboolean emitted;
-	struct MonoCounterAgent *next;
-} MonoCounterAgent;
-
-typedef struct _PerfCounterAgent PerfCounterAgent;
-struct _PerfCounterAgent {
-	PerfCounterAgent *next;
-	guint32 index;
-	char *category_name;
-	char *name;
-	gint64 value;
-	gboolean emitted;
-	gboolean updated;
-	gboolean deleted;
-};
-
 struct _MonoProfiler {
 	MonoProfilerHandle handle;
 
 	FILE* file;
-#if defined (HAVE_SYS_ZLIB)
+#ifndef DISABLE_LOG_PROFILER_GZ
 	gzFile gzfile;
 #endif
 
@@ -310,7 +303,9 @@ struct _MonoProfiler {
 	LARGE_INTEGER pcounter_freq;
 #endif
 
+#if HAVE_API_SUPPORT_WIN32_PIPE_OPEN_CLOSE && !defined (HOST_WIN32)
 	int pipe_output;
+#endif
 	int command_port;
 	int server_socket;
 
@@ -362,11 +357,6 @@ struct _MonoProfiler {
 	guint64 gc_count;
 	guint64 last_hs_time;
 	gboolean do_heap_walk;
-
-	mono_mutex_t counters_mutex;
-	MonoCounterAgent *counters;
-	PerfCounterAgent *perfcounters;
-	guint32 counters_index;
 
 	MonoCoopMutex api_mutex;
 };
@@ -629,6 +619,7 @@ buffer_lock_helper (void);
 static void
 buffer_lock (void)
 {
+#if !defined (HOST_WASM)
 	/*
 	 * If the thread holding the exclusive lock tries to modify the
 	 * reader count, just make it a no-op. This way, we also avoid
@@ -669,6 +660,8 @@ buffer_lock (void)
 	}
 
 	mono_memory_barrier ();
+
+#endif // HOST_WASM
 }
 
 static void
@@ -697,6 +690,7 @@ buffer_lock_helper (void)
 static void
 buffer_unlock (void)
 {
+#if !defined (HOST_WASM)
 	mono_memory_barrier ();
 
 	gint32 state = mono_atomic_load_i32 (&log_profiler.buffer_lock_state);
@@ -709,6 +703,7 @@ buffer_unlock (void)
 	g_assert (!(state >> 16) && "Why is the exclusive lock held?");
 
 	mono_atomic_dec_i32 (&log_profiler.buffer_lock_state);
+#endif // HOST_WASM
 }
 
 static void
@@ -801,7 +796,7 @@ encode_sleb128 (intptr_t value, uint8_t *buf, uint8_t **endbuf)
 static void
 emit_byte (LogBuffer *logbuffer, int value)
 {
-	logbuffer->cursor [0] = value;
+	logbuffer->cursor [0] = GINT_TO_UINT8 (value);
 	logbuffer->cursor++;
 
 	g_assert (logbuffer->cursor <= logbuffer->buf_end && "Why are we writing past the buffer end?");
@@ -964,7 +959,7 @@ write_int16 (char *buf, int32_t value)
 {
 	int i;
 	for (i = 0; i < 2; ++i) {
-		buf [i] = value;
+		buf [i] = GINT32_TO_UINT8 (value);
 		value >>= 8;
 	}
 	return buf + 2;
@@ -975,7 +970,7 @@ write_int32 (char *buf, int32_t value)
 {
 	int i;
 	for (i = 0; i < 4; ++i) {
-		buf [i] = value;
+		buf [i] = GINT_TO_UINT8 (value);
 		value >>= 8;
 	}
 	return buf + 4;
@@ -986,7 +981,7 @@ write_int64 (char *buf, int64_t value)
 {
 	int i;
 	for (i = 0; i < 8; ++i) {
-		buf [i] = value;
+		buf [i] = GINT_TO_UINT8 (value);
 		value >>= 8;
 	}
 	return buf + 8;
@@ -1043,7 +1038,7 @@ dump_header (void)
 	p = write_header_string (p, arch);
 	p = write_header_string (p, os);
 
-#if defined (HAVE_SYS_ZLIB)
+#ifndef DISABLE_LOG_PROFILER_GZ
 	if (log_profiler.gzfile) {
 		gzwrite (log_profiler.gzfile, hbuf, p - hbuf);
 	} else
@@ -1134,7 +1129,7 @@ dump_buffer (LogBuffer *buf)
 		p = write_int64 (p, buf->thread_id);
 		p = write_int64 (p, buf->method_base);
 
-#if defined (HAVE_SYS_ZLIB)
+#ifndef DISABLE_LOG_PROFILER_GZ
 		if (log_profiler.gzfile) {
 			gzwrite (log_profiler.gzfile, hbuf, p - hbuf);
 			gzwrite (log_profiler.gzfile, buf->buf, buf->cursor - buf->buf);
@@ -1295,10 +1290,10 @@ gc_root_register (MonoProfiler *prof, const mono_byte *start, size_t size, MonoG
 	switch (source) {
 	case MONO_ROOT_SOURCE_DOMAIN:
 		if (key)
-			key = (void *)(uintptr_t) mono_domain_get_id ((MonoDomain *) key);
+			key = (void *)(uintptr_t) domain_get_id ((MonoDomain *) key);
 		break;
 	case MONO_ROOT_SOURCE_CONTEXT_STATIC:
-		key = (void *)(uintptr_t) mono_context_get_id ((MonoAppContext *) key);
+		key = (void *)(uintptr_t) context_get_id ((MonoAppContext *) key);
 		break;
 	default:
 		break;
@@ -1903,7 +1898,7 @@ vtable_loaded (MonoProfiler *prof, MonoVTable *vtable)
 {
 	MonoClass *klass = mono_vtable_class_internal (vtable);
 	MonoDomain *domain = mono_vtable_domain_internal (vtable);
-	uint32_t domain_id = domain ? mono_domain_get_id (domain) : 0;
+	uint32_t domain_id = domain ? domain_get_id (domain) : 0;
 
 	ENTER_LOG (&vtable_loads_ctr, logbuffer,
 		EVENT_SIZE /* event */ +
@@ -2208,7 +2203,7 @@ domain_loaded (MonoProfiler *prof, MonoDomain *domain)
 
 	emit_event (logbuffer, TYPE_END_LOAD | TYPE_METADATA);
 	emit_byte (logbuffer, TYPE_DOMAIN);
-	emit_ptr (logbuffer, (void*)(uintptr_t) mono_domain_get_id (domain));
+	emit_ptr (logbuffer, (void*)(uintptr_t) domain_get_id (domain));
 
 	EXIT_LOG;
 }
@@ -2224,7 +2219,7 @@ domain_unloaded (MonoProfiler *prof, MonoDomain *domain)
 
 	emit_event (logbuffer, TYPE_END_UNLOAD | TYPE_METADATA);
 	emit_byte (logbuffer, TYPE_DOMAIN);
-	emit_ptr (logbuffer, (void*)(uintptr_t) mono_domain_get_id (domain));
+	emit_ptr (logbuffer, (void*)(uintptr_t) domain_get_id (domain));
 
 	EXIT_LOG;
 }
@@ -2243,7 +2238,7 @@ domain_name (MonoProfiler *prof, MonoDomain *domain, const char *name)
 
 	emit_event (logbuffer, TYPE_METADATA);
 	emit_byte (logbuffer, TYPE_DOMAIN);
-	emit_ptr (logbuffer, (void*)(uintptr_t) mono_domain_get_id (domain));
+	emit_ptr (logbuffer, (void*)(uintptr_t) domain_get_id (domain));
 	memcpy (logbuffer->cursor, name, nlen);
 	logbuffer->cursor += nlen;
 
@@ -2262,8 +2257,8 @@ context_loaded (MonoProfiler *prof, MonoAppContext *context)
 
 	emit_event (logbuffer, TYPE_END_LOAD | TYPE_METADATA);
 	emit_byte (logbuffer, TYPE_CONTEXT);
-	emit_ptr (logbuffer, (void*)(uintptr_t) mono_context_get_id (context));
-	emit_ptr (logbuffer, (void*)(uintptr_t) mono_context_get_domain_id (context));
+	emit_ptr (logbuffer, (void*)(uintptr_t) context_get_id (context));
+	emit_ptr (logbuffer, (void*)(uintptr_t) context_get_domain_id (context));
 
 	EXIT_LOG;
 }
@@ -2280,8 +2275,8 @@ context_unloaded (MonoProfiler *prof, MonoAppContext *context)
 
 	emit_event (logbuffer, TYPE_END_UNLOAD | TYPE_METADATA);
 	emit_byte (logbuffer, TYPE_CONTEXT);
-	emit_ptr (logbuffer, (void*)(uintptr_t) mono_context_get_id (context));
-	emit_ptr (logbuffer, (void*)(uintptr_t) mono_context_get_domain_id (context));
+	emit_ptr (logbuffer, (void*)(uintptr_t) context_get_id (context));
+	emit_ptr (logbuffer, (void*)(uintptr_t) context_get_domain_id (context));
 
 	EXIT_LOG;
 }
@@ -2485,410 +2480,6 @@ dump_unmanaged_coderefs (void)
 }
 
 static void
-counters_add_agent (MonoCounter *counter)
-{
-	if (mono_atomic_load_i32 (&log_profiler.in_shutdown))
-		return;
-
-	MonoCounterAgent *agent, *item;
-
-	mono_os_mutex_lock (&log_profiler.counters_mutex);
-
-	for (agent = log_profiler.counters; agent; agent = agent->next) {
-		if (agent->counter == counter) {
-			agent->value_size = 0;
-			if (agent->value) {
-				g_free (agent->value);
-				agent->value = NULL;
-			}
-			goto done;
-		}
-	}
-
-	agent = (MonoCounterAgent *) g_malloc (sizeof (MonoCounterAgent));
-	agent->counter = counter;
-	agent->value = NULL;
-	agent->value_size = 0;
-	agent->index = log_profiler.counters_index++;
-	agent->emitted = FALSE;
-	agent->next = NULL;
-
-	if (!log_profiler.counters) {
-		log_profiler.counters = agent;
-	} else {
-		item = log_profiler.counters;
-		while (item->next)
-			item = item->next;
-		item->next = agent;
-	}
-
-done:
-	mono_os_mutex_unlock (&log_profiler.counters_mutex);
-}
-
-static mono_bool
-counters_init_foreach_callback (MonoCounter *counter, gpointer data)
-{
-	counters_add_agent (counter);
-	return TRUE;
-}
-
-static void
-counters_init (void)
-{
-	mono_os_mutex_init (&log_profiler.counters_mutex);
-
-	log_profiler.counters_index = 1;
-
-	mono_counters_on_register (&counters_add_agent);
-	mono_counters_foreach (counters_init_foreach_callback, NULL);
-}
-
-static void
-counters_emit (void)
-{
-	MonoCounterAgent *agent;
-	int len = 0;
-	int size =
-		EVENT_SIZE /* event */ +
-		LEB128_SIZE /* len */
-	;
-
-	mono_os_mutex_lock (&log_profiler.counters_mutex);
-
-	for (agent = log_profiler.counters; agent; agent = agent->next) {
-		if (agent->emitted)
-			continue;
-
-		size +=
-			LEB128_SIZE /* section */ +
-			strlen (mono_counter_get_name (agent->counter)) + 1 /* name */ +
-			BYTE_SIZE /* type */ +
-			BYTE_SIZE /* unit */ +
-			BYTE_SIZE /* variance */ +
-			LEB128_SIZE /* index */
-		;
-
-		len++;
-	}
-
-	if (!len)
-		goto done;
-
-	ENTER_LOG (&counter_descriptors_ctr, logbuffer, size);
-
-	emit_event (logbuffer, TYPE_SAMPLE_COUNTERS_DESC | TYPE_SAMPLE);
-	emit_value (logbuffer, len);
-
-	for (agent = log_profiler.counters; agent; agent = agent->next) {
-		const char *name;
-
-		if (agent->emitted)
-			continue;
-
-		name = mono_counter_get_name (agent->counter);
-		emit_value (logbuffer, mono_counter_get_section (agent->counter));
-		emit_string (logbuffer, name, strlen (name) + 1);
-		emit_value (logbuffer, mono_counter_get_type (agent->counter));
-		emit_value (logbuffer, mono_counter_get_unit (agent->counter));
-		emit_value (logbuffer, mono_counter_get_variance (agent->counter));
-		emit_value (logbuffer, agent->index);
-
-		agent->emitted = TRUE;
-	}
-
-	EXIT_LOG;
-
-done:
-	mono_os_mutex_unlock (&log_profiler.counters_mutex);
-}
-
-static void
-counters_sample (uint64_t timestamp)
-{
-	MonoCounterAgent *agent;
-	MonoCounter *counter;
-	int type;
-	int buffer_size;
-	void *buffer;
-	int size;
-
-	counters_emit ();
-
-	buffer_size = 8;
-	buffer = g_calloc (1, buffer_size);
-
-	mono_os_mutex_lock (&log_profiler.counters_mutex);
-
-	size =
-		EVENT_SIZE /* event */
-	;
-
-	for (agent = log_profiler.counters; agent; agent = agent->next) {
-		/*
-		 * FIXME: This calculation is incorrect for string counters since
-		 * mono_counter_get_size () just returns 0 in that case. We should
-		 * address this if we ever actually add any string counters to Mono.
-		 */
-
-		size +=
-			LEB128_SIZE /* index */ +
-			BYTE_SIZE /* type */ +
-			mono_counter_get_size (agent->counter) /* value */
-		;
-	}
-
-	size +=
-		LEB128_SIZE /* stop marker */
-	;
-
-	ENTER_LOG (&counter_samples_ctr, logbuffer, size);
-
-	emit_event_time (logbuffer, TYPE_SAMPLE_COUNTERS | TYPE_SAMPLE, timestamp);
-
-	for (agent = log_profiler.counters; agent; agent = agent->next) {
-		size_t size;
-
-		counter = agent->counter;
-
-		size = mono_counter_get_size (counter);
-
-		if (size > buffer_size) {
-			buffer_size = size;
-			buffer = g_realloc (buffer, buffer_size);
-		}
-
-		memset (buffer, 0, buffer_size);
-
-		g_assert (mono_counters_sample (counter, buffer, size));
-
-		type = mono_counter_get_type (counter);
-
-		if (!agent->value) {
-			agent->value = g_calloc (1, size);
-			agent->value_size = size;
-		} else {
-			if (type == MONO_COUNTER_STRING) {
-				if (strcmp (agent->value, buffer) == 0)
-					continue;
-			} else {
-				if (agent->value_size == size && memcmp (agent->value, buffer, size) == 0)
-					continue;
-			}
-		}
-
-		emit_uvalue (logbuffer, agent->index);
-		emit_value (logbuffer, type);
-		switch (type) {
-		case MONO_COUNTER_INT:
-#if SIZEOF_VOID_P == 4
-		case MONO_COUNTER_WORD:
-#endif
-			emit_svalue (logbuffer, *(int*)buffer - *(int*)agent->value);
-			break;
-		case MONO_COUNTER_UINT:
-			emit_uvalue (logbuffer, *(guint*)buffer - *(guint*)agent->value);
-			break;
-		case MONO_COUNTER_TIME_INTERVAL:
-		case MONO_COUNTER_LONG:
-#if SIZEOF_VOID_P == 8
-		case MONO_COUNTER_WORD:
-#endif
-			emit_svalue (logbuffer, *(gint64*)buffer - *(gint64*)agent->value);
-			break;
-		case MONO_COUNTER_ULONG:
-			emit_uvalue (logbuffer, *(guint64*)buffer - *(guint64*)agent->value);
-			break;
-		case MONO_COUNTER_DOUBLE:
-			emit_double (logbuffer, *(double*)buffer);
-			break;
-		case MONO_COUNTER_STRING:
-			if (size == 0) {
-				emit_byte (logbuffer, 0);
-			} else {
-				emit_byte (logbuffer, 1);
-				emit_string (logbuffer, (char*)buffer, size);
-			}
-			break;
-		default:
-			g_assert_not_reached ();
-		}
-
-		if (type == MONO_COUNTER_STRING && size > agent->value_size) {
-			agent->value = g_realloc (agent->value, size);
-			agent->value_size = size;
-		}
-
-		if (size > 0)
-			memcpy (agent->value, buffer, size);
-	}
-	g_free (buffer);
-
-	emit_value (logbuffer, 0);
-
-	EXIT_LOG;
-
-	mono_os_mutex_unlock (&log_profiler.counters_mutex);
-}
-
-static void
-perfcounters_emit (void)
-{
-	PerfCounterAgent *pcagent;
-	int len = 0;
-	int size =
-		EVENT_SIZE /* event */ +
-		LEB128_SIZE /* len */
-	;
-
-	for (pcagent = log_profiler.perfcounters; pcagent; pcagent = pcagent->next) {
-		if (pcagent->emitted)
-			continue;
-
-		size +=
-			LEB128_SIZE /* section */ +
-			strlen (pcagent->category_name) + 1 /* category name */ +
-			strlen (pcagent->name) + 1 /* name */ +
-			BYTE_SIZE /* type */ +
-			BYTE_SIZE /* unit */ +
-			BYTE_SIZE /* variance */ +
-			LEB128_SIZE /* index */
-		;
-
-		len++;
-	}
-
-	if (!len)
-		return;
-
-	ENTER_LOG (&perfcounter_descriptors_ctr, logbuffer, size);
-
-	emit_event (logbuffer, TYPE_SAMPLE_COUNTERS_DESC | TYPE_SAMPLE);
-	emit_value (logbuffer, len);
-
-	for (pcagent = log_profiler.perfcounters; pcagent; pcagent = pcagent->next) {
-		if (pcagent->emitted)
-			continue;
-
-		emit_value (logbuffer, MONO_COUNTER_PERFCOUNTERS);
-		emit_string (logbuffer, pcagent->category_name, strlen (pcagent->category_name) + 1);
-		emit_string (logbuffer, pcagent->name, strlen (pcagent->name) + 1);
-		emit_byte (logbuffer, MONO_COUNTER_LONG);
-		emit_byte (logbuffer, MONO_COUNTER_RAW);
-		emit_byte (logbuffer, MONO_COUNTER_VARIABLE);
-		emit_value (logbuffer, pcagent->index);
-
-		pcagent->emitted = TRUE;
-	}
-
-	EXIT_LOG;
-}
-
-static gboolean
-perfcounters_foreach (char *category_name, char *name, unsigned char type, gint64 value, gpointer user_data)
-{
-	PerfCounterAgent *pcagent;
-
-	for (pcagent = log_profiler.perfcounters; pcagent; pcagent = pcagent->next) {
-		if (strcmp (pcagent->category_name, category_name) != 0 || strcmp (pcagent->name, name) != 0)
-			continue;
-		if (pcagent->value == value)
-			return TRUE;
-
-		pcagent->value = value;
-		pcagent->updated = TRUE;
-		pcagent->deleted = FALSE;
-		return TRUE;
-	}
-
-	pcagent = g_new0 (PerfCounterAgent, 1);
-	pcagent->next = log_profiler.perfcounters;
-	pcagent->index = log_profiler.counters_index++;
-	pcagent->category_name = g_strdup (category_name);
-	pcagent->name = g_strdup (name);
-	pcagent->value = value;
-	pcagent->emitted = FALSE;
-	pcagent->updated = TRUE;
-	pcagent->deleted = FALSE;
-
-	log_profiler.perfcounters = pcagent;
-
-	return TRUE;
-}
-
-static void
-perfcounters_sample (uint64_t timestamp)
-{
-	PerfCounterAgent *pcagent;
-	int len = 0;
-	int size;
-
-	mono_os_mutex_lock (&log_profiler.counters_mutex);
-
-	/* mark all perfcounters as deleted, foreach will unmark them as necessary */
-	for (pcagent = log_profiler.perfcounters; pcagent; pcagent = pcagent->next)
-		pcagent->deleted = TRUE;
-
-	mono_perfcounter_foreach (perfcounters_foreach, NULL);
-
-	perfcounters_emit ();
-
-	size =
-		EVENT_SIZE /* event */
-	;
-
-	for (pcagent = log_profiler.perfcounters; pcagent; pcagent = pcagent->next) {
-		if (pcagent->deleted || !pcagent->updated)
-			continue;
-
-		size +=
-			LEB128_SIZE /* index */ +
-			BYTE_SIZE /* type */ +
-			LEB128_SIZE /* value */
-		;
-
-		len++;
-	}
-
-	if (!len)
-		goto done;
-
-	size +=
-		LEB128_SIZE /* stop marker */
-	;
-
-	ENTER_LOG (&perfcounter_samples_ctr, logbuffer, size);
-
-	emit_event_time (logbuffer, TYPE_SAMPLE_COUNTERS | TYPE_SAMPLE, timestamp);
-
-	for (pcagent = log_profiler.perfcounters; pcagent; pcagent = pcagent->next) {
-		if (pcagent->deleted || !pcagent->updated)
-			continue;
-		emit_uvalue (logbuffer, pcagent->index);
-		emit_byte (logbuffer, MONO_COUNTER_LONG);
-		emit_svalue (logbuffer, pcagent->value);
-
-		pcagent->updated = FALSE;
-	}
-
-	emit_value (logbuffer, 0);
-
-	EXIT_LOG;
-
-done:
-	mono_os_mutex_unlock (&log_profiler.counters_mutex);
-}
-
-static void
-counters_and_perfcounters_sample (void)
-{
-	uint64_t now = current_time ();
-
-	counters_sample (now);
-	perfcounters_sample (now);
-}
-
-static void
 free_sample_hit (gpointer p)
 {
 	mono_lock_free_free (p, SAMPLE_BLOCK_SIZE);
@@ -2926,8 +2517,8 @@ signal_helper_thread (char c)
 	if (client_socket != INVALID_SOCKET) {
 		struct sockaddr_in client_addr;
 		client_addr.sin_family = AF_INET;
-		client_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 		client_addr.sin_port = htons(log_profiler.command_port);
+		inet_pton (client_addr.sin_family, "127.0.0.1", &client_addr.sin_addr);
 
 		gulong non_blocking = 1;
 		ioctlsocket (client_socket, FIONBIO, &non_blocking);
@@ -2985,28 +2576,9 @@ log_shutdown (MonoProfiler *prof)
 {
 	mono_atomic_store_i32 (&log_profiler.in_shutdown, 1);
 
-	if (ENABLED (PROFLOG_COUNTER_EVENTS))
-		counters_and_perfcounters_sample ();
-
 	signal_helper_thread (1);
 	mono_os_event_wait_one (&prof->helper_thread_exited, MONO_INFINITE_WAIT, FALSE);
 	mono_os_event_destroy (&prof->helper_thread_exited);
-
-	mono_os_mutex_destroy (&log_profiler.counters_mutex);
-
-	MonoCounterAgent *mc_next;
-
-	for (MonoCounterAgent *cur = log_profiler.counters; cur; cur = mc_next) {
-		mc_next = cur->next;
-		g_free (cur);
-	}
-
-	PerfCounterAgent *pc_next;
-
-	for (PerfCounterAgent *cur = log_profiler.perfcounters; cur; cur = pc_next) {
-		pc_next = cur->next;
-		g_free (cur);
-	}
 
 	/*
 	 * Ensure that we empty the LLS completely, even if some nodes are
@@ -3060,13 +2632,15 @@ log_shutdown (MonoProfiler *prof)
 	g_assert (!(state & 0xFFFF) && "Why is the reader count still non-zero?");
 	g_assert (!(state >> 16) && "Why is the exclusive lock still held?");
 
-#if defined (HAVE_SYS_ZLIB)
+#ifndef DISABLE_LOG_PROFILER_GZ
 	if (prof->gzfile)
 		gzclose (prof->gzfile);
 #endif
+#if HAVE_API_SUPPORT_WIN32_PIPE_OPEN_CLOSE && !defined (HOST_WIN32)
 	if (prof->pipe_output)
 		pclose (prof->file);
 	else
+#endif
 		fclose (prof->file);
 
 	mono_conc_hashtable_destroy (prof->method_table);
@@ -3150,7 +2724,7 @@ profiler_thread_begin_function (const char *name8, const gunichar2* name16, size
 	mono_thread_info_attach ();
 	MonoProfilerThread *thread = init_thread (FALSE);
 
-	mono_thread_attach (mono_get_root_domain ());
+	mono_thread_internal_attach (mono_get_root_domain ());
 
 	MonoInternalThread *internal = mono_thread_internal_current ();
 
@@ -3177,7 +2751,7 @@ profiler_thread_begin_function (const char *name8, const gunichar2* name16, size
 }
 
 #define profiler_thread_begin(name, send)							\
-	profiler_thread_begin_function (name, MONO_THREAD_NAME_WINDOWS_CONSTANT (name), G_N_ELEMENTS (name) - 1, (send))
+	profiler_thread_begin_function (name, MONO_THREAD_NAME_WINDOWS_CONSTANT (name), STRING_LENGTH (name), (send))
 
 static void
 profiler_thread_end (MonoProfilerThread *thread, MonoOSEvent *event, gboolean send)
@@ -3199,7 +2773,7 @@ profiler_thread_check_detach (MonoProfilerThread *thread)
 		thread->did_detach = TRUE;
 
 		mono_thread_info_set_flags (MONO_THREAD_INFO_FLAGS_NONE);
-		mono_thread_detach (mono_thread_current ());
+		mono_thread_internal_detach (mono_thread_current ());
 
 		mono_os_sem_post (&log_profiler.detach_threads_sem);
 	}
@@ -3237,9 +2811,6 @@ helper_thread (void *arg)
 			mono_profiler_printf_err ("Could not poll in log profiler helper thread: %s", g_strerror (errno));
 			exit (1);
 		}
-
-		if (ENABLED (PROFLOG_COUNTER_EVENTS))
-			counters_and_perfcounters_sample ();
 
 		buffer_lock_excl ();
 
@@ -3300,9 +2871,11 @@ helper_thread (void *arg)
 			int fd = accept (log_profiler.server_socket, NULL, NULL);
 
 			if (fd != -1) {
+#ifndef HOST_WIN32
 				if (fd >= FD_SETSIZE)
 					mono_profhelper_close_socket_fd (fd);
 				else
+#endif
 					g_array_append_val (command_sockets, fd);
 			}
 		}
@@ -3332,7 +2905,7 @@ start_helper_thread (void)
 
 	mono_profhelper_setup_command_server (&log_profiler.server_socket, &log_profiler.command_port, "log");
 
-	if (!mono_native_thread_create (&log_profiler.helper_thread, helper_thread, NULL)) {
+	if (!mono_native_thread_create (&log_profiler.helper_thread, (gpointer)helper_thread, NULL)) {
 		mono_profiler_printf_err ("Could not start log profiler helper thread");
 		mono_profhelper_close_socket_fd (log_profiler.server_socket);
 		exit (1);
@@ -3468,7 +3041,7 @@ start_writer_thread (void)
 {
 	mono_atomic_store_i32 (&log_profiler.run_writer_thread, 1);
 
-	if (!mono_native_thread_create (&log_profiler.writer_thread, writer_thread, NULL)) {
+	if (!mono_native_thread_create (&log_profiler.writer_thread, (gpointer)writer_thread, NULL)) {
 		mono_profiler_printf_err ("Could not start log profiler writer thread");
 		exit (1);
 	}
@@ -3498,7 +3071,7 @@ handle_dumper_queue_entry (void)
 				g_assert (domain && "What happened to the domain pointer?");
 				g_assert (address && "What happened to the instruction pointer?");
 
-				MonoJitInfo *ji = mono_jit_info_table_find (domain, address);
+				MonoJitInfo *ji = mono_jit_info_table_find_internal (address, TRUE, FALSE);
 
 				if (ji)
 					method = mono_jit_info_get_method (ji);
@@ -3591,16 +3164,10 @@ start_dumper_thread (void)
 {
 	mono_atomic_store_i32 (&log_profiler.run_dumper_thread, 1);
 
-	if (!mono_native_thread_create (&log_profiler.dumper_thread, dumper_thread, NULL)) {
+	if (!mono_native_thread_create (&log_profiler.dumper_thread, (gpointer)dumper_thread, NULL)) {
 		mono_profiler_printf_err ("Could not start log profiler dumper thread");
 		exit (1);
 	}
-}
-
-static void
-register_counter (const char *name, gint32 *counter)
-{
-	mono_counters_register (name, MONO_COUNTER_UINT | MONO_COUNTER_PROFILER | MONO_COUNTER_MONOTONIC, counter);
 }
 
 #ifdef __GNUC__
@@ -3707,7 +3274,7 @@ proflog_icall_SetSampleMode (MonoProfilerSampleMode mode, gint32 frequency)
 
 	mono_coop_mutex_unlock (&log_profiler.api_mutex);
 
-	return result;
+	return !!result;
 }
 
 ICALL_EXPORT MonoBoolean
@@ -3893,25 +3460,6 @@ proflog_icall_SetGCFinalizationEvents (MonoBoolean value)
 }
 
 ICALL_EXPORT MonoBoolean
-proflog_icall_GetCounterEvents (void)
-{
-	return ENABLED (PROFLOG_COUNTER_EVENTS);
-}
-
-ICALL_EXPORT void
-proflog_icall_SetCounterEvents (MonoBoolean value)
-{
-	mono_coop_mutex_lock (&log_profiler.api_mutex);
-
-	if (value)
-		ENABLE (PROFLOG_COUNTER_EVENTS);
-	else
-		DISABLE (PROFLOG_COUNTER_EVENTS);
-
-	mono_coop_mutex_unlock (&log_profiler.api_mutex);
-}
-
-ICALL_EXPORT MonoBoolean
 proflog_icall_GetJitEvents (void)
 {
 	return ENABLED (PROFLOG_JIT_EVENTS);
@@ -3956,61 +3504,9 @@ runtime_initialized (MonoProfiler *profiler)
 #endif
 	mono_atomic_store_i32 (&log_profiler.runtime_inited, 1);
 
-	register_counter ("Sample events allocated", &sample_allocations_ctr);
-	register_counter ("Log buffers allocated", &buffer_allocations_ctr);
-
-	register_counter ("Event: Sync points", &sync_points_ctr);
-	register_counter ("Event: AOT IDs", &aot_ids_ctr);
-	register_counter ("Event: Heap objects", &heap_objects_ctr);
-	register_counter ("Event: Heap starts", &heap_starts_ctr);
-	register_counter ("Event: Heap ends", &heap_ends_ctr);
-	register_counter ("Event: Heap roots", &heap_roots_ctr);
-	register_counter ("Event: Heap root registers", &heap_root_registers_ctr);
-	register_counter ("Event: Heap root unregisters", &heap_root_unregisters_ctr);
-	register_counter ("Event: GC events", &gc_events_ctr);
-	register_counter ("Event: GC resizes", &gc_resizes_ctr);
-	register_counter ("Event: GC allocations", &gc_allocs_ctr);
-	register_counter ("Event: GC moves", &gc_moves_ctr);
-	register_counter ("Event: GC handle creations", &gc_handle_creations_ctr);
-	register_counter ("Event: GC handle deletions", &gc_handle_deletions_ctr);
-	register_counter ("Event: GC finalize starts", &finalize_begins_ctr);
-	register_counter ("Event: GC finalize ends", &finalize_ends_ctr);
-	register_counter ("Event: GC finalize object starts", &finalize_object_begins_ctr);
-	register_counter ("Event: GC finalize object ends", &finalize_object_ends_ctr);
-	register_counter ("Event: Image loads", &image_loads_ctr);
-	register_counter ("Event: Image unloads", &image_unloads_ctr);
-	register_counter ("Event: Assembly loads", &assembly_loads_ctr);
-	register_counter ("Event: Assembly unloads", &assembly_unloads_ctr);
-	register_counter ("Event: Class loads", &class_loads_ctr);
-	register_counter ("Event: VTable loads", &vtable_loads_ctr);
-	register_counter ("Event: Method entries", &method_entries_ctr);
-	register_counter ("Event: Method exits", &method_exits_ctr);
-	register_counter ("Event: Method exception leaves", &method_exception_exits_ctr);
-	register_counter ("Event: Method JITs", &method_jits_ctr);
-	register_counter ("Event: Code buffers", &code_buffers_ctr);
-	register_counter ("Event: Exception throws", &exception_throws_ctr);
-	register_counter ("Event: Exception clauses", &exception_clauses_ctr);
-	register_counter ("Event: Monitor events", &monitor_events_ctr);
-	register_counter ("Event: Thread starts", &thread_starts_ctr);
-	register_counter ("Event: Thread ends", &thread_ends_ctr);
-	register_counter ("Event: Thread names", &thread_names_ctr);
-	register_counter ("Event: Domain loads", &domain_loads_ctr);
-	register_counter ("Event: Domain unloads", &domain_unloads_ctr);
-	register_counter ("Event: Domain names", &domain_names_ctr);
-	register_counter ("Event: Context loads", &context_loads_ctr);
-	register_counter ("Event: Context unloads", &context_unloads_ctr);
-	register_counter ("Event: Sample binaries", &sample_ubins_ctr);
-	register_counter ("Event: Sample symbols", &sample_usyms_ctr);
-	register_counter ("Event: Sample hits", &sample_hits_ctr);
-	register_counter ("Event: Counter descriptors", &counter_descriptors_ctr);
-	register_counter ("Event: Counter samples", &counter_samples_ctr);
-	register_counter ("Event: Performance counter descriptors", &perfcounter_descriptors_ctr);
-	register_counter ("Event: Performance counter samples", &perfcounter_samples_ctr);
-
-	counters_init ();
-
 	mono_os_sem_init (&log_profiler.attach_threads_sem, 0);
 
+#if !defined (HOST_WASM)
 	/*
 	 * We must start the helper thread before the writer thread. This is
 	 * because start_helper_thread () sets up the command port which is written
@@ -4019,6 +3515,9 @@ runtime_initialized (MonoProfiler *profiler)
 	start_helper_thread ();
 	start_writer_thread ();
 	start_dumper_thread ();
+#else
+	dump_header ();
+#endif
 
 	/*
 	 * Wait for all the internal threads to be started. If we don't do this, we
@@ -4065,8 +3564,6 @@ runtime_initialized (MonoProfiler *profiler)
 	ADD_ICALL (SetGCHandleEvents);
 	ADD_ICALL (GetGCFinalizationEvents);
 	ADD_ICALL (SetGCFinalizationEvents);
-	ADD_ICALL (GetCounterEvents);
-	ADD_ICALL (SetCounterEvents);
 	ADD_ICALL (GetJitEvents);
 	ADD_ICALL (SetJitEvents);
 
@@ -4102,8 +3599,12 @@ create_profiler (const char *args, const char *filename, GPtrArray *filters)
 		}
 	}
 	if (*nf == '|') {
+#if HAVE_API_SUPPORT_WIN32_PIPE_OPEN_CLOSE && !defined (HOST_WIN32) && !defined (HOST_WASM)
 		log_profiler.file = popen (nf + 1, "w");
 		log_profiler.pipe_output = 1;
+#else
+		mono_profiler_printf_err ("Platform doesn't support popen");
+#endif
 	} else if (*nf == '#') {
 		int fd = strtol (nf + 1, NULL, 10);
 		log_profiler.file = fdopen (fd, "a");
@@ -4115,7 +3616,7 @@ create_profiler (const char *args, const char *filename, GPtrArray *filters)
 		exit (1);
 	}
 
-#if defined (HAVE_SYS_ZLIB)
+#ifndef DISABLE_LOG_PROFILER_GZ
 	if (log_config.use_zip)
 		log_profiler.gzfile = gzdopen (fileno (log_profiler.file), "wb");
 #endif
@@ -4144,6 +3645,44 @@ create_profiler (const char *args, const char *filename, GPtrArray *filters)
 	log_profiler.method_table = mono_conc_hashtable_new (NULL, NULL);
 
 	log_profiler.startup_time = current_time ();
+}
+
+void
+set_log_profiler_take_heapshot_method (const char *val)
+{
+	log_profiler_take_heapshot_method = mono_method_desc_new (val, TRUE);
+
+	if (!log_profiler_take_heapshot_method) {
+		mono_profiler_printf_err ("Could not parse method description: %s", val);
+		exit (1);
+	}
+}
+
+static void
+proflog_trigger_heapshot (void);
+
+static void
+prof_jit_done (MonoProfiler *prof, MonoMethod *method, MonoJitInfo *jinfo)
+{
+	MonoImage *image = mono_class_get_image (mono_method_get_class (method));
+
+	if (!image->assembly || method->wrapper_type || !log_profiler_take_heapshot_method)
+		return;
+
+	if (log_profiler_take_heapshot_method && mono_method_desc_match (log_profiler_take_heapshot_method, method)) {
+		printf ("log-profiler | taking heapshot\n");
+		proflog_trigger_heapshot ();
+		return;
+	}
+	else {
+		printf ("log-profiler not called (%p)\n", log_profiler_take_heapshot_method);
+	}
+}
+
+static void
+prof_inline_method (MonoProfiler *prof, MonoMethod *method, MonoMethod *inlined_method)
+{
+	prof_jit_done (prof, inlined_method, NULL);
 }
 
 MONO_API void
@@ -4187,8 +3726,6 @@ mono_profiler_init_log (const char *desc)
 	 * allocations, exceptions) are dynamically enabled/disabled.
 	 */
 
-	mono_profiler_set_runtime_shutdown_begin_callback (handle, log_early_shutdown);
-	mono_profiler_set_runtime_shutdown_end_callback (handle, log_shutdown);
 	mono_profiler_set_runtime_initialized_callback (handle, runtime_initialized);
 
 	mono_profiler_set_gc_event_callback (handle, gc_event);
@@ -4270,6 +3807,9 @@ mono_profiler_init_log (const char *desc)
 	mono_profiler_enable_allocations ();
 	mono_profiler_enable_clauses ();
 	mono_profiler_enable_sampling (handle);
+	mono_profiler_set_jit_done_callback (handle, prof_jit_done);
+	mono_profiler_set_inline_method_callback (handle, prof_inline_method);
+
 
 	/*
 	 * If no sample option was given by the user, this just leaves the sampling
@@ -4281,4 +3821,13 @@ mono_profiler_init_log (const char *desc)
 
 done:
 	;
+}
+
+static void
+proflog_trigger_heapshot (void)
+{
+	trigger_heapshot ();	
+	
+	while (handle_writer_queue_entry ());
+	while (handle_dumper_queue_entry ());
 }

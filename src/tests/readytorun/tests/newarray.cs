@@ -8,12 +8,16 @@ using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
-class Program
+public class Program
 {
     const int ARRAY_SIZE = 1024;
 
-    static int Main()
+    [ActiveIssue("These tests are not supposed to be run with mono.", TestRuntimes.Mono)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         // Run all tests 3x times to exercise both slow and fast paths work
         for (int i = 0; i < 3; i++)

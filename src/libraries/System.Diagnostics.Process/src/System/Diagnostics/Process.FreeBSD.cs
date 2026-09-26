@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 namespace System.Diagnostics
 {
@@ -21,29 +22,30 @@ namespace System.Diagnostics
             }
         }
 
-        /// <summary>
-        /// Gets the amount of time the associated process has spent utilizing the CPU.
-        /// It is the sum of the <see cref='System.Diagnostics.Process.UserProcessorTime'/> and
-        /// <see cref='System.Diagnostics.Process.PrivilegedProcessorTime'/>.
-        /// </summary>
-        public TimeSpan TotalProcessorTime
+        public partial TimeSpan TotalProcessorTime
         {
             get
             {
+                if (IsCurrentProcess)
+                {
+                    return Environment.CpuUsage.TotalTime;
+                }
+
                 EnsureState(State.HaveNonExitedId);
                 Interop.Process.proc_stats stat = Interop.Process.GetThreadInfo(_processId, 0);
                 return Process.TicksToTimeSpan(stat.userTime + stat.systemTime);
             }
         }
 
-        /// <summary>
-        /// Gets the amount of time the associated process has spent running code
-        /// inside the application portion of the process (not the operating system core).
-        /// </summary>
-        public TimeSpan UserProcessorTime
+        public partial TimeSpan UserProcessorTime
         {
             get
             {
+                if (IsCurrentProcess)
+                {
+                    return Environment.CpuUsage.UserTime;
+                }
+
                 EnsureState(State.HaveNonExitedId);
 
                 Interop.Process.proc_stats stat = Interop.Process.GetThreadInfo(_processId, 0);
@@ -51,11 +53,15 @@ namespace System.Diagnostics
             }
         }
 
-        /// <summary>Gets the amount of time the process has spent running code inside the operating system core.</summary>
-        public TimeSpan PrivilegedProcessorTime
+        public partial TimeSpan PrivilegedProcessorTime
         {
             get
             {
+                if (IsCurrentProcess)
+                {
+                    return Environment.CpuUsage.PrivilegedTime;
+                }
+
                 EnsureState(State.HaveNonExitedId);
 
                 Interop.Process.proc_stats stat = Interop.Process.GetThreadInfo(_processId, 0);
@@ -82,16 +88,15 @@ namespace System.Diagnostics
                 }
                 finally
                 {
-                    Marshal.FreeHGlobal((IntPtr) processInfo);
+                    Marshal.FreeHGlobal((IntPtr)processInfo);
                 }
             }
         }
 
         // <summary>Gets execution path</summary>
-        private string? GetPathToOpenFile()
+        internal static string? GetPathToOpenFile()
         {
-            Interop.Sys.FileStatus stat;
-            if (Interop.Sys.Stat("/usr/local/bin/open", out stat) == 0)
+            if (Interop.Sys.Stat("/usr/local/bin/open", out _) == 0)
             {
                 return "/usr/local/bin/open";
             }
@@ -99,12 +104,6 @@ namespace System.Diagnostics
             {
                 return null;
             }
-        }
-
-        /// <summary>Gets the path to the current executable, or null if it could not be retrieved.</summary>
-        private static string? GetExePath()
-        {
-            return Interop.Process.GetProcPath(Environment.ProcessId);
         }
 
         // ----------------------------------

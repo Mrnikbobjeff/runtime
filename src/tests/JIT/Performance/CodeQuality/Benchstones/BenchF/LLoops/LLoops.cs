@@ -4,6 +4,7 @@
 // C# adaptation of C implementation of Livermore Loops Fortran benchmark.
 
 /* Livermore Loops coded in C        Latest File Modification  20 Oct 92,
+using TestLibrary;
  *  by Tim Peters, Kendall Square Res. Corp. tim@ksr.com, ksr!tim@uunet.uu.net
  *     SUBROUTINE KERNEL( TK)  replaces the Fortran routine in LFK Test program.
  ************************************************************************
@@ -51,12 +52,10 @@
  ************************************************************************
  */
 
-using Microsoft.Xunit.Performance;
 using System;
 using System.Runtime.CompilerServices;
 using Xunit;
 
-[assembly: OptimizeForBenchmarks]
 
 namespace Benchstone.BenchF
 {
@@ -107,13 +106,8 @@ public class LLoops
         0.171449024000e+06, -0.510829560800e+07
     };
 
-    public static volatile object VolatileObject;
-
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void Escape(object obj)
-    {
-        VolatileObject = obj;
-    }
+    private static void Escape(object _) { }
 
     private static T[][] AllocArray<T>(int n1, int n2)
     {
@@ -622,29 +616,11 @@ public class LLoops
         }
     }
 
-    [Benchmark]
-    public static void Test()
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [Fact]
+    public static int TestEntryPoint()
     {
-        var lloops = new LLoops();
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                lloops.Bench();
-            }
-        }
-    }
-
-    private bool TestBase()
-    {
-        bool result = Bench();
-        return result;
-    }
-
-    public static int Main()
-    {
-        var lloops = new LLoops();
-        bool result = lloops.TestBase();
+        bool result = (new LLoops()).Bench();
         return (result ? 100 : -1);
     }
 }

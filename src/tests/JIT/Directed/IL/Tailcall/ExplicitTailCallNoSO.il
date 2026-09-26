@@ -1,20 +1,30 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-.assembly extern System.Runtime
-{
-  .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )                         // .?_....:
-  .ver 4:2:1:0
-}
+.assembly extern System.Runtime { .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A ) }
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
 .assembly ExplicitTailCallNoSO
 {
 }
-.class private abstract auto ansi sealed beforefieldinit ExplicitTailCallNoSO
+.class public abstract auto ansi sealed beforefieldinit ExplicitTailCallNoSO
        extends [System.Runtime]System.Object
 {
-  .method private hidebysig static int32 
-          Main() cil managed
+  .method public hidebysig static int32 Main() cil managed
   {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
+    .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.SkipOnCoreClrAttribute::.ctor(string, valuetype [Microsoft.DotNet.XUnitExtensions]Xunit.RuntimeTestModes) = {
+      string('Unstable under JIT stress')
+      int32(0x11E) // AnyJitOptimizationStress
+    }
+    .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, class [mscorlib]System.Type, string[]) = {
+        string('https://github.com/dotnet/runtimelab/issues/155: Tailcalls')
+        type([TestLibrary]TestLibrary.Utilities)
+        string[2] ('IsNativeAot' 'IsX86')
+    }
     .entrypoint
     // Code size       44 (0x2c)
     .maxstack  2
@@ -55,7 +65,7 @@
     IL_002b:  ret
   } // end of method ExplicitTailCallNoSO::Main
 
-  .method private hidebysig static int32 
+  .method private hidebysig static int32
           CalculateSumWithTailCall(int32 n,
                                    [opt] int32 sum) cil managed
   {

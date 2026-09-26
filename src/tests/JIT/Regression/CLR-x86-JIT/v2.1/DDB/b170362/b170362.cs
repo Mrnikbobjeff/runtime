@@ -2,7 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b170362;
+
 using System;
+using Xunit;
 
 public struct MyStruct
 {
@@ -11,11 +15,13 @@ public struct MyStruct
 
 }
 
-class MainApp
+public class MainApp
 {
     static byte s = 1;
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         MyStruct myStruct;
 

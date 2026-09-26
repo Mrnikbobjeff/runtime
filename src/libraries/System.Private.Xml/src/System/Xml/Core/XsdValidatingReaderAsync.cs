@@ -1,21 +1,20 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.IO;
-using System.Text;
-using System.Xml.Schema;
-using System.Xml.XPath;
-using System.Diagnostics;
-using System.Globalization;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
 using System.Runtime.Versioning;
-
+using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Schema;
+using System.Xml.XPath;
 
 namespace System.Xml
 {
-    internal partial class XsdValidatingReader : XmlReader, IXmlSchemaInfo, IXmlLineInfo, IXmlNamespaceResolver
+    internal sealed partial class XsdValidatingReader : XmlReader, IXmlSchemaInfo, IXmlLineInfo, IXmlNamespaceResolver
     {
         // Gets the text value of the current node.
         public override Task<string> GetValueAsync()
@@ -92,7 +91,7 @@ namespace System.Xml
             {
                 if (xmlType != null)
                 {
-                    // special-case convertions to DateTimeOffset; typedValue is by default a DateTime
+                    // special-case conversions to DateTimeOffset; typedValue is by default a DateTime
                     // which cannot preserve time zone, so we need to convert from the original string
                     if (returnType == typeof(DateTimeOffset) && xmlType.Datatype is Datatype_dateTimeBase)
                     {
@@ -154,7 +153,7 @@ namespace System.Xml
                 }
                 else
                 {
-                    Debug.Assert(false, $"{nameof(typedValue)} should never be null");
+                    Debug.Fail($"{nameof(typedValue)} should never be null");
                     return typedValue as string;
                 }
             }
@@ -192,7 +191,7 @@ namespace System.Xml
             {
                 if (xmlType != null)
                 {
-                    // special-case convertions to DateTimeOffset; typedValue is by default a DateTime
+                    // special-case conversions to DateTimeOffset; typedValue is by default a DateTime
                     // which cannot preserve time zone, so we need to convert from the original string
                     if (returnType == typeof(DateTimeOffset) && xmlType.Datatype is Datatype_dateTimeBase)
                     {
@@ -269,7 +268,7 @@ namespace System.Xml
             if (task.IsSuccess())
             {
                 _validationState = ValidatingReaderState.Read;
-                return AsyncHelper.DoneTaskTrue; ;
+                return AsyncHelper.DoneTaskTrue;
             }
             else
             {
@@ -346,7 +345,6 @@ namespace System.Xml
         // Skips to the end tag of the current element.
         public override async Task SkipAsync()
         {
-            int startDepth = Depth;
             switch (NodeType)
             {
                 case XmlNodeType.Element:
@@ -507,13 +505,13 @@ namespace System.Xml
 
                 case XmlNodeType.Whitespace:
                 case XmlNodeType.SignificantWhitespace:
-                    _validator.ValidateWhitespace(GetStringValue);
-                    break;
+
+                    return ValidateWhitespace(GetValueAsync(), _validator);
 
                 case XmlNodeType.Text:          // text inside a node
                 case XmlNodeType.CDATA:         // <![CDATA[...]]>
-                    _validator.ValidateText(GetStringValue);
-                    break;
+
+                    return ValidateText(GetValueAsync(), _validator);
 
                 case XmlNodeType.EndElement:
 
@@ -535,6 +533,10 @@ namespace System.Xml
             }
 
             return Task.CompletedTask;
+
+            static async Task ValidateWhitespace(Task<string> t, XmlSchemaValidator validator) => validator.ValidateWhitespace(await t.ConfigureAwait(false));
+
+            static async Task ValidateText(Task<string> t, XmlSchemaValidator validator) => validator.ValidateText(await t.ConfigureAwait(false));
         }
 
         private async Task ProcessElementEventAsync()
@@ -683,9 +685,8 @@ namespace System.Xml
             return content.Item2;
         }
 
-        private async Task<Tuple<string, object>> InternalReadContentAsObjectTupleAsync(bool unwrapTypedValue)
+        private async Task<(string, object)> InternalReadContentAsObjectTupleAsync(bool unwrapTypedValue)
         {
-            Tuple<string, object> tuple;
             string originalStringValue;
 
             XmlNodeType nodeType = this.NodeType;
@@ -697,17 +698,15 @@ namespace System.Xml
                     if (_validationState == ValidatingReaderState.OnDefaultAttribute)
                     {
                         XmlSchemaAttribute schemaAttr = _attributePSVI.attributeSchemaInfo.SchemaAttribute!;
-                        originalStringValue = (schemaAttr.DefaultValue != null) ? schemaAttr.DefaultValue : schemaAttr.FixedValue!;
+                        originalStringValue = schemaAttr.DefaultValue ?? schemaAttr.FixedValue!;
                     }
 
-                    tuple = new Tuple<string, object>(originalStringValue, ReturnBoxedValue(_attributePSVI.typedAttributeValue, AttributeSchemaInfo.XmlType!, unwrapTypedValue));
-                    return tuple;
+                    return (originalStringValue, ReturnBoxedValue(_attributePSVI.typedAttributeValue, AttributeSchemaInfo.XmlType!, unwrapTypedValue));
                 }
                 else
                 {
                     // return string value
-                    tuple = new Tuple<string, object>(originalStringValue, this.Value);
-                    return tuple;
+                    return (originalStringValue, this.Value);
                 }
             }
             else if (nodeType == XmlNodeType.EndElement)
@@ -717,15 +716,13 @@ namespace System.Xml
                     Debug.Assert(_originalAtomicValueString != null);
                     originalStringValue = _originalAtomicValueString;
 
-                    tuple = new Tuple<string, object>(originalStringValue, _atomicValue);
-                    return tuple;
+                    return (originalStringValue, _atomicValue);
                 }
                 else
                 {
                     originalStringValue = string.Empty;
 
-                    tuple = new Tuple<string, object>(originalStringValue, string.Empty);
-                    return tuple;
+                    return (originalStringValue, string.Empty);
                 }
             }
             else
@@ -740,8 +737,7 @@ namespace System.Xml
                     Debug.Assert(_originalAtomicValueString != null);
                     originalStringValue = _originalAtomicValueString;
 
-                    tuple = new Tuple<string, object>(originalStringValue, value);
-                    return tuple;
+                    return (originalStringValue, value);
                 }
                 else
                 {
@@ -755,27 +751,26 @@ namespace System.Xml
                         originalStringValue = await InternalReadContentAsStringAsync().ConfigureAwait(false);
                     }
 
-                    tuple = new Tuple<string, object>(originalStringValue, originalStringValue);
-                    return tuple;
+                    return (originalStringValue, originalStringValue);
                 }
             }
         }
 
-        private Task<Tuple<XmlSchemaType, object>> InternalReadElementContentAsObjectAsync()
+        private Task<(XmlSchemaType, object)> InternalReadElementContentAsObjectAsync()
         {
             return InternalReadElementContentAsObjectAsync(false);
         }
 
-        private async Task<Tuple<XmlSchemaType, object>> InternalReadElementContentAsObjectAsync(bool unwrapTypedValue)
+        private async Task<(XmlSchemaType, object)> InternalReadElementContentAsObjectAsync(bool unwrapTypedValue)
         {
             var content = await InternalReadElementContentAsObjectTupleAsync(unwrapTypedValue).ConfigureAwait(false);
 
-            return new Tuple<XmlSchemaType, object>(content.Item1, content.Item3);
+            return (content.Item1, content.Item3);
         }
 
-        private async Task<Tuple<XmlSchemaType, string, object>> InternalReadElementContentAsObjectTupleAsync(bool unwrapTypedValue)
+        private async Task<(XmlSchemaType, string, object)> InternalReadElementContentAsObjectTupleAsync(bool unwrapTypedValue)
         {
-            XmlSchemaType? xmlType = null;
+            XmlSchemaType? xmlType;
             string originalString;
 
             Debug.Assert(this.NodeType == XmlNodeType.Element);
@@ -797,7 +792,7 @@ namespace System.Xml
                 xmlType = ElementXmlType; // Set this for default values
                 await this.ReadAsync().ConfigureAwait(false);
 
-                return new Tuple<XmlSchemaType, string, object>(xmlType!, originalString, typedValue);
+                return (xmlType!, originalString, typedValue);
             }
 
             // move to content and read typed value
@@ -852,7 +847,7 @@ namespace System.Xml
             // move to next node
             await this.ReadAsync().ConfigureAwait(false);
 
-            return new Tuple<XmlSchemaType, string, object>(xmlType!, originalString, typedValue);
+            return (xmlType!, originalString, typedValue);
         }
 
         private async Task<object?> ReadTillEndElementAsync()
@@ -875,12 +870,12 @@ namespace System.Xml
 
                         case XmlNodeType.Text:
                         case XmlNodeType.CDATA:
-                            _validator.ValidateText(GetStringValue);
+                            _validator.ValidateText(await GetValueAsync().ConfigureAwait(false));
                             break;
 
                         case XmlNodeType.Whitespace:
                         case XmlNodeType.SignificantWhitespace:
-                            _validator.ValidateWhitespace(GetStringValue);
+                            _validator.ValidateWhitespace(await GetValueAsync().ConfigureAwait(false));
                             break;
 
                         case XmlNodeType.Comment:

@@ -11,7 +11,10 @@
 
 using System.IO;
 using System.Reflection;
+using System.Linq;
 using System.Text;
+using System.Text.RegularExpressions;
+using System.Threading;
 using Xunit;
 
 namespace System.Net.Mail.Tests
@@ -27,7 +30,7 @@ namespace System.Net.Mail.Tests
             messageWithSubjectAndBody.Subject = "the subject";
             messageWithSubjectAndBody.Body = "hello";
             messageWithSubjectAndBody.AlternateViews.Add(AlternateView.CreateAlternateViewFromString("<html><body>hello</body></html>", null, "text/html"));
-            Attachment a = Attachment.CreateAttachmentFromString("blah blah", "text/plain");
+            Attachment a = Attachment.CreateAttachmentFromString("blah blah", "AttachmentName");
             messageWithSubjectAndBody.Attachments.Add(a);
 
             emptyMessage = new MailMessage("from@example.com", "r1@t1.com, r2@t1.com");
@@ -65,6 +68,8 @@ namespace System.Net.Mail.Tests
             Assert.Equal(1, messageWithSubjectAndBody.Attachments.Count);
             Attachment at = messageWithSubjectAndBody.Attachments[0];
             Assert.Equal("text/plain", at.ContentType.MediaType);
+            Assert.Equal("AttachmentName", at.ContentType.Name);
+            Assert.Equal("AttachmentName", at.Name);
         }
 
         [Fact]
@@ -146,6 +151,79 @@ namespace System.Net.Mail.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.Browser, "Not passing as internal System.Net.Mail.MailWriter stripped from build")]
+        public void SendMailMessageTest()
+        {
+            string expected = @"X-Sender: from@example.com
+X-Receiver: to@example.com
+MIME-Version: 1.0
+From: from@example.com
+To: to@example.com
+Date: DATE
+Subject: the subject
+Content-Type: multipart/mixed;
+ boundary=--boundary_1_GUID
+
+
+----boundary_1_GUID
+Content-Type: multipart/alternative;
+ boundary=--boundary_0_GUID
+
+
+----boundary_0_GUID
+Content-Type: text/plain; charset=us-ascii
+Content-Transfer-Encoding: quoted-printable
+
+hello
+----boundary_0_GUID
+Content-Type: text/html; charset=us-ascii
+Content-Transfer-Encoding: quoted-printable
+
+<html><body>hello</body></html>
+----boundary_0_GUID--
+
+----boundary_1_GUID
+Content-Type: text/plain; charset=us-ascii
+Content-Disposition: attachment
+Content-Transfer-Encoding: quoted-printable
+
+blah blah
+----boundary_1_GUID--
+";
+            expected = expected.Replace("\r\n", "\n").Replace("\r", "\n").Replace("\n", "\r\n");
+
+            string sent = DecodeSentMailMessage(messageWithSubjectAndBody).Raw;
+            sent = Regex.Replace(sent, "Date:.*?\r\n", "Date: DATE\r\n");
+
+            // Find outer boundary (in the main Content-Type)
+            var outerBoundaryMatch = Regex.Match(sent, @"Content-Type: multipart/mixed;\s+boundary=(--boundary_\d+_[a-f0-9-]+)");
+            // Find inner boundary (in the nested Content-Type)
+            var innerBoundaryMatch = Regex.Match(sent, @"Content-Type: multipart/alternative;\s+boundary=(--boundary_\d+_[a-f0-9-]+)");
+
+            if (outerBoundaryMatch.Success && innerBoundaryMatch.Success)
+            {
+                string outerBoundary = outerBoundaryMatch.Groups[1].Value;
+                string innerBoundary = innerBoundaryMatch.Groups[1].Value;
+
+                // Replace all occurrences of these boundaries
+                sent = sent.Replace(outerBoundary, "--boundary_1_GUID");
+                sent = sent.Replace(innerBoundary, "--boundary_0_GUID");
+            }
+            else
+            {
+                // unify boundary GUIDs
+                sent = Regex.Replace(sent, @"--boundary_\d+_[a-f0-9-]+", "--boundary_?_GUID");
+            }
+
+            // name and charset can appear in different order
+            Assert.Contains("; name=AttachmentName", sent);
+            sent = sent.Replace("; name=AttachmentName", string.Empty);
+
+            Assert.Equal(expected, sent);
+        }
+
+        [Fact]
+        [SkipOnPlatform(TestPlatforms.Browser, "Not passing as internal System.Net.Mail.MailWriter stripped from build")]
         public void SentSpecialLengthMailAttachment_Base64Decode_Success()
         {
             // The special length follows pattern: (3N - 1) * 0x4400 + 1
@@ -160,7 +238,9 @@ namespace System.Net.Mail.Tests
             {
                 var message = new MailMessage("sender@test.com", "user1@pop.local", "testSubject", "testBody");
                 message.Attachments.Add(new Attachment(tempFile.Path));
-                string decodedAttachment = DecodeSentMailMessage(message);
+
+                string attachment = DecodeSentMailMessage(message).Attachment;
+                string decodedAttachment = Encoding.UTF8.GetString(Convert.FromBase64String(attachment));
 
                 // Make sure last byte is not encoded twice.
                 Assert.Equal(specialLength, decodedAttachment.Length);
@@ -168,11 +248,11 @@ namespace System.Net.Mail.Tests
             }
         }
 
-        private static string DecodeSentMailMessage(MailMessage mail)
+        private static (string Raw, string Attachment) DecodeSentMailMessage(MailMessage mail)
         {
             // Create a MIME message that would be sent using System.Net.Mail.
             var stream = new MemoryStream();
-            var mailWriterType = mail.GetType().Assembly.GetType("System.Net.Mail.MailWriter");
+            var mailWriterType = Type.GetType("System.Net.Mail.MailWriter, System.Net.Mail");
             var mailWriter = Activator.CreateInstance(
                                 type: mailWriterType,
                                 bindingAttr: BindingFlags.Instance | BindingFlags.NonPublic,
@@ -181,21 +261,21 @@ namespace System.Net.Mail.Tests
                                 culture: null,
                                 activationAttributes: null);
 
+            var syncSendAdapterType = Type.GetType("System.SyncReadWriteAdapter, System.Net.Mail");
+
             // Send the message.
-            mail.GetType().InvokeMember(
-                                name: "Send",
-                                invokeAttr: BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.InvokeMethod,
-                                binder: null,
-                                target: mail,
-                                args: new object[] { mailWriter, true, true });
+#pragma warning disable IL3050 // Roslyn analyzer can't see through the private reflection, but publish process can. This is safe.
+            typeof(MailMessage)
+                .GetMethod("SendAsync", BindingFlags.Instance | BindingFlags.NonPublic)
+                .MakeGenericMethod(syncSendAdapterType)
+                .Invoke(mail, new object[] { mailWriter, true, true, CancellationToken.None });
+#pragma warning restore IL3050
 
             // Decode contents.
             string result = Encoding.UTF8.GetString(stream.ToArray());
-            string encodedAttachment = result.Split(new[] { "attachment" }, StringSplitOptions.None)[1].Trim().Split('-')[0].Trim();
-            byte[] data = Convert.FromBase64String(encodedAttachment);
-            string decodedString = Encoding.UTF8.GetString(data);
+            string attachment = result.Split(new[] { "attachment" }, StringSplitOptions.None)[1].Trim().Split('-')[0].Trim();
 
-            return decodedString;
+            return (result, attachment);
         }
     }
 }

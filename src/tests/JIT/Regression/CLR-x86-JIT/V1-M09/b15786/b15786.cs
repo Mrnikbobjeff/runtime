@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b15786
 {
     //@BEGINRENAME; Verify this renames
     //@ENDRENAME; Verify this renames
@@ -16,7 +17,9 @@ namespace DefaultNamespace
             return (UInt16)i;
         }
 
-        public static int Main(String[] args)
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             // Looks like what's happening is the JIT sees I'm casting an int
             // to an unsigned short then back to an int and it messes up by

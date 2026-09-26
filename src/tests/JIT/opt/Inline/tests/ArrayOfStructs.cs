@@ -2,13 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
 
 internal struct Foo
 {
     public int x;
 }
 
-public class Test
+public class Test_ArrayOfStructs
 {
     private static int StructTaker_Inline(Foo FooStruct)
     {
@@ -16,7 +17,8 @@ public class Test
         array[0].x = 3;
         return array[0].x;
     }
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

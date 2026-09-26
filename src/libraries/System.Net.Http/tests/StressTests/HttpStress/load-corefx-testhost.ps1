@@ -29,15 +29,15 @@ function Find-Os()
 {
     if (!$(test-path variable:IsWindows) -or $IsWindows)
     {
-        return "Windows_NT"
+        return "windows"
     } 
     else
     {
         switch -Wildcard ($(uname -s))
         {
-            "Linux*" { return "Linux" }
-            "Darwin*" { return "MacOS" }
-            "*" { return "Unix" }
+            "Linux*" { return "linux" }
+            "Darwin*" { return "osx" }
+            "*" { return "unix" }
         }
     }
 }
@@ -137,12 +137,11 @@ function Set-Sdk-Environment()
         Copy-Aspnetcore-Bits $candidate_path
     }
 
-    $pathSeparator=if($os -eq "Windows_NT") { ";" } else { ":" }
+    $pathSeparator=if($os -eq "windows") { ";" } else { ":" }
     
     $env:DOTNET_ROOT=$candidate_path
     $env:DOTNET_CLI_HOME=$candidate_path
     $env:PATH=($candidate_path + $pathSeparator + $env:PATH)
-    $env:DOTNET_MULTILEVEL_LOOKUP=0
     $env:DOTNET_ROLL_FORWARD_ON_NO_CANDIDATE_FX=2
 }
 

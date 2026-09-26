@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 .assembly extern System.Console { }
+.assembly extern xunit.core {}
 // valuetype non-blittable by objref field, large offset, small field size, overlapped objref
 .assembly test21{}
 .assembly extern mscorlib{}
@@ -13,7 +14,11 @@
 
 }
 
+.class public Program extends [mscorlib]System.Object{
 .method public static int32 Main(){
+	.custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+	    01 00 00 00
+	)
 	.entrypoint
 
     .locals init (class [mscorlib]System.Exception e2)
@@ -52,6 +57,7 @@
 
     END:
     ret
+}
 }
 
 .method public static void Go(){

@@ -5,9 +5,13 @@
 // we want to make sure we can load such type.
 
 using System;
+using Xunit;
+using TestLibrary;
 
-public class Test {
-   public static int Main() 
+public class Test_ManyGenConstraints {
+   [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+   [Fact]
+   public static int TestEntryPoint() 
    {    
 	bool pass = true; 
   

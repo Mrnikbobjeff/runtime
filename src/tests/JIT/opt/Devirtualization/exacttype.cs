@@ -3,6 +3,7 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 public class Base 
 {
@@ -26,14 +27,15 @@ public class Derived : Base
 // lost the more precise type or lost the fact that the type was
 // exact.
 
-public class Test
+public class Test_exacttype
 {
     public static Base M()
     {
         return new Derived();
     }
 
-    public static int Main()
+    [Fact]
+    public static void TestEntryPoint()
     {
         // Declared type of 'd' has final method Foo(), so calls to
         // Foo() will devirtualize.
@@ -60,8 +62,6 @@ public class Test
         new Base().Bar();
         new Derived().Foo();
         new Derived().Bar();
-
-        return 100;
     }
 }
 

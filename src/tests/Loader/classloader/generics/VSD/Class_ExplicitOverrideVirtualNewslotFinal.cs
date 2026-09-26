@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 /*
-Test the following matrix for classes with virtual newslot final methods (explicit override):
+using TestLibrary;
+Test_Class_ExplicitOverrideVirtualNewslotFinal the following matrix for classes with virtual newslot final methods (explicit override):
 
 Non-Generic virtual methods:
 						Non-generic Interface	Generic Interface
@@ -18,6 +19,8 @@ Generic virtual methods:
 */
 
 using System;
+using Xunit;
+using TestLibrary;
 
 
 public class A<T>
@@ -126,7 +129,7 @@ public class C4<T> : IGen<T>
 
 
 
-public class Test
+public class Test_Class_ExplicitOverrideVirtualNewslotFinal
 {
 
 	public static bool pass = true;
@@ -239,7 +242,9 @@ public class Test
 
 
 	
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 
 		TestNonGenInterface_NonGenType();

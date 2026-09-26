@@ -2,8 +2,6 @@
 ' The .NET Foundation licenses this file to you under the MIT license.
 
 Imports System
-Imports System.Globalization
-Imports System.Security
 Imports Microsoft.VisualBasic.CompilerServices
 Imports Microsoft.VisualBasic.CompilerServices.ExceptionUtils
 Imports Microsoft.VisualBasic.CompilerServices.Utils
@@ -470,7 +468,7 @@ Namespace Microsoft.VisualBasic
 
                         Result = typ.Name
 
-                        If (typ.IsCOMObject AndAlso (System.String.CompareOrdinal(Result, COMObjectName) = 0)) Then
+                        If (typ.IsCOMObject AndAlso System.String.Equals(Result, COMObjectName, System.StringComparison.Ordinal)) Then
                             Result = LegacyTypeNameOfCOMObject(VarName, True)
                         End If
 

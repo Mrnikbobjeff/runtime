@@ -64,7 +64,7 @@ namespace System.IO
         static FileSystemWatcher()
         {
             int s_notifyFiltersValidMask = 0;
-            foreach (int enumValue in Enum.GetValues(typeof(NotifyFilters)))
+            foreach (int enumValue in Enum.GetValues<NotifyFilters>())
                 s_notifyFiltersValidMask |= enumValue;
             Debug.Assert(c_notifyFiltersValidMask == s_notifyFiltersValidMask, "The NotifyFilters enum has changed. The c_notifyFiltersValidMask must be updated to reflect the values of the NotifyFilters enum.");
         }
@@ -95,8 +95,10 @@ namespace System.IO
         public FileSystemWatcher(string path, string filter)
         {
             CheckPathValidity(path);
+            ArgumentNullException.ThrowIfNull(filter);
+
             _directory = path;
-            Filter = filter ?? throw new ArgumentNullException(nameof(filter));
+            Filter = filter;
         }
 
         /// <devdoc>
@@ -216,22 +218,8 @@ namespace System.IO
                         _internalBufferSize = (uint)value;
                     }
 
-                    Restart();
+                    RestartForInternalBufferSize();
                 }
-            }
-        }
-
-        /// <summary>Allocates a buffer of the requested internal buffer size.</summary>
-        /// <returns>The allocated buffer.</returns>
-        private byte[] AllocateBuffer()
-        {
-            try
-            {
-                return new byte[_internalBufferSize];
-            }
-            catch (OutOfMemoryException)
-            {
-                throw new OutOfMemoryException(SR.Format(SR.BufferSizeTooLarge, _internalBufferSize));
             }
         }
 
@@ -248,7 +236,7 @@ namespace System.IO
             }
             set
             {
-                value = (value == null) ? string.Empty : value;
+                value ??= string.Empty;
                 if (!string.Equals(_directory, value, PathInternal.StringComparison))
                 {
                     if (value.Length == 0)
@@ -370,8 +358,7 @@ namespace System.IO
 
         private static void CheckPathValidity(string path)
         {
-            if (path == null)
-                throw new ArgumentNullException(nameof(path));
+            ArgumentNullException.ThrowIfNull(path);
 
             // Early check for directory parameter so that an exception can be thrown as early as possible.
             if (path.Length == 0)
@@ -408,9 +395,17 @@ namespace System.IO
         /// </summary>
         private void NotifyInternalBufferOverflowEvent()
         {
-            _onErrorHandler?.Invoke(this, new ErrorEventArgs(
-                    new InternalBufferOverflowException(SR.Format(SR.FSW_BufferOverflow, _directory))));
+            if (_onErrorHandler != null)
+            {
+                OnError(new ErrorEventArgs(CreateBufferOverflowException(_directory)));
+            }
         }
+
+        private static InternalBufferOverflowException CreateBufferOverflowException(string directoryPath)
+            => new InternalBufferOverflowException(SR.Format(SR.FSW_BufferOverflow, directoryPath));
+
+        private static DirectoryNotFoundException CreateWatchedDirectoryDeletedOrMovedException(string directoryPath)
+            => new DirectoryNotFoundException(SR.Format(SR.FSW_WatchedDirectoryDeletedOrMoved, directoryPath));
 
         /// <summary>
         /// Raises the event to each handler in the list.
@@ -418,11 +413,10 @@ namespace System.IO
         private void NotifyRenameEventArgs(WatcherChangeTypes action, ReadOnlySpan<char> name, ReadOnlySpan<char> oldName)
         {
             // filter if there's no handler or neither new name or old name match a specified pattern
-            RenamedEventHandler? handler = _onRenamedHandler;
-            if (handler != null &&
+            if (_onRenamedHandler != null &&
                 (MatchPattern(name) || MatchPattern(oldName)))
             {
-                handler(this, new RenamedEventArgs(action, _directory, name.IsEmpty ? null : name.ToString(), oldName.IsEmpty ? null : oldName.ToString()));
+                OnRenamed(new RenamedEventArgs(action, _directory, name.IsEmpty ? null : name.ToString(), oldName.IsEmpty ? null : oldName.ToString()));
             }
         }
 
@@ -451,7 +445,7 @@ namespace System.IO
 
             if (handler != null && MatchPattern(name.IsEmpty ? _directory : name))
             {
-                handler(this, new FileSystemEventArgs(changeType, _directory, name.IsEmpty ? null : name.ToString()));
+                InvokeOn(new FileSystemEventArgs(changeType, _directory, name.IsEmpty ? null : name.ToString()), handler);
             }
         }
 
@@ -464,7 +458,7 @@ namespace System.IO
 
             if (handler != null && MatchPattern(string.IsNullOrEmpty(name) ? _directory : name))
             {
-                handler(this, new FileSystemEventArgs(changeType, _directory, name));
+                InvokeOn(new FileSystemEventArgs(changeType, _directory, name), handler);
             }
         }
 
@@ -617,6 +611,17 @@ namespace System.IO
                 WaitForChangedResult.TimedOutResult;
         }
 
+        public WaitForChangedResult WaitForChanged(WatcherChangeTypes changeType, TimeSpan timeout) =>
+            WaitForChanged(changeType, ToTimeoutMilliseconds(timeout));
+
+        private static int ToTimeoutMilliseconds(TimeSpan timeout)
+        {
+            long totalMilliseconds = (long)timeout.TotalMilliseconds;
+            ArgumentOutOfRangeException.ThrowIfLessThan(totalMilliseconds, -1, nameof(timeout));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(totalMilliseconds, int.MaxValue, nameof(timeout));
+            return (int)totalMilliseconds;
+        }
+
         /// <devdoc>
         ///     Stops and starts this object.
         /// </devdoc>
@@ -633,8 +638,7 @@ namespace System.IO
         private void StartRaisingEventsIfNotDisposed()
         {
             //Cannot allocate the directoryHandle and the readBuffer if the object has been disposed; finalization has been suppressed.
-            if (_disposed)
-                throw new ObjectDisposedException(GetType().Name);
+            ObjectDisposedException.ThrowIf(_disposed, this);
             StartRaisingEvents();
         }
 
@@ -711,10 +715,7 @@ namespace System.IO
                     get
                     {
                         string[] items = Items;
-                        if ((uint)index >= (uint)items.Length)
-                        {
-                            throw new ArgumentOutOfRangeException(nameof(index));
-                        }
+                        ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual((uint)index, (uint)items.Length, nameof(index));
                         return items[index];
                     }
                     set
@@ -737,7 +738,7 @@ namespace System.IO
 
                 public void Clear() => Items = Array.Empty<string>();
 
-                public bool Contains(string item) => Array.IndexOf(Items, item) != -1;
+                public bool Contains(string item) => Array.IndexOf(Items, item) >= 0;
 
                 public void CopyTo(string[] array, int arrayIndex) => Items.CopyTo(array, arrayIndex);
 

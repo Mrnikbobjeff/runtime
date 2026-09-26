@@ -2,10 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Runtime.Caching.Resources;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Globalization;
+using System.Runtime.Caching.Resources;
 
 namespace System.Runtime.Caching.Configuration
 {
@@ -15,6 +15,7 @@ namespace System.Runtime.Caching.Configuration
         internal const string PhysicalMemoryLimitPercentage = "physicalMemoryLimitPercentage";
         internal const string PollingInterval = "pollingInterval";
         internal const string UseMemoryCacheManager = "useMemoryCacheManager";
+        internal const string ThrowOnDisposed = "throwOnDisposed";
         internal const int DefaultPollingTimeMilliseconds = 120000;
 
         internal static int GetIntValue(NameValueCollection config, string valueName, int defaultValue, bool zeroAllowed, int maxValueAllowed)

@@ -1,16 +1,16 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
+using System.Collections;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.IO;
+using System.Text;
+
 namespace System.Xml.Schema
 {
-    using System;
-    using System.Collections;
-    using System.Globalization;
-    using System.Text;
-    using System.IO;
-    using System.Diagnostics;
-    using System.Diagnostics.CodeAnalysis;
-
     internal sealed partial class Parser
     {
         private SchemaType _schemaType;
@@ -34,9 +34,6 @@ namespace System.Xml.Schema
         private XmlNode? _parentNode;
         private XmlNamespaceManager? _annotationNSManager;
         private string? _xmlns;
-
-        //Whitespace check for text nodes
-        private XmlCharType _xmlCharType = XmlCharType.Instance;
 
         public Parser(SchemaType schemaType, XmlNameTable nameTable, SchemaNames schemaNames, ValidationEventHandler? eventHandler)
         {
@@ -224,7 +221,7 @@ namespace System.Xml.Schema
             }
             else if (_reader.NodeType == XmlNodeType.Text)
             { //Check for whitespace
-                if (!_xmlCharType.IsOnlyWhitespace(_reader.Value))
+                if (!XmlCharType.IsOnlyWhitespace(_reader.Value))
                 {
                     _builder!.ProcessCData(_reader.Value);
                 }
@@ -278,7 +275,7 @@ namespace System.Xml.Schema
             {
                 case XmlNodeType.Element:
                     _annotationNSManager!.PushScope();
-                    currentNode = LoadElementNode(root);
+                    LoadElementNode(root);
                     //  Dev10 (TFS) #479761: The following code was to address the issue of where an in-scope namespace delaration attribute
                     //      was not added when an element follows an empty element. This fix will result in persisting schema in a consistent form
                     //      although it does not change the semantic meaning of the schema.

@@ -1,11 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 
-internal class MainApp
+namespace b449827;
+
+using System;
+using Xunit;
+
+public class MainApp
 {
-    public static int Main(string[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int a, prev;
 

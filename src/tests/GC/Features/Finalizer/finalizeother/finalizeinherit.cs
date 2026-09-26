@@ -5,6 +5,8 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
+using TestLibrary;
 
 namespace One
 {
@@ -80,9 +82,12 @@ namespace Three {
         }
     }
 
-    class Test
+    public class Test
     {
-        static int Main()
+        [ActiveIssue("PlatformDetection.IsPreciseGcSupported false on mono", TestRuntimes.Mono)]
+        [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             CreateObj temp = new CreateObj();
 

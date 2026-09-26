@@ -32,6 +32,9 @@ namespace System.Collections.Tests
 
         protected override Type IGenericSharedAPI_CopyTo_IndexLargerThanArrayCount_ThrowType => typeof(ArgumentOutOfRangeException);
 
+        protected override bool Enumerator_Empty_UsesSingletonInstance => true;
+        protected override bool Enumerator_Empty_ModifiedDuringEnumeration_ThrowsInvalidOperationException => false;
+
         #endregion
 
         protected override IEnumerable<T> GenericIEnumerableFactory()
@@ -50,7 +53,7 @@ namespace System.Collections.Tests
         protected override bool Contains(IEnumerable<T> enumerable, T value) => ((Stack<T>)enumerable).Contains(value);
         protected override void CopyTo(IEnumerable<T> enumerable, T[] array, int index) => ((Stack<T>)enumerable).CopyTo(array, index);
         protected override bool Remove(IEnumerable<T> enumerable) { ((Stack<T>)enumerable).Pop(); return true; }
-        protected override bool Enumerator_Current_UndefinedOperation_Throws => true;
+        protected override bool Enumerator_Empty_Current_UndefinedOperation_Throws => true;
 
         #endregion
 
@@ -77,7 +80,7 @@ namespace System.Collections.Tests
             _ = numberOfMatchingElements;
             IEnumerable<T> enumerable = CreateEnumerable(enumerableType, null, enumerableLength, 0, numberOfDuplicateElements);
             Stack<T> stack = new Stack<T>(enumerable);
-            Assert.Equal(enumerable.ToArray().Reverse(), stack.ToArray());
+            Assert.Equal(Enumerable.Reverse(enumerable.ToArray()), stack.ToArray());
         }
 
         [Fact]
@@ -103,6 +106,15 @@ namespace System.Collections.Tests
         {
             AssertExtensions.Throws<ArgumentOutOfRangeException>("capacity", () => new Stack<T>(-1));
             AssertExtensions.Throws<ArgumentOutOfRangeException>("capacity", () => new Stack<T>(int.MinValue));
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(100)]
+        public void Stack_CreateWithCapacity_EqualsCapacityProperty(int capacity)
+        {
+            var stack = new Stack<T>(capacity);
+            Assert.Equal(capacity, stack.Capacity);
         }
 
         #endregion
@@ -163,6 +175,27 @@ namespace System.Collections.Tests
         #endregion
 
         #region TrimExcess
+
+        [Theory]
+        [InlineData(1, -1)]
+        [InlineData(2, 1)]
+        public void Stack_TrimAccessWithInvalidArg_ThrowOutOfRange(int size, int newCapacity)
+        {
+            Stack<T> stack = GenericStackFactory(size);
+
+            AssertExtensions.Throws<ArgumentOutOfRangeException>(() => stack.TrimExcess(newCapacity));
+        }
+
+        [Fact]
+        public void Stack_TrimAccessCurrentCount_DoesNothing()
+        {
+            var stack = GenericStackFactory(10);
+            stack.TrimExcess(stack.Count);
+            int capacity = stack.Capacity;
+            stack.TrimExcess(stack.Count);
+
+            Assert.Equal(capacity, stack.Capacity);
+        }
 
         [Theory]
         [MemberData(nameof(ValidCollectionSizes))]
@@ -239,6 +272,17 @@ namespace System.Collections.Tests
             }
         }
 
+        [Fact]
+        public void Stack_Generic_TrimExcess_DoesNotInvalidateEnumeration()
+        {
+            Stack<T> stack = GenericStackFactory(10);
+            stack.EnsureCapacity(100);
+
+            IEnumerator<T> enumerator = stack.GetEnumerator();
+            stack.TrimExcess();
+            enumerator.MoveNext();
+        }
+
         #endregion
 
         [Theory]
@@ -285,6 +329,112 @@ namespace System.Collections.Tests
             T result;
             Assert.False(new Stack<T>().TryPeek(out result));
             Assert.Equal(default(T), result);
+        }
+
+        [Theory]
+        [MemberData(nameof(ValidCollectionSizes))]
+        public void Stack_Generic_EnsureCapacity_RequestingLargerCapacity_DoesNotInvalidateEnumeration(int count)
+        {
+            Stack<T> stack = GenericStackFactory(count);
+            IEnumerator<T> copiedEnumerator = new List<T>(stack).GetEnumerator();
+            IEnumerator<T> enumerator = stack.GetEnumerator();
+
+            stack.EnsureCapacity(count + 1);
+
+            enumerator.MoveNext();
+        }
+
+        [Fact]
+        public void Stack_Generic_EnsureCapacity_NotInitialized_RequestedZero_ReturnsZero()
+        {
+            var stack = GenericStackFactory();
+            Assert.Equal(0, stack.EnsureCapacity(0));
+        }
+
+        [Fact]
+        public void Stack_Generic_EnsureCapacity_NegativeCapacityRequested_Throws()
+        {
+            var stack = GenericStackFactory();
+            AssertExtensions.Throws<ArgumentOutOfRangeException>("capacity", () => stack.EnsureCapacity(-1));
+        }
+
+        public static IEnumerable<object[]> Stack_Generic_EnsureCapacity_LargeCapacityRequested_Throws_MemberData()
+        {
+            yield return new object[] { Array.MaxLength + 1 };
+            yield return new object[] { int.MaxValue };
+        }
+
+        [Theory]
+        [MemberData(nameof(Stack_Generic_EnsureCapacity_LargeCapacityRequested_Throws_MemberData))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51411", TestRuntimes.Mono)]
+        public void Stack_Generic_EnsureCapacity_LargeCapacityRequested_Throws(int requestedCapacity)
+        {
+            var stack = GenericStackFactory();
+            AssertExtensions.Throws<OutOfMemoryException>(() => stack.EnsureCapacity(requestedCapacity));
+        }
+
+        [Theory]
+        [InlineData(5)]
+        public void Stack_Generic_EnsureCapacity_RequestedCapacitySmallerThanOrEqualToCurrent_CapacityUnchanged(int currentCapacity)
+        {
+            var stack = new Stack<T>(currentCapacity);
+
+            for (int requestCapacity = 0; requestCapacity <= currentCapacity; requestCapacity++)
+            {
+                Assert.Equal(currentCapacity, stack.EnsureCapacity(requestCapacity));
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(ValidCollectionSizes))]
+        public void Stack_Generic_EnsureCapacity_RequestedCapacitySmallerThanOrEqualToCount_CapacityUnchanged(int count)
+        {
+            Stack<T> stack = GenericStackFactory(count);
+
+            for (int requestCapacity = 0; requestCapacity <= count; requestCapacity++)
+            {
+                Assert.Equal(count, stack.EnsureCapacity(requestCapacity));
+            }
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(5)]
+        public void Stack_Generic_EnsureCapacity_CapacityIsAtLeastTheRequested(int count)
+        {
+            Stack<T> stack = GenericStackFactory(count);
+
+            int requestCapacity = count + 1;
+            int newCapacity = stack.EnsureCapacity(requestCapacity);
+            Assert.InRange(newCapacity, requestCapacity, int.MaxValue);
+        }
+
+        [Theory]
+        [MemberData(nameof(ValidCollectionSizes))]
+        public void Stack_Generic_EnsureCapacity_RequestingLargerCapacity_DoesNotImpactStackContent(int count)
+        {
+            Stack<T> stack = GenericStackFactory(count);
+            var copiedList = new List<T>(stack);
+
+            stack.EnsureCapacity(count + 1);
+            Assert.Equal(copiedList, stack);
+
+            for (int i = 0; i < count; i++)
+            {
+                Assert.Equal(copiedList[i], stack.Pop());
+            }
+        }
+
+        [Fact]
+        public void StackResized_CapacityUpdates()
+        {
+            Stack<T> stack = GenericStackFactory(10);
+            int initialCapacity = stack.Capacity;
+
+            stack.Push(CreateT(85877));
+
+            Assert.True(initialCapacity < stack.Capacity);
         }
     }
 }

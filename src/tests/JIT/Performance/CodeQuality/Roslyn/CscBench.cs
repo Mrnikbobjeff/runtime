@@ -5,13 +5,12 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
-using Microsoft.Xunit.Performance;
 using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
-
-[assembly: OptimizeForBenchmarks]
+using Xunit;
+using TestLibrary;
 
 public static class CscBench
 {
@@ -30,13 +29,6 @@ public static class CscBench
     {
         string CoreRoot = System.Environment.GetEnvironmentVariable("CORE_ROOT");
         if (CoreRoot == null) { return false; }
-        // Some CoreCLR packages have System.Private.CoreLib.ni.dll only
-        string nicorlib = Path.Combine(CoreRoot, "System.Private.CoreLib.ni.dll");
-        if(File.Exists(nicorlib))
-        {
-            MscorlibPath = nicorlib;
-            return true;
-        }
         MscorlibPath = Path.Combine(CoreRoot, "System.Private.CoreLib.dll");
         return File.Exists(MscorlibPath);
     }
@@ -64,23 +56,6 @@ public static class CscBench
         }
 
         return result;
-    }
-
-    [Benchmark]
-    public static void CompileTest()
-    {
-        if (!FindMscorlib())
-        {
-            throw new Exception("This test requires CORE_ROOT to be set");
-        }
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                CompileBench();
-            }
-        }
     }
 
     public static TextSpan GetSpanBetweenMarkers(SyntaxTree tree)
@@ -118,7 +93,7 @@ public static class CscBench
     public static bool DataflowBench()
     {
         var text = @"
-class C {
+public class C {
     public void F(int x)
     {
         int a;
@@ -154,22 +129,6 @@ class C {
         return result;
     }
 
-    [Benchmark]
-    public static void DatflowTest()
-    {
-        if (!FindMscorlib())
-        {
-            throw new Exception("This test requires CORE_ROOT to be set");
-        }
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                DataflowBench();
-            }
-        }
-    }
-
     static bool Bench()
     {
         bool result = true;
@@ -178,7 +137,13 @@ class C {
         return result;
     }
 
-    public static int Main()
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/57352", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoFULLAOT))]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/54908", TestPlatforms.Android)]
+    [ActiveIssue("This test requires CORE_ROOT to be set", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         bool result = true;
         if (!FindMscorlib())

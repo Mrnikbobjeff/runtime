@@ -5,20 +5,23 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Mime;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Buffers;
 
 namespace System.Net
 {
     internal sealed class Base64Stream : DelegatedStream, IEncodableStream
     {
-        private static ReadOnlySpan<byte> Base64DecodeMap => new byte[] // rely on C# compiler optimization to eliminate allocation
-        {
+        private static ReadOnlySpan<byte> Base64DecodeMap =>
+        [
             //0   1   2    3    4    5    6    7    8    9    A    B     C    D    E    F
             255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,  255, 255, 255, 255, // 0
             255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,  255, 255, 255, 255, // 1
             255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 62,   255, 255, 255,  63, // 2
              52,  53,  54,  55,  56,  57,  58,  59,  60,  61, 255, 255,  255, 255, 255, 255, // 3
             255,   0,   1,   2,   3,   4,   5,   6,   7,   8,   9,  10,   11,  12,  13,  14, // 4
-             15,  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,  255, 255, 255, 255, 255, // 5
+             15,  16,  17,  18,  19,  20,  21,  22,  23,  24,  25, 255,  255, 255, 255, 255, // 5
             255,  26,  27,  28,  29,  30,  31,  32,  33,  34,  35,  36,   37,  38,  39,  40, // 6
              41,  42,  43,  44,  45,  46,  47,  48,  49,  50,  51, 255,  255, 255, 255, 255, // 7
             255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,  255, 255, 255, 255, // 8
@@ -29,11 +32,10 @@ namespace System.Net
             255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,  255, 255, 255, 255, // D
             255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,  255, 255, 255, 255, // E
             255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,  255, 255, 255, 255, // F
-        };
+        ];
 
         private readonly Base64WriteStateInfo _writeState;
-        private ReadStateInfo? _readState;
-        private readonly IByteEncoder _encoder;
+        private readonly Base64Encoder _encoder;
 
         //bytes with this value in the decode map are invalid
         private const byte InvalidBase64Value = 255;
@@ -50,7 +52,10 @@ namespace System.Net
             _encoder = new Base64Encoder(_writeState, writeStateInfo.MaxLineLength);
         }
 
-        private ReadStateInfo ReadState => _readState ?? (_readState = new ReadStateInfo());
+        public override bool CanRead => BaseStream.CanRead;
+        public override bool CanWrite => BaseStream.CanWrite;
+
+        private ReadStateInfo ReadState => field ??= new ReadStateInfo();
 
         internal WriteStateInfoBase WriteState
         {
@@ -60,47 +65,6 @@ namespace System.Net
                 return _writeState;
             }
         }
-
-        public override IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state)
-        {
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (offset < 0 || offset > buffer.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            }
-            if (offset + count > buffer.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-
-            var result = new ReadAsyncResult(this, buffer, offset, count, callback, state);
-            result.Read();
-            return result;
-        }
-
-        public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state)
-        {
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (offset < 0 || offset > buffer.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            }
-            if (offset + count > buffer.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-
-            var result = new WriteAsyncResult(this, buffer, offset, count, callback, state);
-            result.Write();
-            return result;
-        }
-
 
         public override void Close()
         {
@@ -113,90 +77,65 @@ namespace System.Net
             base.Close();
         }
 
-        public unsafe int DecodeBytes(byte[] buffer, int offset, int count)
+        public int DecodeBytes(Span<byte> buffer)
         {
-            fixed (byte* pBuffer = buffer)
+            int source = 0;
+            int destination = 0;
+
+            while (source < buffer.Length)
             {
-                byte* start = pBuffer + offset;
-                byte* source = start;
-                byte* dest = start;
-                byte* end = start + count;
+                byte current = buffer[source++];
 
-                while (source < end)
+                //space and tab are ok because folding must include a whitespace char.
+                if (current == '\r' || current == '\n' || current == '=' || current == ' ' || current == '\t')
                 {
-                    //space and tab are ok because folding must include a whitespace char.
-                    if (*source == '\r' || *source == '\n' || *source == '=' || *source == ' ' || *source == '\t')
-                    {
-                        source++;
-                        continue;
-                    }
-
-                    byte s = Base64DecodeMap[*source];
-
-                    if (s == InvalidBase64Value)
-                    {
-                        throw new FormatException(SR.MailBase64InvalidCharacter);
-                    }
-
-                    switch (ReadState.Pos)
-                    {
-                        case 0:
-                            ReadState.Val = (byte)(s << 2);
-                            ReadState.Pos++;
-                            break;
-                        case 1:
-                            *dest++ = (byte)(ReadState.Val + (s >> 4));
-                            ReadState.Val = unchecked((byte)(s << 4));
-                            ReadState.Pos++;
-                            break;
-                        case 2:
-                            *dest++ = (byte)(ReadState.Val + (s >> 2));
-                            ReadState.Val = unchecked((byte)(s << 6));
-                            ReadState.Pos++;
-                            break;
-                        case 3:
-                            *dest++ = (byte)(ReadState.Val + s);
-                            ReadState.Pos = 0;
-                            break;
-                    }
-                    source++;
+                    continue;
                 }
 
-                return (int)(dest - start);
+                byte s = Base64DecodeMap[current];
+
+                if (s == InvalidBase64Value)
+                {
+                    throw new FormatException(SR.MailBase64InvalidCharacter);
+                }
+
+                switch (ReadState.Pos)
+                {
+                    case 0:
+                        ReadState.Val = (byte)(s << 2);
+                        ReadState.Pos++;
+                        break;
+                    case 1:
+                        buffer[destination++] = (byte)(ReadState.Val + (s >> 4));
+                        ReadState.Val = unchecked((byte)(s << 4));
+                        ReadState.Pos++;
+                        break;
+                    case 2:
+                        buffer[destination++] = (byte)(ReadState.Val + (s >> 2));
+                        ReadState.Val = unchecked((byte)(s << 6));
+                        ReadState.Pos++;
+                        break;
+                    case 3:
+                        buffer[destination++] = (byte)(ReadState.Val + s);
+                        ReadState.Pos = 0;
+                        break;
+                }
             }
+
+            return destination;
         }
 
-        public int EncodeBytes(byte[] buffer, int offset, int count) =>
-            EncodeBytes(buffer, offset, count, true, true);
+        public int EncodeBytes(ReadOnlySpan<byte> buffer) =>
+            _encoder.EncodeBytes(buffer, true, true);
 
-        internal int EncodeBytes(byte[] buffer, int offset, int count, bool dontDeferFinalBytes, bool shouldAppendSpaceToCRLF)
+        internal int EncodeBytes(ReadOnlySpan<byte> buffer, bool dontDeferFinalBytes, bool shouldAppendSpaceToCRLF)
         {
-            return _encoder.EncodeBytes(buffer, offset, count, dontDeferFinalBytes, shouldAppendSpaceToCRLF);
+            return _encoder.EncodeBytes(buffer, dontDeferFinalBytes, shouldAppendSpaceToCRLF);
         }
 
         public int EncodeString(string value, Encoding encoding) => _encoder.EncodeString(value, encoding);
 
         public string GetEncodedString() => _encoder.GetEncodedString();
-
-        public override int EndRead(IAsyncResult asyncResult)
-        {
-            if (asyncResult == null)
-            {
-                throw new ArgumentNullException(nameof(asyncResult));
-            }
-
-            return ReadAsyncResult.End(asyncResult);
-        }
-
-        public override void EndWrite(IAsyncResult asyncResult)
-        {
-            if (asyncResult == null)
-            {
-                throw new ArgumentNullException(nameof(asyncResult));
-            }
-
-            WriteAsyncResult.End(asyncResult);
-        }
 
         public override void Flush()
         {
@@ -208,40 +147,40 @@ namespace System.Net
             base.Flush();
         }
 
+        public override async Task FlushAsync(CancellationToken cancellationToken)
+        {
+            await FlushInternalAsync(cancellationToken).ConfigureAwait(false);
+            await base.FlushAsync(cancellationToken).ConfigureAwait(false);
+        }
+
         private void FlushInternal()
         {
-            base.Write(WriteState.Buffer, 0, WriteState.Length);
+            BaseStream.Write(WriteState.Buffer.AsSpan(0, WriteState.Length));
             WriteState.Reset();
         }
 
-        public override int Read(byte[] buffer, int offset, int count)
+        private async ValueTask FlushInternalAsync(CancellationToken cancellationToken)
         {
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (offset < 0 || offset > buffer.Length)
-                throw new ArgumentOutOfRangeException(nameof(offset));
+            await BaseStream.WriteAsync(WriteState.Buffer.AsMemory(0, WriteState.Length), cancellationToken).ConfigureAwait(false);
+            WriteState.Reset();
+        }
 
-            if (offset + count > buffer.Length)
-                throw new ArgumentOutOfRangeException(nameof(count));
-
+        protected override int ReadInternal(Span<byte> buffer)
+        {
             while (true)
             {
                 // read data from the underlying stream
-                int read = base.Read(buffer, offset, count);
+                int read = BaseStream.Read(buffer);
 
                 // if the underlying stream returns 0 then there
-                // is no more data - ust return 0.
+                // is no more data - just return 0.
                 if (read == 0)
                 {
                     return 0;
                 }
 
-                // while decoding, we may end up not having
-                // any bytes to return pending additional data
-                // from the underlying stream.
-                read = DecodeBytes(buffer, offset, read);
+                // Decode the read bytes and update the input buffer with decoded bytes
+                read = DecodeBytes(buffer.Slice(0, read));
                 if (read > 0)
                 {
                     return read;
@@ -249,29 +188,39 @@ namespace System.Net
             }
         }
 
-        public override void Write(byte[] buffer, int offset, int count)
+        protected override async ValueTask<int> ReadAsyncInternal(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            if (buffer == null)
+            while (true)
             {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (offset < 0 || offset > buffer.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            }
-            if (offset + count > buffer.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+                // read data from the underlying stream
+                int read = await BaseStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
 
+                // if the underlying stream returns 0 then there
+                // is no more data - just return 0.
+                if (read == 0)
+                {
+                    return 0;
+                }
+
+                // Decode the read bytes and update the input buffer with decoded bytes
+                read = DecodeBytes(buffer.Span.Slice(0, read));
+                if (read > 0)
+                {
+                    return read;
+                }
+            }
+        }
+
+        protected override void WriteInternal(ReadOnlySpan<byte> buffer)
+        {
             int written = 0;
 
             // do not append a space when writing from a stream since this means
             // it's writing the email body
             while (true)
             {
-                written += EncodeBytes(buffer, offset + written, count - written, false, false);
-                if (written < count)
+                written += EncodeBytes(buffer.Slice(written), false, false);
+                if (written < buffer.Length)
                 {
                     FlushInternal();
                 }
@@ -282,166 +231,23 @@ namespace System.Net
             }
         }
 
-        private sealed class ReadAsyncResult : LazyAsyncResult
+        protected override async ValueTask WriteAsyncInternal(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            private readonly Base64Stream _parent;
-            private readonly byte[] _buffer;
-            private readonly int _offset;
-            private readonly int _count;
-            private int _read;
+            int written = 0;
 
-            private static readonly AsyncCallback s_onRead = OnRead;
-
-            internal ReadAsyncResult(Base64Stream parent, byte[] buffer, int offset, int count, AsyncCallback? callback, object? state) : base(null, state, callback)
+            // do not append a space when writing from a stream since this means
+            // it's writing the email body
+            while (true)
             {
-                _parent = parent;
-                _buffer = buffer;
-                _offset = offset;
-                _count = count;
-            }
-
-            private bool CompleteRead(IAsyncResult result)
-            {
-                _read = _parent.BaseStream.EndRead(result);
-
-                // if the underlying stream returns 0 then there
-                // is no more data - ust return 0.
-                if (_read == 0)
+                written += EncodeBytes(buffer.Span.Slice(written), false, false);
+                if (written < buffer.Length)
                 {
-                    InvokeCallback();
-                    return true;
+                    await FlushInternalAsync(cancellationToken).ConfigureAwait(false);
                 }
-
-                // while decoding, we may end up not having
-                // any bytes to return pending additional data
-                // from the underlying stream.
-                _read = _parent.DecodeBytes(_buffer, _offset, _read);
-                if (_read > 0)
+                else
                 {
-                    InvokeCallback();
-                    return true;
+                    break;
                 }
-
-                return false;
-            }
-
-            internal void Read()
-            {
-                while (true)
-                {
-                    IAsyncResult result = _parent.BaseStream.BeginRead(_buffer, _offset, _count, s_onRead, this);
-                    if (!result.CompletedSynchronously || CompleteRead(result))
-                    {
-                        break;
-                    }
-                }
-            }
-
-            private static void OnRead(IAsyncResult result)
-            {
-                if (!result.CompletedSynchronously)
-                {
-                    ReadAsyncResult thisPtr = (ReadAsyncResult)result.AsyncState!;
-                    try
-                    {
-                        if (!thisPtr.CompleteRead(result))
-                        {
-                            thisPtr.Read();
-                        }
-                    }
-                    catch (Exception e)
-                    {
-                        if (thisPtr.IsCompleted)
-                        {
-                            throw;
-                        }
-                        thisPtr.InvokeCallback(e);
-                    }
-                }
-            }
-
-            internal static int End(IAsyncResult result)
-            {
-                ReadAsyncResult thisPtr = (ReadAsyncResult)result;
-                thisPtr.InternalWaitForCompletion();
-                return thisPtr._read;
-            }
-        }
-
-        private sealed class WriteAsyncResult : LazyAsyncResult
-        {
-            private static readonly AsyncCallback s_onWrite = OnWrite;
-
-            private readonly Base64Stream _parent;
-            private readonly byte[] _buffer;
-            private readonly int _offset;
-            private readonly int _count;
-            private int _written;
-
-            internal WriteAsyncResult(Base64Stream parent, byte[] buffer, int offset, int count, AsyncCallback? callback, object? state) : base(null, state, callback)
-            {
-                _parent = parent;
-                _buffer = buffer;
-                _offset = offset;
-                _count = count;
-            }
-
-            internal void Write()
-            {
-                while (true)
-                {
-                    // do not append a space when writing from a stream since this means
-                    // it's writing the email body
-                    _written += _parent.EncodeBytes(_buffer, _offset + _written, _count - _written, false, false);
-                    if (_written < _count)
-                    {
-                        IAsyncResult result = _parent.BaseStream.BeginWrite(_parent.WriteState.Buffer, 0, _parent.WriteState.Length, s_onWrite, this);
-                        if (!result.CompletedSynchronously)
-                        {
-                            break;
-                        }
-                        CompleteWrite(result);
-                    }
-                    else
-                    {
-                        InvokeCallback();
-                        break;
-                    }
-                }
-            }
-
-            private void CompleteWrite(IAsyncResult result)
-            {
-                _parent.BaseStream.EndWrite(result);
-                _parent.WriteState.Reset();
-            }
-
-            private static void OnWrite(IAsyncResult result)
-            {
-                if (!result.CompletedSynchronously)
-                {
-                    WriteAsyncResult thisPtr = (WriteAsyncResult)result.AsyncState!;
-                    try
-                    {
-                        thisPtr.CompleteWrite(result);
-                        thisPtr.Write();
-                    }
-                    catch (Exception e)
-                    {
-                        if (thisPtr.IsCompleted)
-                        {
-                            throw;
-                        }
-                        thisPtr.InvokeCallback(e);
-                    }
-                }
-            }
-
-            internal static void End(IAsyncResult result)
-            {
-                WriteAsyncResult thisPtr = (WriteAsyncResult)result;
-                thisPtr.InternalWaitForCompletion();
-                Debug.Assert(thisPtr._written == thisPtr._count);
             }
         }
 

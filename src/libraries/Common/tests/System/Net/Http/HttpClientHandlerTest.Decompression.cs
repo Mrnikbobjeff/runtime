@@ -4,8 +4,10 @@
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Net.Test.Common;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 
 using Xunit;
@@ -13,8 +15,6 @@ using Xunit.Abstractions;
 
 namespace System.Net.Http.Functional.Tests
 {
-    using Configuration = System.Net.Test.Common.Configuration;
-
 #if WINHTTPHANDLER_TEST
     using HttpClientHandler = System.Net.Http.WinHttpClientHandler;
 #endif
@@ -28,54 +28,68 @@ namespace System.Net.Http.Functional.Tests
 #endif
         public HttpClientHandler_Decompression_Test(ITestOutputHelper output) : base(output) { }
 
-        public static IEnumerable<object[]> RemoteServersAndCompressionUris()
-        {
-            foreach (Configuration.Http.RemoteServer remoteServer in Configuration.Http.RemoteServers)
-            {
-                yield return new object[] { remoteServer, remoteServer.GZipUri };
-                yield return new object[] { remoteServer, remoteServer.DeflateUri };
-            }
-        }
-
-        public static IEnumerable<object[]> DecompressedResponse_MethodSpecified_DecompressedContentReturned_MemberData()
-        {
-            foreach (bool specifyAllMethods in new[] { false, true })
-            {
-                yield return new object[]
-                {
-                    "deflate",
-                    new Func<Stream, Stream>(s => new DeflateStream(s, CompressionLevel.Optimal, leaveOpen: true)),
-                    specifyAllMethods ? DecompressionMethods.Deflate : _all
-                };
-                yield return new object[]
-                {
-                    "gzip",
-                    new Func<Stream, Stream>(s => new GZipStream(s, CompressionLevel.Optimal, leaveOpen: true)),
-                    specifyAllMethods ? DecompressionMethods.GZip : _all
-                };
-#if !NETFRAMEWORK
-                yield return new object[]
-                {
-                    "br",
-                    new Func<Stream, Stream>(s => new BrotliStream(s, CompressionLevel.Optimal, leaveOpen: true)),
-                    specifyAllMethods ? DecompressionMethods.Brotli : _all
-                };
-#endif
-            }
-        }
+        public static IEnumerable<object[]> DecompressedResponse_MethodSpecified_DecompressedContentReturned_MemberData() =>
+            from compressionName in new[] { "gzip", "GZIP", "zlib", "ZLIB", "deflate", "DEFLATE", "br", "BR", "zstd", "ZSTD" }
+            from all in new[] { false, true }
+            from copyTo in new[] { false, true }
+            from contentLength in new[] { 0, 1, 12345 }
+            select new object[] { compressionName, all, copyTo, contentLength };
 
         [Theory]
         [MemberData(nameof(DecompressedResponse_MethodSpecified_DecompressedContentReturned_MemberData))]
-        public async Task DecompressedResponse_MethodSpecified_DecompressedContentReturned(
-            string encodingName, Func<Stream, Stream> compress, DecompressionMethods methods)
+        [SkipOnPlatform(TestPlatforms.Browser, "AutomaticDecompression not supported on Browser")]
+        public async Task DecompressedResponse_MethodSpecified_DecompressedContentReturned(string compressionName, bool all, bool useCopyTo, int contentLength)
         {
-            // Brotli only supported on SocketsHttpHandler.
-            if (IsWinHttpHandler && encodingName == "br")
+            if (IsWinHttpHandler &&
+                (compressionName is "br" or "BR" or "zlib" or "ZLIB" or "zstd" or "ZSTD"))
             {
+                // brotli, zlib, and zstd not supported on WinHttpHandler
                 return;
             }
 
-            var expectedContent = new byte[12345];
+            Func<Stream, Stream> compress;
+            DecompressionMethods methods;
+            string encodingName = compressionName;
+            switch (compressionName)
+            {
+                case "gzip":
+                case "GZIP":
+                    compress = s => new GZipStream(s, CompressionLevel.Optimal, leaveOpen: true);
+                    methods = all ? DecompressionMethods.GZip : _all;
+                    break;
+
+#if !NETFRAMEWORK
+                case "br":
+                case "BR":
+                    compress = s => new BrotliStream(s, CompressionLevel.Optimal, leaveOpen: true);
+                    methods = all ? DecompressionMethods.Brotli : _all;
+                    break;
+
+                case "zstd":
+                case "ZSTD":
+                    compress = s => new ZstandardStream(s, CompressionLevel.Optimal, leaveOpen: true);
+                    methods = all ? DecompressionMethods.Zstandard : _all;
+                    break;
+
+                case "zlib":
+                case "ZLIB":
+                    compress = s => new ZLibStream(s, CompressionLevel.Optimal, leaveOpen: true);
+                    methods = all ? DecompressionMethods.Deflate : _all;
+                    encodingName = "deflate";
+                    break;
+#endif
+
+                case "deflate":
+                case "DEFLATE":
+                    compress = s => new DeflateStream(s, CompressionLevel.Optimal, leaveOpen: true);
+                    methods = all ? DecompressionMethods.Deflate : _all;
+                    break;
+
+                default:
+                    throw new Exception($"Unexpected compression: {compressionName}");
+            }
+
+            var expectedContent = new byte[contentLength];
             new Random(42).NextBytes(expectedContent);
 
             await LoopbackServer.CreateClientAndServerAsync(async uri =>
@@ -84,14 +98,14 @@ namespace System.Net.Http.Functional.Tests
                 using (HttpClient client = CreateHttpClient(handler))
                 {
                     handler.AutomaticDecompression = methods;
-                    Assert.Equal<byte>(expectedContent, await client.GetByteArrayAsync(uri));
+                    AssertExtensions.SequenceEqual(expectedContent, await client.GetByteArrayAsync(TestAsync, useCopyTo, uri));
                 }
             }, async server =>
             {
                 await server.AcceptConnectionAsync(async connection =>
                 {
                     await connection.ReadRequestHeaderAsync();
-                    await connection.Writer.WriteAsync($"HTTP/1.1 200 OK\r\nContent-Encoding: {encodingName}\r\n\r\n");
+                    await connection.WriteStringAsync($"HTTP/1.1 200 OK\r\nContent-Encoding: {encodingName}\r\n\r\n");
                     using (Stream compressedStream = compress(connection.Stream))
                     {
                         await compressedStream.WriteAsync(expectedContent);
@@ -102,32 +116,46 @@ namespace System.Net.Http.Functional.Tests
 
         public static IEnumerable<object[]> DecompressedResponse_MethodNotSpecified_OriginalContentReturned_MemberData()
         {
-            yield return new object[]
+            foreach (bool useCopyTo in new[] { false, true })
             {
-                "deflate",
-                new Func<Stream, Stream>(s => new DeflateStream(s, CompressionLevel.Optimal, leaveOpen: true)),
-                DecompressionMethods.None
-            };
+                yield return new object[]
+                {
+                    "gzip",
+                    new Func<Stream, Stream>(s => new GZipStream(s, CompressionLevel.Optimal, leaveOpen: true)),
+                    DecompressionMethods.None,
+                    useCopyTo
+                };
 #if !NETFRAMEWORK
-            yield return new object[]
-            {
-                "gzip",
-                new Func<Stream, Stream>(s => new GZipStream(s, CompressionLevel.Optimal, leaveOpen: true)),
-                DecompressionMethods.Brotli
-            };
-            yield return new object[]
-            {
-                "br",
-                new Func<Stream, Stream>(s => new BrotliStream(s, CompressionLevel.Optimal, leaveOpen: true)),
-                DecompressionMethods.Deflate | DecompressionMethods.GZip
-            };
+                yield return new object[]
+                {
+                    "deflate",
+                    new Func<Stream, Stream>(s => new ZLibStream(s, CompressionLevel.Optimal, leaveOpen: true)),
+                    DecompressionMethods.Brotli,
+                    useCopyTo
+                };
+                yield return new object[]
+                {
+                    "br",
+                    new Func<Stream, Stream>(s => new BrotliStream(s, CompressionLevel.Optimal, leaveOpen: true)),
+                    DecompressionMethods.Deflate | DecompressionMethods.GZip,
+                    useCopyTo
+                };
+                yield return new object[]
+                {
+                    "zstd",
+                    new Func<Stream, Stream>(s => new ZstandardStream(s, CompressionLevel.Optimal, leaveOpen: true)),
+                    DecompressionMethods.Deflate | DecompressionMethods.GZip | DecompressionMethods.Brotli,
+                    useCopyTo
+                };
 #endif
+            }
         }
 
         [Theory]
         [MemberData(nameof(DecompressedResponse_MethodNotSpecified_OriginalContentReturned_MemberData))]
+        [SkipOnPlatform(TestPlatforms.Browser, "AutomaticDecompression not supported on Browser")]
         public async Task DecompressedResponse_MethodNotSpecified_OriginalContentReturned(
-            string encodingName, Func<Stream, Stream> compress, DecompressionMethods methods)
+            string encodingName, Func<Stream, Stream> compress, DecompressionMethods methods, bool useCopyTo)
         {
             var expectedContent = new byte[12345];
             new Random(42).NextBytes(expectedContent);
@@ -145,75 +173,57 @@ namespace System.Net.Http.Functional.Tests
                 using (HttpClient client = CreateHttpClient(handler))
                 {
                     handler.AutomaticDecompression = methods;
-                    Assert.Equal<byte>(compressedContent, await client.GetByteArrayAsync(uri));
+                    AssertExtensions.SequenceEqual(compressedContent, await client.GetByteArrayAsync(TestAsync, useCopyTo, uri));
                 }
             }, async server =>
             {
                 await server.AcceptConnectionAsync(async connection =>
                 {
                     await connection.ReadRequestHeaderAsync();
-                    await connection.Writer.WriteAsync($"HTTP/1.1 200 OK\r\nContent-Encoding: {encodingName}\r\n\r\n");
+                    await connection.WriteStringAsync($"HTTP/1.1 200 OK\r\nContent-Encoding: {encodingName}\r\n\r\n");
                     await connection.Stream.WriteAsync(compressedContent);
                 });
             });
         }
 
-        [OuterLoop("Uses external servers")]
-        [Theory, MemberData(nameof(RemoteServersAndCompressionUris))]
-        public async Task GetAsync_SetAutomaticDecompression_ContentDecompressed(Configuration.Http.RemoteServer remoteServer, Uri uri)
+        [Theory]
+        [InlineData("gzip", DecompressionMethods.GZip)]
+#if !NETFRAMEWORK
+        [InlineData("deflate", DecompressionMethods.Deflate)]
+        [InlineData("br", DecompressionMethods.Brotli)]
+        [InlineData("zstd", DecompressionMethods.Zstandard)]
+#endif
+        [SkipOnPlatform(TestPlatforms.Browser, "AutomaticDecompression not supported on Browser")]
+        public async Task DecompressedResponse_EmptyBody_Success(string encodingName, DecompressionMethods methods)
         {
-            // Sync API supported only up to HTTP/1.1
-            if (!TestAsync && remoteServer.HttpVersion.Major >= 2)
+            await LoopbackServer.CreateClientAndServerAsync(async uri =>
             {
-                return;
-            }
-
-            HttpClientHandler handler = CreateHttpClientHandler();
-            handler.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
-            using (HttpClient client = CreateHttpClientForRemoteServer(remoteServer, handler))
-            {
-                using (HttpResponseMessage response = await client.SendAsync(TestAsync, CreateRequest(HttpMethod.Get, uri, remoteServer.HttpVersion)))
+                using (HttpClientHandler handler = CreateHttpClientHandler())
+                using (HttpClient client = CreateHttpClient(handler))
                 {
-                    Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-                    string responseContent = await response.Content.ReadAsStringAsync();
-                    _output.WriteLine(responseContent);
-                    TestHelper.VerifyResponseBody(
-                        responseContent,
-                        response.Content.Headers.ContentMD5,
-                        false,
-                        null);
+                    handler.AutomaticDecompression = methods;
+                    Assert.Equal(Array.Empty<byte>(), await client.GetByteArrayAsync(TestAsync, useCopyTo: false, uri));
                 }
-            }
-        }
-
-        [OuterLoop("Uses external server")]
-        [Theory, MemberData(nameof(RemoteServersAndCompressionUris))]
-        public async Task GetAsync_SetAutomaticDecompression_HeadersRemoved(Configuration.Http.RemoteServer remoteServer, Uri uri)
-        {
-            // Sync API supported only up to HTTP/1.1
-            if (!TestAsync && remoteServer.HttpVersion.Major >= 2)
+            }, async server =>
             {
-                return;
-            }
-
-            HttpClientHandler handler = CreateHttpClientHandler();
-            handler.AutomaticDecompression = DecompressionMethods.GZip | DecompressionMethods.Deflate;
-            using (HttpClient client = CreateHttpClientForRemoteServer(remoteServer, handler))
-            using (HttpResponseMessage response = await client.SendAsync(TestAsync, CreateRequest(HttpMethod.Get, uri, remoteServer.HttpVersion), HttpCompletionOption.ResponseHeadersRead))
-            {
-                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-                Assert.False(response.Content.Headers.Contains("Content-Encoding"), "Content-Encoding unexpectedly found");
-                Assert.False(response.Content.Headers.Contains("Content-Length"), "Content-Length unexpectedly found");
-            }
+                await server.AcceptConnectionAsync(async connection =>
+                {
+                    await connection.ReadRequestHeaderAsync();
+                    await connection.WriteStringAsync($"HTTP/1.1 200 OK\r\nContent-Encoding: {encodingName}\r\n\r\n");
+                });
+            });
         }
 
         [Theory]
-#if NETCOREAPP
+#if NET
         [InlineData(DecompressionMethods.Brotli, "br", "")]
         [InlineData(DecompressionMethods.Brotli, "br", "br")]
         [InlineData(DecompressionMethods.Brotli, "br", "gzip")]
         [InlineData(DecompressionMethods.Brotli, "br", "gzip, deflate")]
+        [InlineData(DecompressionMethods.Zstandard, "zstd", "")]
+        [InlineData(DecompressionMethods.Zstandard, "zstd", "zstd")]
+        [InlineData(DecompressionMethods.Zstandard, "zstd", "gzip")]
+        [InlineData(DecompressionMethods.Zstandard, "zstd", "gzip, deflate, br")]
 #endif
         [InlineData(DecompressionMethods.GZip, "gzip", "")]
         [InlineData(DecompressionMethods.Deflate, "deflate", "")]
@@ -225,6 +235,7 @@ namespace System.Net.Http.Functional.Tests
         [InlineData(DecompressionMethods.Deflate, "deflate", "gzip")]
         [InlineData(DecompressionMethods.Deflate, "deflate", "br")]
         [InlineData(DecompressionMethods.GZip | DecompressionMethods.Deflate, "gzip, deflate", "gzip, deflate")]
+        [SkipOnPlatform(TestPlatforms.Browser, "AutomaticDecompression not supported on Browser")]
         public async Task GetAsync_SetAutomaticDecompression_AcceptEncodingHeaderSentWithNoDuplicates(
             DecompressionMethods methods,
             string encodings,
@@ -232,6 +243,12 @@ namespace System.Net.Http.Functional.Tests
         {
             // Brotli only supported on SocketsHttpHandler.
             if (IsWinHttpHandler && (encodings.Contains("br") || manualAcceptEncodingHeaderValues.Contains("br")))
+            {
+                return;
+            }
+
+            // Zstandard only supported on SocketsHttpHandler.
+            if (IsWinHttpHandler && (encodings.Contains("zstd") || manualAcceptEncodingHeaderValues.Contains("zstd")))
             {
                 return;
             }
@@ -262,6 +279,192 @@ namespace System.Net.Http.Functional.Tests
                     {
                         Assert.InRange(Regex.Matches(requestLinesString, manualAcceptEncodingHeaderValues).Count, 1, 1);
                     }
+
+                    using (HttpResponseMessage response = await clientTask)
+                    {
+                        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                    }
+                }
+            });
+        }
+
+#if !NETFRAMEWORK
+        [Fact]
+        [SkipOnPlatform(TestPlatforms.Browser, "AutomaticDecompression not supported on Browser")]
+        public async Task GetAsync_AutomaticBrotliDecompression_MaxResponseContentBufferSizeEnforced()
+        {
+            if (IsWinHttpHandler)
+            {
+                // Brotli not supported on WinHttpHandler
+                return;
+            }
+
+            const int ChunkSize = 1024 * 1024; // 1 MB of zeros per write
+            const long BufferLimit = 10 * 1024 * 1024; // 10 MB buffer limit
+
+            long serverBytesWritten = 0;
+
+            await LoopbackServer.CreateClientAndServerAsync(async uri =>
+            {
+                using HttpClientHandler handler = CreateHttpClientHandler();
+                handler.AutomaticDecompression = DecompressionMethods.Brotli;
+                using HttpClient client = CreateHttpClient(handler);
+                client.MaxResponseContentBufferSize = BufferLimit;
+
+                HttpRequestException ex = await Assert.ThrowsAsync<HttpRequestException>(
+                    () => client.GetByteArrayAsync(uri));
+                Assert.Equal(HttpRequestError.ConfigurationLimitExceeded, ex.HttpRequestError);
+            }, async server =>
+            {
+                await server.AcceptConnectionAsync(async connection =>
+                {
+                    await connection.ReadRequestHeaderAsync();
+                    await connection.WriteStringAsync("HTTP/1.1 200 OK\r\nContent-Encoding: br\r\n\r\n");
+
+                    var chunk = new byte[ChunkSize]; // zeros — highly compressible
+                    var countingStream = new ByteCountingStream(connection.Stream);
+                    try
+                    {
+                        using var brotliStream = new BrotliStream(countingStream, CompressionLevel.Optimal, leaveOpen: true);
+                        while (true)
+                        {
+                            await brotliStream.WriteAsync(chunk);
+                            await brotliStream.FlushAsync();
+                        }
+                    }
+                    catch (IOException) { }
+                    catch (OperationCanceledException) { }
+                    finally
+                    {
+                        serverBytesWritten = countingStream.BytesWritten;
+                    }
+                });
+            });
+
+            // The server should have sent far fewer compressed bytes than the decompressed buffer limit,
+            // demonstrating that a highly compressed payload can trigger the limit without the server
+            // needing to transmit anywhere near the full decompressed amount.
+            Assert.True(serverBytesWritten < BufferLimit,
+                $"Server sent {serverBytesWritten} compressed bytes, expected fewer than the {BufferLimit}-byte buffer limit");
+        }
+
+        [Fact]
+        [SkipOnPlatform(TestPlatforms.Browser, "AutomaticDecompression not supported on Browser")]
+        public async Task GetAsync_ZstandardDecompression_ResponseWindowSizeExceedsMaxWindowLog_Fails()
+        {
+            if (IsWinHttpHandler)
+            {
+                // Zstandard not supported on WinHttpHandler
+                return;
+            }
+
+            // Compress data with WindowLog2=24 (16 MB), which exceeds the RFC 9659-mandated decompression limit of WindowLog2=23 (8 MB).
+            byte[] content = new byte[1024];
+            var compressedStream = new MemoryStream();
+            using (var zstdStream = new ZstandardStream(compressedStream, new ZstandardCompressionOptions { WindowLog2 = 24 }, leaveOpen: true))
+            {
+                await zstdStream.WriteAsync(content);
+            }
+            byte[] compressedData = compressedStream.ToArray();
+
+            await LoopbackServer.CreateClientAndServerAsync(async uri =>
+            {
+                using HttpClientHandler handler = CreateHttpClientHandler();
+                handler.AutomaticDecompression = DecompressionMethods.Zstandard;
+                using HttpClient client = CreateHttpClient(handler);
+
+                HttpRequestException ex = await Assert.ThrowsAsync<HttpRequestException>(
+                    () => client.GetByteArrayAsync(uri));
+                Assert.IsType<IOException>(ex.InnerException);
+            }, async server =>
+            {
+                await server.AcceptConnectionAsync(async connection =>
+                {
+                    await connection.ReadRequestHeaderAsync();
+                    await connection.WriteStringAsync("HTTP/1.1 200 OK\r\nContent-Encoding: zstd\r\n\r\n");
+                    await connection.Stream.WriteAsync(compressedData);
+                });
+            });
+        }
+
+        private sealed class ByteCountingStream : DelegatingStream
+        {
+            public ByteCountingStream(Stream inner) : base(inner) { }
+
+            public long BytesWritten { get; private set; }
+
+            public override void Write(byte[] buffer, int offset, int count)
+            {
+                base.Write(buffer, offset, count);
+                BytesWritten += count;
+            }
+
+            public override void Write(ReadOnlySpan<byte> buffer)
+            {
+                base.Write(buffer);
+                BytesWritten += buffer.Length;
+            }
+
+            public override async Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+            {
+                await base.WriteAsync(buffer, offset, count, cancellationToken);
+                BytesWritten += count;
+            }
+
+            public override async ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+            {
+                await base.WriteAsync(buffer, cancellationToken);
+                BytesWritten += buffer.Length;
+            }
+        }
+#endif
+
+        [Theory]
+#if NET
+        [InlineData(DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli, "gzip; q=1.0, deflate; q=1.0, br; q=1.0", "")]
+        [InlineData(DecompressionMethods.GZip | DecompressionMethods.Deflate | DecompressionMethods.Brotli | DecompressionMethods.Zstandard, "gzip; q=1.0, deflate; q=1.0, br; q=1.0, zstd; q=1.0", "")]
+#endif
+        [InlineData(DecompressionMethods.GZip | DecompressionMethods.Deflate, "gzip; q=1.0, deflate; q=1.0", "")]
+        [InlineData(DecompressionMethods.GZip | DecompressionMethods.Deflate, "gzip; q=1.0", "deflate")]
+        [SkipOnPlatform(TestPlatforms.Browser, "AutomaticDecompression not supported on Browser")]
+        public async Task GetAsync_SetAutomaticDecompression_AcceptEncodingHeaderSentWithQualityWeightingsNoDuplicates(
+            DecompressionMethods methods,
+            string manualAcceptEncodingHeaderValues,
+            string expectedHandlerAddedAcceptEncodingHeaderValues)
+        {
+            if (IsWinHttpHandler)
+            {
+                return;
+            }
+
+            await LoopbackServer.CreateServerAsync(async (server, url) =>
+            {
+                HttpClientHandler handler = CreateHttpClientHandler();
+                handler.AutomaticDecompression = methods;
+
+                using (HttpClient client = CreateHttpClient(handler))
+                {
+                    client.DefaultRequestHeaders.Add("Accept-Encoding", manualAcceptEncodingHeaderValues);
+
+                    Task<HttpResponseMessage> clientTask = client.SendAsync(TestAsync, CreateRequest(HttpMethod.Get, url, UseVersion));
+                    Task<List<string>> serverTask = server.AcceptConnectionSendResponseAndCloseAsync();
+                    await TaskTimeoutExtensions.WhenAllOrAnyFailed(new Task[] { clientTask, serverTask });
+
+                    List<string> requestLines = await serverTask;
+                    string requestLinesString = string.Join("\r\n", requestLines);
+                    _output.WriteLine(requestLinesString);
+
+                    bool acceptEncodingValid = false;
+                    foreach (string requestLine in requestLines)
+                    {
+                        if (requestLine.StartsWith("Accept-Encoding", StringComparison.OrdinalIgnoreCase))
+                        {
+                            acceptEncodingValid = requestLine.Equals($"Accept-Encoding: {manualAcceptEncodingHeaderValues}{(string.IsNullOrEmpty(expectedHandlerAddedAcceptEncodingHeaderValues) ? string.Empty : ", " + expectedHandlerAddedAcceptEncodingHeaderValues)}", StringComparison.OrdinalIgnoreCase);
+                            break;
+                        }
+                    }
+                    
+                    Assert.True(acceptEncodingValid, "Accept-Encoding missing or invalid");
 
                     using (HttpResponseMessage response = await clientTask)
                     {

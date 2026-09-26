@@ -2,13 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b83690;
+
 using System;
+using Xunit;
 public struct CC
 {
     static sbyte m_su;
     static byte[] m_asi;
 
-    static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

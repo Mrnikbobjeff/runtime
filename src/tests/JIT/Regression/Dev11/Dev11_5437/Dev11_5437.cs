@@ -2,9 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-class Program
+namespace Dev11_5437;
+
+using System;
+using Xunit;
+
+public class Program
 {
     static void f(int c, int d, int e)
     {
@@ -15,7 +19,9 @@ class Program
             throw new Exception("FAILED");
         }
     }
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         int d = 0;
         int i = 3;
@@ -29,6 +35,6 @@ class Program
             }
         }
         Console.WriteLine("PASSED");
-        return 100; //Didn't hit the bug so return success
+        //Didn't hit the bug so return success
     }
 }

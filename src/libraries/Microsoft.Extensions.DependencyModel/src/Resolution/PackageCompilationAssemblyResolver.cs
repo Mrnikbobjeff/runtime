@@ -3,11 +3,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 
 namespace Microsoft.Extensions.DependencyModel.Resolution
 {
-    public class PackageCompilationAssemblyResolver: ICompilationAssemblyResolver
+    public class PackageCompilationAssemblyResolver : ICompilationAssemblyResolver
     {
         private readonly IFileSystem _fileSystem;
         private readonly string[] _nugetPackageDirectories;
@@ -18,7 +19,7 @@ namespace Microsoft.Extensions.DependencyModel.Resolution
         }
 
         public PackageCompilationAssemblyResolver(string nugetPackageDirectory)
-            : this(FileSystemWrapper.Default, new string[] { nugetPackageDirectory })
+            : this(FileSystemWrapper.Default, [nugetPackageDirectory])
         {
         }
 
@@ -30,48 +31,45 @@ namespace Microsoft.Extensions.DependencyModel.Resolution
 
         internal PackageCompilationAssemblyResolver(IFileSystem fileSystem, string[] nugetPackageDirectories)
         {
+            ArgumentNullException.ThrowIfNull(fileSystem);
+            ArgumentNullException.ThrowIfNull(nugetPackageDirectories);
+
             _fileSystem = fileSystem;
             _nugetPackageDirectories = nugetPackageDirectories;
         }
 
         internal static string[] GetDefaultProbeDirectories(IEnvironment environment)
         {
-            object probeDirectories = environment.GetAppContextData("PROBING_DIRECTORIES");
+            object? probeDirectories = environment.GetAppContextData("PROBING_DIRECTORIES");
 
-            string listOfDirectories = probeDirectories as string;
+            string? listOfDirectories = probeDirectories as string;
 
             if (!string.IsNullOrEmpty(listOfDirectories))
             {
-                return listOfDirectories.Split(new char[] { Path.PathSeparator }, StringSplitOptions.RemoveEmptyEntries);
+                return listOfDirectories.Split([Path.PathSeparator], StringSplitOptions.RemoveEmptyEntries);
             }
 
-            string packageDirectory = environment.GetEnvironmentVariable("NUGET_PACKAGES");
+            string? packageDirectory = environment.GetEnvironmentVariable("NUGET_PACKAGES");
 
             if (!string.IsNullOrEmpty(packageDirectory))
             {
-                return new string[] { packageDirectory };
+                return [packageDirectory];
             }
 
-            string basePath;
-            if (environment.IsWindows())
-            {
-                basePath = environment.GetEnvironmentVariable("USERPROFILE");
-            }
-            else
-            {
-                basePath = environment.GetEnvironmentVariable("HOME");
-            }
+            string basePath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
             if (string.IsNullOrEmpty(basePath))
             {
-                return new string[] { string.Empty };
+                return [string.Empty];
             }
 
-            return new string[] { Path.Combine(basePath, ".nuget", "packages") };
+            return [Path.Combine(basePath, ".nuget", "packages")];
         }
 
-        public bool TryResolveAssemblyPaths(CompilationLibrary library, List<string> assemblies)
+        public bool TryResolveAssemblyPaths(CompilationLibrary library, List<string>? assemblies)
         {
+            ArgumentNullException.ThrowIfNull(library);
+
             if (_nugetPackageDirectories == null || _nugetPackageDirectories.Length == 0 ||
                 !string.Equals(library.Type, "package", StringComparison.OrdinalIgnoreCase))
             {
@@ -84,10 +82,9 @@ namespace Microsoft.Extensions.DependencyModel.Resolution
 
                 if (ResolverUtils.TryResolvePackagePath(_fileSystem, library, directory, out packagePath))
                 {
-                    IEnumerable<string> fullPathsFromPackage;
-                    if (TryResolveFromPackagePath(_fileSystem, library, packagePath, out fullPathsFromPackage))
+                    if (TryResolveFromPackagePath(_fileSystem, library, packagePath, out IEnumerable<string>? fullPathsFromPackage))
                     {
-                        assemblies.AddRange(fullPathsFromPackage);
+                        assemblies?.AddRange(fullPathsFromPackage);
                         return true;
                     }
                 }
@@ -95,14 +92,13 @@ namespace Microsoft.Extensions.DependencyModel.Resolution
             return false;
         }
 
-        private static bool TryResolveFromPackagePath(IFileSystem fileSystem, CompilationLibrary library, string basePath, out IEnumerable<string> results)
+        private static bool TryResolveFromPackagePath(IFileSystem fileSystem, CompilationLibrary library, string basePath, [MaybeNullWhen(false)] out IEnumerable<string> results)
         {
-            var paths = new List<string>();
+            List<string> paths = [];
 
             foreach (string assembly in library.Assemblies)
             {
-                string fullName;
-                if (!ResolverUtils.TryResolveAssemblyFile(fileSystem, basePath, assembly, out fullName))
+                if (!ResolverUtils.TryResolveAssemblyFile(fileSystem, basePath, assembly, out string fullName))
                 {
                     // if one of the files can't be found, skip this package path completely.
                     // there are package paths that don't include all of the "ref" assemblies

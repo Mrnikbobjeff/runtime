@@ -5,7 +5,6 @@ namespace System.CodeDom
 {
     public class CodeCatchClause
     {
-        private CodeStatementCollection _statements;
         private CodeTypeReference _catchExceptionType;
         private string _localName;
 
@@ -37,10 +36,10 @@ namespace System.CodeDom
 
         public CodeTypeReference CatchExceptionType
         {
-            get => _catchExceptionType ?? (_catchExceptionType = new CodeTypeReference(typeof(Exception)));
+            get => _catchExceptionType ??= new CodeTypeReference(typeof(Exception));
             set => _catchExceptionType = value;
         }
 
-        public CodeStatementCollection Statements => _statements ?? (_statements = new CodeStatementCollection());
+        public CodeStatementCollection Statements => field ??= new CodeStatementCollection();
     }
 }

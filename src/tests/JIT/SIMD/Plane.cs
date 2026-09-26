@@ -2,8 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
 using System.Numerics;
+using Xunit;
 
-class PlaneTest
+namespace SIMDTests.PlaneTests;
+
+public class PlaneTest
 {
     private const int Pass = 100;
     private const int Fail = -1;
@@ -25,7 +28,8 @@ class PlaneTest
         return returnVal;
     }
 
-    static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         return PlaneCreateFromVerticesTest();
     }

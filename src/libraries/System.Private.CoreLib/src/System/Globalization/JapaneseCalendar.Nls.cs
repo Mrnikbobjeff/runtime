@@ -1,4 +1,4 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
@@ -67,17 +67,17 @@ namespace System.Globalization
                     }
                 }
             }
-            catch (System.Security.SecurityException)
+            catch (Security.SecurityException)
             {
                 // If we weren't allowed to read, then just ignore the error
                 return null;
             }
-            catch (System.IO.IOException)
+            catch (IO.IOException)
             {
                 // If key is being deleted just ignore the error
                 return null;
             }
-            catch (System.UnauthorizedAccessException)
+            catch (UnauthorizedAccessException)
             {
                 // Registry access rights permissions, just ignore the error
                 return null;
@@ -158,7 +158,7 @@ namespace System.Globalization
         // . is a delimiter, but the value of . doesn't matter.
         // '_' marks the space between the japanese era name, japanese abbreviated era name
         //     english name, and abbreviated english names.
-        private static EraInfo? GetEraFromValue(string? value, string? data)
+        private static unsafe EraInfo? GetEraFromValue(string? value, string? data)
         {
             // Need inputs
             if (value == null || data == null) return null;
@@ -184,29 +184,32 @@ namespace System.Globalization
             // Get Strings
             //
             // Needs to be a certain length e_a_E_A at least (7 chars, exactly 4 groups)
-            string[] names = data.Split('_');
-
             // Should have exactly 4 parts
             // 0 - Era Name
             // 1 - Abbreviated Era Name
             // 2 - English Era Name
             // 3 - Abbreviated English Era Name
-            if (names.Length != 4) return null;
+            Span<Range> names = stackalloc Range[5];
+            ReadOnlySpan<char> dataSpan = data;
+            if (dataSpan.Split(names, '_') == 4)
+            {
+                ReadOnlySpan<char> eraName = dataSpan[names[0]];
+                ReadOnlySpan<char> abbreviatedEraName = dataSpan[names[1]];
+                ReadOnlySpan<char> englishEraName = dataSpan[names[2]];
+                ReadOnlySpan<char> abbreviatedEnglishEraName = dataSpan[names[3]];
 
-            // Each part should have data in it
-            if (names[0].Length == 0 ||
-                names[1].Length == 0 ||
-                names[2].Length == 0 ||
-                names[3].Length == 0)
-                return null;
+                // Each part should have data in it
+                if (!eraName.IsEmpty && !abbreviatedEraName.IsEmpty && !englishEraName.IsEmpty && !abbreviatedEnglishEraName.IsEmpty)
+                {
+                    // Now we have an era we can build
+                    // Note that the era # and max era year need cleaned up after sorting
+                    // Don't use the full English Era Name (names[2])
+                    return new EraInfo(0, year, month, day, year - 1, 1, 0,
+                                       eraName.ToString(), abbreviatedEraName.ToString(), abbreviatedEnglishEraName.ToString());
+                }
+            }
 
-            //
-            // Now we have an era we can build
-            // Note that the era # and max era year need cleaned up after sorting
-            // Don't use the full English Era Name (names[2])
-            //
-            return new EraInfo(0, year, month, day, year - 1, 1, 0,
-                                names[0], names[1], names[3]);
+            return null;
         }
     }
 }

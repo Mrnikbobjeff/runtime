@@ -2,10 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b72218;
+
 using System;
 using System.Threading;
+using TestLibrary;
+using Xunit;
 
-class My
+public class My
 {
 
     static void Worker()
@@ -14,7 +19,9 @@ class My
         Thread.Sleep(5);
     }
 
-    static int Main()
+    [OuterLoop]
+    [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+    public static void TestEntryPoint()
     {
 
         Thread t = new Thread(new ThreadStart(Worker));
@@ -26,8 +33,5 @@ class My
             x *= i;
         }
         Console.WriteLine((object)x);
-
-        return 100;
     }
-
 }

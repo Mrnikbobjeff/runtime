@@ -2,19 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Diagnostics;
 using System.Collections;
-using System.Globalization;
+using System.Diagnostics;
 using System.DirectoryServices;
+using System.Globalization;
 using System.Net;
 using System.Threading;
 
 namespace System.DirectoryServices.AccountManagement
 {
     /// <summary>
-    /// This is a class designed to cache DirectoryEntires instead of creating them every time.
+    /// This is a class designed to cache DirectoryEntries instead of creating them every time.
     /// </summary>
-    internal class SDSCache
+    internal sealed class SDSCache
     {
         public static SDSCache Domain
         {
@@ -124,7 +124,7 @@ namespace System.DirectoryServices.AccountManagement
 
                             // If the PrincipalContext hasn't been GCed or disposed, use it.
                             // Otherwise, we'll need to create a new one
-                            if (ctx != null && ctx.Disposed == false)
+                            if (ctx != null && !ctx.Disposed)
                             {
                                 GlobalDebug.WriteLineIf(GlobalDebug.Info, "SDSCache", "GetContext: using found refToContext");
                                 return ctx;
@@ -171,8 +171,8 @@ namespace System.DirectoryServices.AccountManagement
                                 contextName,
                                 null,
                                 contextOptions,
-                                (credentials != null ? credentials.UserName : null),
-                                (credentials != null ? credentials.Password : null)
+                                credentials?.UserName,
+                                credentials?.Password
                                 );
 
                 lock (_tableLock)
@@ -188,7 +188,7 @@ namespace System.DirectoryServices.AccountManagement
                     // opposite order and the other thread woke up before we inserted the PrincipalContext, it would
                     // just block as soon as it tries to acquire the tableLock that we're currently holding.)
                     bool f = placeHolder.contextReadyEvent.Set();
-                    Debug.Assert(f == true);
+                    Debug.Assert(f);
                 }
 
                 return ctx;
@@ -205,13 +205,13 @@ namespace System.DirectoryServices.AccountManagement
         private readonly object _tableLock = new object();
         private readonly bool _isSAM;
 
-        private class CredHolder
+        private sealed class CredHolder
         {
             public Hashtable explicitCreds = new Hashtable();
             public Hashtable defaultCreds = new Hashtable();
         }
 
-        private class Placeholder
+        private sealed class Placeholder
         {
             // initially non-signaled
             public ManualResetEvent contextReadyEvent = new ManualResetEvent(false);

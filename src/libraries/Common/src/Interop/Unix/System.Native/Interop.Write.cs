@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 
 internal static partial class Interop
@@ -17,10 +18,13 @@ internal static partial class Interop
         /// <returns>
         /// Returns the number of bytes written on success; otherwise, returns -1 and sets errno
         /// </returns>
-        [DllImport(Libraries.SystemNative, EntryPoint = "SystemNative_Write", SetLastError = true)]
-        internal static extern unsafe int Write(SafeHandle fd, byte* buffer, int bufferSize);
+        [LibraryImport(Libraries.SystemNative, EntryPoint = "SystemNative_Write", SetLastError = true)]
+        internal static unsafe partial int Write(SafeHandle fd, byte* buffer, int bufferSize);
 
-        [DllImport(Libraries.SystemNative, EntryPoint = "SystemNative_Write", SetLastError = true)]
-        internal static extern unsafe int Write(IntPtr fd, byte* buffer, int bufferSize);
+        [LibraryImport(Libraries.SystemNative, EntryPoint = "SystemNative_Write", SetLastError = true)]
+        internal static unsafe partial int Write(IntPtr fd, byte* buffer, int bufferSize);
+
+        [LibraryImport(Libraries.SystemNative, EntryPoint = "SystemNative_WriteToNonblocking", SetLastError = true)]
+        internal static unsafe partial int WriteToNonblocking(SafeHandle fd, byte* buffer, int bufferSize);
     }
 }

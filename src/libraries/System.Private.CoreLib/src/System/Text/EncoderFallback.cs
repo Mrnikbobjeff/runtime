@@ -134,7 +134,7 @@ namespace System.Text
             {
                 firstChar = chars[0];
 
-                if (1 < (uint)chars.Length)
+                if (chars.Length > 1)
                 {
                     secondChar = chars[1];
                 }
@@ -293,7 +293,7 @@ namespace System.Text
         // Note that this could also change the contents of this.encoder, which is the same
         // object that the caller is using, so the caller could mess up the encoder for us
         // if they aren't careful.
-        internal virtual unsafe bool InternalFallback(char ch, ref char* chars)
+        internal unsafe bool InternalFallback(char ch, ref char* chars)
         {
             // Shouldn't have null charStart
             Debug.Assert(charStart != null,

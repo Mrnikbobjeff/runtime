@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Security;
 using System.Runtime.InteropServices;
+using System.Security;
 
 namespace System.DirectoryServices.ActiveDirectory
 {
@@ -21,15 +21,15 @@ namespace System.DirectoryServices.ActiveDirectory
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal sealed class DomainControllerInfo
     {
-        public string DomainControllerName;
-        public string DomainControllerAddress;
+        public string DomainControllerName = null!;
+        public string? DomainControllerAddress;
         public int DomainControllerAddressType;
         public Guid DomainGuid;
-        public string DomainName;
-        public string DnsForestName;
+        public string? DomainName;
+        public string? DnsForestName;
         public int Flags;
-        public string DcSiteName;
-        public string ClientSiteName;
+        public string? DcSiteName;
+        public string? ClientSiteName;
     }
 
     /*typedef struct {
@@ -51,13 +51,13 @@ namespace System.DirectoryServices.ActiveDirectory
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal sealed class DsDomainControllerInfo2
     {
-        public string netBiosName;
-        public string dnsHostName;
-        public string siteName;
-        public string siteObjectName;
-        public string computerObjectName;
-        public string serverObjectName;
-        public string ntdsaObjectName;
+        public string? netBiosName;
+        public string? dnsHostName;
+        public string? siteName;
+        public string? siteObjectName;
+        public string? computerObjectName;
+        public string? serverObjectName;
+        public string? ntdsaObjectName;
         public bool isPdc;
         public bool dsEnabled;
         public bool isGC;
@@ -87,13 +87,13 @@ namespace System.DirectoryServices.ActiveDirectory
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal sealed class DsDomainControllerInfo3
     {
-        public string netBiosName;
-        public string dnsHostName;
-        public string siteName;
-        public string siteObjectName;
-        public string computerObjectName;
-        public string serverObjectName;
-        public string ntdsaObjectName;
+        public string? netBiosName;
+        public string? dnsHostName;
+        public string? siteName;
+        public string? siteObjectName;
+        public string? computerObjectName;
+        public string? serverObjectName;
+        public string? ntdsaObjectName;
         public bool isPdc;
         public bool dsEnabled;
         public bool isGC;
@@ -124,83 +124,8 @@ namespace System.DirectoryServices.ActiveDirectory
     internal sealed class DsNameResultItem
     {
         public int status;
-        public string domain;
-        public string name;
-    }
-
-    /*typedef struct _DnsRecord {
-        struct _DnsRecord * pNext;
-        LPTSTR              pName;
-        WORD                wType;
-        WORD                wDataLength; // Not referenced for DNS record
-        //types defined above.
-        union {
-            DWORD               DW;      // flags as DWORD
-            DNS_RECORD_FLAGS    S;       // flags as structure
-        } Flags;
-
-        DWORD               dwTtl;
-        DWORD               dwReserved;
-
-        // Record Data
-        union {
-            DNS_A_DATA      A;
-            DNS_SOA_DATA    SOA, Soa;
-            DNS_PTR_DATA    PTR, Ptr,
-                            NS, Ns,
-                            CNAME, Cname,
-                            MB, Mb,
-                            MD, Md,
-                            MF, Mf,
-                            MG, Mg,
-                            MR, Mr;
-            DNS_MINFO_DATA  MINFO, Minfo,
-                            RP, Rp;
-            DNS_MX_DATA     MX, Mx,
-                            AFSDB, Afsdb,
-                            RT, Rt;
-            DNS_TXT_DATA    HINFO, Hinfo,
-                            ISDN, Isdn,
-                            TXT, Txt,
-                            X25;
-            DNS_NULL_DATA   Null;
-            DNS_WKS_DATA    WKS, Wks;
-            DNS_AAAA_DATA   AAAA;
-            DNS_KEY_DATA    KEY, Key;
-            DNS_SIG_DATA    SIG, Sig;
-            DNS_ATMA_DATA   ATMA, Atma;
-            DNS_NXT_DATA    NXT, Nxt;
-            DNS_SRV_DATA    SRV, Srv;
-            DNS_TKEY_DATA   TKEY, Tkey;
-            DNS_TSIG_DATA   TSIG, Tsig;
-            DNS_WINS_DATA   WINS, Wins;
-            DNS_WINSR_DATA  WINSR, WinsR, NBSTAT, Nbstat;
-        } Data;
-    }DNS_RECORD, *PDNS_RECORD;*/
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    internal sealed class DnsRecord
-    {
-        public IntPtr next;
-        public string name;
-        public short type;
-        public short dataLength;
-        public int flags;
-        public int ttl;
-        public int reserved;
-        public DnsSrvData data;
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    internal sealed class PartialDnsRecord
-    {
-        public IntPtr next;
-        public string name;
-        public short type;
-        public short dataLength;
-        public int flags;
-        public int ttl;
-        public int reserved;
-        public IntPtr data;
+        public string? domain;
+        public string? name;
     }
 
     /*typedef struct {
@@ -213,7 +138,7 @@ namespace System.DirectoryServices.ActiveDirectory
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     internal sealed class DnsSrvData
     {
-        public string targetName;
+        public string targetName = null!;
         public short priority;
         public short weight;
         public short port;
@@ -248,34 +173,12 @@ namespace System.DirectoryServices.ActiveDirectory
         public int buildNumber;
         public int platformId;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
-        public string csdVersion = null;
+        public string? csdVersion = null;
         public short servicePackMajor;
         public short servicePackMinor;
         public short suiteMask;
         public byte productType;
         public byte reserved;
-    }
-
-    /*typedef struct _LUID {
-            DWORD LowPart;
-            LONG HighPart;
-    } LUID, *PLUID;*/
-    [StructLayout(LayoutKind.Sequential)]
-    internal sealed class LUID
-    {
-        public int LowPart;
-        public int HighPart;
-    }
-
-    /*typedef struct _NEGOTIATE_CALLER_NAME_REQUEST {
-            ULONG       MessageType ;
-            LUID        LogonId ;
-    } NEGOTIATE_CALLER_NAME_REQUEST, *PNEGOTIATE_CALLER_NAME_REQUEST ;*/
-    [StructLayout(LayoutKind.Sequential)]
-    internal sealed class NegotiateCallerNameRequest
-    {
-        public int messageType;
-        public LUID logonId;
     }
 
     /*typedef struct _NEGOTIATE_CALLER_NAME_RESPONSE {
@@ -286,295 +189,26 @@ namespace System.DirectoryServices.ActiveDirectory
     internal sealed class NegotiateCallerNameResponse
     {
         public int messageType;
-        public string callerName;
+        public string? callerName;
     }
 
-    internal sealed class NativeMethods
+    internal sealed partial class NativeMethods
     {
         // disable public constructor
         private NativeMethods() { }
 
         internal const int VER_PLATFORM_WIN32_NT = 2;
-        internal const int ERROR_INVALID_DOMAIN_NAME_FORMAT = 1212;
-        internal const int ERROR_NO_SUCH_DOMAIN = 1355;
-        internal const int ERROR_NOT_ENOUGH_MEMORY = 8;
-        internal const int ERROR_INVALID_FLAGS = 1004;
         internal const int DS_NAME_NO_ERROR = 0;
-        internal const int ERROR_NO_MORE_ITEMS = 259;
-        internal const int ERROR_FILE_MARK_DETECTED = 1101;
-        internal const int DNS_ERROR_RCODE_NAME_ERROR = 9003;
-        internal const int ERROR_NO_SUCH_LOGON_SESSION = 1312;
 
         internal const int DS_NAME_FLAG_SYNTACTICAL_ONLY = 1;
         internal const int DS_FQDN_1779_NAME = 1;
         internal const int DS_CANONICAL_NAME = 7;
         internal const int DS_NAME_ERROR_NO_SYNTACTICAL_MAPPING = 6;
 
-        internal const int STATUS_QUOTA_EXCEEDED = unchecked((int)0xC0000044);
-
-        /*DWORD DsGetDcName(
-                LPCTSTR ComputerName,
-                LPCTSTR DomainName,
-                GUID* DomainGuid,
-                LPCTSTR SiteName,
-                ULONG Flags,
-                PDOMAIN_CONTROLLER_INFO* DomainControllerInfo
-                );*/
-        [DllImport("Netapi32.dll", CallingConvention = CallingConvention.StdCall, EntryPoint = "DsGetDcNameW", CharSet = CharSet.Unicode)]
-        internal static extern int DsGetDcName(
-            [In] string computerName,
-            [In] string domainName,
-            [In] IntPtr domainGuid,
-            [In] string siteName,
-            [In] int flags,
-            [Out] out IntPtr domainControllerInfo);
-
-        /* DWORD WINAPI DsGetDcOpen(
-                         LPCTSTR DnsName,
-                         ULONG OptionFlags,
-                         LPCTSTR SiteName,
-                         GUID* DomainGuid,
-                         LPCTSTR DnsForestName,
-                         ULONG DcFlags,
-                         PHANDLE RetGetDcContext
-                         );*/
-        [DllImport("Netapi32.dll", CallingConvention = CallingConvention.StdCall, EntryPoint = "DsGetDcOpenW", CharSet = CharSet.Unicode)]
-        internal static extern int DsGetDcOpen(
-            [In] string dnsName,
-            [In] int optionFlags,
-            [In] string siteName,
-            [In] IntPtr domainGuid,
-            [In] string dnsForestName,
-            [In] int dcFlags,
-            [Out] out IntPtr retGetDcContext);
-
-        /*DWORD WINAPI DsGetDcNext(
-                        HANDLE GetDcContextHandle,
-                        PULONG SockAddressCount,
-                        LPSOCKET_ADDRESS* SockAddresses,
-                        LPTSTR* DnsHostName
-                        );*/
-        [DllImport("Netapi32.dll", CallingConvention = CallingConvention.StdCall, EntryPoint = "DsGetDcNextW", CharSet = CharSet.Unicode)]
-        internal static extern int DsGetDcNext(
-            [In] IntPtr getDcContextHandle,
-            [In, Out] ref IntPtr sockAddressCount,
-            [Out] out IntPtr sockAdresses,
-            [Out] out IntPtr dnsHostName);
-
-        /*void WINAPI DsGetDcClose(
-                        HANDLE GetDcContextHandle
-                        );*/
-        [DllImport("Netapi32.dll", CallingConvention = CallingConvention.StdCall, EntryPoint = "DsGetDcCloseW", CharSet = CharSet.Unicode)]
-        internal static extern void DsGetDcClose(
-            [In] IntPtr getDcContextHandle);
-
-        /*NET_API_STATUS NetApiBufferFree(
-                LPVOID Buffer
-                );*/
-        [DllImport("Netapi32.dll")]
-        internal static extern int NetApiBufferFree(
-            [In] IntPtr buffer);
-
-        /*DWORD DsMakePasswordCredentials(
-            LPTSTR User,
-            LPTSTR Domain,
-            LPTSTR Password,
-            RPC_AUTH_IDENTITY_HANDLE* pAuthIdentity
-            );*/
-
-        internal delegate int DsMakePasswordCredentials(
-      [MarshalAs(UnmanagedType.LPWStr)] string user,
-      [MarshalAs(UnmanagedType.LPWStr)] string domain,
-      [MarshalAs(UnmanagedType.LPWStr)] string password,
-      [Out] out IntPtr authIdentity);
-
-        /*VOID DsFreePasswordCredentials(
-            RPC_AUTH_IDENTITY_HANDLE AuthIdentity
-            );*/
-        internal delegate void DsFreePasswordCredentials(
-            [In] IntPtr authIdentity);
-
-        /*DWORD DsBindWithCred(
-            TCHAR* DomainController,
-            TCHAR* DnsDomainName,
-            RPC_AUTH_IDENTITY_HANDLE AuthIdentity,
-            HANDLE* phDS
-            );*/
-        internal delegate int DsBindWithCred(
-            [MarshalAs(UnmanagedType.LPWStr)] string domainController,
-            [MarshalAs(UnmanagedType.LPWStr)] string dnsDomainName,
-            [In] IntPtr authIdentity,
-            [Out] out IntPtr handle);
-
-        /*DWORD DsUnBind(
-            HANDLE* phDS
-            );*/
-        internal delegate int DsUnBind(
-            [In] ref IntPtr handle);
-
-        /*DWORD DsGetDomainControllerInfo(
-            HANDLE hDs,
-            LPTSTR DomainName,
-            DWORD InfoLevel,
-            DWORD* pcOut,
-            VOID** ppInfo
-            );*/
-        internal delegate int DsGetDomainControllerInfo(
-            [In] IntPtr handle,
-            [MarshalAs(UnmanagedType.LPWStr)] string domainName,
-            [In] int infoLevel,
-            [Out] out int dcCount,
-            [Out] out IntPtr dcInfo);
-
         internal const int DsDomainControllerInfoLevel2 = 2;
         internal const int DsDomainControllerInfoLevel3 = 3;
 
-        /*VOID DsFreeDomainControllerInfo(
-            DWORD InfoLevel,
-            DWORD cInfo,
-            VOID* pInfo
-            );*/
-        internal delegate void DsFreeDomainControllerInfo(
-            [In] int infoLevel,
-            [In] int dcInfoListCount,
-            [In] IntPtr dcInfoList);
-
-        internal const int DsNameNoError = 0;
-
-        /*DWORD DsListSites(
-            HANDLE hDs,
-            PDS_NAME_RESULT* ppSites
-            );*/
-        internal delegate int DsListSites(
-            [In] IntPtr dsHandle,
-            [Out] out IntPtr sites);
-
-        /*DWORD DsListRoles(
-            HANDLE hDs,
-            PDS_NAME_RESULTW* ppRoles
-            );*/
-        internal delegate int DsListRoles(
-            [In] IntPtr dsHandle,
-            [Out] out IntPtr roles);
-
-        /*DWORD GetLastError(VOID)*/
-        [DllImport("Kernel32.dll")]
-        internal static extern int GetLastError();
-
-        internal const int DnsSrvData = 33;
-        internal const int DnsQueryBypassCache = 8;
-
-        /*DNS_STATUS WINAPI DnsQuery (
-            LPSTR lpstrName,
-            WORD wType,
-            DWORD fOptions,
-            PIP4_ARRAY aipServers,
-            PDNS_RECORD *ppQueryResultsSet,
-            PVOID *pReserved
-            );*/
-        [DllImport("Dnsapi.dll", EntryPoint = "DnsQuery_W", CharSet = CharSet.Unicode)]
-        internal static extern int DnsQuery(
-            [In] string recordName,
-            [In] short recordType,
-            [In] int options,
-            [In] IntPtr servers,
-            [Out] out IntPtr dnsResultList,
-            [Out] IntPtr reserved);
-
-        /*VOID WINAPI DnsRecordListFree(
-            PDNS_RECORD pRecordList,
-            DNS_FREE_TYPE FreeType
-            );*/
-        [DllImport("Dnsapi.dll", CharSet = CharSet.Unicode)]
-        internal static extern void DnsRecordListFree(
-            [In] IntPtr dnsResultList,
-            [In] bool dnsFreeType);
-
-        /*BOOL GetVersionEx(
-              LPOSVERSIONINFO lpVersionInfo
-            );*/
-        [DllImport("Kernel32.dll", EntryPoint = "GetVersionExW", CharSet = CharSet.Unicode, SetLastError = true)]
-        internal static extern bool GetVersionEx(
-                [In, Out] OSVersionInfoEx ver);
-
-        /*DWORD DsCrackNames(
-            HANDLE hDS,
-            DS_NAME_FLAGS flags,
-            DS_NAME_FORMAT formatOffered,
-            DS_NAME_FORMAT formatDesired,
-            DWORD cNames,
-            LPTSTR* rpNames,
-            PDS_NAME_RESULT* ppResult
-            );*/
-        internal delegate int DsCrackNames(
-            [In] IntPtr hDS,
-            [In] int flags,
-            [In] int formatOffered,
-            [In] int formatDesired,
-            [In] int nameCount,
-            [In] IntPtr names,
-            [Out] out IntPtr results);
-
-        /*NTSTATUS LsaConnectUntrusted(
-              PHANDLE LsaHandle
-            );*/
-        [DllImport("Secur32.dll")]
-        internal static extern int LsaConnectUntrusted(
-             [Out] out LsaLogonProcessSafeHandle lsaHandle);
-
         internal const int NegGetCallerName = 1;
-
-        /*NTSTATUS LsaCallAuthenticationPackage(
-              HANDLE LsaHandle,
-              ULONG AuthenticationPackage,
-              PVOID ProtocolSubmitBuffer,
-              ULONG SubmitBufferLength,
-              PVOID* ProtocolReturnBuffer,
-              PULONG ReturnBufferLength,
-              PNTSTATUS ProtocolStatus
-            );*/
-        [DllImport("Secur32.dll")]
-        internal static extern int LsaCallAuthenticationPackage(
-            [In] LsaLogonProcessSafeHandle lsaHandle,
-            [In] int authenticationPackage,
-            [In] NegotiateCallerNameRequest protocolSubmitBuffer,
-            [In] int submitBufferLength,
-            [Out] out IntPtr protocolReturnBuffer,
-            [Out] out int returnBufferLength,
-            [Out] out int protocolStatus);
-
-        /*NTSTATUS LsaFreeReturnBuffer(
-              PVOID Buffer
-            );*/
-        [DllImport("Secur32.dll")]
-        internal static extern uint LsaFreeReturnBuffer(
-            [In] IntPtr buffer);
-
-        /*NTSTATUS LsaDeregisterLogonProcess(
-              HANDLE LsaHandle
-            );*/
-        [DllImport("Secur32.dll")]
-        internal static extern int LsaDeregisterLogonProcess(
-            [In] IntPtr lsaHandle);
-
-        /*int CompareString(LCID Locale,
-            DWORD dwCmpFlags,
-            DWORD lpString1,
-            DWORD cchCount1,
-            DWORD lpString2,
-            DWORD cchCount2
-            );*/
-        [DllImport("Kernel32.dll", EntryPoint = "CompareStringW", CharSet = CharSet.Unicode, SetLastError = true)]
-        internal static extern int CompareString(
-            [In] uint locale,
-            [In] uint dwCmpFlags,
-            [In] IntPtr lpString1,
-            [In] int cchCount1,
-            [In] IntPtr lpString2,
-            [In] int cchCount2);
-
-        [DllImport("advapi32.dll", CallingConvention = CallingConvention.StdCall, EntryPoint = "LsaNtStatusToWinError", CharSet = CharSet.Unicode)]
-        internal static extern int LsaNtStatusToWinError(int ntStatus);
     }
 
     internal sealed class NativeComInterfaces

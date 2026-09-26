@@ -7,10 +7,11 @@ namespace System.Security.Cryptography.Encryption.Aes.Tests
 {
     using Aes = System.Security.Cryptography.Aes;
 
-    public static class DecryptorReusabilty
+    [SkipOnPlatform(TestPlatforms.Browser, "Not supported on Browser")]
+    public static class DecryptorReusability
     {
         // See https://github.com/dotnet/runtime/issues/21354 for details
-        [ConditionalFact(nameof(ShouldDecryptorBeReusable))]
+        [ConditionalFact(typeof(DecryptorReusability), nameof(ShouldDecryptorBeReusable))]
         public static void TestDecryptorReusability()
         {
             byte[] expectedPlainText = new byte[]

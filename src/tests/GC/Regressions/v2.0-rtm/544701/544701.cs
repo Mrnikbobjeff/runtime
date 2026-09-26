@@ -2,14 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-internal class AllocBug
+using Xunit;
+public class AllocBug
 {
     public int ret = 0;
     public AllocBug()
     {
     }
 
-    private static int Main(string[] args)
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         AllocBug ab = new AllocBug();
 
@@ -36,9 +39,9 @@ internal class AllocBug
         {
             byte[] buffer = new byte[bytesToAlloc];
         }
-        catch (Exception)
+        catch (Exception ex)
         {
-            Console.WriteLine("Unexpected Exception when allocating "+bytesToAlloc+" bytes.");
+            Console.WriteLine($"Unexpected exception when allocating {bytesToAlloc} bytes: {ex}");
             ret = -1;
         }
     }

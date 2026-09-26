@@ -1,10 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <CLRTestKind>BuildAndRun</CLRTestKind>
     <CLRTestPriority>1</CLRTestPriority>
-    <CLRTestExecutionArguments>-trustedexe</CLRTestExecutionArguments>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="oomexception01.cs" />

@@ -5,12 +5,12 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
-internal partial class Interop
+internal static partial class Interop
 {
     /// <summary>
     /// BCrypt types related to asymmetric encryption algorithms
     /// </summary>
-    internal partial class BCrypt
+    internal static partial class BCrypt
     {
         [StructLayout(LayoutKind.Sequential)]
         internal struct BCRYPT_OAEP_PADDING_INFO
@@ -52,6 +52,25 @@ internal partial class Interop
             ///     The size, in bytes, of the random salt to use for the padding.
             /// </summary>
             internal int cbSalt;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        internal struct BCRYPT_PQDSA_PADDING_INFO
+        {
+            /// <summary>
+            ///     Address of the context buffer.
+            /// </summary>
+            internal IntPtr pbCtx;
+
+            /// <summary>
+            ///     The size, in bytes, of the context buffer.
+            /// </summary>
+            internal int cbCtx;
+
+            /// <summary>
+            ///     Null-terminated Unicode string that identifies the pre-hash algorithm used to create the hash.
+            /// </summary>
+            internal IntPtr pszPreHashAlgId;
         }
     }
 }

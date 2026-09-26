@@ -443,7 +443,6 @@ namespace System.Data.Odbc
                                     break;
                             }
                         }
-                        endtoken = true;
                         break;
                     }
                 }
@@ -498,7 +497,7 @@ namespace System.Data.Odbc
             return localidx;
         }
 
-        private bool IsValidNameChar(char ch)
+        private static bool IsValidNameChar(char ch)
         {
             return (char.IsLetterOrDigit(ch) ||
                     (ch == '_') || (ch == '-') || (ch == '.') ||
@@ -541,7 +540,7 @@ namespace System.Data.Odbc
                 return false;
             }
 
-            if (0 == string.Compare(_sqlstatement, tempidx, tokenString, 0, tokenString.Length, StringComparison.OrdinalIgnoreCase))
+            if (_sqlstatement.AsSpan(tempidx).StartsWith(tokenString, StringComparison.OrdinalIgnoreCase))
             {
                 // Reset current position and token
                 _idx = 0;

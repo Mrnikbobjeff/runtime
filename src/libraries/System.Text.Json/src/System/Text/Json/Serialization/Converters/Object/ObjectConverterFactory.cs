@@ -4,15 +4,28 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Text.Json.Reflection;
+using System.Text.Json.Serialization.Metadata;
 
 namespace System.Text.Json.Serialization.Converters
 {
     /// <summary>
     /// Converter factory for all object-based types (non-enumerable and non-primitive).
     /// </summary>
-    internal class ObjectConverterFactory : JsonConverterFactory
+    [RequiresDynamicCode(JsonSerializer.SerializationRequiresDynamicCodeMessage)]
+    internal sealed class ObjectConverterFactory : JsonConverterFactory
     {
+        // Need to toggle this behavior when generating converters for F# struct records.
+        private readonly bool _useDefaultConstructorInUnannotatedStructs;
+
+        [RequiresUnreferencedCode(JsonSerializer.SerializationUnreferencedCodeMessage)]
+        public ObjectConverterFactory(bool useDefaultConstructorInUnannotatedStructs = true)
+        {
+            _useDefaultConstructorInUnannotatedStructs = useDefaultConstructorInUnannotatedStructs;
+        }
+
         public override bool CanConvert(Type typeToConvert)
         {
             // This is the last built-in factory converter, so if the IEnumerableConverterFactory doesn't
@@ -21,17 +34,21 @@ namespace System.Text.Json.Serialization.Converters
             return true;
         }
 
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
+            Justification = "The ctor is marked RequiresUnreferencedCode.")]
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2067:UnrecognizedReflectionPattern",
+            Justification = "The ctor is marked RequiresUnreferencedCode.")]
         public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
         {
-            if (IsKeyValuePair(typeToConvert))
-            {
-                return CreateKeyValuePairConverter(typeToConvert, options);
-            }
-
             JsonConverter converter;
             Type converterType;
 
-            ConstructorInfo? constructor = GetDeserializationConstructor(typeToConvert);
+            bool useDefaultConstructorInUnannotatedStructs = _useDefaultConstructorInUnannotatedStructs && !typeToConvert.IsKeyValuePair();
+            if (!typeToConvert.TryGetDeserializationConstructor(useDefaultConstructorInUnannotatedStructs, out ConstructorInfo? constructor))
+            {
+                ThrowHelper.ThrowInvalidOperationException_SerializationDuplicateTypeAttribute<JsonConstructorAttribute>(typeToConvert);
+            }
+
             ParameterInfo[]? parameters = constructor?.GetParameters();
 
             if (constructor == null || typeToConvert.IsAbstract || parameters!.Length == 0)
@@ -42,9 +59,29 @@ namespace System.Text.Json.Serialization.Converters
             {
                 int parameterCount = parameters.Length;
 
+                foreach (ParameterInfo parameter in parameters)
+                {
+                    // Skip out parameters — they don't receive values from JSON
+                    // and may reference unsupported types (e.g. Task).
+                    if (parameter.IsOut)
+                    {
+                        continue;
+                    }
+
+                    // Every argument must be of supported type.
+                    // For byref parameters (in/ref), validate the underlying element type.
+                    Type parameterType = parameter.ParameterType;
+                    if (parameterType.IsByRef)
+                    {
+                        parameterType = parameterType.GetElementType()!;
+                    }
+
+                    JsonTypeInfo.ValidateType(parameterType);
+                }
+
                 if (parameterCount <= JsonConstants.UnboxedParameterCountThreshold)
                 {
-                    Type placeHolderType = JsonClassInfo.ObjectType;
+                    Type placeHolderType = JsonTypeInfo.ObjectType;
                     Type[] typeArguments = new Type[JsonConstants.UnboxedParameterCountThreshold + 1];
 
                     typeArguments[0] = typeToConvert;
@@ -52,7 +89,24 @@ namespace System.Text.Json.Serialization.Converters
                     {
                         if (i < parameterCount)
                         {
-                            typeArguments[i + 1] = parameters[i].ParameterType;
+                            // out parameters use placeholder type — they aren't deserialized
+                            // and may reference types that can't be used as generic arguments.
+                            if (parameters[i].IsOut)
+                            {
+                                typeArguments[i + 1] = placeHolderType;
+                            }
+                            else
+                            {
+                                // For byref parameters (in/ref), use the underlying element type
+                                // since byref types cannot be used as generic type arguments.
+                                Type parameterType = parameters[i].ParameterType;
+                                if (parameterType.IsByRef)
+                                {
+                                    parameterType = parameterType.GetElementType()!;
+                                }
+
+                                typeArguments[i + 1] = parameterType;
+                            }
                         }
                         else
                         {
@@ -65,7 +119,7 @@ namespace System.Text.Json.Serialization.Converters
                 }
                 else
                 {
-                    converterType = typeof(LargeObjectWithParameterizedConstructorConverter<>).MakeGenericType(typeToConvert);
+                    converterType = typeof(LargeObjectWithParameterizedConstructorConverterWithReflection<>).MakeGenericType(typeToConvert);
                 }
             }
 
@@ -78,90 +132,6 @@ namespace System.Text.Json.Serialization.Converters
 
             converter.ConstructorInfo = constructor!;
             return converter;
-        }
-
-        private bool IsKeyValuePair(Type typeToConvert)
-        {
-            if (!typeToConvert.IsGenericType)
-                return false;
-
-            Type generic = typeToConvert.GetGenericTypeDefinition();
-            return (generic == typeof(KeyValuePair<,>));
-        }
-
-        private JsonConverter CreateKeyValuePairConverter(Type type, JsonSerializerOptions options)
-        {
-            Debug.Assert(IsKeyValuePair(type));
-
-            Type keyType = type.GetGenericArguments()[0];
-            Type valueType = type.GetGenericArguments()[1];
-
-            JsonConverter converter = (JsonConverter)Activator.CreateInstance(
-                typeof(KeyValuePairConverter<,>).MakeGenericType(new Type[] { keyType, valueType }),
-                BindingFlags.Instance | BindingFlags.Public,
-                binder: null,
-                args: null,
-                culture: null)!;
-
-            converter.Initialize(options);
-
-            return converter;
-        }
-
-        private ConstructorInfo? GetDeserializationConstructor(Type type)
-        {
-            ConstructorInfo? ctorWithAttribute = null;
-            ConstructorInfo? publicParameterlessCtor = null;
-            ConstructorInfo? lonePublicCtor = null;
-
-            ConstructorInfo[] constructors = type.GetConstructors(BindingFlags.Public | BindingFlags.Instance);
-
-            if (constructors.Length == 1)
-            {
-                lonePublicCtor = constructors[0];
-            }
-
-            foreach (ConstructorInfo constructor in constructors)
-            {
-                if (constructor.GetCustomAttribute<JsonConstructorAttribute>() != null)
-                {
-                    if (ctorWithAttribute != null)
-                    {
-                        ThrowHelper.ThrowInvalidOperationException_SerializationDuplicateTypeAttribute<JsonConstructorAttribute>(type);
-                    }
-
-                    ctorWithAttribute = constructor;
-                }
-                else if (constructor.GetParameters().Length == 0)
-                {
-                    publicParameterlessCtor = constructor;
-                }
-            }
-
-            // For correctness, throw if multiple ctors have [JsonConstructor], even if one or more are non-public.
-            ConstructorInfo? dummyCtorWithAttribute = ctorWithAttribute;
-
-            constructors = type.GetConstructors(BindingFlags.NonPublic | BindingFlags.Instance);
-            foreach (ConstructorInfo constructor in constructors)
-            {
-                if (constructor.GetCustomAttribute<JsonConstructorAttribute>() != null)
-                {
-                    if (dummyCtorWithAttribute != null)
-                    {
-                        ThrowHelper.ThrowInvalidOperationException_SerializationDuplicateTypeAttribute<JsonConstructorAttribute>(type);
-                    }
-
-                    dummyCtorWithAttribute = constructor;
-                }
-            }
-
-            // Structs will use default constructor if attribute isn't used.
-            if (type.IsValueType && ctorWithAttribute == null)
-            {
-                return null;
-            }
-
-            return ctorWithAttribute ?? publicParameterlessCtor ?? lonePublicCtor;
         }
     }
 }

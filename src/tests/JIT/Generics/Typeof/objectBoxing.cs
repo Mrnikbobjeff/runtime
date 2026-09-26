@@ -2,11 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Generics_Typeof_objectBoxing;
+
 /* unboxing where a parameter is types as object and then is unboxed to its scalar type 
  */
 using System;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 class X
 {
@@ -53,7 +56,7 @@ sealed class DS : B
     public override void incCount() { ds_count *= 41; }
 }
 
-class mainMethod
+public class mainMethod
 {
     public static bool failed = false;
     public static void checkGetType(System.Object x)
@@ -350,7 +353,9 @@ class mainMethod
         Console.WriteLine("-----------{0}", i++);
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         callCheckGetType();
         callCheckIs();

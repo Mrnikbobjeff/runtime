@@ -1,14 +1,19 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Tracing;
 
 namespace System.Buffers
 {
     [EventSource(Guid = "0866B2B8-5CEF-5DB9-2612-0C0FFD814A44", Name = "System.Buffers.ArrayPoolEventSource")]
-    internal sealed class ArrayPoolEventSource : EventSource
+    internal sealed partial class ArrayPoolEventSource : EventSource
     {
+        private const string EventSourceSuppressMessage = "Parameters to this method are primitive and are trimmer safe";
         internal static readonly ArrayPoolEventSource Log = new ArrayPoolEventSource();
+
+        /// <summary>Bucket ID used when renting/returning an array that's too large for a pool.</summary>
+        internal const int NoBucketId = -1;
 
         /// <summary>The reason for a BufferAllocated event.</summary>
         internal enum BufferAllocatedReason : int
@@ -21,8 +26,14 @@ namespace System.Buffers
             PoolExhausted
         }
 
-        // The ArrayPoolEventSource GUID is {0866b2b8-5cef-5db9-2612-0c0ffd814a44}
-        private ArrayPoolEventSource() : base(new Guid(0x0866b2b8, 0x5cef, 0x5db9, 0x26, 0x12, 0x0c, 0x0f, 0xfd, 0x81, 0x4a, 0x44), "System.Buffers.ArrayPoolEventSource") { }
+        /// <summary>The reason for a BufferDropped event.</summary>
+        internal enum BufferDroppedReason : int
+        {
+            /// <summary>The pool is full for buffers of the specified size.</summary>
+            Full,
+            /// <summary>The buffer size was too large to be pooled.</summary>
+            OverMaximumSize,
+        }
 
         /// <summary>
         /// Event for when a buffer is rented.  This is invoked once for every successful call to Rent,
@@ -32,6 +43,8 @@ namespace System.Buffers
         /// of BufferAllocated events being less than or equal to those numbers (ideally significantly
         /// less than).
         /// </summary>
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:UnrecognizedReflectionPattern",
+                   Justification = EventSourceSuppressMessage)]
         [Event(1, Level = EventLevel.Verbose)]
         internal unsafe void BufferRented(int bufferId, int bufferSize, int poolId, int bucketId)
         {
@@ -56,6 +69,8 @@ namespace System.Buffers
         /// of BufferAllocated events is significantly smaller than the number of BufferRented and
         /// BufferReturned events.
         /// </summary>
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:UnrecognizedReflectionPattern",
+                   Justification = EventSourceSuppressMessage)]
         [Event(2, Level = EventLevel.Informational)]
         internal unsafe void BufferAllocated(int bufferId, int bufferSize, int poolId, int bucketId, BufferAllocatedReason reason)
         {
@@ -88,7 +103,7 @@ namespace System.Buffers
 
         /// <summary>
         /// Event raised when we attempt to free a buffer due to inactivity or memory pressure (by no longer
-        /// referencing it). It is possible (although not commmon) this buffer could be rented as we attempt
+        /// referencing it). It is possible (although not common) this buffer could be rented as we attempt
         /// to free it. A rent event before or after this event for the same ID, is a rare, but expected case.
         /// </summary>
         [Event(4, Level = EventLevel.Informational)]
@@ -99,5 +114,32 @@ namespace System.Buffers
         /// </summary>
         [Event(5, Level = EventLevel.Informational)]
         internal void BufferTrimPoll(int milliseconds, int pressure) => WriteEvent(5, milliseconds, pressure);
+
+        /// <summary>
+        /// Event raised when a buffer returned to the pool is dropped.
+        /// </summary>
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
+                   Justification = EventSourceSuppressMessage)]
+        [Event(6, Level = EventLevel.Informational)]
+        internal unsafe void BufferDropped(int bufferId, int bufferSize, int poolId, int bucketId, BufferDroppedReason reason)
+        {
+            EventData* payload = stackalloc EventData[5];
+            payload[0].Size = sizeof(int);
+            payload[0].DataPointer = ((IntPtr)(&bufferId));
+            payload[0].Reserved = 0;
+            payload[1].Size = sizeof(int);
+            payload[1].DataPointer = ((IntPtr)(&bufferSize));
+            payload[1].Reserved = 0;
+            payload[2].Size = sizeof(int);
+            payload[2].DataPointer = ((IntPtr)(&poolId));
+            payload[2].Reserved = 0;
+            payload[3].Size = sizeof(int);
+            payload[3].DataPointer = ((IntPtr)(&bucketId));
+            payload[3].Reserved = 0;
+            payload[4].Size = sizeof(BufferDroppedReason);
+            payload[4].DataPointer = ((IntPtr)(&reason));
+            payload[4].Reserved = 0;
+            WriteEventCore(6, 5, payload);
+        }
     }
 }

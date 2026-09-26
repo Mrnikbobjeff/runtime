@@ -4,6 +4,7 @@
 using System.Buffers;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -11,28 +12,58 @@ namespace System.Globalization
 {
     public partial class CompareInfo
     {
+        private static class IcuSearchValues
+        {
+            // Characters which do not require special handling
+            internal static readonly SearchValues<char> s_nonSpecialAsciiChars = CreateNonSpecialAsciiChars();
+
+            private static SearchValues<char> CreateNonSpecialAsciiChars()
+            {
+                ReadOnlySpan<bool> highCharTable = HighCharTable;
+                Span<char> values = stackalloc char[highCharTable.Length];
+                int valueIndex = 0;
+
+                for (int i = 0; i < highCharTable.Length; i++)
+                {
+                    if (!highCharTable[i])
+                    {
+                        values[valueIndex++] = (char)i;
+                    }
+                }
+
+                return SearchValues.Create(values.Slice(0, valueIndex));
+            }
+        }
+
         [NonSerialized]
         private bool _isAsciiEqualityOrdinal;
 
-        private void IcuInitSortHandle()
+        private void IcuInitSortHandle(string interopCultureName)
+        {
+            _isAsciiEqualityOrdinal = GetIsAsciiEqualityOrdinal(interopCultureName);
+            if (!GlobalizationMode.Invariant)
+            {
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                    return;
+#endif
+                 _sortHandle = SortHandleCache.GetCachedSortHandle(interopCultureName);
+            }
+        }
+
+        private bool GetIsAsciiEqualityOrdinal(string interopCultureName)
         {
             if (GlobalizationMode.Invariant)
-            {
-                _isAsciiEqualityOrdinal = true;
-            }
-            else
-            {
-                Debug.Assert(!GlobalizationMode.UseNls);
+                return true;
+            Debug.Assert(!GlobalizationMode.UseNls);
+            Debug.Assert(interopCultureName != null);
 
-                // Inline the following condition to avoid potential implementation cycles within globalization
-                //
-                // _isAsciiEqualityOrdinal = _sortName == "" || _sortName == "en" || _sortName.StartsWith("en-", StringComparison.Ordinal);
-                //
-                _isAsciiEqualityOrdinal = _sortName.Length == 0 ||
-                    (_sortName.Length >= 2 && _sortName[0] == 'e' && _sortName[1] == 'n' && (_sortName.Length == 2 || _sortName[2] == '-'));
-
-                _sortHandle = SortHandleCache.GetCachedSortHandle(_sortName);
-            }
+            // Inline the following condition to avoid potential implementation cycles within globalization
+            //
+            // _isAsciiEqualityOrdinal = _sortName == "" || _sortName == "en" || _sortName.StartsWith("en-", StringComparison.Ordinal);
+            //
+            return _sortName.Length == 0 ||
+                (_sortName.Length >= 2 && _sortName[0] == 'e' && _sortName[1] == 'n' && (_sortName.Length == 2 || _sortName[2] == '-'));
         }
 
         private unsafe int IcuCompareString(ReadOnlySpan<char> string1, ReadOnlySpan<char> string2, CompareOptions options)
@@ -66,9 +97,12 @@ namespace System.Globalization
             }
             else
             {
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                    return IndexOfCoreNative(target, source, options, fromBeginning, matchLengthPtr);
+#endif
                 // GetReference may return nullptr if the input span is defaulted. The native layer handles
                 // this appropriately; no workaround is needed on the managed side.
-
                 fixed (char* pSource = &MemoryMarshal.GetReference(source))
                 fixed (char* pTarget = &MemoryMarshal.GetReference(target))
                 {
@@ -90,7 +124,7 @@ namespace System.Globalization
             Debug.Assert(!GlobalizationMode.Invariant);
 
             Debug.Assert(!target.IsEmpty);
-            Debug.Assert(_isAsciiEqualityOrdinal);
+            Debug.Assert(_isAsciiEqualityOrdinal && CanUseAsciiOrdinalForOptions(options));
 
             fixed (char* ap = &MemoryMarshal.GetReference(source))
             fixed (char* bp = &MemoryMarshal.GetReference(target))
@@ -98,21 +132,18 @@ namespace System.Globalization
                 char* a = ap;
                 char* b = bp;
 
-                for (int j = 0; j < target.Length; j++)
+                if (target.ContainsAnyExcept(IcuSearchValues.s_nonSpecialAsciiChars))
                 {
-                    char targetChar = *(b + j);
-                    if (targetChar >= 0x80 || HighCharTable[targetChar])
-                        goto InteropCall;
+                    goto InteropCall;
                 }
 
                 if (target.Length > source.Length)
                 {
-                    for (int k = 0; k < source.Length; k++)
+                    if (source.ContainsAnyExcept(IcuSearchValues.s_nonSpecialAsciiChars))
                     {
-                        char targetChar = *(a + k);
-                        if (targetChar >= 0x80 || HighCharTable[targetChar])
-                            goto InteropCall;
+                        goto InteropCall;
                     }
+
                     return -1;
                 }
 
@@ -153,9 +184,9 @@ namespace System.Globalization
                         }
 
                         // uppercase both chars - notice that we need just one compare per char
-                        if ((uint)(valueChar - 'a') <= ('z' - 'a'))
+                        if (char.IsAsciiLetterLower(valueChar))
                             valueChar = (char)(valueChar - 0x20);
-                        if ((uint)(targetChar - 'a') <= ('z' - 'a'))
+                        if (char.IsAsciiLetterLower(targetChar))
                             targetChar = (char)(targetChar - 0x20);
 
                         if (valueChar == targetChar)
@@ -179,9 +210,23 @@ namespace System.Globalization
                 Next: ;
                 }
 
+                // Before we return -1, check if the remaining source contains any special or non-Ascii characters.
+                ReadOnlySpan<char> remainingSource = fromBeginning
+                    ? source.Slice(endIndex)
+                    : source.Slice(0, startIndex);
+
+                if (remainingSource.ContainsAnyExcept(IcuSearchValues.s_nonSpecialAsciiChars))
+                {
+                    goto InteropCall;
+                }
+
                 return -1;
 
             InteropCall:
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                    return IndexOfCoreNative(target, source, options, fromBeginning, matchLengthPtr);
+#endif
                 if (fromBeginning)
                     return Interop.Globalization.IndexOf(_sortHandle, b, target.Length, a, source.Length, options, matchLengthPtr);
                 else
@@ -194,7 +239,7 @@ namespace System.Globalization
             Debug.Assert(!GlobalizationMode.Invariant);
 
             Debug.Assert(!target.IsEmpty);
-            Debug.Assert(_isAsciiEqualityOrdinal);
+            Debug.Assert(_isAsciiEqualityOrdinal && CanUseAsciiOrdinalForOptions(options));
 
             fixed (char* ap = &MemoryMarshal.GetReference(source))
             fixed (char* bp = &MemoryMarshal.GetReference(target))
@@ -202,21 +247,18 @@ namespace System.Globalization
                 char* a = ap;
                 char* b = bp;
 
-                for (int j = 0; j < target.Length; j++)
+                if (target.ContainsAnyExcept(IcuSearchValues.s_nonSpecialAsciiChars))
                 {
-                    char targetChar = *(b + j);
-                    if (targetChar >= 0x80 || HighCharTable[targetChar])
-                        goto InteropCall;
+                    goto InteropCall;
                 }
 
                 if (target.Length > source.Length)
                 {
-                    for (int k = 0; k < source.Length; k++)
+                    if (source.ContainsAnyExcept(IcuSearchValues.s_nonSpecialAsciiChars))
                     {
-                        char targetChar = *(a + k);
-                        if (targetChar >= 0x80 || HighCharTable[targetChar])
-                            goto InteropCall;
+                        goto InteropCall;
                     }
+
                     return -1;
                 }
 
@@ -275,6 +317,10 @@ namespace System.Globalization
                 return -1;
 
             InteropCall:
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                    return IndexOfCoreNative(target, source, options, fromBeginning, matchLengthPtr);
+#endif
                 if (fromBeginning)
                     return Interop.Globalization.IndexOf(_sortHandle, b, target.Length, a, source.Length, options, matchLengthPtr);
                 else
@@ -300,6 +346,10 @@ namespace System.Globalization
             }
             else
             {
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                    return NativeStartsWith(prefix, source, options);
+#endif
                 fixed (char* pSource = &MemoryMarshal.GetReference(source)) // could be null (or otherwise unable to be dereferenced)
                 fixed (char* pPrefix = &MemoryMarshal.GetReference(prefix))
                 {
@@ -313,7 +363,7 @@ namespace System.Globalization
             Debug.Assert(!GlobalizationMode.Invariant);
 
             Debug.Assert(!prefix.IsEmpty);
-            Debug.Assert(_isAsciiEqualityOrdinal);
+            Debug.Assert(_isAsciiEqualityOrdinal && CanUseAsciiOrdinalForOptions(options));
 
             int length = Math.Min(source.Length, prefix.Length);
 
@@ -361,14 +411,17 @@ namespace System.Globalization
 
                 if (source.Length < prefix.Length)
                 {
-                    if (*b >= 0x80)
+                    int charB = *b;
+
+                    if (charB >= 0x80 || HighCharTable[charB])
                         goto InteropCall;
                     return false;
                 }
 
                 if (source.Length > prefix.Length)
                 {
-                    if (*a >= 0x80)
+                    int charA = *a;
+                    if (charA >= 0x80  || HighCharTable[charA])
                         goto InteropCall;
                 }
 
@@ -379,6 +432,10 @@ namespace System.Globalization
                 return true;
 
             InteropCall:
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                    return NativeStartsWith(prefix, source, options);
+#endif
                 return Interop.Globalization.StartsWith(_sortHandle, bp, prefix.Length, ap, source.Length, options, matchLengthPtr);
             }
         }
@@ -388,7 +445,7 @@ namespace System.Globalization
             Debug.Assert(!GlobalizationMode.Invariant);
 
             Debug.Assert(!prefix.IsEmpty);
-            Debug.Assert(_isAsciiEqualityOrdinal);
+            Debug.Assert(_isAsciiEqualityOrdinal && CanUseAsciiOrdinalForOptions(options));
 
             int length = Math.Min(source.Length, prefix.Length);
 
@@ -425,14 +482,18 @@ namespace System.Globalization
 
                 if (source.Length < prefix.Length)
                 {
-                    if (*b >= 0x80)
+                    int charB = *b;
+
+                    if (charB >= 0x80 || HighCharTable[charB])
                         goto InteropCall;
                     return false;
                 }
 
                 if (source.Length > prefix.Length)
                 {
-                    if (*a >= 0x80)
+                    int charA = *a;
+
+                    if (charA >= 0x80 || HighCharTable[charA])
                         goto InteropCall;
                 }
 
@@ -443,6 +504,10 @@ namespace System.Globalization
                 return true;
 
             InteropCall:
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                    return NativeStartsWith(prefix, source, options);
+#endif
                 return Interop.Globalization.StartsWith(_sortHandle, bp, prefix.Length, ap, source.Length, options, matchLengthPtr);
             }
         }
@@ -465,6 +530,10 @@ namespace System.Globalization
             }
             else
             {
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                    return NativeEndsWith(suffix, source, options);
+#endif
                 fixed (char* pSource = &MemoryMarshal.GetReference(source)) // could be null (or otherwise unable to be dereferenced)
                 fixed (char* pSuffix = &MemoryMarshal.GetReference(suffix))
                 {
@@ -478,7 +547,7 @@ namespace System.Globalization
             Debug.Assert(!GlobalizationMode.Invariant);
 
             Debug.Assert(!suffix.IsEmpty);
-            Debug.Assert(_isAsciiEqualityOrdinal);
+            Debug.Assert(_isAsciiEqualityOrdinal && CanUseAsciiOrdinalForOptions(options));
 
             int length = Math.Min(source.Length, suffix.Length);
 
@@ -526,14 +595,18 @@ namespace System.Globalization
 
                 if (source.Length < suffix.Length)
                 {
-                    if (*b >= 0x80)
+                    int charB = *b;
+
+                    if (charB >= 0x80 || HighCharTable[charB])
                         goto InteropCall;
                     return false;
                 }
 
                 if (source.Length > suffix.Length)
                 {
-                    if (*a >= 0x80)
+                    int charA = *a;
+
+                    if (charA >= 0x80 || HighCharTable[charA])
                         goto InteropCall;
                 }
 
@@ -544,6 +617,10 @@ namespace System.Globalization
                 return true;
 
             InteropCall:
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                    return NativeEndsWith(suffix, source, options);
+#endif
                 return Interop.Globalization.EndsWith(_sortHandle, bp, suffix.Length, ap, source.Length, options, matchLengthPtr);
             }
         }
@@ -553,7 +630,7 @@ namespace System.Globalization
             Debug.Assert(!GlobalizationMode.Invariant);
 
             Debug.Assert(!suffix.IsEmpty);
-            Debug.Assert(_isAsciiEqualityOrdinal);
+            Debug.Assert(_isAsciiEqualityOrdinal && CanUseAsciiOrdinalForOptions(options));
 
             int length = Math.Min(source.Length, suffix.Length);
 
@@ -590,14 +667,18 @@ namespace System.Globalization
 
                 if (source.Length < suffix.Length)
                 {
-                    if (*b >= 0x80)
+                    int charB = *b;
+
+                    if (charB >= 0x80 || HighCharTable[charB])
                         goto InteropCall;
                     return false;
                 }
 
                 if (source.Length > suffix.Length)
                 {
-                    if (*a >= 0x80)
+                    int charA = *a;
+
+                    if (charA >= 0x80 || HighCharTable[charA])
                         goto InteropCall;
                 }
 
@@ -608,33 +689,66 @@ namespace System.Globalization
                 return true;
 
             InteropCall:
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                    return NativeEndsWith(suffix, source, options);
+#endif
                 return Interop.Globalization.EndsWith(_sortHandle, bp, suffix.Length, ap, source.Length, options, matchLengthPtr);
             }
         }
 
         private unsafe SortKey IcuCreateSortKey(string source, CompareOptions options)
         {
+            ArgumentNullException.ThrowIfNull(source);
+
             Debug.Assert(!GlobalizationMode.Invariant);
             Debug.Assert(!GlobalizationMode.UseNls);
-
-            if (source==null) { throw new ArgumentNullException(nameof(source)); }
 
             if ((options & ValidCompareMaskOffFlags) != 0)
             {
                 throw new ArgumentException(SR.Argument_InvalidFlag, nameof(options));
             }
 
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+            if (GlobalizationMode.Hybrid)
+            {
+                AssertComparisonSupported(options);
+            }
+#endif
+
             byte[] keyData;
             fixed (char* pSource = source)
             {
-                int sortKeyLength = Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, null, 0, options);
+                int sortKeyLength;
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                {
+                    sortKeyLength = Interop.Globalization.GetSortKeyNative(m_name, m_name.Length, pSource, source.Length, null, 0, options);
+                }
+                else
+#endif
+                {
+                    sortKeyLength = Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, null, 0, options);
+                }
                 keyData = new byte[sortKeyLength];
 
                 fixed (byte* pSortKey = keyData)
                 {
-                    if (Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, pSortKey, sortKeyLength, options) != sortKeyLength)
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                    if (GlobalizationMode.Hybrid)
                     {
-                        throw new ArgumentException(SR.Arg_ExternalException);
+                        if (Interop.Globalization.GetSortKeyNative(m_name, m_name.Length, pSource, source.Length, pSortKey, sortKeyLength, options) != sortKeyLength)
+                        {
+                            throw new ArgumentException(SR.Arg_ExternalException);
+                        }
+                    }
+                    else
+#endif
+                    {
+                        if (Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, pSortKey, sortKeyLength, options) != sortKeyLength)
+                        {
+                            throw new ArgumentException(SR.Arg_ExternalException);
+                        }
                     }
                 }
             }
@@ -648,6 +762,13 @@ namespace System.Globalization
             Debug.Assert(!GlobalizationMode.UseNls);
             Debug.Assert((options & ValidCompareMaskOffFlags) == 0);
 
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+            if (GlobalizationMode.Hybrid)
+            {
+                AssertComparisonSupported(options);
+            }
+#endif
+
             // It's ok to pass nullptr (for empty buffers) to ICU's sort key routines.
 
             int actualSortKeyLength;
@@ -655,7 +776,16 @@ namespace System.Globalization
             fixed (char* pSource = &MemoryMarshal.GetReference(source))
             fixed (byte* pDest = &MemoryMarshal.GetReference(destination))
             {
-                actualSortKeyLength = Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, pDest, destination.Length, options);
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                {
+                    actualSortKeyLength = Interop.Globalization.GetSortKeyNative(m_name, m_name.Length, pSource, source.Length, pDest, destination.Length, options);
+                }
+                else
+#endif
+                {
+                    actualSortKeyLength = Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, pDest, destination.Length, options);
+                }
             }
 
             // The check below also handles errors due to negative values / overflow being returned.
@@ -681,11 +811,27 @@ namespace System.Globalization
             Debug.Assert(!GlobalizationMode.UseNls);
             Debug.Assert((options & ValidCompareMaskOffFlags) == 0);
 
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+            if (GlobalizationMode.Hybrid)
+            {
+                AssertComparisonSupported(options);
+            }
+#endif
+
             // It's ok to pass nullptr (for empty buffers) to ICU's sort key routines.
 
             fixed (char* pSource = &MemoryMarshal.GetReference(source))
             {
-                return Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, null, 0, options);
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                if (GlobalizationMode.Hybrid)
+                {
+                    return Interop.Globalization.GetSortKeyNative(m_name, m_name.Length, pSource, source.Length, null, 0, options);
+                }
+                else
+#endif
+                {
+                    return Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, null, 0, options);
+                }
             }
         }
 
@@ -720,13 +866,22 @@ namespace System.Globalization
             Debug.Assert(!GlobalizationMode.UseNls);
             Debug.Assert((options & (CompareOptions.Ordinal | CompareOptions.OrdinalIgnoreCase)) == 0);
 
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+            if (GlobalizationMode.Hybrid)
+            {
+                AssertComparisonSupported(options);
+            }
+#endif
+
             // according to ICU User Guide the performance of ucol_getSortKey is worse when it is called with null output buffer
             // the solution is to try to fill the sort key in a temporary buffer of size equal 4 x string length
-            // 1MB is the biggest array that can be rented from ArrayPool.Shared without memory allocation
-            int sortKeyLength = (source.Length > 1024 * 1024 / 4) ? 0 : 4 * source.Length;
+            // (The ArrayPool used to have a limit on the length of buffers it would cache; this code was avoiding
+            // exceeding that limit to avoid a per-operation allocation, and the performance implications here
+            // were not re-evaluated when the limit was lifted.)
+            int sortKeyLength = checked((source.Length > 1024 * 1024 / 4) ? 0 : 4 * source.Length);
 
             byte[]? borrowedArray = null;
-            Span<byte> sortKey = sortKeyLength <= 1024
+            Span<byte> sortKey = (uint)sortKeyLength <= 1024
                 ? stackalloc byte[1024]
                 : (borrowedArray = ArrayPool<byte>.Shared.Rent(sortKeyLength));
 
@@ -734,7 +889,16 @@ namespace System.Globalization
             {
                 fixed (byte* pSortKey = &MemoryMarshal.GetReference(sortKey))
                 {
-                    sortKeyLength = Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, pSortKey, sortKey.Length, options);
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                    if (GlobalizationMode.Hybrid)
+                    {
+                        sortKeyLength = Interop.Globalization.GetSortKeyNative(m_name, m_name.Length, pSource, source.Length, pSortKey, sortKey.Length, options);
+                    }
+                    else
+#endif
+                    {
+                        sortKeyLength = Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, pSortKey, sortKey.Length, options);
+                    }
                 }
 
                 if (sortKeyLength > sortKey.Length) // slow path for big strings
@@ -748,7 +912,16 @@ namespace System.Globalization
 
                     fixed (byte* pSortKey = &MemoryMarshal.GetReference(sortKey))
                     {
-                        sortKeyLength = Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, pSortKey, sortKey.Length, options);
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+                        if (GlobalizationMode.Hybrid)
+                        {
+                            sortKeyLength = Interop.Globalization.GetSortKeyNative(m_name, m_name.Length, pSource, source.Length, pSortKey, sortKey.Length, options);
+                        }
+                        else
+#endif
+                        {
+                            sortKeyLength = Interop.Globalization.GetSortKey(_sortHandle, pSource, source.Length, pSortKey, sortKey.Length, options);
+                        }
                     }
                 }
             }
@@ -835,8 +1008,8 @@ namespace System.Globalization
             }
         }
 
-        private static ReadOnlySpan<bool> HighCharTable => new bool[0x80]
-        {
+        private static ReadOnlySpan<bool> HighCharTable => // 0x80
+        [
             true, /* 0x0, 0x0 */
             true, /* 0x1, .*/
             true, /* 0x2, .*/
@@ -876,13 +1049,13 @@ namespace System.Globalization
             false, /*0x24,  $*/
             false, /*0x25,  %*/
             false, /*0x26,  &*/
-            true,  /*0x27, '*/
+            false,  /*0x27, '*/
             false, /*0x28, (*/
             false, /*0x29, )*/
             false, /*0x2A **/
             false, /*0x2B, +*/
             false, /*0x2C, ,*/
-            true,  /*0x2D, -*/
+            false,  /*0x2D, -*/
             false, /*0x2E, .*/
             false, /*0x2F, /*/
             false, /*0x30, 0*/
@@ -965,6 +1138,6 @@ namespace System.Globalization
             false, /*0x7D, }*/
             false, /*0x7E, ~*/
             true, /*0x7F, */
-        };
+        ];
     }
 }

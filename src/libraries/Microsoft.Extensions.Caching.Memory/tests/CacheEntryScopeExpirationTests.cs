@@ -3,6 +3,7 @@
 
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory.Infrastructure;
 using Microsoft.Extensions.Internal;
@@ -12,43 +13,48 @@ namespace Microsoft.Extensions.Caching.Memory
 {
     public class CacheEntryScopeExpirationTests
     {
-        private IMemoryCache CreateCache()
+        private IMemoryCache CreateCache(bool trackLinkedCacheEntries = false)
         {
-            return CreateCache(new SystemClock());
+            return CreateCache(new SystemClock(), trackLinkedCacheEntries);
         }
 
-        private IMemoryCache CreateCache(ISystemClock clock)
+        private IMemoryCache CreateCache(ISystemClock clock, bool trackLinkedCacheEntries = false)
         {
             return new MemoryCache(new MemoryCacheOptions()
             {
                 Clock = clock,
+                TrackLinkedCacheEntries = trackLinkedCacheEntries
             });
         }
 
-        [Fact]
-        public void SetPopulates_ExpirationTokens_IntoScopedLink()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void SetPopulates_ExpirationTokens_IntoScopedLink(bool trackLinkedCacheEntries)
         {
-            var cache = CreateCache();
+            var cache = CreateCache(trackLinkedCacheEntries);
             var obj = new object();
             string key = "myKey";
 
             ICacheEntry entry;
             using (entry = cache.CreateEntry(key))
             {
-                Assert.Same(entry, CacheEntryHelper.Current);
+                VerifyCurrentEntry(trackLinkedCacheEntries, entry);
 
                 var expirationToken = new TestExpirationToken() { ActiveChangeCallbacks = true };
                 cache.Set(key, obj, new MemoryCacheEntryOptions().AddExpirationToken(expirationToken));
             }
 
-            Assert.Single(((CacheEntry)entry)._expirationTokens);
-            Assert.Null(((CacheEntry)entry)._absoluteExpiration);
+            Assert.Equal(trackLinkedCacheEntries ? 1 : 0, entry.ExpirationTokens.Count);
+            Assert.Null(entry.AbsoluteExpiration);
         }
 
-        [Fact]
-        public void SetPopulates_AbsoluteExpiration_IntoScopeLink()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void SetPopulates_AbsoluteExpiration_IntoScopeLink(bool trackLinkedCacheEntries)
         {
-            var cache = CreateCache();
+            var cache = CreateCache(trackLinkedCacheEntries);
             var obj = new object();
             string key = "myKey";
             var time = new DateTimeOffset(2051, 1, 1, 1, 1, 1, TimeSpan.Zero);
@@ -56,21 +62,22 @@ namespace Microsoft.Extensions.Caching.Memory
             ICacheEntry entry;
             using (entry = cache.CreateEntry(key))
             {
-                Assert.Same(entry, CacheEntryHelper.Current);
+                VerifyCurrentEntry(trackLinkedCacheEntries, entry);
 
                 var expirationToken = new TestExpirationToken() { ActiveChangeCallbacks = true };
                 cache.Set(key, obj, new MemoryCacheEntryOptions().SetAbsoluteExpiration(time));
             }
 
-            Assert.Null(((CacheEntry)entry)._expirationTokens);
-            Assert.NotNull(((CacheEntry)entry)._absoluteExpiration);
-            Assert.Equal(time, ((CacheEntry)entry)._absoluteExpiration);
+            Assert.Empty(entry.ExpirationTokens);
+            Assert.Equal(trackLinkedCacheEntries ? time : null, entry.AbsoluteExpiration);
         }
 
-        [Fact]
-        public void TokenExpires_LinkedEntry()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void TokenExpires_LinkedEntry(bool trackLinkedCacheEntries)
         {
-            var cache = CreateCache();
+            var cache = CreateCache(trackLinkedCacheEntries);
             var obj = new object();
             string key = "myKey";
             string key1 = "myKey1";
@@ -89,13 +96,15 @@ namespace Microsoft.Extensions.Caching.Memory
             expirationToken.Fire();
 
             Assert.False(cache.TryGetValue(key1, out object value));
-            Assert.False(cache.TryGetValue(key, out value));
+            Assert.Equal(!trackLinkedCacheEntries, cache.TryGetValue(key, out value));
         }
 
-        [Fact]
-        public void TokenExpires_GetInLinkedEntry()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void TokenExpires_GetInLinkedEntry(bool trackLinkedCacheEntries)
         {
-            var cache = CreateCache();
+            var cache = CreateCache(trackLinkedCacheEntries);
             var obj = new object();
             string key = "myKey";
             string key1 = "myKey1";
@@ -118,13 +127,15 @@ namespace Microsoft.Extensions.Caching.Memory
             expirationToken.Fire();
 
             Assert.False(cache.TryGetValue(key1, out object value));
-            Assert.False(cache.TryGetValue(key, out value));
+            Assert.Equal(!trackLinkedCacheEntries, cache.TryGetValue(key, out value));
         }
 
-        [Fact]
-        public void TokenExpires_ParentScopeEntry()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void TokenExpires_ParentScopeEntry(bool trackLinkedCacheEntries)
         {
-            var cache = CreateCache();
+            var cache = CreateCache(trackLinkedCacheEntries);
             var obj = new object();
             string key = "myKey";
             string key1 = "myKey1";
@@ -147,13 +158,15 @@ namespace Microsoft.Extensions.Caching.Memory
             expirationToken.Fire();
 
             Assert.False(cache.TryGetValue(key1, out object value));
-            Assert.False(cache.TryGetValue(key, out value));
+            Assert.Equal(!trackLinkedCacheEntries, cache.TryGetValue(key, out value));
         }
 
-        [Fact]
-        public void TokenExpires_ParentScopeEntry_WithFactory()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void TokenExpires_ParentScopeEntry_WithFactory(bool trackLinkedCacheEntries)
         {
-            var cache = CreateCache();
+            var cache = CreateCache(trackLinkedCacheEntries);
             var obj = new object();
             string key = "myKey";
             string key1 = "myKey1";
@@ -176,13 +189,15 @@ namespace Microsoft.Extensions.Caching.Memory
             expirationToken.Fire();
 
             Assert.False(cache.TryGetValue(key1, out object value));
-            Assert.False(cache.TryGetValue(key, out value));
+            Assert.Equal(!trackLinkedCacheEntries, cache.TryGetValue(key, out value));
         }
 
-        [Fact]
-        public void TokenDoesntExpire_SiblingScopeEntry()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void TokenDoesntExpire_SiblingScopeEntry(bool trackLinkedCacheEntries)
         {
-            var cache = CreateCache();
+            var cache = CreateCache(trackLinkedCacheEntries);
             var obj = new object();
             string key = "myKey";
             string key1 = "myKey1";
@@ -212,15 +227,17 @@ namespace Microsoft.Extensions.Caching.Memory
             expirationToken.Fire();
 
             Assert.False(cache.TryGetValue(key1, out object value));
-            Assert.False(cache.TryGetValue(key, out value));
+            Assert.Equal(!trackLinkedCacheEntries, cache.TryGetValue(key, out value));
             Assert.True(cache.TryGetValue(key2, out value));
         }
 
-        [Fact]
-        public void AbsoluteExpiration_WorksAcrossLink()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void AbsoluteExpiration_WorksAcrossLink(bool trackLinkedCacheEntries)
         {
             var clock = new TestClock();
-            var cache = CreateCache(clock);
+            var cache = CreateCache(clock, trackLinkedCacheEntries);
             var obj = new object();
             string key = "myKey";
             string key1 = "myKey1";
@@ -238,14 +255,16 @@ namespace Microsoft.Extensions.Caching.Memory
             clock.Add(TimeSpan.FromSeconds(10));
 
             Assert.False(cache.TryGetValue(key1, out object value));
-            Assert.False(cache.TryGetValue(key, out value));
+            Assert.Equal(!trackLinkedCacheEntries, cache.TryGetValue(key, out value));
         }
 
-        [Fact]
-        public void AbsoluteExpiration_WorksAcrossNestedLink()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void AbsoluteExpiration_WorksAcrossNestedLink(bool trackLinkedCacheEntries)
         {
             var clock = new TestClock();
-            var cache = CreateCache(clock);
+            var cache = CreateCache(clock, trackLinkedCacheEntries);
             var obj = new object();
             string key1 = "myKey1";
             string key2 = "myKey2";
@@ -267,16 +286,17 @@ namespace Microsoft.Extensions.Caching.Memory
 
             clock.Add(TimeSpan.FromSeconds(10));
 
-            Assert.False(cache.TryGetValue(key1, out object value));
+            Assert.Equal(!trackLinkedCacheEntries, cache.TryGetValue(key1, out object value));
             Assert.False(cache.TryGetValue(key2, out value));
         }
 
-
-        [Fact]
-        public void AbsoluteExpiration_DoesntAffectSiblingLink()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void AbsoluteExpiration_DoesntAffectSiblingLink(bool trackLinkedCacheEntries)
         {
             var clock = new TestClock();
-            var cache = CreateCache(clock);
+            var cache = CreateCache(clock, trackLinkedCacheEntries);
             var obj = new object();
             string key1 = "myKey1";
             string key2 = "myKey2";
@@ -306,76 +326,83 @@ namespace Microsoft.Extensions.Caching.Memory
 
             clock.Add(TimeSpan.FromSeconds(10));
 
-            Assert.False(cache.TryGetValue(key1, out object value));
+            Assert.Equal(!trackLinkedCacheEntries, cache.TryGetValue(key1, out object value));
             Assert.False(cache.TryGetValue(key2, out value));
             Assert.True(cache.TryGetValue(key3, out value));
         }
 
-        [Fact]
-        public void GetWithImplicitLinkPopulatesExpirationTokens()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void GetWithImplicitLinkPopulatesExpirationTokens(bool trackLinkedCacheEntries)
         {
-            var cache = CreateCache();
+            var cache = CreateCache(trackLinkedCacheEntries);
             var obj = new object();
             string key = "myKey";
             string key1 = "myKey1";
 
-            Assert.Null(CacheEntryHelper.Current);
+            Assert.Null(CacheEntry.Current);
 
             ICacheEntry entry;
             using (entry = cache.CreateEntry(key))
             {
-                Assert.Same(entry, CacheEntryHelper.Current);
+                VerifyCurrentEntry(trackLinkedCacheEntries, entry);
+
                 var expirationToken = new TestExpirationToken() { ActiveChangeCallbacks = true };
                 cache.Set(key1, obj, new MemoryCacheEntryOptions().AddExpirationToken(expirationToken));
             }
 
-            Assert.Null(CacheEntryHelper.Current);
+            Assert.Null(CacheEntry.Current);
 
-            Assert.Single(((CacheEntry)entry)._expirationTokens);
-            Assert.Null(((CacheEntry)entry)._absoluteExpiration);
+            Assert.Equal(trackLinkedCacheEntries ? 1 : 0, entry.ExpirationTokens.Count);
+            Assert.Null(entry.AbsoluteExpiration);
         }
 
-        [Fact]
-        public void LinkContextsCanNest()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void LinkContextsCanNest(bool trackLinkedCacheEntries)
         {
-            var cache = CreateCache();
+            var cache = CreateCache(trackLinkedCacheEntries);
             var obj = new object();
             string key = "myKey";
             string key1 = "myKey1";
 
-            Assert.Null(CacheEntryHelper.Current);
+            Assert.Null(CacheEntry.Current);
 
             ICacheEntry entry;
             ICacheEntry entry1;
             using (entry = cache.CreateEntry(key))
             {
-                Assert.Same(entry, CacheEntryHelper.Current);
+                VerifyCurrentEntry(trackLinkedCacheEntries, entry);
 
                 using (entry1 = cache.CreateEntry(key1))
                 {
-                    Assert.Same(entry1, CacheEntryHelper.Current);
+                    VerifyCurrentEntry(trackLinkedCacheEntries, entry1);
 
                     var expirationToken = new TestExpirationToken() { ActiveChangeCallbacks = true };
                     entry1.SetValue(obj);
                     entry1.AddExpirationToken(expirationToken);
                 }
 
-                Assert.Same(entry, CacheEntryHelper.Current);
+                VerifyCurrentEntry(trackLinkedCacheEntries, entry);
             }
 
-            Assert.Null(CacheEntryHelper.Current);
+            Assert.Null(CacheEntry.Current);
 
-            Assert.Single(((CacheEntry)entry1)._expirationTokens);
-            Assert.Null(((CacheEntry)entry1)._absoluteExpiration);
-            Assert.Single(((CacheEntry)entry)._expirationTokens);
-            Assert.Null(((CacheEntry)entry)._absoluteExpiration);
+            Assert.Single(entry1.ExpirationTokens);
+            Assert.Null(entry1.AbsoluteExpiration);
+            Assert.Equal(trackLinkedCacheEntries ? 1 : 0, entry.ExpirationTokens.Count);
+            Assert.Null(entry.AbsoluteExpiration);
         }
 
-        [Fact]
-        public void NestedLinkContextsCanAggregate()
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void NestedLinkContextsCanAggregate(bool trackLinkedCacheEntries)
         {
             var clock = new TestClock();
-            var cache = CreateCache(clock);
+            var cache = CreateCache(clock, trackLinkedCacheEntries);
             var obj = new object();
             string key1 = "myKey1";
             string key2 = "myKey2";
@@ -402,19 +429,19 @@ namespace Microsoft.Extensions.Caching.Memory
                 }
             }
 
-            Assert.Equal(2, ((CacheEntry)entry1)._expirationTokens.Count());
-            Assert.NotNull(((CacheEntry)entry1)._absoluteExpiration);
-            Assert.Equal(clock.UtcNow + TimeSpan.FromSeconds(10), ((CacheEntry)entry1)._absoluteExpiration);
+            Assert.Equal(trackLinkedCacheEntries ? 2 : 1, entry1.ExpirationTokens.Count());
+            Assert.NotNull(entry1.AbsoluteExpiration);
+            Assert.Equal(clock.UtcNow + TimeSpan.FromSeconds(10), entry1.AbsoluteExpiration);
 
-            Assert.Single(((CacheEntry)entry2)._expirationTokens);
-            Assert.NotNull(((CacheEntry)entry2)._absoluteExpiration);
-            Assert.Equal(clock.UtcNow + TimeSpan.FromSeconds(15), ((CacheEntry)entry2)._absoluteExpiration);
+            Assert.Single(entry2.ExpirationTokens);
+            Assert.NotNull(entry2.AbsoluteExpiration);
+            Assert.Equal(clock.UtcNow + TimeSpan.FromSeconds(15), entry2.AbsoluteExpiration);
         }
 
         [Fact]
         public async Task LinkContexts_AreThreadSafe()
         {
-            var cache = CreateCache();
+            var cache = CreateCache(trackLinkedCacheEntries: true);
             var key1 = new object();
             var key2 = new object();
             var key3 = new object();
@@ -481,6 +508,214 @@ namespace Microsoft.Extensions.Caching.Memory
             Assert.Null(cache.Get(key1));
             Assert.Null(cache.Get(key2));
             Assert.Null(cache.Get(key4));
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        public async Task AddingTokensToParentIsSafeWhileChildrenPropagateBeforeCommit()
+        {
+            const int Workers = 4;
+            const int ChildrenPerWorker = 250;
+            const int ParentTokenCount = 1_000;
+
+            var cache = CreateCache(trackLinkedCacheEntries: true);
+            using ICacheEntry parent = cache.CreateEntry("parent");
+            parent.SetValue(new object());
+
+            var childrenReleased = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var firstChildCommitted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+            Task[] workers = Enumerable.Range(0, Workers)
+                .Select(worker => Task.Run(async () =>
+                {
+                    await childrenReleased.Task;
+                    for (int i = 0; i < ChildrenPerWorker; i++)
+                    {
+                        timeout.Token.ThrowIfCancellationRequested();
+                        using (ICacheEntry child = cache.CreateEntry($"child {worker}.{i}"))
+                        {
+                            child.SetValue(i);
+                            child.AddExpirationToken(new TestExpirationToken());
+                        }
+                        firstChildCommitted.TrySetResult(true);
+                    }
+                }))
+                .ToArray();
+
+            Task allWorkers = Task.WhenAll(workers);
+            Task timeoutTask = Task.Delay(Timeout.InfiniteTimeSpan, timeout.Token);
+
+            childrenReleased.SetResult(true);
+            Task firstCompleted = await Task.WhenAny(firstChildCommitted.Task, allWorkers, timeoutTask);
+            Assert.NotSame(timeoutTask, firstCompleted);
+            await firstCompleted;
+            await firstChildCommitted.Task;
+
+            for (int i = 0; i < ParentTokenCount; i++)
+            {
+                parent.AddExpirationToken(new TestExpirationToken());
+            }
+
+            Assert.Same(allWorkers, await Task.WhenAny(allWorkers, timeoutTask));
+            timeout.Cancel();
+            await allWorkers;
+
+            Assert.Equal(ParentTokenCount + (Workers * ChildrenPerWorker), parent.ExpirationTokens.Count);
+            Assert.All(parent.ExpirationTokens, token => Assert.NotNull(token));
+        }
+
+        [Theory]
+        [InlineData(false, false)]
+        [InlineData(false, true)]
+        [InlineData(true, false)]
+        [InlineData(true, true)]
+        public async Task TokenPropagatedAfterParentIsCommittedIsPolledOnRead(bool activeChangeCallbacks, bool parentHasToken)
+        {
+            var cache = CreateCache(trackLinkedCacheEntries: true);
+            string parentKey = "parent";
+            var token = new TestExpirationToken { ActiveChangeCallbacks = activeChangeCallbacks };
+
+            var parent = (CacheEntry)cache.CreateEntry(parentKey);
+            parent.SetValue(new object());
+            if (parentHasToken)
+            {
+                parent.AddExpirationToken(new TestExpirationToken());
+            }
+
+            var childReleased = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Task child = Task.Run(async () =>
+            {
+                await childReleased.Task;
+                using ICacheEntry childEntry = cache.CreateEntry("child");
+                childEntry.SetValue(new object());
+                childEntry.AddExpirationToken(token);
+            });
+
+            parent.Dispose();
+            childReleased.SetResult(true);
+            await child;
+
+            Assert.Equal(parentHasToken ? 2 : 1, parent.ExpirationTokens.Count);
+            Assert.Same(token, parent.ExpirationTokens[parent.ExpirationTokens.Count - 1]);
+            Assert.Equal(EvictionReason.None, parent.EvictionReason);
+
+            token.HasChangedWasCalled = false;
+            token.Fire();
+
+            Assert.False(cache.TryGetValue(parentKey, out _));
+            Assert.True(token.HasChangedWasCalled);
+            Assert.Equal(EvictionReason.TokenExpired, parent.EvictionReason);
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        public async Task PropagatingTokensToTheParentIsSafeWhileTheParentIsRead()
+        {
+            const int Workers = 4;
+            const int ChildrenPerWorker = 250;
+            const int ParentTokenCount = 64;
+
+            var cache = CreateCache(trackLinkedCacheEntries: true);
+            string parentKey = "parent";
+
+            ICacheEntry parent = cache.CreateEntry(parentKey);
+            parent.SetValue(new object());
+            for (int i = 0; i < ParentTokenCount; i++)
+            {
+                parent.AddExpirationToken(new TestExpirationToken());
+            }
+
+            var childrenReleased = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+            // Started inside the parent's scope, so every task inherits it as the ambient entry and
+            // each child they create propagates its expiration token into the parent - from several
+            // threads at once, and long after the parent itself has been committed to the cache and
+            // become visible to readers.
+            Task[] workers = Enumerable.Range(0, Workers)
+                .Select(worker => Task.Run(async () =>
+                {
+                    await childrenReleased.Task;
+                    for (int i = 0; i < ChildrenPerWorker; i++)
+                    {
+                        timeout.Token.ThrowIfCancellationRequested();
+                        using ICacheEntry child = cache.CreateEntry($"child {worker}.{i}");
+                        child.SetValue(i);
+                        child.AddExpirationToken(new TestExpirationToken());
+                    }
+                }))
+                .ToArray();
+
+            parent.Dispose();
+
+            Task allWorkers = Task.WhenAll(workers);
+            var readerStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            // Reads the committed parent from outside its scope, so the reader is not itself a linked
+            // entry and every propagation it races with comes from a worker.
+            Task reader = Task.Run(() =>
+            {
+                readerStarted.SetResult(true);
+                while (!allWorkers.IsCompleted)
+                {
+                    timeout.Token.ThrowIfCancellationRequested();
+                    Assert.True(cache.TryGetValue(parentKey, out _));
+                    Thread.Yield();
+                }
+            });
+
+            await readerStarted.Task; // no child is committed until a reader is actually running
+            childrenReleased.SetResult(true);
+
+            Task allTasks = Task.WhenAll(allWorkers, reader);
+            Task timeoutTask = Task.Delay(Timeout.InfiniteTimeSpan, timeout.Token);
+            Assert.Same(allTasks, await Task.WhenAny(allTasks, timeoutTask));
+            timeout.Cancel();
+            await allTasks;
+
+            Assert.Equal(ParentTokenCount + (Workers * ChildrenPerWorker), parent.ExpirationTokens.Count);
+            Assert.All(parent.ExpirationTokens, token => Assert.NotNull(token));
+        }
+
+        [Fact]
+        public async Task OnceExpiredIsSetToTrueItRemainsTrue()
+        {
+            var cache = CreateCache();
+            var entry = (CacheEntry)cache.CreateEntry("someKey");
+
+            await Task.WhenAll(
+                Task.Run(() => SetExpiredManyTimes(entry)),
+                Task.Run(() => SetExpiredManyTimes(entry)));
+
+            Assert.True(entry.CheckExpired(DateTime.UtcNow));
+
+            static void SetExpiredManyTimes(CacheEntry cacheEntry)
+            {
+                var utcNow = DateTime.UtcNow;
+                for (int i = 0; i < 1_000; i++)
+                {
+                    cacheEntry.SetExpired(EvictionReason.Expired); // modifies CacheEntry._state
+                    Assert.True(cacheEntry.CheckExpired(utcNow));
+                    cacheEntry.Value = cacheEntry; // modifies CacheEntry._state
+                    Assert.True(cacheEntry.CheckExpired(utcNow));
+
+                    cacheEntry.SetExpired(EvictionReason.Expired); // modifies CacheEntry._state
+                    Assert.True(cacheEntry.CheckExpired(utcNow));
+                    cacheEntry.Dispose(); // might modify CacheEntry._state
+                    Assert.True(cacheEntry.CheckExpired(utcNow));
+                }
+            }
+        }
+
+        private static void VerifyCurrentEntry(bool trackLinkedCacheEntries, ICacheEntry entry)
+        {
+            if (trackLinkedCacheEntries)
+            {
+                Assert.Same(entry, CacheEntry.Current);
+            }
+            else
+            {
+                Assert.Null(CacheEntry.Current);
+            }
         }
     }
 }

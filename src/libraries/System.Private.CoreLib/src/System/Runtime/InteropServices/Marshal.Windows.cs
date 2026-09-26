@@ -56,7 +56,7 @@ namespace System.Runtime.InteropServices
             int nb;
 
             uint flags = bestFit ? 0 : Interop.Kernel32.WC_NO_BEST_FIT_CHARS;
-            uint defaultCharUsed = 0;
+            Interop.BOOL defaultCharUsed = Interop.BOOL.FALSE;
 
             fixed (char* pwzChar = s)
             {
@@ -67,11 +67,11 @@ namespace System.Runtime.InteropServices
                     s.Length,
                     buffer,
                     bufferLength,
-                    IntPtr.Zero,
-                    throwOnUnmappableChar ? new IntPtr(&defaultCharUsed) : IntPtr.Zero);
+                    null,
+                    throwOnUnmappableChar ? &defaultCharUsed : null);
             }
 
-            if (defaultCharUsed != 0)
+            if (defaultCharUsed != Interop.BOOL.FALSE)
             {
                 throw new ArgumentException(SR.Interop_Marshal_Unmappable_Char);
             }
@@ -94,7 +94,7 @@ namespace System.Runtime.InteropServices
                 fixed (char* pChars = chars)
                 {
                     byteLength = Interop.Kernel32.WideCharToMultiByte(
-                        Interop.Kernel32.CP_ACP, Interop.Kernel32.WC_NO_BEST_FIT_CHARS, pChars, chars.Length, null, 0, IntPtr.Zero, IntPtr.Zero);
+                        Interop.Kernel32.CP_ACP, Interop.Kernel32.WC_NO_BEST_FIT_CHARS, pChars, chars.Length, null, 0, null, null);
                     if (byteLength <= 0)
                         throw new ArgumentException();
                 }
@@ -118,13 +118,152 @@ namespace System.Runtime.InteropServices
                 fixed (byte* pBytes = bytes)
                 {
                     byteLength = Interop.Kernel32.WideCharToMultiByte(
-                       Interop.Kernel32.CP_ACP, Interop.Kernel32.WC_NO_BEST_FIT_CHARS, pChars, chars.Length, pBytes, bytes.Length, IntPtr.Zero, IntPtr.Zero);
+                       Interop.Kernel32.CP_ACP, Interop.Kernel32.WC_NO_BEST_FIT_CHARS, pChars, chars.Length, pBytes, bytes.Length, null, null);
                     if (byteLength <= 0)
                         throw new ArgumentException();
                 }
             }
 
             bytes[byteLength] = 0;
+        }
+        public static unsafe IntPtr AllocHGlobal(nint cb)
+        {
+            void* pNewMem = Interop.Kernel32.LocalAlloc((nuint)cb);
+            if (pNewMem is null)
+            {
+                throw new OutOfMemoryException();
+            }
+            return (nint)pNewMem;
+        }
+
+        public static unsafe void FreeHGlobal(IntPtr hglobal)
+        {
+            if (!IsNullOrWin32Atom(hglobal))
+            {
+                Interop.Kernel32.LocalFree((void*)hglobal);
+            }
+        }
+
+        public static unsafe IntPtr ReAllocHGlobal(IntPtr pv, nint cb)
+        {
+            if (pv == IntPtr.Zero)
+            {
+                // LocalReAlloc fails for pv == IntPtr.Zero. Call AllocHGlobal instead for better fidelity
+                // with standard C/C++ realloc behavior.
+                return AllocHGlobal(cb);
+            }
+
+            void* pNewMem = Interop.Kernel32.LocalReAlloc((void*)pv, (nuint)cb);
+            if (pNewMem is null)
+            {
+                throw new OutOfMemoryException();
+            }
+            return (nint)pNewMem;
+        }
+
+        public static IntPtr AllocCoTaskMem(int cb)
+        {
+            IntPtr pNewMem = Interop.Ole32.CoTaskMemAlloc((uint)cb);
+            if (pNewMem == IntPtr.Zero)
+            {
+                throw new OutOfMemoryException();
+            }
+            return pNewMem;
+        }
+
+        public static void FreeCoTaskMem(IntPtr ptr)
+        {
+            if (!IsNullOrWin32Atom(ptr))
+            {
+                Interop.Ole32.CoTaskMemFree(ptr);
+            }
+        }
+
+        public static IntPtr ReAllocCoTaskMem(IntPtr pv, int cb)
+        {
+            IntPtr pNewMem = Interop.Ole32.CoTaskMemRealloc(pv, (uint)cb);
+            if (pNewMem == IntPtr.Zero && cb != 0)
+            {
+                throw new OutOfMemoryException();
+            }
+            return pNewMem;
+        }
+
+        internal static IntPtr AllocBSTR(int length)
+        {
+            IntPtr bstr = Interop.OleAut32.SysAllocStringLen(IntPtr.Zero, (uint)length);
+            if (bstr == IntPtr.Zero)
+            {
+                throw new OutOfMemoryException();
+            }
+            return bstr;
+        }
+
+        internal static IntPtr AllocBSTRByteLen(uint length)
+        {
+            IntPtr bstr = Interop.OleAut32.SysAllocStringByteLen(null, length);
+            if (bstr == IntPtr.Zero)
+            {
+                throw new OutOfMemoryException();
+            }
+            return bstr;
+        }
+
+        public static void FreeBSTR(IntPtr ptr)
+        {
+            if (!IsNullOrWin32Atom(ptr))
+            {
+                Interop.OleAut32.SysFreeString(ptr);
+            }
+        }
+
+        internal static Type? GetTypeFromProgID(string progID, string? server, bool throwOnError)
+        {
+            ArgumentNullException.ThrowIfNull(progID);
+
+            int hr = Interop.Ole32.CLSIDFromProgID(progID, out Guid clsid);
+            if (hr < 0)
+            {
+                if (throwOnError)
+                    throw GetExceptionForHR(hr, new IntPtr(-1))!;
+                return null;
+            }
+
+            return GetTypeFromCLSID(clsid, server, throwOnError);
+        }
+
+        /// <summary>
+        /// Gets the last system error on the current thread.
+        /// </summary>
+        /// <returns>The last system error.</returns>
+        /// <remarks>
+        /// The error is that for the current operating system (for example, errno on Unix, GetLastError on Windows).
+        /// </remarks>
+        public static int GetLastSystemError()
+        {
+            return Interop.Kernel32.GetLastError();
+        }
+
+        /// <summary>
+        /// Sets the last system error on the current thread.
+        /// </summary>
+        /// <param name="error">The error to set.</param>
+        /// <remarks>
+        /// The error is that for the current operating system (for example, errno on Unix, SetLastError on Windows).
+        /// </remarks>
+        public static void SetLastSystemError(int error)
+        {
+            Interop.Kernel32.SetLastError(error);
+        }
+
+        /// <summary>
+        /// Gets the system error message for the supplied error code.
+        /// </summary>
+        /// <param name="error">The error code.</param>
+        /// <returns>The error message associated with <paramref name="error"/>.</returns>
+        public static string GetPInvokeErrorMessage(int error)
+        {
+            return Interop.Kernel32.GetMessage(error);
         }
     }
 }

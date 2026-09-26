@@ -20,7 +20,7 @@ namespace System.Threading
     // allocate N of these, where N is the maximum number of locks held simultaneously
     // by that thread.
     //
-    internal class ReaderWriterCount
+    internal sealed class ReaderWriterCount
     {
         // Which lock does this object belong to?  This is a numeric ID for two reasons:
         // 1) We don't want this field to keep the lock object alive, and a WeakReference would
@@ -230,7 +230,7 @@ namespace System.Threading
         //
         // Common timeout support
         //
-        private struct TimeoutTracker
+        private readonly struct TimeoutTracker
         {
             private readonly int _total;
             private readonly int _start;
@@ -238,24 +238,24 @@ namespace System.Threading
             public TimeoutTracker(TimeSpan timeout)
             {
                 long ltm = (long)timeout.TotalMilliseconds;
-                if (ltm < -1 || ltm > (long)int.MaxValue)
-                    throw new ArgumentOutOfRangeException(nameof(timeout));
+                ArgumentOutOfRangeException.ThrowIfLessThan(ltm, -1, nameof(timeout));
+                ArgumentOutOfRangeException.ThrowIfGreaterThan(ltm, int.MaxValue, nameof(timeout));
+
                 _total = (int)ltm;
                 if (_total != -1 && _total != 0)
+                {
                     _start = Environment.TickCount;
-                else
-                    _start = 0;
+                }
             }
 
             public TimeoutTracker(int millisecondsTimeout)
             {
-                if (millisecondsTimeout < -1)
-                    throw new ArgumentOutOfRangeException(nameof(millisecondsTimeout));
+                ArgumentOutOfRangeException.ThrowIfLessThan(millisecondsTimeout, -1);
                 _total = millisecondsTimeout;
                 if (_total != -1 && _total != 0)
+                {
                     _start = Environment.TickCount;
-                else
-                    _start = 0;
+                }
             }
 
             public int RemainingMilliseconds
@@ -294,8 +294,7 @@ namespace System.Threading
 
         private bool TryEnterReadLockCore(TimeoutTracker timeout)
         {
-            if (_fDisposed)
-                throw new ObjectDisposedException(null);
+            ObjectDisposedException.ThrowIf(_fDisposed, this);
 
             ReaderWriterCount lrwc;
             int id = Environment.CurrentManagedThreadId;
@@ -441,8 +440,7 @@ namespace System.Threading
 
         private bool TryEnterWriteLockCore(TimeoutTracker timeout)
         {
-            if (_fDisposed)
-                throw new ObjectDisposedException(null);
+            ObjectDisposedException.ThrowIf(_fDisposed, this);
 
             int id = Environment.CurrentManagedThreadId;
             ReaderWriterCount? lrwc;
@@ -515,7 +513,7 @@ namespace System.Threading
                 }
             }
 
-            bool retVal = true;
+            bool retVal;
             int spinCount = 0;
 
             while (true)
@@ -649,8 +647,7 @@ namespace System.Threading
 
         private bool TryEnterUpgradeableReadLockCore(TimeoutTracker timeout)
         {
-            if (_fDisposed)
-                throw new ObjectDisposedException(null);
+            ObjectDisposedException.ThrowIf(_fDisposed, this);
 
             int id = Environment.CurrentManagedThreadId;
             ReaderWriterCount? lrwc;
@@ -710,7 +707,6 @@ namespace System.Threading
                 }
             }
 
-            bool retVal = true;
             int spinCount = 0;
 
             while (true)
@@ -748,7 +744,7 @@ namespace System.Threading
                 }
 
                 // Only one thread with the upgrade lock held can proceed.
-                retVal = WaitOnEvent(_upgradeEvent, ref _numUpgradeWaiters, timeout, EnterLockType.UpgradeableRead);
+                bool retVal = WaitOnEvent(_upgradeEvent, ref _numUpgradeWaiters, timeout, EnterLockType.UpgradeableRead);
                 if (!retVal)
                     return false;
             }
@@ -1416,11 +1412,12 @@ namespace System.Threading
 
         public int WaitingUpgradeCount => (int)_numUpgradeWaiters;
 
-        public int WaitingWriteCount => (int)_numWriteWaiters;
+        // Include the thread that may be waiting in upgradable mode.
+        public int WaitingWriteCount => (int)_numWriteWaiters + (int)_numWriteUpgradeWaiters;
 
         private struct SpinLock
         {
-            private int _isLocked;
+            private bool _isLocked;
 
             /// <summary>
             /// Used to deprioritize threads attempting to enter the lock when they would not make progress after doing so.
@@ -1439,9 +1436,8 @@ namespace System.Threading
 
             // The variables controlling spinning behavior of this spin lock
             private const int LockSpinCycles = 20;
-            private const int LockSpinCount = 10;
-            private const int LockSleep0Count = 5;
-            private const int DeprioritizedLockSleep1Count = 5;
+            private const int LockSleep0SpinThreshold = 10;
+            private const int ReprioritizeLockSpinThreshold = LockSleep0SpinThreshold + 60;
 
             private static int GetEnterDeprioritizationStateChange(EnterSpinLockReason reason)
             {
@@ -1540,7 +1536,7 @@ namespace System.Threading
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             private bool TryEnter()
             {
-                return Interlocked.CompareExchange(ref _isLocked, 1, 0) == 0;
+                return !Interlocked.Exchange(ref _isLocked, true);
             }
 
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -1560,25 +1556,29 @@ namespace System.Threading
                     Interlocked.Add(ref _enterDeprioritizationState, deprioritizationStateChange);
                 }
 
-                int processorCount = Environment.ProcessorCount;
-                for (int spinIndex = 0; ; spinIndex++)
+                for (uint spinIndex = 0; ; spinIndex++)
                 {
-                    if (spinIndex < LockSpinCount && processorCount > 1)
+                    // - Spin-wait until the Sleep(0) threshold
+                    // - Beyond the Sleep(0) threshold, alternate between sleeping and spinning. Avoid using only Sleep(0), as
+                    //   it may be ineffective when there are no other threads waiting to run. Thread.SpinWait() is not used
+                    //   where there is a single processor since it would be unlikely for a meaningful change in state to occur
+                    //   during that.
+                    // - Don't Sleep(1) here, as it can lead to long latencies in the reader/writer lock operations
+                    if ((spinIndex < LockSleep0SpinThreshold || (spinIndex - LockSleep0SpinThreshold) % 2 != 0) &&
+                        !Environment.IsSingleProcessor)
                     {
-                        Thread.SpinWait(LockSpinCycles * (spinIndex + 1)); // Wait a few dozen instructions to let another processor release lock.
-                    }
-                    else if (spinIndex < (LockSpinCount + LockSleep0Count))
-                    {
-                        Thread.Sleep(0);   // Give up my quantum.
+                        Thread.SpinWait(
+                            LockSpinCycles *
+                            (spinIndex < LockSleep0SpinThreshold ? (int)spinIndex + 1 : LockSleep0SpinThreshold));
                     }
                     else
                     {
-                        Thread.Sleep(1);   // Give up my quantum.
+                        Thread.Sleep(0);
                     }
 
                     if (!IsEnterDeprioritized(reason))
                     {
-                        if (_isLocked == 0 && TryEnter())
+                        if (!_isLocked && TryEnter())
                         {
                             if (deprioritizationStateChange != 0)
                             {
@@ -1590,29 +1590,29 @@ namespace System.Threading
                     }
 
                     // It's possible for an Enter thread to be deprioritized for an extended duration. It's undesirable for a
-                    // deprioritized thread to keep waking up to spin despite a Sleep(1) when a large number of such threads are
-                    // involved. After a threshold of Sleep(1)s, ignore the deprioritization and enter this lock to allow this
-                    // thread to stop spinning and hopefully enter a proper wait state.
+                    // deprioritized thread to keep spin-waiting for the lock when a large number of such threads are involved.
+                    // After a threshold, ignore the deprioritization and enter this lock to allow this thread to stop spinning
+                    // and hopefully enter a proper wait state.
                     Debug.Assert(
                         reason == EnterSpinLockReason.EnterAnyRead ||
                         reason == EnterSpinLockReason.EnterWrite ||
                         reason == EnterSpinLockReason.UpgradeToWrite);
-                    if (spinIndex >= (LockSpinCount + LockSleep0Count + DeprioritizedLockSleep1Count))
+                    if (spinIndex >= ReprioritizeLockSpinThreshold)
                     {
                         reason |= EnterSpinLockReason.Wait;
-                        spinIndex = -1;
+                        spinIndex = uint.MaxValue;
                     }
                 }
             }
 
             public void Exit()
             {
-                Debug.Assert(_isLocked != 0, "Exiting spin lock that is not held");
-                Volatile.Write(ref _isLocked, 0);
+                Debug.Assert(_isLocked, "Exiting spin lock that is not held");
+                Volatile.Write(ref _isLocked, false);
             }
 
 #if DEBUG
-            public bool IsHeld => _isLocked != 0;
+            public bool IsHeld => _isLocked;
 #endif
         }
 

@@ -1,16 +1,21 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b99969;
+
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
-internal class Test
+public class Test_b99969
 {
     public int i;
     private volatile bool _bSpoof = false;
     private volatile bool _bDoSpoof = false;
 
-    private static Test s_target;
+    private static Test_b99969 s_target;
 
     private static void DoSpoof()
     {
@@ -55,9 +60,11 @@ internal class Test
         return result;
     }
 
-    private static int Main()
+    [Fact]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/41472", typeof(PlatformDetection), nameof(PlatformDetection.IsNotMultithreadingSupported))]
+    public static int TestEntryPoint()
     {
-        Test t = new Test();
+        Test_b99969 t = new Test_b99969();
 
         s_target = t;
 

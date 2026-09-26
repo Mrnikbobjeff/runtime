@@ -16,12 +16,18 @@
 
 // <Code> 
 
-using System;
 
-class MyClass
+namespace b24728;
+
+using System;
+using Xunit;
+
+public class MyClass
 {
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
 
         float test1 = 2.0f;

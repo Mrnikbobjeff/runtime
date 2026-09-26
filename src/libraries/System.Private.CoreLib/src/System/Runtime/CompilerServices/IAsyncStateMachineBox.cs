@@ -19,5 +19,11 @@ namespace System.Runtime.CompilerServices
 
         /// <summary>Gets the state machine as a boxed object.  This should only be used for debugging purposes.</summary>
         IAsyncStateMachine GetStateMachineObject();
+
+        /// <summary>Clears the state of the box.</summary>
+        void ClearStateUponCompletion();
+
+        /// <summary>Gets the state machine diagnostic data.</summary>
+        bool GetDiagnosticData(out ulong methodId, out int state, out object? nextContinuation);
     }
 }

@@ -20,10 +20,12 @@ namespace System.Net.Security.Tests
     public class NegotiatedCipherSuiteTest
     {
 #pragma warning disable CS0618 // Ssl2 and Ssl3 are obsolete
+#pragma warning disable SYSLIB0039 // TLS 1.0 and 1.1 are obsolete
         public const SslProtocols AllProtocols =
             SslProtocols.Ssl2 | SslProtocols.Ssl3 |
             SslProtocols.Tls | SslProtocols.Tls11 | SslProtocols.Tls12 | SslProtocols.Tls13;
 #pragma warning restore CS0618
+#pragma warning restore SYSLIB0039
 
         public const SslProtocols NonTls13Protocols = AllProtocols & (~SslProtocols.Tls13);
 
@@ -31,20 +33,34 @@ namespace System.Net.Security.Tests
         private static bool CipherSuitesPolicySupported => s_cipherSuitePolicySupported.Value;
         private static bool Tls13Supported { get; set; } = IsKnownPlatformSupportingTls13 || ProtocolsSupported(SslProtocols.Tls13);
         private static bool CipherSuitesPolicyAndTls13Supported => Tls13Supported && CipherSuitesPolicySupported;
+        private static IReadOnlyList<TlsCipherSuite> SupportedNonTls13CipherSuites => s_supportedNonTls13CipherSuites.Value;
 
         private static HashSet<TlsCipherSuite> s_tls13CipherSuiteLookup = new HashSet<TlsCipherSuite>(GetTls13CipherSuites());
         private static HashSet<TlsCipherSuite> s_tls12CipherSuiteLookup = new HashSet<TlsCipherSuite>(GetTls12CipherSuites());
         private static HashSet<TlsCipherSuite> s_tls10And11CipherSuiteLookup = new HashSet<TlsCipherSuite>(GetTls10And11CipherSuites());
+        private static readonly Lazy<IReadOnlyList<TlsCipherSuite>> s_supportedNonTls13CipherSuites = new Lazy<IReadOnlyList<TlsCipherSuite>>(GetSupportedNonTls13CipherSuites);
 
         private static Dictionary<SslProtocols, HashSet<TlsCipherSuite>> s_protocolCipherSuiteLookup = new Dictionary<SslProtocols, HashSet<TlsCipherSuite>>()
         {
             { SslProtocols.Tls12, s_tls12CipherSuiteLookup },
+#pragma warning disable SYSLIB0039 // TLS 1.0 and 1.1 are obsolete
             { SslProtocols.Tls11, s_tls10And11CipherSuiteLookup },
             { SslProtocols.Tls, s_tls10And11CipherSuiteLookup },
+#pragma warning restore SYSLIB0039
         };
 
         private static Lazy<bool> s_cipherSuitePolicySupported = new Lazy<bool>(() =>
         {
+            // see src/libraries/System.Net.Security/src/System/Net/Security/Pal.Android/SafeDeleteSslContext.cs:InitializeSslContext
+            if (PlatformDetection.IsAndroid)
+                return false;
+
+            if (PlatformDetection.IsNetworkFrameworkEnabled())
+            {
+                // Network.framework CipherSuite APIs doesn't enforce the given list.
+                return false;
+            }
+
             try
             {
                 new CipherSuitesPolicy(Array.Empty<TlsCipherSuite>());
@@ -55,16 +71,14 @@ namespace System.Net.Security.Tests
             return false;
         });
 
-        private static IReadOnlyList<TlsCipherSuite> SupportedNonTls13CipherSuites = GetSupportedNonTls13CipherSuites();
-
-        [ConditionalFact(nameof(IsKnownPlatformSupportingTls13))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(IsKnownPlatformSupportingTls13))]
         public void Tls13IsSupported_GetValue_ReturnsTrue()
         {
             // Validate that flag used in this file works correctly
             Assert.True(Tls13Supported);
         }
 
-        [ConditionalFact(nameof(Tls13Supported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(Tls13Supported))]
         public void NegotiatedCipherSuite_SslProtocolIsTls13_ShouldBeTls13()
         {
             var p = new ConnectionParams()
@@ -81,8 +95,10 @@ namespace System.Net.Security.Tests
         }
 
         [Theory]
+#pragma warning disable SYSLIB0039 // TLS 1.0 and 1.1 are obsolete
         [InlineData(SslProtocols.Tls)]
         [InlineData(SslProtocols.Tls11)]
+#pragma warning restore SYSLIB0039
         [InlineData(SslProtocols.Tls12)]
         public void NegotiatedCipherSuite_SslProtocolIsLowerThanTls13_ShouldMatchTheProtocol(SslProtocols protocol)
         {
@@ -115,7 +131,7 @@ namespace System.Net.Security.Tests
             }
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicySupported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicySupported))]
         public void CipherSuitesPolicy_AllowSomeCipherSuitesWithNoEncryptionOption_Fails()
         {
             CheckPrereqsForNonTls13Tests(1);
@@ -123,14 +139,16 @@ namespace System.Net.Security.Tests
             {
                 CipherSuitesPolicy = BuildPolicy(TlsCipherSuite.TLS_AES_128_GCM_SHA256,
                                                  SupportedNonTls13CipherSuites[0]),
+#pragma warning disable SYSLIB0040 // NoEncryption and AllowNoEncryption are obsolete
                 EncryptionPolicy = EncryptionPolicy.NoEncryption,
+#pragma warning restore SYSLIB0040
             };
 
             NegotiatedParams ret = ConnectAndGetNegotiatedParams(p, p);
             ret.Failed();
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicySupported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicySupported))]
         public void CipherSuitesPolicy_NothingAllowed_Fails()
         {
             CipherSuitesPolicy csp = BuildPolicy();
@@ -145,7 +163,7 @@ namespace System.Net.Security.Tests
             ret.Failed();
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicyAndTls13Supported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicyAndTls13Supported))]
         public void CipherSuitesPolicy_AllowOneOnOneSideTls13_Success()
         {
             bool hasSucceededAtLeastOnce = false;
@@ -155,7 +173,7 @@ namespace System.Net.Security.Tests
             Assert.True(hasSucceededAtLeastOnce);
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicySupported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicySupported))]
         public void CipherSuitesPolicy_AllowTwoOnBothSidesWithSingleOverlapNonTls13_Success()
         {
             CheckPrereqsForNonTls13Tests(3);
@@ -181,7 +199,7 @@ namespace System.Net.Security.Tests
             }
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicySupported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicySupported))]
         public void CipherSuitesPolicy_AllowTwoOnBothSidesWithNoOverlapNonTls13_Fails()
         {
             CheckPrereqsForNonTls13Tests(4);
@@ -206,7 +224,7 @@ namespace System.Net.Security.Tests
             }
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicySupported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicySupported))]
         public void CipherSuitesPolicy_AllowSameTwoOnBothSidesLessPreferredIsTls13_Success()
         {
             CheckPrereqsForNonTls13Tests(1);
@@ -230,7 +248,7 @@ namespace System.Net.Security.Tests
             }
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicySupported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicySupported))]
         public void CipherSuitesPolicy_TwoCipherSuitesWithAllOverlapping_Success()
         {
             CheckPrereqsForNonTls13Tests(2);
@@ -258,7 +276,7 @@ namespace System.Net.Security.Tests
             }
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicySupported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicySupported))]
         public void CipherSuitesPolicy_ThreeCipherSuitesWithTwoOverlapping_Success()
         {
             CheckPrereqsForNonTls13Tests(4);
@@ -289,7 +307,7 @@ namespace System.Net.Security.Tests
             }
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicyAndTls13Supported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicyAndTls13Supported))]
         public void CipherSuitesPolicy_OnlyTls13CipherSuiteAllowedButChosenProtocolsDoesNotAllowIt_Fails()
         {
             var a = new ConnectionParams()
@@ -309,7 +327,7 @@ namespace System.Net.Security.Tests
             }
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicyAndTls13Supported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicyAndTls13Supported))]
         public void CipherSuitesPolicy_OnlyTls13CipherSuiteAllowedOtherSideDoesNotAllowTls13_Fails()
         {
             var a = new ConnectionParams()
@@ -331,7 +349,7 @@ namespace System.Net.Security.Tests
             }
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicySupported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicySupported))]
         public void CipherSuitesPolicy_OnlyNonTls13CipherSuitesAllowedButChosenProtocolDoesNotAllowIt_Fails()
         {
             CheckPrereqsForNonTls13Tests(1);
@@ -352,7 +370,7 @@ namespace System.Net.Security.Tests
             }
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicySupported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicySupported))]
         public void CipherSuitesPolicy_OnlyNonTls13CipherSuiteAllowedButOtherSideDoesNotAllowIt_Fails()
         {
             CheckPrereqsForNonTls13Tests(1);
@@ -381,7 +399,7 @@ namespace System.Net.Security.Tests
             Assert.Throws<ArgumentNullException>(() => new CipherSuitesPolicy(null));
         }
 
-        [ConditionalFact(nameof(CipherSuitesPolicySupported))]
+        [ConditionalFact(typeof(NegotiatedCipherSuiteTest), nameof(CipherSuitesPolicySupported))]
         public void CipherSuitesPolicy_AllowedCipherSuitesIncludesSubsetOfInput_Success()
         {
             TlsCipherSuite[] allCipherSuites = (TlsCipherSuite[])Enum.GetValues(typeof(TlsCipherSuite));
@@ -559,7 +577,7 @@ namespace System.Net.Security.Tests
         private static IEnumerable<TlsCipherSuite> GetNonTls13CipherSuites()
         {
             var tls13cs = new HashSet<TlsCipherSuite>(GetTls13CipherSuites());
-            foreach (TlsCipherSuite cs in typeof(TlsCipherSuite).GetEnumValues())
+            foreach (TlsCipherSuite cs in Enum.GetValues<TlsCipherSuite>())
             {
                 if (!tls13cs.Contains(cs))
                 {
@@ -592,105 +610,18 @@ namespace System.Net.Security.Tests
             return new CipherSuitesPolicy(cipherSuites);
         }
 
-        private static async Task<Exception> WaitForSecureConnection(SslStream client, SslClientAuthenticationOptions clientOptions, SslStream server, SslServerAuthenticationOptions serverOptions)
-        {
-            Task serverTask = null;
-            Task clientTask = null;
-
-            // check if failed synchronously
-            try
-            {
-                serverTask = server.AuthenticateAsServerAsync(serverOptions, CancellationToken.None);
-                clientTask = client.AuthenticateAsClientAsync(clientOptions, CancellationToken.None);
-            }
-            catch (Exception e)
-            {
-                client.Close();
-                server.Close();
-
-                if (!(e is AuthenticationException || e is Win32Exception))
-                {
-                    throw;
-                }
-
-                if (serverTask != null)
-                {
-                    // i.e. for server we used DEFAULT options but for client we chose not supported cipher suite
-                    //      this will cause client to fail synchronously while server awaits connection
-                    try
-                    {
-                        // since we broke connection the server should finish
-                        await serverTask;
-                    }
-                    catch (AuthenticationException) { }
-                    catch (Win32Exception) { }
-                    catch (VirtualNetwork.VirtualNetworkConnectionBroken) { }
-                    catch (IOException) { }
-                }
-
-                return e;
-            }
-
-            // Since we got here it means client and server have at least 1 choice
-            // of cipher suite
-            // Now we expect both sides to fail or both to succeed
-
-            Exception failure = null;
-            Task task = null;
-
-            try
-            {
-                task = await Task.WhenAny(serverTask, clientTask).TimeoutAfter(TestConfiguration.PassingTestTimeoutMilliseconds).ConfigureAwait(false);
-                await task ;
-            }
-            catch (Exception e) when (e is AuthenticationException || e is Win32Exception)
-            {
-                failure = e;
-                // avoid client waiting for server's response
-                if (task == serverTask)
-                {
-                    server.Close();
-                }
-                else
-                {
-                    client.Close();
-                }
-            }
-
-            try
-            {
-                // Now wait for the other task to finish.
-                task = (task == serverTask ? clientTask : serverTask);
-                await task.TimeoutAfter(TestConfiguration.PassingTestTimeoutMilliseconds).ConfigureAwait(false);
-
-                // Fail if server has failed but client has succeeded
-                Assert.Null(failure);
-            }
-            catch (Exception e) when (e is VirtualNetwork.VirtualNetworkConnectionBroken || e is AuthenticationException || e is Win32Exception || e is IOException)
-            {
-                // Fail if server has succeeded but client has failed
-                Assert.NotNull(failure);
-
-                if (e.GetType() != typeof(VirtualNetwork.VirtualNetworkConnectionBroken) && e.GetType() != typeof(IOException))
-                {
-                    failure = new AggregateException(new Exception[] { failure, e });
-                }
-            }
-
-            return failure;
-        }
-
         private static NegotiatedParams ConnectAndGetNegotiatedParams(ConnectionParams serverParams, ConnectionParams clientParams)
         {
             (Stream clientStream, Stream serverStream) = TestHelper.GetConnectedStreams();
 
             using (clientStream)
             using (serverStream)
+            using (X509Certificate2 serverCert = Configuration.Certificates.GetSelfSignedServerCertificate())
             using (SslStream server = new SslStream(serverStream, leaveInnerStreamOpen: false),
                              client = new SslStream(clientStream, leaveInnerStreamOpen: false))
             {
                 var serverOptions = new SslServerAuthenticationOptions();
-                serverOptions.ServerCertificate = Configuration.Certificates.GetSelfSignedServerCertificate();
+                serverOptions.ServerCertificate = serverCert;
                 serverOptions.EncryptionPolicy = serverParams.EncryptionPolicy;
                 serverOptions.EnabledSslProtocols = serverParams.SslProtocols;
                 serverOptions.CipherSuitesPolicy = serverParams.CipherSuitesPolicy;
@@ -700,15 +631,9 @@ namespace System.Net.Security.Tests
                 clientOptions.EnabledSslProtocols = clientParams.SslProtocols;
                 clientOptions.CipherSuitesPolicy = clientParams.CipherSuitesPolicy;
                 clientOptions.TargetHost = "test";
-                clientOptions.RemoteCertificateValidationCallback =
-                    new RemoteCertificateValidationCallback((object sender,
-                                                             X509Certificate certificate,
-                                                             X509Chain chain,
-                                                             SslPolicyErrors sslPolicyErrors) => {
-                                                                 return true;
-                                                             });
+                clientOptions.RemoteCertificateValidationCallback = delegate { return true; };
 
-                Exception failure = WaitForSecureConnection(client, clientOptions, server, serverOptions).GetAwaiter().GetResult();
+                Exception failure = TestHelper.WaitForSecureConnection(client, clientOptions, server, serverOptions).WaitAsync(TestConfiguration.PassingTestTimeoutMilliseconds).GetAwaiter().GetResult();
 
                 if (failure == null)
                 {

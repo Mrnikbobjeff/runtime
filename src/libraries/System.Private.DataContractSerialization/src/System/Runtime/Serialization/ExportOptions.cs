@@ -5,34 +5,24 @@ using System.Collections.ObjectModel;
 
 namespace System.Runtime.Serialization
 {
+    /// <summary>
+    /// Represents the options that can be set for an <see cref="XsdDataContractExporter"/>.
+    /// </summary>
+    /// <remarks>
+    /// The <see cref="XsdDataContractExporter"/> is used to generate XSD schemas from a type or assembly. You can also use the XsdDataContractImporter to generate .NET Framework code from a schema document.
+    ///
+    /// The <see cref="KnownTypes"/> property is used by the <see cref="DataContractSerializer"/> to include types that can be read in an object graph.
+    /// </remarks>
     public class ExportOptions
     {
-        private Collection<Type>? _knownTypes;
-#if SUPPORT_SURROGATE
-        private IDataContractSurrogate? _dataContractSurrogate;
+        /// <summary>
+        /// Gets or sets a serialization surrogate provider.
+        /// </summary>
+        public ISerializationSurrogateProvider? DataContractSurrogate { get; set; }
 
-        public IDataContractSurrogate? DataContractSurrogate
-        {
-            get { return _dataContractSurrogate; }
-            set { _dataContractSurrogate = value; }
-        }
-
-        internal IDataContractSurrogate? GetSurrogate()
-        {
-            return _dataContractSurrogate;
-        }
-#endif
-
-        public Collection<Type> KnownTypes
-        {
-            get
-            {
-                if (_knownTypes == null)
-                {
-                    _knownTypes = new Collection<Type>();
-                }
-                return _knownTypes;
-            }
-        }
+        /// <summary>
+        /// Gets the collection of types that may be encountered during serialization or deserialization.
+        /// </summary>
+        public Collection<Type> KnownTypes => field ??= new Collection<Type>();
     }
 }

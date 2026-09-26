@@ -2,25 +2,32 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Runtime.Caching.Hosting;
-using System.Runtime.Caching.Resources;
 using System.Collections;
 using System.IO;
+using System.Runtime.Caching.Hosting;
+using System.Runtime.Caching.Resources;
+using System.Runtime.Versioning;
 using System.Security;
 
 namespace System.Runtime.Caching
 {
+#if NET
+    [UnsupportedOSPlatform("browser")]
+    [UnsupportedOSPlatform("ios")]
+    [UnsupportedOSPlatform("tvos")]
+    [SupportedOSPlatform("maccatalyst")]
+#endif
     internal sealed class FileChangeNotificationSystem : IFileChangeNotificationSystem
     {
         private readonly Hashtable _dirMonitors;
         private readonly object _lock;
 
-        internal class DirectoryMonitor
+        internal sealed class DirectoryMonitor
         {
             internal FileSystemWatcher Fsw;
         }
 
-        internal class FileChangeEventTarget
+        internal sealed class FileChangeEventTarget
         {
             private readonly string _fileName;
             private readonly OnChangedCallback _onChangedCallback;
@@ -38,11 +45,7 @@ namespace System.Runtime.Caching
                 {
                     return false;
                 }
-                if (s2.Length != s1.Length)
-                {
-                    return false;
-                }
-                return 0 == string.Compare(s1, 0, s2, 0, s2.Length, StringComparison.OrdinalIgnoreCase);
+                return s1.Equals(s2, StringComparison.OrdinalIgnoreCase);
             }
 
             private void OnChanged(object sender, FileSystemEventArgs e)
@@ -88,14 +91,9 @@ namespace System.Runtime.Caching
 
         void IFileChangeNotificationSystem.StartMonitoring(string filePath, OnChangedCallback onChangedCallback, out object state, out DateTimeOffset lastWriteTime, out long fileSize)
         {
-            if (filePath == null)
-            {
-                throw new ArgumentNullException(nameof(filePath));
-            }
-            if (onChangedCallback == null)
-            {
-                throw new ArgumentNullException(nameof(onChangedCallback));
-            }
+            ArgumentNullException.ThrowIfNull(filePath);
+            ArgumentNullException.ThrowIfNull(onChangedCallback);
+
             FileInfo fileInfo = new FileInfo(filePath);
             string dir = Path.GetDirectoryName(filePath);
             DirectoryMonitor dirMon = _dirMonitors[dir] as DirectoryMonitor;
@@ -138,14 +136,9 @@ namespace System.Runtime.Caching
 
         void IFileChangeNotificationSystem.StopMonitoring(string filePath, object state)
         {
-            if (filePath == null)
-            {
-                throw new ArgumentNullException(nameof(filePath));
-            }
-            if (state == null)
-            {
-                throw new ArgumentNullException(nameof(state));
-            }
+            ArgumentNullException.ThrowIfNull(filePath);
+            ArgumentNullException.ThrowIfNull(state);
+
             FileChangeEventTarget target = state as FileChangeEventTarget;
             if (target == null)
             {

@@ -2,13 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Directed_Arrays_simple1;
+
 using System;
-public 
+using Xunit;
+
 // Do a simple 5 dimensional Jagged array.
 
-class Simple_Array_Test
+public class Simple_Array_Test
 {
-	public static int Main( String[] args )
+	[OuterLoop]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		Console.WriteLine("Starting...");
 		int SIZE = 10;

@@ -7,7 +7,6 @@ using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Data;
-using System.Data.SqlClient;
 using System.Data.SqlTypes;
 using System.DirectoryServices.ActiveDirectory;
 using System.Drawing;
@@ -18,13 +17,14 @@ using System.Linq;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Net.WebSockets;
 using System.Reflection;
 using System.Security;
 using System.Threading;
 using Xunit;
 
 // System.Text.Json is a .NET Core 3.0 specific library
-#if NETCOREAPP
+#if NET
 using System.Text.Json;
 #endif
 
@@ -95,14 +95,14 @@ namespace System.Runtime.Serialization.Formatters.Tests
 
             if (objA is IEnumerable objAEnumerable && objB is IEnumerable objBEnumerable)
             {
-                CheckSequenceEquals(objAEnumerable, objBEnumerable, isSamePlatform);
+                CheckSequenceEqual(objAEnumerable, objBEnumerable, isSamePlatform);
                 return;
             }
 
             Assert.True(objA.Equals(objB));
         }
 
-        public static void CheckSequenceEquals(this IEnumerable @this, IEnumerable other, bool isSamePlatform)
+        public static void CheckSequenceEqual(this IEnumerable @this, IEnumerable other, bool isSamePlatform)
         {
             if (@this == null || other == null)
             {
@@ -319,7 +319,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.Equal(@this.Count, other.Count);
             Assert.Equal(@this.IsReadOnly, other.IsReadOnly);
             Assert.Equal(@this.IsSynchronized, other.IsSynchronized);
-            CheckSequenceEquals(@this, other, isSamePlatform);
+            CheckSequenceEqual(@this, other, isSamePlatform);
         }
 
         public static void IsEqual(this Dictionary<int, string> @this, Dictionary<int, string> other, bool isSamePlatform)
@@ -331,8 +331,8 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(other);
             CheckEquals(@this.Comparer, other.Comparer, isSamePlatform);
             Assert.Equal(@this.Count, other.Count);
-            @this.Keys.CheckSequenceEquals(other.Keys, isSamePlatform);
-            @this.Values.CheckSequenceEquals(other.Values, isSamePlatform);
+            @this.Keys.CheckSequenceEqual(other.Keys, isSamePlatform);
+            @this.Values.CheckSequenceEqual(other.Values, isSamePlatform);
 
             foreach (KeyValuePair<int, string> kv in @this)
             {
@@ -358,7 +358,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
             CheckEquals(@this.Comparer, other.Comparer, isSamePlatform);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this LinkedListNode<Point> @this, LinkedListNode<Point> other, bool isSamePlatform)
@@ -381,7 +381,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.Equal(@this.Count, other.Count);
             CheckEquals(@this.First, other.First, isSamePlatform);
             CheckEquals(@this.Last, other.Last, isSamePlatform);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this List<int> @this, List<int> other, bool isSamePlatform)
@@ -393,7 +393,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
             Assert.Equal(@this.Capacity, other.Capacity);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this Queue<int> @this, Queue<int> other, bool isSamePlatform)
@@ -404,7 +404,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(@this);
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this SortedList<int, Point> @this, SortedList<int, Point> other, bool isSamePlatform)
@@ -417,9 +417,9 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.Equal(@this.Capacity, other.Capacity);
             CheckEquals(@this.Comparer, other.Comparer, isSamePlatform);
             Assert.Equal(@this.Count, other.Count);
-            @this.Keys.CheckSequenceEquals(other.Keys, isSamePlatform);
-            @this.Values.CheckSequenceEquals(other.Values, isSamePlatform);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.Keys.CheckSequenceEqual(other.Keys, isSamePlatform);
+            @this.Values.CheckSequenceEqual(other.Values, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this SortedSet<Point> @this, SortedSet<Point> other, bool isSamePlatform)
@@ -433,7 +433,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             CheckEquals(@this.Comparer, other.Comparer, isSamePlatform);
             CheckEquals(@this.Min, other.Min, isSamePlatform);
             CheckEquals(@this.Max, other.Max, isSamePlatform);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this Stack<Point> @this, Stack<Point> other, bool isSamePlatform)
@@ -444,7 +444,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(@this);
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this Hashtable @this, Hashtable other, bool isSamePlatform)
@@ -457,8 +457,8 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.Equal(@this.IsReadOnly, other.IsReadOnly);
             Assert.Equal(@this.IsFixedSize, other.IsFixedSize);
             Assert.Equal(@this.IsSynchronized, other.IsSynchronized);
-            @this.Keys.CheckSequenceEquals(other.Keys, isSamePlatform);
-            @this.Values.CheckSequenceEquals(other.Values, isSamePlatform);
+            @this.Keys.CheckSequenceEqual(other.Keys, isSamePlatform);
+            @this.Values.CheckSequenceEqual(other.Values, isSamePlatform);
             Assert.Equal(@this.Count, other.Count);
 
             foreach (var key in @this.Keys)
@@ -475,7 +475,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(@this);
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this ObservableCollection<int> @this, ObservableCollection<int> other, bool isSamePlatform)
@@ -486,7 +486,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(@this);
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this ReadOnlyCollection<int> @this, ReadOnlyCollection<int> other, bool isSamePlatform)
@@ -497,7 +497,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(@this);
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this ReadOnlyDictionary<int, string> @this, ReadOnlyDictionary<int, string> other, bool isSamePlatform)
@@ -507,8 +507,8 @@ namespace System.Runtime.Serialization.Formatters.Tests
 
             Assert.NotNull(@this);
             Assert.NotNull(other);
-            @this.Keys.CheckSequenceEquals(other.Keys, isSamePlatform);
-            @this.Values.CheckSequenceEquals(other.Values, isSamePlatform);
+            @this.Keys.CheckSequenceEqual(other.Keys, isSamePlatform);
+            @this.Values.CheckSequenceEqual(other.Values, isSamePlatform);
             Assert.Equal(@this.Count, other.Count);
 
             foreach (KeyValuePair<int, string> kv in @this)
@@ -525,7 +525,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(@this);
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this Queue @this, Queue other, bool isSamePlatform)
@@ -537,7 +537,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
             Assert.Equal(@this.IsSynchronized, other.IsSynchronized);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this SortedList @this, SortedList other, bool isSamePlatform)
@@ -549,12 +549,12 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(other);
             Assert.Equal(@this.Capacity, other.Capacity);
             Assert.Equal(@this.Count, other.Count);
-            @this.Keys.CheckSequenceEquals(other.Keys, isSamePlatform);
-            @this.Values.CheckSequenceEquals(other.Values, isSamePlatform);
+            @this.Keys.CheckSequenceEqual(other.Keys, isSamePlatform);
+            @this.Values.CheckSequenceEqual(other.Values, isSamePlatform);
             Assert.Equal(@this.IsReadOnly, other.IsReadOnly);
             Assert.Equal(@this.IsFixedSize, other.IsFixedSize);
             Assert.Equal(@this.IsSynchronized, other.IsSynchronized);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this HybridDictionary @this, HybridDictionary other, bool isSamePlatform)
@@ -565,11 +565,11 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(@this);
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
-            @this.Keys.CheckSequenceEquals(other.Keys, isSamePlatform);
+            @this.Keys.CheckSequenceEqual(other.Keys, isSamePlatform);
             Assert.Equal(@this.IsReadOnly, other.IsReadOnly);
             Assert.Equal(@this.IsFixedSize, other.IsFixedSize);
             Assert.Equal(@this.IsSynchronized, other.IsSynchronized);
-            @this.Values.CheckSequenceEquals(other.Values, isSamePlatform);
+            @this.Values.CheckSequenceEqual(other.Values, isSamePlatform);
 
             foreach (var key in @this.Keys)
             {
@@ -585,11 +585,11 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(@this);
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
-            @this.Keys.CheckSequenceEquals(other.Keys, isSamePlatform);
+            @this.Keys.CheckSequenceEqual(other.Keys, isSamePlatform);
             Assert.Equal(@this.IsReadOnly, other.IsReadOnly);
             Assert.Equal(@this.IsFixedSize, other.IsFixedSize);
             Assert.Equal(@this.IsSynchronized, other.IsSynchronized);
-            @this.Values.CheckSequenceEquals(other.Values, isSamePlatform);
+            @this.Values.CheckSequenceEqual(other.Values, isSamePlatform);
 
             foreach (var key in @this.Keys)
             {
@@ -604,9 +604,9 @@ namespace System.Runtime.Serialization.Formatters.Tests
 
             Assert.NotNull(@this);
             Assert.NotNull(other);
-            @this.AllKeys.CheckSequenceEquals(other.AllKeys, isSamePlatform);
+            @this.AllKeys.CheckSequenceEqual(other.AllKeys, isSamePlatform);
             Assert.Equal(@this.Count, other.Count);
-            @this.Keys.CheckSequenceEquals(other.Keys, isSamePlatform);
+            @this.Keys.CheckSequenceEqual(other.Keys, isSamePlatform);
 
             foreach (var key in @this.AllKeys)
             {
@@ -642,7 +642,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.Equal(@this.Count, other.Count);
             Assert.Equal(@this.IsReadOnly, other.IsReadOnly);
             Assert.Equal(@this.IsSynchronized, other.IsSynchronized);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this Stack @this, Stack other, bool isSamePlatform)
@@ -654,7 +654,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
             Assert.Equal(@this.IsSynchronized, other.IsSynchronized);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this BindingList<int> @this, BindingList<int> other, bool isSamePlatform)
@@ -669,7 +669,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.Equal(@this.AllowEdit, other.AllowEdit);
             Assert.Equal(@this.AllowRemove, other.AllowRemove);
             Assert.Equal(@this.Count, other.Count);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this BindingList<Point> @this, BindingList<Point> other, bool isSamePlatform)
@@ -684,7 +684,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.Equal(@this.AllowEdit, other.AllowEdit);
             Assert.Equal(@this.AllowRemove, other.AllowRemove);
             Assert.Equal(@this.Count, other.Count);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this PropertyCollection @this, PropertyCollection other, bool isSamePlatform)
@@ -697,10 +697,10 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.Equal(@this.IsReadOnly, other.IsReadOnly);
             Assert.Equal(@this.IsFixedSize, other.IsFixedSize);
             Assert.Equal(@this.IsSynchronized, other.IsSynchronized);
-            @this.Keys.CheckSequenceEquals(other.Keys, isSamePlatform);
-            @this.Values.CheckSequenceEquals(other.Values, isSamePlatform);
+            @this.Keys.CheckSequenceEqual(other.Keys, isSamePlatform);
+            @this.Values.CheckSequenceEqual(other.Values, isSamePlatform);
             Assert.Equal(@this.Count, other.Count);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this CompareInfo @this, CompareInfo other, bool isSamePlatform)
@@ -761,7 +761,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(@this);
             Assert.NotNull(other);
             Assert.Equal(@this.Count, other.Count);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this BasicISerializableObject @this, BasicISerializableObject other, bool isSamePlatform)
@@ -854,7 +854,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.Equal(@this.Offset, other.Offset);
             if (@this.Array != null)
             {
-                @this.CheckSequenceEquals(other, isSamePlatform);
+                @this.CheckSequenceEqual(other, isSamePlatform);
             }
         }
 
@@ -934,7 +934,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(other);
             Assert.Equal(@this.Comparer, other.Comparer);
             Assert.Equal(@this.Count, other.Count);
-            @this.CheckSequenceEquals(other, isSamePlatform);
+            @this.CheckSequenceEqual(other, isSamePlatform);
         }
 
         public static void IsEqual(this Tree<Colors> @this, Tree<Colors> other, bool isSamePlatform)
@@ -1130,13 +1130,12 @@ namespace System.Runtime.Serialization.Formatters.Tests
 
             Assert.NotNull(@this);
             Assert.NotNull(other);
-            @this.Data.CheckSequenceEquals(other.Data, isSamePlatform);
+            @this.Data.CheckSequenceEqual(other.Data, isSamePlatform);
 
             // Different by design for those exceptions
             if (!((@this is SecurityException ||
                 @this is XmlSyntaxException ||
-                @this is ThreadAbortException ||
-                @this is SqlException) && !isSamePlatform))
+                @this is ThreadAbortException) && !isSamePlatform))
             {
                 if (!(@this is ActiveDirectoryServerDownException ||
                     @this is SocketException ||
@@ -1146,11 +1145,7 @@ namespace System.Runtime.Serialization.Formatters.Tests
                 }
             }
 
-            // Different by design for those exceptions
-            if (!(@this is SqlException))
-            {
-                Assert.Equal(@this.Source, other.Source);
-            }
+            Assert.Equal(@this.Source, other.Source);
 
             Assert.Equal(@this.HelpLink, other.HelpLink);
 
@@ -1175,9 +1170,9 @@ namespace System.Runtime.Serialization.Formatters.Tests
                     @this is ThreadAbortException) && !isSamePlatform))
                 {
                     if (!(@this is ActiveDirectoryServerDownException ||
-                        @this is SqlException ||
                         @this is NetworkInformationException ||
-                        @this is SocketException))
+                        @this is SocketException ||
+                        @this is WebSocketException))
                     {
                         Assert.Equal(@this.ToString(), other.ToString());
                     }
@@ -1199,10 +1194,10 @@ namespace System.Runtime.Serialization.Formatters.Tests
             Assert.NotNull(@this);
             Assert.NotNull(other);
             IsEqual(@this as Exception, other as Exception, isSamePlatform);
-            @this.InnerExceptions.CheckSequenceEquals(other.InnerExceptions, isSamePlatform);
+            @this.InnerExceptions.CheckSequenceEqual(other.InnerExceptions, isSamePlatform);
         }
 
-#if NETCOREAPP
+#if NET
         public static void IsEqual(this JsonException @this, JsonException other, bool isSamePlatform)
         {
             if (@this == null && other == null)

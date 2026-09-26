@@ -59,6 +59,21 @@ namespace System.Reflection.Tests
         }
 
         [Fact]
+        public static void AssemblyGetLoadContext()
+        {
+            using (MetadataLoadContext lc = new MetadataLoadContext(new EmptyCoreMetadataAssemblyResolver()))
+            {
+                Assembly a = lc.LoadFromByteArray(TestData.s_SimpleAssemblyImage);
+                MetadataLoadContext? loadContext = MetadataLoadContext.GetLoadContext(a);
+                Assert.Same(lc, loadContext);
+            }
+
+            Assembly coreLib = typeof(object).Assembly;
+            MetadataLoadContext? coreLibLoadContext = MetadataLoadContext.GetLoadContext(coreLib);
+            Assert.Null(coreLibLoadContext);
+        }
+
+        [Fact]
         public static void AssemblyGlobalAssemblyCache()
         {
             using (MetadataLoadContext lc = new MetadataLoadContext(new EmptyCoreMetadataAssemblyResolver()))
@@ -171,7 +186,6 @@ namespace System.Reflection.Tests
                 Assembly a = lc.LoadFromByteArray(TestData.s_AssemblyReferencesTestImage);
                 AssemblyName[] ans = a.GetReferencedAssemblies();
                 Assert.Equal(3, ans.Length);
-
                 {
                     AssemblyName an = ans.Single(an2 => an2.Name == "mscorlib");
                     Assert.Equal(default(AssemblyNameFlags), an.Flags);
@@ -211,7 +225,7 @@ namespace System.Reflection.Tests
                     Assert.Equal(2, v.Minor);
                     Assert.Equal(3, v.Build);
                     Assert.Equal(4, v.Revision);
-                    Assert.Equal("ar-LY", an.CultureName);
+                    Assert.Equal("pl-PL", an.CultureName);
                     Assert.Null(an.GetPublicKey());
                     Assert.Equal(0, an.GetPublicKeyToken().Length);
                 }
@@ -348,13 +362,13 @@ namespace System.Reflection.Tests
                 Type[] types = upper.GetTypes().OrderBy(t => t.FullName).ToArray();
                 string[] fullNames = types.Select(t => t.FullName).ToArray();
 
-                string[] expected = {
-                    "Outer1", "Outer1+Inner1", "Outer1+Inner2", "Outer1+Inner3" ,"Outer1+Inner4" ,"Outer1+Inner5",
-                    "Outer2", "Outer2+Inner1", "Outer2+Inner2", "Outer2+Inner3" ,"Outer2+Inner4" ,"Outer2+Inner5",
+                string[] expected = [
+                    "Outer1", "Outer1+Inner1", "Outer1+Inner2", "Outer1+Inner3", "Outer1+Inner4", "Outer1+Inner5",
+                    "Outer2", "Outer2+Inner1", "Outer2+Inner2", "Outer2+Inner3", "Outer2+Inner4", "Outer2+Inner5",
                     "Upper1", "Upper4"
-                };
+                ];
 
-                Assert.Equal<string>(expected, fullNames);
+                Assert.Equal(expected, fullNames);
             }
         }
 
@@ -367,8 +381,8 @@ namespace System.Reflection.Tests
                 Type[] types = upper.GetExportedTypes().OrderBy(t => t.FullName).ToArray();
                 string[] fullNames = types.Select(t => t.FullName).ToArray();
 
-                string[] expected = { "Outer1", "Outer1+Inner1", "Upper1" };
-                Assert.Equal<string>(expected, fullNames);
+                string[] expected = [ "Outer1", "Outer1+Inner1", "Upper1" ];
+                Assert.Equal(expected, fullNames);
             }
         }
 
@@ -385,8 +399,8 @@ namespace System.Reflection.Tests
                 Type[] types = upper.GetForwardedTypesThunk().OrderBy(t => t.FullName).ToArray();
                 string[] fullNames = types.Select(t => t.FullName).ToArray();
 
-                string[] expected = { "Middle2", "Upper2", "Upper3", "Upper3+Upper3a" };
-                Assert.Equal<string>(expected, fullNames);
+                string[] expected = [ "Middle2", "Upper2", "Upper3", "Upper3+Upper3a" ];
+                Assert.Equal(expected, fullNames);
             }
         }
 
@@ -442,7 +456,7 @@ namespace System.Reflection.Tests
                 Assembly a = lc.LoadFromByteArray(TestData.s_AssemblyWithEmbeddedResourcesImage);
 
                 string[] names = a.GetManifestResourceNames().OrderBy(s => s).ToArray();
-                Assert.Equal<string>(new string[] { "MyRes1", "MyRes2", "MyRes3" }, names);
+                Assert.Equal<string>([ "MyRes1", "MyRes2", "MyRes3" ], names);
                 foreach (string name in names)
                 {
                     ManifestResourceInfo mri = a.GetManifestResourceInfo(name);
@@ -492,7 +506,7 @@ namespace System.Reflection.Tests
                     Assembly a = lc.LoadFromAssemblyPath(assemblyPath);
 
                     string[] names = a.GetManifestResourceNames().OrderBy(s => s).ToArray();
-                    Assert.Equal<string>(new string[] { "MyRes1", "MyRes2", "MyRes3" }, names);
+                    Assert.Equal<string>([ "MyRes1", "MyRes2", "MyRes3" ], names);
                     foreach (string name in names)
                     {
                         ManifestResourceInfo mri = a.GetManifestResourceInfo(name);
@@ -537,7 +551,7 @@ namespace System.Reflection.Tests
                     Assembly a = lc.LoadFromAssemblyPath(assemblyPath);
 
                     string[] names = a.GetManifestResourceNames().OrderBy(s => s).ToArray();
-                    Assert.Equal<string>(new string[] { "MyRes1", "MyRes2", "MyRes3" }, names);
+                    Assert.Equal<string>([ "MyRes1", "MyRes2", "MyRes3" ], names);
                     foreach (string name in names)
                     {
                         ManifestResourceInfo mri = a.GetManifestResourceInfo(name);
@@ -601,6 +615,28 @@ namespace System.Reflection.Tests
                 Type bt = nt.BaseType;
                 Type expected = a.GetType("Outer+Inner+ReallyInner", throwOnError: true);
                 Assert.Equal(expected, bt);
+            }
+        }
+
+        [Fact]
+        public static void ResourceDoesNotExist_GetManifestResourceInfo_ReturnsNull()
+        {
+            using (MetadataLoadContext lc = new MetadataLoadContext(new SimpleAssemblyResolver()))
+            {
+                Assembly a = lc.LoadFromByteArray(TestData.s_AssemblyWithEmbeddedResourcesImage);
+                ManifestResourceInfo? r = a.GetManifestResourceInfo("ResourceThatDoesNotExist");
+                Assert.Null(r);
+            }
+        }
+
+        [Fact]
+        public static void ResourceDoesNotExist_GetManifestResourceStream_ReturnsNull()
+        {
+            using (MetadataLoadContext lc = new MetadataLoadContext(new SimpleAssemblyResolver()))
+            {
+                Assembly a = lc.LoadFromByteArray(TestData.s_AssemblyWithEmbeddedResourcesImage);
+                Stream? r = a.GetManifestResourceStream("ResourceThatDoesNotExist");
+                Assert.Null(r);
             }
         }
     }

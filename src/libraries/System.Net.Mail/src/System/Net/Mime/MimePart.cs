@@ -2,25 +2,25 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.IO;
-using System.Text;
 using System.Collections;
 using System.Globalization;
+using System.IO;
 using System.Net.Mail;
 using System.Runtime.ExceptionServices;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace System.Net.Mime
 {
     /// <summary>
     /// Summary description for MimePart.
     /// </summary>
-    internal class MimePart : MimeBasePart, IDisposable
+    internal sealed class MimePart : MimeBasePart, IDisposable
     {
         private Stream? _stream;
         private bool _streamSet;
         private bool _streamUsedOnce;
-        private AsyncCallback? _readCallback;
-        private AsyncCallback? _writeCallback;
         private const int maxBufferSize = 0x4400;  //seems optimal for send based on perf analysis
 
         internal MimePart() { }
@@ -103,16 +103,11 @@ namespace System.Net.Mime
 
         internal void SetContent(Stream stream)
         {
-            if (stream == null)
-            {
-                throw new ArgumentNullException(nameof(stream));
-            }
+            ArgumentNullException.ThrowIfNull(stream);
 
             if (_streamSet)
             {
                 _stream!.Close();
-                _stream = null;
-                _streamSet = false;
             }
 
             _stream = stream;
@@ -123,10 +118,7 @@ namespace System.Net.Mime
 
         internal void SetContent(Stream stream, string? name, string? mimeType)
         {
-            if (stream == null)
-            {
-                throw new ArgumentNullException(nameof(stream));
-            }
+            ArgumentNullException.ThrowIfNull(stream);
 
             if (mimeType != null && mimeType != string.Empty)
             {
@@ -141,110 +133,10 @@ namespace System.Net.Mime
 
         internal void SetContent(Stream stream, ContentType? contentType)
         {
-            if (stream == null)
-            {
-                throw new ArgumentNullException(nameof(stream));
-            }
+            ArgumentNullException.ThrowIfNull(stream);
+
             _contentType = contentType;
             SetContent(stream);
-        }
-
-        internal void Complete(IAsyncResult result, Exception? e)
-        {
-            //if we already completed and we got called again,
-            //it mean's that there was an exception in the callback and we
-            //should just rethrow it.
-
-            MimePartContext context = (MimePartContext)result.AsyncState!;
-            if (context._completed)
-            {
-                ExceptionDispatchInfo.Throw(e!);
-            }
-
-            try
-            {
-                if (context._outputStream != null)
-                {
-                    context._outputStream.Close();
-                }
-            }
-            catch (Exception ex)
-            {
-                if (e == null)
-                {
-                    e = ex;
-                }
-            }
-            context._completed = true;
-            context._result.InvokeCallback(e);
-        }
-
-
-        internal void ReadCallback(IAsyncResult result)
-        {
-            if (result.CompletedSynchronously)
-            {
-                return;
-            }
-
-            ((MimePartContext)result.AsyncState!)._completedSynchronously = false;
-
-            try
-            {
-                ReadCallbackHandler(result);
-            }
-            catch (Exception e)
-            {
-                Complete(result, e);
-            }
-        }
-
-        internal void ReadCallbackHandler(IAsyncResult result)
-        {
-            MimePartContext context = (MimePartContext)result.AsyncState!;
-            context._bytesLeft = Stream!.EndRead(result);
-            if (context._bytesLeft > 0)
-            {
-                IAsyncResult writeResult = context._outputStream!.BeginWrite(context._buffer, 0, context._bytesLeft, _writeCallback, context);
-                if (writeResult.CompletedSynchronously)
-                {
-                    WriteCallbackHandler(writeResult);
-                }
-            }
-            else
-            {
-                Complete(result, null);
-            }
-        }
-
-        internal void WriteCallback(IAsyncResult result)
-        {
-            if (result.CompletedSynchronously)
-            {
-                return;
-            }
-
-            ((MimePartContext)result.AsyncState!)._completedSynchronously = false;
-
-            try
-            {
-                WriteCallbackHandler(result);
-            }
-            catch (Exception e)
-            {
-                Complete(result, e);
-            }
-        }
-
-        internal void WriteCallbackHandler(IAsyncResult result)
-        {
-            MimePartContext context = (MimePartContext)result.AsyncState!;
-            context._outputStream!.EndWrite(result);
-            IAsyncResult readResult = Stream!.BeginRead(context._buffer, 0, context._buffer.Length, _readCallback, context);
-            if (readResult.CompletedSynchronously)
-            {
-                ReadCallbackHandler(readResult);
-            }
         }
 
         internal Stream GetEncodedStream(Stream stream)
@@ -267,76 +159,7 @@ namespace System.Net.Mime
             return outputStream;
         }
 
-        internal void ContentStreamCallbackHandler(IAsyncResult result)
-        {
-            MimePartContext context = (MimePartContext)result.AsyncState!;
-            Stream outputStream = context._writer.EndGetContentStream(result);
-            context._outputStream = GetEncodedStream(outputStream);
-
-            _readCallback = new AsyncCallback(ReadCallback);
-            _writeCallback = new AsyncCallback(WriteCallback);
-            IAsyncResult readResult = Stream!.BeginRead(context._buffer, 0, context._buffer.Length, _readCallback, context);
-            if (readResult.CompletedSynchronously)
-            {
-                ReadCallbackHandler(readResult);
-            }
-        }
-
-        internal void ContentStreamCallback(IAsyncResult result)
-        {
-            if (result.CompletedSynchronously)
-            {
-                return;
-            }
-
-            ((MimePartContext)result.AsyncState!)._completedSynchronously = false;
-
-            try
-            {
-                ContentStreamCallbackHandler(result);
-            }
-            catch (Exception e)
-            {
-                Complete(result, e);
-            }
-        }
-
-        internal class MimePartContext
-        {
-            internal MimePartContext(BaseWriter writer, LazyAsyncResult result)
-            {
-                _writer = writer;
-                _result = result;
-                _buffer = new byte[maxBufferSize];
-            }
-
-            internal Stream? _outputStream;
-            internal LazyAsyncResult _result;
-            internal int _bytesLeft;
-            internal BaseWriter _writer;
-            internal byte[] _buffer;
-            internal bool _completed;
-            internal bool _completedSynchronously = true;
-        }
-
-        internal override IAsyncResult BeginSend(BaseWriter writer, AsyncCallback? callback, bool allowUnicode, object? state)
-        {
-            PrepareHeaders(allowUnicode);
-            writer.WriteHeaders(Headers, allowUnicode);
-            MimePartAsyncResult result = new MimePartAsyncResult(this, state, callback);
-            MimePartContext context = new MimePartContext(writer, result);
-
-            ResetStream();
-            _streamUsedOnce = true;
-            IAsyncResult contentResult = writer.BeginGetContentStream(new AsyncCallback(ContentStreamCallback), context);
-            if (contentResult.CompletedSynchronously)
-            {
-                ContentStreamCallbackHandler(contentResult);
-            }
-            return result;
-        }
-
-        internal override void Send(BaseWriter writer, bool allowUnicode)
+        internal override async Task SendAsync<TIOAdapter>(BaseWriter writer, bool allowUnicode, CancellationToken cancellationToken = default)
         {
             if (Stream != null)
             {
@@ -348,15 +171,15 @@ namespace System.Net.Mime
                 Stream outputStream = writer.GetContentStream();
                 outputStream = GetEncodedStream(outputStream);
 
-                int read;
-
                 ResetStream();
                 _streamUsedOnce = true;
 
-                while ((read = Stream.Read(buffer, 0, maxBufferSize)) > 0)
+                int read;
+                while ((read = await TIOAdapter.ReadAsync(Stream, buffer.AsMemory(0, maxBufferSize), cancellationToken).ConfigureAwait(false)) > 0)
                 {
-                    outputStream.Write(buffer, 0, read);
+                    await TIOAdapter.WriteAsync(outputStream, buffer.AsMemory(0, read), cancellationToken).ConfigureAwait(false);
                 }
+
                 outputStream.Close();
             }
         }

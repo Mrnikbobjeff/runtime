@@ -10,9 +10,11 @@
 // (C) 2004 Novell (http://www.novell.com)
 
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using System.IO;
 using System.Text;
 using System.Xml;
+using Microsoft.DotNet.XUnitExtensions;
 using Xunit;
 
 namespace System.Security.Cryptography.Xml.Tests
@@ -43,7 +45,9 @@ namespace System.Security.Cryptography.Xml.Tests
         {
             Reference reference = new Reference(uri);
 
+#if NET
             Assert.Equal("http://www.w3.org/2001/04/xmlenc#sha256", reference.DigestMethod);
+#endif
 
             Assert.Null(reference.DigestValue);
             Assert.Null(reference.Id);
@@ -63,7 +67,9 @@ namespace System.Security.Cryptography.Xml.Tests
             {
                 Reference reference = new Reference(memoryStream);
 
+#if NET
                 Assert.Equal("http://www.w3.org/2001/04/xmlenc#sha256", reference.DigestMethod);
+#endif
 
                 Assert.Null(reference.DigestValue);
                 Assert.Null(reference.Id);
@@ -126,9 +132,15 @@ namespace System.Security.Cryptography.Xml.Tests
             Assert.Equal(1, reference.TransformChain.Count);
         }
 
-        [Fact]
+        [ConditionalFact]
         public void LoadXsltTransforms()
         {
+#if NET
+            if (!RuntimeFeature.IsDynamicCodeSupported)
+            {
+                throw new SkipTestException("XSLTs are only supported when dynamic code is supported. See https://github.com/dotnet/runtime/issues/84389");
+            }
+#endif
             string test = "<Reference xmlns=\"http://www.w3.org/2000/09/xmldsig#\"><Transforms>";
             test += "<Transform Algorithm=\"http://www.w3.org/TR/1999/REC-xslt-19991116\">";
             test += "<xsl:stylesheet xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" xmlns=\"http://www.w3.org/TR/xhtml1/strict\" exclude-result-prefixes=\"foo\" version=\"1.0\">";
@@ -151,13 +163,23 @@ namespace System.Security.Cryptography.Xml.Tests
         public void LoadAllTransforms()
         {
             string test = "<Reference xmlns=\"http://www.w3.org/2000/09/xmldsig#\"><Transforms><Transform Algorithm=\"http://www.w3.org/2000/09/xmldsig#base64\" /><Transform Algorithm=\"http://www.w3.org/TR/2001/REC-xml-c14n-20010315\" /><Transform Algorithm=\"http://www.w3.org/TR/2001/REC-xml-c14n-20010315#WithComments\" /><Transform Algorithm=\"http://www.w3.org/2000/09/xmldsig#enveloped-signature\" /><Transform Algorithm=\"http://www.w3.org/TR/1999/REC-xpath-19991116\"><XPath /></Transform>";
-            test += "<Transform Algorithm=\"http://www.w3.org/TR/1999/REC-xslt-19991116\">";
-            test += "<xsl:stylesheet xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" xmlns=\"http://www.w3.org/TR/xhtml1/strict\" exclude-result-prefixes=\"foo\" version=\"1.0\">";
-            test += "<xsl:output encoding=\"UTF-8\" indent=\"no\" method=\"xml\" />";
-            test += "<xsl:template match=\"/\"><html><head><title>Notaries</title>";
-            test += "</head><body><table><xsl:for-each select=\"Notaries/Notary\">";
-            test += "<tr><th><xsl:value-of select=\"@name\" /></th></tr></xsl:for-each>";
-            test += "</table></body></html></xsl:template></xsl:stylesheet></Transform>";
+            string xsltTransform = "<Transform Algorithm=\"http://www.w3.org/TR/1999/REC-xslt-19991116\">";
+            xsltTransform += "<xsl:stylesheet xmlns:xsl=\"http://www.w3.org/1999/XSL/Transform\" xmlns=\"http://www.w3.org/TR/xhtml1/strict\" exclude-result-prefixes=\"foo\" version=\"1.0\">";
+            xsltTransform += "<xsl:output encoding=\"UTF-8\" indent=\"no\" method=\"xml\" />";
+            xsltTransform += "<xsl:template match=\"/\"><html><head><title>Notaries</title>";
+            xsltTransform += "</head><body><table><xsl:for-each select=\"Notaries/Notary\">";
+            xsltTransform += "<tr><th><xsl:value-of select=\"@name\" /></th></tr></xsl:for-each>";
+            xsltTransform += "</table></body></html></xsl:template></xsl:stylesheet></Transform>";
+            int expectedTransformsCount = 6;
+#if NET
+            if (!RuntimeFeature.IsDynamicCodeSupported)
+            {
+                // XSLTs are only supported when dynamic code is supported. See https://github.com/dotnet/runtime/issues/84389
+                xsltTransform = "";
+                expectedTransformsCount = 5;
+            }
+#endif
+            test += xsltTransform;
             test += "</Transforms><DigestMethod Algorithm=\"http://www.w3.org/2000/09/xmldsig#sha1\" /><DigestValue>AAAAAAAAAAAAAAAAAAAAAAAAAAA=</DigestValue></Reference>";
             Reference reference = new Reference();
             XmlDocument doc = new XmlDocument();
@@ -165,7 +187,7 @@ namespace System.Security.Cryptography.Xml.Tests
             reference.LoadXml(doc.DocumentElement);
             string result = reference.GetXml().OuterXml;
             Assert.Equal(test, result);
-            Assert.Equal(6, reference.TransformChain.Count);
+            Assert.Equal(expectedTransformsCount, reference.TransformChain.Count);
         }
 
         [Fact]
@@ -269,6 +291,209 @@ namespace System.Security.Cryptography.Xml.Tests
             Assert.Equal(doc, el.OwnerDocument);
             Assert.Equal(org, el);
             Assert.Equal(result, el.OuterXml);
+        }
+
+        [Fact]
+        public void LoadXml_Null()
+        {
+            Reference r = new Reference();
+            Assert.Throws<ArgumentNullException>(() => r.LoadXml(null));
+        }
+
+        [Fact]
+        public void LoadXml_MissingDigestMethod()
+        {
+            string xml = @"<Reference xmlns=""http://www.w3.org/2000/09/xmldsig#"">
+                <DigestValue>/Vvq6sXEVbtZC8GwNtLQnGOy/VI=</DigestValue>
+            </Reference>";
+            XmlDocument doc = new XmlDocument();
+            doc.LoadXml(xml);
+
+            Reference r = new Reference();
+            Assert.Throws<CryptographicException>(() => r.LoadXml(doc.DocumentElement));
+        }
+
+        [Fact]
+        public void LoadXml_MissingDigestValue()
+        {
+            string xml = @"<Reference xmlns=""http://www.w3.org/2000/09/xmldsig#"">
+                <DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha256"" />
+            </Reference>";
+            XmlDocument doc = new XmlDocument();
+            doc.LoadXml(xml);
+
+            Reference r = new Reference();
+            Assert.Throws<CryptographicException>(() => r.LoadXml(doc.DocumentElement));
+        }
+
+        [Fact]
+        public void AddTransform_Null()
+        {
+            Reference r = new Reference();
+            Assert.Throws<ArgumentNullException>(() => r.AddTransform(null));
+        }
+
+        [Fact]
+        public void DigestValue_Null()
+        {
+            Reference r = new Reference();
+            r.DigestValue = null;
+            Assert.Null(r.DigestValue);
+        }
+
+        [Fact]
+        public void GetXml_NoDigestMethod()
+        {
+            Reference r = new Reference();
+            r.DigestValue = new byte[32];
+            // Actually doesn't throw - just returns element without DigestMethod
+            XmlElement xml = r.GetXml();
+            Assert.NotNull(xml);
+        }
+
+        [Fact]
+        public void GetXml_NoDigestValue()
+        {
+            Reference r = new Reference();
+            r.DigestMethod = SignedXml.XmlDsigSHA256Url;
+            Assert.Throws<NullReferenceException>(() => r.GetXml());
+        }
+
+        [Fact]
+        public void Properties()
+        {
+            Reference r = new Reference();
+            
+            r.Id = "ref1";
+            Assert.Equal("ref1", r.Id);
+
+            r.Type = "http://www.w3.org/2000/09/xmldsig#Object";
+            Assert.Equal("http://www.w3.org/2000/09/xmldsig#Object", r.Type);
+
+            r.Uri = "#obj1";
+            Assert.Equal("#obj1", r.Uri);
+
+            Assert.NotNull(r.TransformChain);
+        }
+
+        [Fact]
+        public void Reference_TypeProperty()
+        {
+            Reference r = new Reference();
+            
+            r.Type = null;
+            Assert.Null(r.Type);
+            
+            r.Type = "http://www.w3.org/2000/09/xmldsig#Object";
+            Assert.Equal("http://www.w3.org/2000/09/xmldsig#Object", r.Type);
+            
+            r.Type = "";
+            Assert.Equal("", r.Type);
+        }
+
+        [Fact]
+        public void Reference_IdProperty()
+        {
+            Reference r = new Reference();
+            
+            r.Id = null;
+            Assert.Null(r.Id);
+            
+            r.Id = "ref-id";
+            Assert.Equal("ref-id", r.Id);
+            
+            r.Id = "";
+            Assert.Equal("", r.Id);
+        }
+
+        [Fact]
+        public void Reference_UriProperty()
+        {
+            Reference r = new Reference();
+            
+            r.Uri = null;
+            Assert.Null(r.Uri);
+            
+            r.Uri = "";
+            Assert.Equal("", r.Uri);
+            
+            r.Uri = "#id";
+            Assert.Equal("#id", r.Uri);
+        }
+
+        [Fact]
+        public void Reference_DigestMethodProperty()
+        {
+            Reference r = new Reference();
+            
+            r.DigestMethod = SignedXml.XmlDsigSHA256Url;
+            Assert.Equal(SignedXml.XmlDsigSHA256Url, r.DigestMethod);
+            
+            r.DigestMethod = SignedXml.XmlDsigSHA512Url;
+            Assert.Equal(SignedXml.XmlDsigSHA512Url, r.DigestMethod);
+            
+            r.DigestMethod = null;
+            Assert.Null(r.DigestMethod);
+        }
+
+        [Fact]
+        public void Reference_LoadXml_WithId()
+        {
+            string xml = @"<Reference Id=""ref1"" URI=""#data1"" xmlns=""http://www.w3.org/2000/09/xmldsig#"">
+                <DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha256"" />
+                <DigestValue>AAAA</DigestValue>
+            </Reference>";
+            XmlDocument doc = new XmlDocument();
+            doc.LoadXml(xml);
+
+            Reference r = new Reference();
+            r.LoadXml(doc.DocumentElement);
+            Assert.Equal("ref1", r.Id);
+        }
+
+        [Fact]
+        public void Reference_LoadXml_WithType()
+        {
+            string xml = @"<Reference Type=""http://www.w3.org/2000/09/xmldsig#Object"" URI=""#data1"" xmlns=""http://www.w3.org/2000/09/xmldsig#"">
+                <DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha256"" />
+                <DigestValue>AAAA</DigestValue>
+            </Reference>";
+            XmlDocument doc = new XmlDocument();
+            doc.LoadXml(xml);
+
+            Reference r = new Reference();
+            r.LoadXml(doc.DocumentElement);
+            Assert.Equal("http://www.w3.org/2000/09/xmldsig#Object", r.Type);
+        }
+
+        [Fact]
+        public void Reference_LoadXml_EmptyUri()
+        {
+            string xml = @"<Reference URI="""" xmlns=""http://www.w3.org/2000/09/xmldsig#"">
+                <DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha256"" />
+                <DigestValue>AAAA</DigestValue>
+            </Reference>";
+            XmlDocument doc = new XmlDocument();
+            doc.LoadXml(xml);
+
+            Reference r = new Reference();
+            r.LoadXml(doc.DocumentElement);
+            Assert.Equal("", r.Uri);
+        }
+
+        [Fact]
+        public void Reference_LoadXml_NoUri()
+        {
+            string xml = @"<Reference xmlns=""http://www.w3.org/2000/09/xmldsig#"">
+                <DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha256"" />
+                <DigestValue>AAAA</DigestValue>
+            </Reference>";
+            XmlDocument doc = new XmlDocument();
+            doc.LoadXml(xml);
+
+            Reference r = new Reference();
+            r.LoadXml(doc.DocumentElement);
+            Assert.Null(r.Uri); // No URI attribute means null
         }
     }
 }

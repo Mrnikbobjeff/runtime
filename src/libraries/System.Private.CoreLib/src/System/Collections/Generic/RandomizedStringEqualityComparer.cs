@@ -1,7 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Internal.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 
 namespace System.Collections.Generic
 {
@@ -46,14 +47,28 @@ namespace System.Collections.Generic
             internal uint p1;
         }
 
-        private sealed class OrdinalComparer : RandomizedStringEqualityComparer
+        private sealed class OrdinalComparer : RandomizedStringEqualityComparer, IAlternateEqualityComparer<ReadOnlySpan<char>, string?>
         {
             internal OrdinalComparer(IEqualityComparer<string?> wrappedComparer)
                 : base(wrappedComparer)
             {
             }
 
+            string IAlternateEqualityComparer<ReadOnlySpan<char>, string?>.Create(ReadOnlySpan<char> span) =>
+                span.ToString();
+
             public override bool Equals(string? x, string? y) => string.Equals(x, y);
+
+            bool IAlternateEqualityComparer<ReadOnlySpan<char>, string?>.Equals(ReadOnlySpan<char> alternate, string? other)
+            {
+                // See explanation in System.OrdinalComparer.Equals.
+                if (alternate.IsEmpty && other is null)
+                {
+                    return false;
+                }
+
+                return alternate.SequenceEqual(other);
+            }
 
             public override int GetHashCode(string? obj)
             {
@@ -65,45 +80,40 @@ namespace System.Collections.Generic
                 // The Ordinal version of Marvin32 operates over bytes.
                 // The multiplication from # chars -> # bytes will never integer overflow.
                 return Marvin.ComputeHash32(
-                    ref Unsafe.As<char, byte>(ref obj.GetRawStringData()),
+                    ref obj.GetRawStringDataAsUInt8(),
                     (uint)obj.Length * 2,
                     _seed.p0, _seed.p1);
             }
+
+            int IAlternateEqualityComparer<ReadOnlySpan<char>, string?>.GetHashCode(ReadOnlySpan<char> alternate) =>
+                Marvin.ComputeHash32(
+                    ref Unsafe.As<char, byte>(ref MemoryMarshal.GetReference(alternate)),
+                    (uint)alternate.Length * 2,
+                    _seed.p0, _seed.p1);
         }
 
-        private sealed class OrdinalIgnoreCaseComparer : RandomizedStringEqualityComparer
+        private sealed class OrdinalIgnoreCaseComparer : RandomizedStringEqualityComparer, IAlternateEqualityComparer<ReadOnlySpan<char>, string?>
         {
             internal OrdinalIgnoreCaseComparer(IEqualityComparer<string?> wrappedComparer)
                 : base(wrappedComparer)
             {
             }
 
-            public override bool Equals(string? x, string? y) => string.EqualsOrdinalIgnoreCase(x, y);
+            string IAlternateEqualityComparer<ReadOnlySpan<char>, string?>.Create(ReadOnlySpan<char> span) =>
+                span.ToString();
 
-            public override int GetHashCode(string? obj)
+            public override bool Equals(string? x, string? y) => string.Equals(x, y, StringComparison.OrdinalIgnoreCase);
+
+            bool IAlternateEqualityComparer<ReadOnlySpan<char>, string?>.Equals(ReadOnlySpan<char> alternate, string? other)
             {
-                if (obj is null)
+                // See explanation in System.OrdinalComparer.Equals.
+                if (alternate.IsEmpty && other is null)
                 {
-                    return 0;
+                    return false;
                 }
 
-                // The Ordinal version of Marvin32 operates over bytes, so convert
-                // char count -> byte count. Guaranteed not to integer overflow.
-                return Marvin.ComputeHash32(
-                    ref Unsafe.As<char, byte>(ref obj.GetRawStringData()),
-                    (uint)obj.Length * sizeof(char),
-                    _seed.p0, _seed.p1);
+                return alternate.EqualsOrdinalIgnoreCase(other);
             }
-        }
-
-        private sealed class RandomizedOrdinalIgnoreCaseComparer : RandomizedStringEqualityComparer
-        {
-            internal RandomizedOrdinalIgnoreCaseComparer(IEqualityComparer<string?> underlyingComparer)
-                : base(underlyingComparer)
-            {
-            }
-
-            public override bool Equals(string? x, string? y) => string.EqualsOrdinalIgnoreCase(x, y);
 
             public override int GetHashCode(string? obj)
             {
@@ -119,6 +129,12 @@ namespace System.Collections.Generic
                     obj.Length,
                     _seed.p0, _seed.p1);
             }
+
+            int IAlternateEqualityComparer<ReadOnlySpan<char>, string?>.GetHashCode(ReadOnlySpan<char> alternate) =>
+                Marvin.ComputeHash32OrdinalIgnoreCase(
+                    ref MemoryMarshal.GetReference(alternate),
+                    alternate.Length,
+                    _seed.p0, _seed.p1);
         }
     }
 }

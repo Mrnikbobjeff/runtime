@@ -2,8 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+namespace JitTest_Directed_nullabletypes_Desktop_boxunboxvaluetype;
+
+using JitTest_Directed_nullabletypes_Desktop_StructDefinitions;
+using Assert = JitTest_Directed_nullabletypes_Desktop_StructDefinitions.Assert;
+
 using System.Runtime.InteropServices;
 using System;
+using Xunit;
 
 
 internal class NullableTest1
@@ -4693,9 +4699,10 @@ internal class NullableTest45
 }
 
 
-internal class Test
+public class Test_boxunboxvaluetype
 {
-    private static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {
@@ -4754,4 +4761,3 @@ internal class Test
         return 100;
     }
 }
-

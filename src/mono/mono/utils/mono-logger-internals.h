@@ -7,7 +7,7 @@
 
 #include <glib.h>
 #include <mono/utils/mono-compiler.h>
-#include "mono-logger.h"
+#include <mono/utils/mono-logger.h>
 
 typedef enum {
 	MONO_TRACE_ASSEMBLY           = 1 << 0,
@@ -29,7 +29,9 @@ typedef enum {
 	MONO_TRACE_TAILCALL           = 1 << 16,
 	MONO_TRACE_PROFILER           = 1 << 17,
 	MONO_TRACE_TIERED             = 1 << 18,
-	MONO_TRACE_QCALL              = 1 << 19
+	MONO_TRACE_QCALL              = 1 << 19,
+	MONO_TRACE_METADATA_UPDATE    = 1 << 20,
+	MONO_TRACE_DIAGNOSTICS        = 1 << 21
 } MonoTraceMask;
 
 MONO_BEGIN_DECLS
@@ -40,29 +42,29 @@ MONO_END_DECLS
 MONO_API void
 mono_trace_init (void);
 
-void 
-mono_trace_cleanup (void);
-
 MONO_API void
 mono_tracev_inner (GLogLevelFlags level, MonoTraceMask mask, const char *format, va_list args);
 
-void 
+void
 mono_trace_set_level (GLogLevelFlags level);
 
-void 
+void
 mono_trace_set_mask (MonoTraceMask mask);
 
-void 
+void
 mono_trace_push (GLogLevelFlags level, MonoTraceMask mask);
 
-void 
+void
 mono_trace_pop (void);
 
+MONO_COMPONENT_API
 gboolean
 mono_trace_is_traced (GLogLevelFlags level, MonoTraceMask mask);
 
 #define MONO_TRACE_IS_TRACED(level, mask) \
 	G_UNLIKELY ((level) <= mono_internal_current_level && ((mask) & mono_internal_current_mask))
+
+MONO_DISABLE_WARNING(4505) // unreferenced function with internal linkage has been removed
 
 G_GNUC_UNUSED static void
 mono_tracev (GLogLevelFlags level, MonoTraceMask mask, const char *format, va_list args)
@@ -91,12 +93,14 @@ mono_trace (GLogLevelFlags level, MonoTraceMask mask, const char *format, ...)
 	}
 }
 
+MONO_RESTORE_WARNING
+
 // __VA_ARGS__ is never empty, so a comma before it is always correct.
 #define mono_trace_error(...)	(mono_trace (G_LOG_LEVEL_ERROR, __VA_ARGS__))
 #define mono_trace_warning(...) (mono_trace (G_LOG_LEVEL_WARNING, __VA_ARGS__))
 #define mono_trace_message(...) (mono_trace (G_LOG_LEVEL_MESSAGE, __VA_ARGS__))
 
-#if defined (HOST_ANDROID) || (defined (TARGET_IOS) && defined (TARGET_IOS))
+#if defined (HOST_ANDROID) || defined (TARGET_IOS) || defined (TARGET_TVOS)
 
 #define mono_gc_printf(gc_log_file, format, ...) g_log ("mono-gc", G_LOG_LEVEL_MESSAGE, format, ##__VA_ARGS__)
 #define mono_runtime_printf(format, ...) g_log ("mono-rt", G_LOG_LEVEL_MESSAGE, format "\n", ##__VA_ARGS__)
@@ -152,10 +156,10 @@ void mono_log_write_logcat (const char *log_domain, GLogLevelFlags level, mono_b
 void mono_log_close_logcat (void);
 #endif
 
-#if defined(HOST_IOS)
-void mono_log_open_asl (const char *path, void *userData);
-void mono_log_write_asl (const char *log_domain, GLogLevelFlags level, mono_bool hdr, const char *message);
-void mono_log_close_asl (void);
+#if defined(HOST_IOS) || defined(HOST_TVOS) || defined(HOST_WATCHOS) || defined(HOST_MACCAT)
+void mono_log_open_os_log (const char *path, void *userData);
+void mono_log_write_os_log (const char *log_domain, GLogLevelFlags level, mono_bool hdr, const char *message);
+void mono_log_close_os_log (void);
 #endif
 
 void mono_log_open_recorder (const char *path, void *userData);
@@ -163,6 +167,6 @@ void mono_log_write_recorder (const char *log_domain, GLogLevelFlags level, mono
 void mono_log_close_recorder (void);
 void mono_log_dump_recorder (void);
 
-void mono_dump_mem (gpointer d, int len);
+void mono_dump_mem (gconstpointer d, int len);
 
 #endif /* __MONO_LOGGER_INTERNAL_H__ */

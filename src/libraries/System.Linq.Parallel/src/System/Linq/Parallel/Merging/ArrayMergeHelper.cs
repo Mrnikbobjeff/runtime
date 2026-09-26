@@ -9,12 +9,12 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Linq.Parallel;
 using System.Diagnostics;
-using System.Threading.Tasks;
 using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using System.Linq.Parallel;
+using System.Text;
+using System.Threading.Tasks;
 
 namespace System.Linq.Parallel
 {
@@ -25,7 +25,7 @@ namespace System.Linq.Parallel
     /// no extra cost for ordering.
     /// </summary>
     /// <typeparam name="TInputOutput"></typeparam>
-    internal class ArrayMergeHelper<TInputOutput> : IMergeHelper<TInputOutput>
+    internal sealed class ArrayMergeHelper<TInputOutput> : IMergeHelper<TInputOutput>
     {
         private readonly QueryResults<TInputOutput> _queryResults; // Indexable query results
         private readonly TInputOutput[] _outputArray; // The output array.

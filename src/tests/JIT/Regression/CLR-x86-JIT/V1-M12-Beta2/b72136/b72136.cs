@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b72136
 {
     using System;
 
@@ -17,9 +18,10 @@ namespace Test
         public void Method1(float[] param5) { }
     }
 
-    class App
+    public class App
     {
-        static int Main()
+        [Fact]
+        public static void TestEntryPoint()
         {
             try
             {
@@ -34,7 +36,6 @@ namespace Test
                 );
             }
             catch (Exception X) { }
-            return 100;
         }
     }
 }

@@ -4,10 +4,10 @@
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic.Utils;
 using System.Reflection;
 using System.Runtime.CompilerServices;
-using System.Diagnostics.CodeAnalysis;
 
 namespace System.Linq.Expressions.Compiler
 {
@@ -462,6 +462,8 @@ namespace System.Linq.Expressions.Compiler
             return cr.Finish(expr);
         }
 
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL3050:RequiresDynamicCode",
+            Justification = "A NewArrayExpression has already been created. The original creator will get a warning that it is not trim compatible.")]
         private Result RewriteNewArrayExpression(Expression expr, Stack stack)
         {
             var node = (NewArrayExpression)expr;
@@ -791,10 +793,7 @@ namespace System.Linq.Expressions.Compiler
                     clone = Clone(node.Expressions, i);
                 }
 
-                if (clone != null)
-                {
-                    clone[i] = rewritten.Node;
-                }
+                clone?[i] = rewritten.Node;
             }
 
             if (action != RewriteAction.None)
@@ -900,10 +899,7 @@ namespace System.Linq.Expressions.Compiler
                         cloneTests = Clone(testValues, j);
                     }
 
-                    if (cloneTests != null)
-                    {
-                        cloneTests[j] = test.Node;
-                    }
+                    cloneTests?[j] = test.Node;
                 }
 
                 // And all the cases also run on the same stack level.
@@ -919,16 +915,10 @@ namespace System.Linq.Expressions.Compiler
 
                     @case = new SwitchCase(body.Node, testValues);
 
-                    if (clone == null)
-                    {
-                        clone = Clone(cases, i);
-                    }
+                    clone ??= Clone(cases, i);
                 }
 
-                if (clone != null)
-                {
-                    clone[i] = @case;
-                }
+                clone?[i] = @case;
             }
 
             // default body also runs on initial stack
@@ -987,16 +977,10 @@ namespace System.Linq.Expressions.Compiler
                     {
                         handler = Expression.MakeCatchBlock(handler.Test, handler.Variable, rbody.Node, filter);
 
-                        if (clone == null)
-                        {
-                            clone = Clone(handlers, i);
-                        }
+                        clone ??= Clone(handlers, i);
                     }
 
-                    if (clone != null)
-                    {
-                        clone[i] = handler;
-                    }
+                    clone?[i] = handler;
                 }
             }
 

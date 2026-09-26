@@ -57,7 +57,7 @@ namespace System.Reflection.PortableExecutable
         /// <param name="dataSerializer">Serializes data to a <see cref="BlobBuilder"/>.</param>
         public void AddEntry<TData>(DebugDirectoryEntryType type, uint version, uint stamp, TData data, Action<BlobBuilder, TData> dataSerializer)
         {
-            if (dataSerializer == null)
+            if (dataSerializer is null)
             {
                 Throw.ArgumentNull(nameof(dataSerializer));
             }
@@ -97,13 +97,13 @@ namespace System.Reflection.PortableExecutable
         /// <exception cref="ArgumentException"><paramref name="pdbPath"/> contains NUL character.</exception>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="age"/> is less than 1.</exception>
         /// <exception cref="ArgumentOutOfRangeException"><paramref name="portablePdbVersion"/> is smaller than 0x0100.</exception>
-        internal void AddCodeViewEntry(
+        public void AddCodeViewEntry(
             string pdbPath,
             BlobContentId pdbContentId,
             ushort portablePdbVersion,
             int age)
         {
-            if (pdbPath == null)
+            if (pdbPath is null)
             {
                 Throw.ArgumentNull(nameof(pdbPath));
             }
@@ -114,7 +114,7 @@ namespace System.Reflection.PortableExecutable
             }
 
             // We allow NUL characters to allow for padding for backward compat purposes.
-            if (pdbPath.Length == 0 || pdbPath.IndexOf('\0') == 0)
+            if (pdbPath.Length == 0 || pdbPath[0] == '\0')
             {
                 Throw.InvalidArgument(SR.ExpectedNonEmptyString, nameof(pdbPath));
             }
@@ -170,7 +170,7 @@ namespace System.Reflection.PortableExecutable
         /// <exception cref="ArgumentException"><paramref name="algorithmName"/> or <paramref name="checksum"/> is empty.</exception>
         public void AddPdbChecksumEntry(string algorithmName, ImmutableArray<byte> checksum)
         {
-            if (algorithmName == null)
+            if (algorithmName is null)
             {
                 Throw.ArgumentNull(nameof(algorithmName));
             }

@@ -168,15 +168,25 @@ void GeneratePackedDoubleTestTests(List<Test> tests)
 static string CreateVector(int vectorSize, string vectorElementType, double value)
 {
     if (vectorElementType == "Single")
-        return double.IsNaN(value) ? $"Vector{vectorSize}.Create(float.NaN)" : $"Vector{vectorSize}.Create({value:F1}f)";
+        return double.IsNaN(value) ? $"Vector{vectorSize}<float>.NaN" :
+               (value == 0.0f) && float.IsPositive(value) ? $"Vector{vectorSize}<float>.Zero" :
+               (value == 1.0f) ? $"Vector{vectorSize}<float>.One" :
+               (value == -1.0f) ? $"Vector{vectorSize}<float>.NegativeOne" :
+               $"Vector{vectorSize}.Create({value:F1}f)";
     if (vectorElementType == "Double")
-        return double.IsNaN(value) ? $"Vector{vectorSize}.Create(double.NaN)" : $"Vector{vectorSize}.Create({value:F1})";
+        return double.IsNaN(value) ? $"Vector{vectorSize}<double>.NaN" :
+               (value == 0.0) && double.IsPositive(value) ? $"Vector{vectorSize}<double>.Zero" :
+               (value == 1.0) ? $"Vector{vectorSize}<double>.One" :
+               (value == -1.0) ? $"Vector{vectorSize}<double>.NegativeOne" :
+               $"Vector{vectorSize}.Create({value:F1})";
     throw new NotSupportedException();
 }
 
 static string CreateVector(int vectorSize, int value)
 {
-    return $"Vector{vectorSize}.Create({value})";
+    return (value == 0) ? $"Vector{vectorSize}<int>.Zero" :
+           (value == 1) ? $"Vector{vectorSize}<int>.One" :
+           $"Vector{vectorSize}.Create({value})";
 }
 
 static string CreateVector<T>(int vectorSize, string vectorElementType, T value)
@@ -273,7 +283,7 @@ class BinaryOpTest<T> : Test
     {
         w.WriteLine();
         w.WriteLine("    [MethodImpl(MethodImplOptions.NoInlining)]");
-        // Pass parameters by reference so we get consistency accross various ABIs.
+        // Pass parameters by reference so we get consistency across various ABIs.
         // We get operands in memory and by adding an extra "nop" intrinsic we can
         // force one of the operands in a register, just enough to catch some cases
         // of containment.
@@ -321,8 +331,9 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
+using Xunit;
 
-class Program
+public class GitHub_17073
 {
     [MethodImpl(MethodImplOptions.NoInlining)] static bool True() => true;
     [MethodImpl(MethodImplOptions.NoInlining)] static bool False() => false;
@@ -335,14 +346,15 @@ class Program
     }
 ");
 
-w.WriteLine("    static int Main()");
+w.WriteLine("    [Fact]");
+w.WriteLine("    public static void Test()");
 w.WriteLine("    {");
 w.WriteLine("        bool r = true;");
 
 foreach (var test in tests)
     test.WriteTestCases(w);
 
-w.WriteLine("        return r ? 100 : 42;");
+w.WriteLine("        Assert.Equal(true, r);");
 w.WriteLine("    }");
 
 foreach (var test in tests)

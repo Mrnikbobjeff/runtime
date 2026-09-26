@@ -5,7 +5,8 @@
 
 using System;
 using System.Runtime.CompilerServices;
-public class BringUpTest
+using Xunit;
+public class BringUpTest_NotAndNeg
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -13,7 +14,8 @@ public class BringUpTest
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
     public static int NotAndNeg(int x, int y) { return -x ^ ~y; }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int y = NotAndNeg(1, 0);
         if (y == 0) return Pass;

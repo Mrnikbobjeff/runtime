@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 
 public struct ValX1<T> {}
@@ -12,7 +14,7 @@ struct Gen<T>
 	public static void EnterExitTest()
 	{
 		Type monitor = typeof(Gen<T>).GetGenericTypeDefinition();		
-		TestHelper myHelper = new TestHelper(Test.nThreads);
+		TestHelper myHelper = new TestHelper(Test_EnterExit07.nThreads);
 		// MonitorDelegate[] consumer = new MonitorDelegate[Test.nThreads];
 		// for(int i=0;i<Test.nThreads;i++)
 		// {
@@ -20,7 +22,7 @@ struct Gen<T>
 		// 	consumer[i].BeginInvoke(monitor,null,null);
 		// }
 
-		for (int i = 0; i < Test.nThreads; i++)
+		for (int i = 0; i < Test_EnterExit07.nThreads; i++)
 		{
 			ThreadPool.QueueUserWorkItem(state =>
 			{
@@ -35,11 +37,11 @@ struct Gen<T>
 			if(myHelper.Error == true)
 				break;
 		}
-		Test.Eval(!myHelper.Error);
+		Test_EnterExit07.Eval(!myHelper.Error);
 	}	
 }
 
-public class Test
+public class Test_EnterExit07
 {
 	public static int nThreads = 10;
 	public static int counter = 0;
@@ -55,7 +57,8 @@ public class Test
 	
 	}
 	
-	public static int Main()
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint()
 	{
 		Gen<int>.EnterExitTest();	
 		Gen<double>.EnterExitTest();

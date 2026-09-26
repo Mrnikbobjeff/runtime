@@ -2,14 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b49717
 {
     using System;
 
-    class AA
+    public class AA
     {
         static void DoAnything() { throw new Exception(); }
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             bool FALSE = true;
             try

@@ -2,8 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b163200;
+
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 public class ClassWithCctor<T>
 {
@@ -17,7 +21,9 @@ public class ClassWithCctor<T>
 
 public class Repro
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

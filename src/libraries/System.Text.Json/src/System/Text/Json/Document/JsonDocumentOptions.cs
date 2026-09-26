@@ -52,7 +52,9 @@ namespace System.Text.Json
             set
             {
                 if (value < 0)
-                    throw ThrowHelper.GetArgumentOutOfRangeException_MaxDepthMustBePositive(nameof(value));
+                {
+                    ThrowHelper.ThrowArgumentOutOfRangeException_MaxDepthMustBePositive(nameof(value));
+                }
 
                 _maxDepth = value;
             }
@@ -66,6 +68,23 @@ namespace System.Text.Json
         /// By default, it's set to false, and <exception cref="JsonException"/> is thrown if a trailing comma is encountered.
         /// </remarks>
         public bool AllowTrailingCommas { get; set; }
+
+        /// <summary>
+        /// Defines whether duplicate property names are allowed when deserializing JSON objects.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// By default, it's set to true. If set to false, <see cref="JsonException"/> is thrown
+        /// when a duplicate property name is encountered during deserialization.
+        /// </para>
+        /// </remarks>
+        public bool AllowDuplicateProperties
+        {
+            // These are negated because the declaring type is a struct and we want the value to be true
+            // for the default struct value.
+            get => !field;
+            set => field = !value;
+        }
 
         internal JsonReaderOptions GetReaderOptions()
         {

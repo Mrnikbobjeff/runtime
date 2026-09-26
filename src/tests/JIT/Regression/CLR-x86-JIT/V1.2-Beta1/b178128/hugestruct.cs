@@ -2,7 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b178128;
+
 using System;
+using Xunit;
 
 
 struct Big10DW
@@ -133,13 +137,14 @@ struct Big100000DW
 }
 
 
-class Test
+public class Test_hugestruct
 {
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         Big100000DW b = new Big100000DW();
         b.b10.b10.b10.b10.i5 = 0;
         GC.Collect();
-        return 100;
     }
 }

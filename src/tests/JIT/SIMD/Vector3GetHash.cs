@@ -11,8 +11,11 @@
 
 using System;
 using System.Numerics;
+using Xunit;
 
-internal partial class VectorTest
+namespace SIMDTests.Vector3GetHashTests;
+
+public partial class VectorTest
 {
     private const int Pass = 100;
     private const int Fail = -1;
@@ -60,7 +63,9 @@ internal partial class VectorTest
             Assert.NotEqual(v7.GetHashCode(), v9.GetHashCode());
         }
 
-        public static int Main( string[] args )
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             int returnVal = Pass;
 
@@ -77,4 +82,3 @@ internal partial class VectorTest
         }
     }
 }
-

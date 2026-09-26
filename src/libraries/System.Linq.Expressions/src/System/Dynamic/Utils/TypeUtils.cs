@@ -2,9 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 
 namespace System.Dynamic.Utils
 {
@@ -15,8 +17,11 @@ namespace System.Dynamic.Utils
             .Select(i => i.GetGenericTypeDefinition())
             .ToArray();
 
+        private static readonly ConstructorInfo s_nullableConstructor = typeof(Nullable<>).GetConstructor(typeof(Nullable<>).GetGenericArguments())!;
+
         public static Type GetNonNullableType(this Type type) => IsNullableType(type) ? type.GetGenericArguments()[0] : type;
 
+        [RequiresDynamicCode("Creating nullable types requires dynamic code.")]
         public static Type GetNullableType(this Type type)
         {
             Debug.Assert(type != null, "type cannot be null");
@@ -26,6 +31,70 @@ namespace System.Dynamic.Utils
             }
 
             return type;
+        }
+
+        /// <summary>
+        /// This is an alternative to <see cref="GetNullableType" /> that will throw
+        /// if dynamic code is required. Some common primitive types are special-cased.
+        /// </summary>
+        public static Type LiftPrimitiveOrThrow(this Type type)
+        {
+            if (RuntimeFeature.IsDynamicCodeSupported)
+            {
+                return GetNullableType(type);
+            }
+            if (!type.IsValueType || IsNullableType(type))
+            {
+                return type;
+            }
+            switch (type.GetTypeCode())
+            {
+                case TypeCode.Boolean:
+                    return typeof(bool?);
+                case TypeCode.Int32:
+                    return typeof(int?);
+                case TypeCode.Int64:
+                    return typeof(long?);
+                case TypeCode.Single:
+                    return typeof(float?);
+                case TypeCode.Double:
+                    return typeof(double?);
+                case TypeCode.UInt32:
+                    return typeof(uint?);
+                case TypeCode.UInt64:
+                    return typeof(ulong?);
+                case TypeCode.Byte:
+                    return typeof(byte?);
+                case TypeCode.SByte:
+                    return typeof(sbyte?);
+                case TypeCode.Int16:
+                    return typeof(short?);
+                case TypeCode.UInt16:
+                    return typeof(ushort?);
+                case TypeCode.Char:
+                    return typeof(char?);
+                case TypeCode.Decimal:
+                    return typeof(decimal?);
+                case TypeCode.DateTime:
+                    return typeof(DateTime?);
+                default:
+                    if (type == typeof(DateTimeOffset))
+                    {
+                        return typeof(DateTimeOffset?);
+                    }
+                    else if (type == typeof(TimeSpan))
+                    {
+                        return typeof(TimeSpan?);
+                    }
+                    throw new NotSupportedException(Strings.LiftingInExpressionRequiresDynamicCode(type));
+            }
+        }
+
+        public static ConstructorInfo GetNullableConstructor(Type nullableType)
+        {
+            Debug.Assert(nullableType.IsNullableType());
+
+            return (ConstructorInfo)nullableType.GetMemberWithSameMetadataDefinitionAs(s_nullableConstructor);
         }
 
         public static bool IsNullableType(this Type type) => type.IsConstructedGenericType && type.GetGenericTypeDefinition() == typeof(Nullable<>);
@@ -196,7 +265,14 @@ namespace System.Dynamic.Utils
                 // been boxed or not.
                 if (targetType.IsInterface)
                 {
-                    foreach (Type interfaceType in instanceType.GetTypeInfo().ImplementedInterfaces)
+                    [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2070:UnrecognizedReflectionPattern",
+                        Justification = "The targetType must be preserved (since we have an instance of it here)," +
+                            "So if it's an interface that interface will be preserved everywhere" +
+                            "So if it was implemented by the instanceType, it will be kept even after trimming." +
+                            "The fact that GetInterfaces may return fewer interfaces doesn't matter as long" +
+                            "as it returns the one we're looking for.")]
+                    static Type[] GetTypeInterfaces(Type instanceType) => instanceType.GetInterfaces();
+                    foreach (Type interfaceType in GetTypeInterfaces(instanceType))
                     {
                         if (AreReferenceAssignable(targetType, interfaceType))
                         {
@@ -606,6 +682,8 @@ namespace System.Dynamic.Utils
             || IsImplicitBoxingConversion(source, destination)
             || IsImplicitNullableConversion(source, destination);
 
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2075:UnrecognizedReflectionPattern",
+            Justification = "The trimmer doesn't remove operators when System.Linq.Expressions is used. See https://github.com/mono/linker/pull/2125.")]
         public static MethodInfo? GetUserDefinedCoercionMethod(Type convertFrom, Type convertToType)
         {
             Type nnExprType = GetNonNullableType(convertFrom);
@@ -786,23 +864,14 @@ namespace System.Dynamic.Utils
 
         public static Type? FindGenericType(Type definition, Type? type)
         {
-            while ((object?)type != null && type != typeof(object))
+            // For now this helper doesn't support interfaces
+            Debug.Assert(!definition.IsInterface);
+
+            while (type is not null && type != typeof(object))
             {
                 if (type.IsConstructedGenericType && AreEquivalent(type.GetGenericTypeDefinition(), definition))
                 {
                     return type;
-                }
-
-                if (definition.IsInterface)
-                {
-                    foreach (Type itype in type.GetTypeInfo().ImplementedInterfaces)
-                    {
-                        Type? found = FindGenericType(definition, itype);
-                        if (found != null)
-                        {
-                            return found;
-                        }
-                    }
                 }
 
                 type = type.BaseType;
@@ -820,8 +889,12 @@ namespace System.Dynamic.Utils
         /// op_False, because we have to do runtime lookup for those. It may
         /// not work right for unary operators in general.
         /// </summary>
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2067:UnrecognizedReflectionPattern",
+            Justification = "The trimmer doesn't remove operators when System.Linq.Expressions is used. See https://github.com/mono/linker/pull/2125.")]
         public static MethodInfo? GetBooleanOperator(Type type, string name)
         {
+            Debug.Assert(name == "op_False" || name == "op_True");
+
             do
             {
                 MethodInfo? result = type.GetAnyStaticMethodValidated(name, new[] { type });
@@ -889,13 +962,13 @@ namespace System.Dynamic.Utils
             return true;
         }
 
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2070:UnrecognizedReflectionPattern",
+            Justification = "The trimmer will never remove the Invoke method from delegates.")]
         public static MethodInfo GetInvokeMethod(this Type delegateType)
         {
             Debug.Assert(typeof(Delegate).IsAssignableFrom(delegateType));
             return delegateType.GetMethod("Invoke", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)!;
         }
-
-#if FEATURE_COMPILE
 
         internal static bool IsUnsigned(this Type type) => IsUnsigned(GetNonNullableType(type).GetTypeCode());
 
@@ -930,6 +1003,28 @@ namespace System.Dynamic.Utils
             }
         }
 
-#endif
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2070:UnrecognizedReflectionPattern",
+            Justification = "The Array 'Get' method is dynamically constructed and is not included in IL. It is not subject to trimming.")]
+        public static MethodInfo GetArrayGetMethod(Type arrayType)
+        {
+            Debug.Assert(arrayType.IsArray);
+            return arrayType.GetMethod("Get", BindingFlags.Public | BindingFlags.Instance)!;
+        }
+
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2070:UnrecognizedReflectionPattern",
+            Justification = "The Array 'Set' method is dynamically constructed and is not included in IL. It is not subject to trimming.")]
+        public static MethodInfo GetArraySetMethod(Type arrayType)
+        {
+            Debug.Assert(arrayType.IsArray);
+            return arrayType.GetMethod("Set", BindingFlags.Public | BindingFlags.Instance)!;
+        }
+
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2070:UnrecognizedReflectionPattern",
+            Justification = "The Array 'Address' method is dynamically constructed and is not included in IL. It is not subject to trimming.")]
+        public static MethodInfo GetArrayAddressMethod(Type arrayType)
+        {
+            Debug.Assert(arrayType.IsArray);
+            return arrayType.GetMethod("Address", BindingFlags.Public | BindingFlags.Instance)!;
+        }
     }
 }

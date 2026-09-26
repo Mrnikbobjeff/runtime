@@ -3,11 +3,17 @@
 //
 
 // compile with csc /o+
+
+namespace b102879;
+
 using System;
-class MyClass
+using Xunit;
+public class MyClass
 {
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
 
         double d1 = double.PositiveInfinity;

@@ -6,8 +6,10 @@
 
 using System; 
 using System.Runtime.InteropServices; 
+using Xunit;
+using TestLibrary;
 
-class MainClass 
+public class MainClass 
 
 { 
     //Variable 
@@ -26,7 +28,9 @@ class MainClass
         public Variable var1; 
     } 
 
-    public static int Main(String[] args) 
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static int TestEntryPoint() 
     { 
     	try
     	{

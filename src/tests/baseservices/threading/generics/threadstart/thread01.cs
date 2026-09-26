@@ -2,37 +2,40 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 class Gen<T> 
 {
 	public void Target()
 	{		
-		Interlocked.Increment(ref Test.Xcounter);
+		Interlocked.Increment(ref Test_thread01.Xcounter);
 	}
 	public static void ThreadPoolTest()
 	{
-		Thread[] threads = new Thread[Test.nThreads];
+		Thread[] threads = new Thread[Test_thread01.nThreads];
 		Gen<T> obj = new Gen<T>();
 
-		for (int i = 0; i < Test.nThreads; i++)
+		for (int i = 0; i < Test_thread01.nThreads; i++)
 		{	
 			threads[i]  = new Thread(new ThreadStart(obj.Target));
 			threads[i].Start();
 		}
 
-		for (int i = 0; i < Test.nThreads; i++)
+		for (int i = 0; i < Test_thread01.nThreads; i++)
 		{	
 			threads[i].Join();
 		}
 		
-		Test.Eval(Test.Xcounter==Test.nThreads);
-		Test.Xcounter = 0;
+		Test_thread01.Eval(Test_thread01.Xcounter==Test_thread01.nThreads);
+		Test_thread01.Xcounter = 0;
 	}
 }
 
-public class Test
+public class Test_thread01
 {
-	public static int nThreads = 50;
+	// Use fewer threads on 32-bit platforms to avoid OOM from exhausting the virtual address space.
+	public static int nThreads = PlatformDetection.Is32BitProcess ? 5 : 50;
 	public static int counter = 0;
 	public static int Xcounter = 0;
 	public static bool result = true;
@@ -47,7 +50,8 @@ public class Test
 	
 	}
 	
-	public static int Main()
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint()
 	{
 		Gen<int>.ThreadPoolTest();
 		Gen<double>.ThreadPoolTest();

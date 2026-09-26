@@ -3,11 +3,21 @@
 //
 
 //COMMAND LINE: csc /nologo /optimize+ /debug- /w:0 bug.cs
+
+namespace b91189;
+
 using System;
+using System.Runtime.CompilerServices;
+using Xunit;
 
 public struct AA
 {
-    public static int Main(string[] args)
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint() => Run(new string[0]);
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public static void Run(string[] args)
     {
         bool flag = false;
         while (flag)
@@ -20,6 +30,5 @@ public struct AA
             }
             while (flag) { }
         }
-        return 100;
     }
 }

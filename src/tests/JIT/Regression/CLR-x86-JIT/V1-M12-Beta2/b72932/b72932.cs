@@ -1,15 +1,21 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b72932;
+
 using System;
-internal unsafe class testout1
+using Xunit;
+public unsafe class testout1
 {
     public struct VT
     {
         public long a1;
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         VT vt = new VT();
         vt.a1 = 500L;
@@ -18,6 +24,5 @@ internal unsafe class testout1
         *a0 = -6L;
         Console.WriteLine("Should be 500");
         Console.WriteLine((long)(vt.a1));
-        return 100;
     }
 }

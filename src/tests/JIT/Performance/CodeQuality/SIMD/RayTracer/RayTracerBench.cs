@@ -5,14 +5,13 @@
 // Samples for Parallel Programming with the .NET Framework
 // https://code.msdn.microsoft.com/windowsdesktop/Samples-for-Parallel-b4b76364
 
-using Microsoft.Xunit.Performance;
 using System;
 using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Concurrent;
-
-[assembly: OptimizeForBenchmarks]
+using Xunit;
+using TestLibrary;
 
 namespace SIMD
 {
@@ -58,12 +57,6 @@ public class RayTracerBench
     {
         _cancellation = new CancellationTokenSource(RunningTime);
         RenderLoop(MaxIterations);
-    }
-
-    private void RenderBench()
-    {
-        _cancellation = new CancellationTokenSource();
-        RenderLoop(Iterations);
     }
 
     private void RenderLoop(int iterations)
@@ -113,19 +106,6 @@ public class RayTracerBench
         }
     }
 
-    [Benchmark]
-    public static void Bench()
-    {
-        var m = new RayTracerBench();
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                m.RenderBench();
-            }
-        }
-    }
-
     public bool Run()
     {
         RenderTest();
@@ -135,7 +115,11 @@ public class RayTracerBench
         return true;
     }
 
-    public static int Main(string[] args)
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/54906", TestPlatforms.Android)]
+    [ActiveIssue("((null) error) * Assertion at runtime/src/mono/mono/metadata/assembly.c:2049, condition `is_ok (error)' not met, function:mono_assembly_load_friends, Could not load file or assembly 'xunit.performance.core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67066efe964d3b03' or one of its dependencies.", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         var r = new RayTracerBench();
         bool result = r.Run();

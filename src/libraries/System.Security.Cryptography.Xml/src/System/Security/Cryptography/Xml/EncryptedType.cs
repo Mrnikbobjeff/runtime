@@ -1,22 +1,26 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Xml;
 
 namespace System.Security.Cryptography.Xml
 {
     public abstract class EncryptedType
     {
-        private string _id;
-        private string _type;
-        private string _mimeType;
-        private string _encoding;
-        private EncryptionMethod _encryptionMethod;
-        private CipherData _cipherData;
-        private EncryptionPropertyCollection _props;
-        private KeyInfo _keyInfo;
-        internal XmlElement _cachedXml;
+        [ThreadStatic]
+        private static int t_depth;
 
+        private string? _id;
+        private string? _type;
+        private string? _mimeType;
+        private string? _encoding;
+        private EncryptionMethod? _encryptionMethod;
+        private EncryptionPropertyCollection? _props;
+        internal XmlElement? _cachedXml;
+
+        [MemberNotNullWhen(true, nameof(_cachedXml))]
         internal bool CacheValid
         {
             get
@@ -25,7 +29,7 @@ namespace System.Security.Cryptography.Xml
             }
         }
 
-        public virtual string Id
+        public virtual string? Id
         {
             get { return _id; }
             set
@@ -35,7 +39,7 @@ namespace System.Security.Cryptography.Xml
             }
         }
 
-        public virtual string Type
+        public virtual string? Type
         {
             get { return _type; }
             set
@@ -45,7 +49,7 @@ namespace System.Security.Cryptography.Xml
             }
         }
 
-        public virtual string MimeType
+        public virtual string? MimeType
         {
             get { return _mimeType; }
             set
@@ -55,7 +59,7 @@ namespace System.Security.Cryptography.Xml
             }
         }
 
-        public virtual string Encoding
+        public virtual string? Encoding
         {
             get { return _encoding; }
             set
@@ -65,18 +69,32 @@ namespace System.Security.Cryptography.Xml
             }
         }
 
+        [AllowNull]
         public KeyInfo KeyInfo
         {
-            get
-            {
-                if (_keyInfo == null)
-                    _keyInfo = new KeyInfo();
-                return _keyInfo;
-            }
-            set { _keyInfo = value; }
+            get => field ??= new KeyInfo();
+            set => field = value;
         }
 
-        public virtual EncryptionMethod EncryptionMethod
+        internal static void IncrementLoadXmlCurrentThreadDepth()
+        {
+            Debug.Assert(t_depth >= 0, "LoadXml current thread depth is negative.");
+            int maxDepth = LocalAppContextSwitches.DangerousMaxRecursionDepth;
+            if (maxDepth > 0 && t_depth > maxDepth)
+            {
+                throw new CryptographicException(SR.Cryptography_Xml_MaxDepthExceeded);
+            }
+
+            t_depth++;
+        }
+
+        internal static void DecrementLoadXmlCurrentThreadDepth()
+        {
+            Debug.Assert(t_depth > 0, "LoadXml current thread depth is already 0.");
+            t_depth--;
+        }
+
+        public virtual EncryptionMethod? EncryptionMethod
         {
             get { return _encryptionMethod; }
             set
@@ -86,15 +104,7 @@ namespace System.Security.Cryptography.Xml
             }
         }
 
-        public virtual EncryptionPropertyCollection EncryptionProperties
-        {
-            get
-            {
-                if (_props == null)
-                    _props = new EncryptionPropertyCollection();
-                return _props;
-            }
-        }
+        public virtual EncryptionPropertyCollection EncryptionProperties => _props ??= new EncryptionPropertyCollection();
 
         public void AddProperty(EncryptionProperty ep)
         {
@@ -103,23 +113,19 @@ namespace System.Security.Cryptography.Xml
 
         public virtual CipherData CipherData
         {
-            get
-            {
-                if (_cipherData == null)
-                    _cipherData = new CipherData();
-
-                return _cipherData;
-            }
+            get => field ??= new CipherData();
             set
             {
                 if (value == null)
                     throw new ArgumentNullException(nameof(value));
 
-                _cipherData = value;
+                field = value;
                 _cachedXml = null;
             }
         }
 
+        [RequiresDynamicCode(CryptoHelpers.XsltRequiresDynamicCodeMessage)]
+        [RequiresUnreferencedCode(CryptoHelpers.CreateFromNameUnreferencedCodeMessage)]
         public abstract void LoadXml(XmlElement value);
         public abstract XmlElement GetXml();
     }

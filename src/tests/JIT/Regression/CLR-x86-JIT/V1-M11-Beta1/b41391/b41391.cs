@@ -2,9 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+using Xunit;
+using TestLibrary;
 /*
 ---------------------------
-Assert Failure (PID 848, Thread 1036/40c)        
+Assert Failure (PID 848, Thread 1036/40c)
 ---------------------------
 (argCnt < MAX_PTRARG_OFS)
 
@@ -19,14 +21,14 @@ Image:
 D:\bugs\bug.exe
 
 ---------------------------
-Abort   Retry   Ignore   
+Abort   Retry   Ignore
 ---------------------------
 */
-namespace Test
+namespace b41391
 {
     using System;
 
-    struct AA
+    public struct AA
     {
         private double[] m_adDummyField1;
         private bool m_bDummyField2;
@@ -52,6 +54,16 @@ namespace Test
             while ((bool)m_axStatic2) { }
         }
 
-        static int Main() { try { Static2(null); } catch (NullReferenceException) { } return 100; }
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsVarArgSupported))]
+        public static void TestEntryPoint()
+        {
+            try
+            {
+                Static2(null);
+            }
+            catch (NullReferenceException)
+            {
+            }
+        }
     }
 }

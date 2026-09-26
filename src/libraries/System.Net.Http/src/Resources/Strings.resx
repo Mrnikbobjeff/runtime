@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!--
     Microsoft ResX Schema
@@ -123,11 +123,8 @@
   <data name="net_http_httpmethod_format_error" xml:space="preserve">
     <value>The format of the HTTP method is invalid.</value>
   </data>
-  <data name="net_http_httpmethod_notsupported_error" xml:space="preserve">
-    <value>The HTTP method '{0}' is not supported on this platform.</value>
-  </data>
   <data name="net_http_reasonphrase_format_error" xml:space="preserve">
-    <value>The reason phrase must not contain new-line characters.</value>
+    <value>The reason phrase must not contain new-line or NUL characters.</value>
   </data>
   <data name="net_http_copyto_array_too_small" xml:space="preserve">
     <value>The number of elements is greater than the available space from arrayIndex to the end of the destination array.</value>
@@ -139,7 +136,7 @@
     <value>Cannot add value because header '{0}' does not support multiple values.</value>
   </data>
   <data name="net_http_headers_invalid_header_name" xml:space="preserve">
-    <value>The header name format is invalid.</value>
+    <value>The header name '{0}' has an invalid format.</value>
   </data>
   <data name="net_http_headers_invalid_value" xml:space="preserve">
     <value>The format of value '{0}' is invalid.</value>
@@ -150,17 +147,11 @@
   <data name="net_http_headers_invalid_host_header" xml:space="preserve">
     <value>The specified value is not a valid 'Host' header string.</value>
   </data>
-  <data name="net_http_headers_invalid_from_header" xml:space="preserve">
-    <value>The specified value is not a valid 'From' header string.</value>
-  </data>
-  <data name="net_http_headers_invalid_etag_name" xml:space="preserve">
-    <value>The specified value is not a valid quoted string.</value>
-  </data>
   <data name="net_http_headers_invalid_range" xml:space="preserve">
     <value>Invalid range. At least one of the two parameters must not be null.</value>
   </data>
-  <data name="net_http_headers_no_newlines" xml:space="preserve">
-    <value>New-line characters in header values must be followed by a white-space character.</value>
+  <data name="net_http_headers_no_newlines_no_nul" xml:space="preserve">
+    <value>New-line or NUL characters are not allowed in header values.</value>
   </data>
   <data name="net_http_content_buffersize_exceeded" xml:space="preserve">
     <value>Cannot write more bytes to the buffer than the configured maximum buffer size: {0}.</value>
@@ -174,17 +165,20 @@
   <data name="net_http_content_readonly_stream" xml:space="preserve">
     <value>The stream does not support writing.</value>
   </data>
+  <data name="net_http_content_writeonly_stream" xml:space="preserve">
+    <value>The stream does not support reading.</value>
+  </data>
   <data name="net_http_content_invalid_charset" xml:space="preserve">
     <value>The character set provided in ContentType is invalid. Cannot read content as string using an invalid character set.</value>
   </data>
   <data name="net_http_content_stream_copy_error" xml:space="preserve">
     <value>Error while copying content to a stream.</value>
   </data>
+  <data name="net_http_content_buffer_stream_disposed" xml:space="preserve">
+    <value>The stream passed to SerializeToStream(Async) is owned by HttpContent and must not be disposed by user code.</value>
+  </data>
   <data name="net_http_content_read_as_stream_has_task" xml:space="preserve">
     <value>The content's stream has already been retrieved via async ReadAsStreamAsync and cannot be subsequently accessed synchronously.</value>
-  </data>
-  <data name="net_http_argument_empty_string" xml:space="preserve">
-    <value>The value cannot be null or empty.</value>
   </data>
   <data name="net_http_client_request_already_sent" xml:space="preserve">
     <value>The request message was already sent. Cannot send the same request message multiple times.</value>
@@ -199,10 +193,10 @@
     <value>The base address must be an absolute URI.</value>
   </data>
   <data name="net_http_client_invalid_requesturi" xml:space="preserve">
-    <value>An invalid request URI was provided. The request URI must either be an absolute URI or BaseAddress must be set.</value>
+    <value>An invalid request URI was provided. Either the request URI must be an absolute URI or BaseAddress must be set.</value>
   </data>
-  <data name="net_http_client_http_baseaddress_required" xml:space="preserve">
-    <value>Only 'http' and 'https' schemes are allowed.</value>
+  <data name="net_http_unsupported_requesturi_scheme" xml:space="preserve">
+    <value>The '{0}' scheme is not supported.</value>
   </data>
   <data name="net_http_parser_invalid_base64_string" xml:space="preserve">
     <value>Value '{0}' is not a valid Base64 string. Error: {1}</value>
@@ -214,19 +208,19 @@
     <value>A request message must be provided. It cannot be null.</value>
   </data>
   <data name="net_http_message_not_success_statuscode" xml:space="preserve">
+    <value>Response status code does not indicate success: {0}.</value>
+  </data>
+  <data name="net_http_message_not_success_statuscode_reason" xml:space="preserve">
     <value>Response status code does not indicate success: {0} ({1}).</value>
   </data>
   <data name="net_http_content_field_too_long" xml:space="preserve">
     <value>The field cannot be longer than {0} characters.</value>
   </data>
   <data name="net_http_log_headers_no_newlines" xml:space="preserve">
-    <value>Value for header '{0}' contains invalid new-line characters. Value: '{1}'.</value>
+    <value>Value for header '{0}' contains new-line characters. Value: '{1}'.</value>
   </data>
   <data name="net_http_log_headers_invalid_quality" xml:space="preserve">
     <value>The 'q' value is invalid: '{0}'.</value>
-  </data>
-  <data name="net_http_log_headers_wrong_email_format" xml:space="preserve">
-    <value>Value '{0}' is not a valid email address</value>
   </data>
   <data name="net_http_handler_not_assigned" xml:space="preserve">
     <value>The inner handler has not been assigned.</value>
@@ -236,9 +230,6 @@
   </data>
   <data name="net_http_content_buffersize_limit" xml:space="preserve">
     <value>Buffering more than {0} bytes is not supported.</value>
-  </data>
-  <data name="net_http_value_not_supported" xml:space="preserve">
-    <value>The value '{0}' is not supported for property '{1}'.</value>
   </data>
   <data name="net_http_io_read" xml:space="preserve">
     <value>The read operation failed, see inner exception.</value>
@@ -266,18 +257,6 @@
   </data>
   <data name="net_http_value_must_be_greater_than_or_equal" xml:space="preserve">
     <value>The specified value '{0}' must be greater than or equal to '{1}'.</value>
-  </data>
-  <data name="MailHeaderFieldInvalidCharacter" xml:space="preserve">
-    <value>An invalid character was found in the mail header: '{0}'.</value>
-  </data>
-  <data name="MailAddressInvalidFormat" xml:space="preserve">
-    <value>The specified string is not in the form required for an e-mail address.</value>
-  </data>
-  <data name="MailHeaderFieldMalformedHeader" xml:space="preserve">
-    <value>The mail header is malformed.</value>
-  </data>
-  <data name="InvalidHeaderName" xml:space="preserve">
-    <value>An invalid character was found in header name.</value>
   </data>
   <data name="net_cookie_attribute" xml:space="preserve">
     <value>The '{0}'='{1}' part of the cookie is invalid.</value>
@@ -315,9 +294,6 @@
   <data name="UnauthorizedAccess_IODenied_Path" xml:space="preserve">
     <value>Access to the path '{0}' is denied.</value>
   </data>
-  <data name="net_http_content_no_concurrent_reads" xml:space="preserve">
-    <value>The stream does not support concurrent read operations.</value>
-  </data>
   <data name="net_http_username_empty_string" xml:space="preserve">
     <value>The username for a credential object cannot be null or empty.</value>
   </data>
@@ -326,6 +302,9 @@
   </data>
   <data name="net_http_invalid_response" xml:space="preserve">
     <value>The server returned an invalid or unrecognized response.</value>
+  </data>
+  <data name="net_http_request_content_length_mismatch" xml:space="preserve">
+    <value>Sent {0} request content bytes, but Content-Length promised {1}.</value>
   </data>
   <data name="net_http_invalid_response_premature_eof" xml:space="preserve">
     <value>The response ended prematurely.</value>
@@ -345,6 +324,9 @@
   <data name="net_http_invalid_response_chunk_terminator_invalid" xml:space="preserve">
     <value>Received an invalid chunk terminator: '{0}'.</value>
   </data>
+  <data name="net_http_invalid_response_chunk_line_ending" xml:space="preserve">
+    <value>Received an invalid chunk line ending. Chunked encoding lines must be terminated by CRLF.</value>
+  </data>
   <data name="net_http_invalid_response_status_line" xml:space="preserve">
     <value>Received an invalid status line: '{0}'.</value>
   </data>
@@ -353,6 +335,9 @@
   </data>
   <data name="net_http_invalid_response_status_reason" xml:space="preserve">
     <value>Received status phrase could not be decoded with iso-8859-1: '{0}'.</value>
+  </data>
+  <data name="net_http_invalid_response_multiple_status_codes" xml:space="preserve">
+    <value>The response contained more than one status code.</value>
   </data>
   <data name="net_http_invalid_response_header_folder" xml:space="preserve">
     <value>Received an invalid folded header.</value>
@@ -369,20 +354,14 @@
   <data name="net_http_invalid_response_pseudo_header_in_trailer" xml:space="preserve">
     <value>Received an HTTP/2 pseudo-header as a trailing header.</value>
   </data>
-  <data name="net_http_unix_handler_disposed" xml:space="preserve">
-    <value>The handler was disposed of while active operations were in progress.</value>
-  </data>
   <data name="net_http_buffer_insufficient_length" xml:space="preserve">
     <value>The buffer was not long enough.</value>
   </data>
+  <data name="net_http_request_headers_exceeded_length" xml:space="preserve">
+    <value>The HTTP request headers length exceeded the server limit of {0} bytes.</value>
+  </data>
   <data name="net_http_response_headers_exceeded_length" xml:space="preserve">
     <value>The HTTP response headers length exceeded the set limit of {0} bytes.</value>
-  </data>
-  <data name="ArgumentOutOfRange_NeedNonNegativeNum" xml:space="preserve">
-    <value>Non-negative number required.</value>
-  </data>
-  <data name="ArgumentOutOfRange_NeedPosNum" xml:space="preserve">
-    <value>Positive number required.</value>
   </data>
   <data name="NotSupported_UnreadableStream" xml:space="preserve">
     <value>Stream does not support reading.</value>
@@ -393,17 +372,14 @@
   <data name="ObjectDisposed_StreamClosed" xml:space="preserve">
     <value>Cannot access a closed stream.</value>
   </data>
-  <data name="net_http_feature_requires_Windows10Version1607" xml:space="preserve">
-    <value>Using this feature requires Windows 10 Version 1607.</value>
-  </data>
-  <data name="net_http_feature_UWPClientCertSupportRequiresCertInPersonalCertificateStore" xml:space="preserve">
-    <value>Client certificate was not found in the personal (\"MY\") certificate store. In UWP, client certificates are only supported if they have been added to that certificate store.</value>
-  </data>
   <data name="net_http_invalid_proxy_scheme" xml:space="preserve">
-    <value>Only the 'http' scheme is allowed for proxies.</value>
+    <value>Only the 'http', 'https', 'socks4', 'socks4a', 'socks5', and 'socks5h' schemes are allowed for proxies.</value>
   </data>
   <data name="net_http_request_invalid_char_encoding" xml:space="preserve">
     <value>Request headers must contain only ASCII characters.</value>
+  </data>
+  <data name="net_http_request_invalid_host_punycode" xml:space="preserve">
+    <value>Request Uri's host could not be Punycode encoded.</value>
   </data>
   <data name="net_http_ssl_connection_failed" xml:space="preserve">
     <value>The SSL connection could not be established, see inner exception.</value>
@@ -412,7 +388,7 @@
     <value>HTTP 1.0 does not support chunking.</value>
   </data>
   <data name="net_http_unsupported_version" xml:space="preserve">
-    <value>Request HttpVersion 0.X is not supported.  Use 1.0 or above.</value>
+    <value>Request version value must be one of 1.0, 1.1, 2.0, or 3.0.</value>
   </data>
   <data name="IO_SeekBeforeBegin" xml:space="preserve">
     <value>An attempt was made to move the position before the beginning of the stream.</value>
@@ -435,17 +411,26 @@
   <data name="net_http_http2_connection_error" xml:space="preserve">
     <value>The HTTP/2 server sent invalid data on the connection. HTTP/2 error code '{0}' (0x{1}).</value>
   </data>
+  <data name="net_http_http2_connection_close" xml:space="preserve">
+    <value>The HTTP/2 server closed the connection. HTTP/2 error code '{0}' (0x{1}).</value>
+  </data>
   <data name="net_http_http2_stream_error" xml:space="preserve">
     <value>The HTTP/2 server reset the stream. HTTP/2 error code '{0}' (0x{1}).</value>
+  </data>
+  <data name="net_http_http3_stream_error" xml:space="preserve">
+    <value>The HTTP/3 server reset the stream. HTTP/3 error code '{0}' (0x{1}).</value>
   </data>
   <data name="net_http_http2_connection_not_established" xml:space="preserve">
     <value>An HTTP/2 connection could not be established because the server did not complete the HTTP/2 handshake.</value>
   </data>
+  <data name="net_http_http2_invalidinitialstreamwindowsize" xml:space="preserve">
+    <value>The initial HTTP/2 stream window size must be between {0} and {1}.</value>
+  </data>
+  <data name="net_http_http2_frame_limit_exceeded" xml:space="preserve">
+    <value>The HTTP/2 connection was aborted because the size of the frame queue exceeded an internal limit.</value>
+  </data>
   <data name="net_MethodNotImplementedException" xml:space="preserve">
     <value>This method is not implemented by this class.</value>
-  </data>
-  <data name="event_OperationReturnedSomething" xml:space="preserve">
-    <value>{0} returned {1}.</value>
   </data>
   <data name="net_log_operation_failed_with_error" xml:space="preserve">
     <value>{0} failed with error {1}.</value>
@@ -459,44 +444,11 @@
   <data name="net_auth_message_not_encrypted" xml:space="preserve">
     <value>Protocol error: A received message contains a valid signature but it was not encrypted as required by the effective Protection Level.</value>
   </data>
-  <data name="net_securitypackagesupport" xml:space="preserve">
-    <value>The requested security package is not supported.</value>
-  </data>
-  <data name="SSPIInvalidHandleType" xml:space="preserve">
-    <value>'{0}' is not a supported handle type.</value>
-  </data>
   <data name="net_http_authconnectionfailure" xml:space="preserve">
     <value>Authentication failed because the connection could not be reused.</value>
   </data>
-  <data name="net_nego_server_not_supported" xml:space="preserve">
-    <value>Server implementation is not supported</value>
-  </data>
-  <data name="net_nego_protection_level_not_supported" xml:space="preserve">
-    <value>Requested protection level is not supported with the GSSAPI implementation currently installed.</value>
-  </data>
-  <data name="net_context_buffer_too_small" xml:space="preserve">
-    <value>Insufficient buffer space. Required: {0} Actual: {1}.</value>
-  </data>
-  <data name="net_gssapi_operation_failed_detailed" xml:space="preserve">
-    <value>GSSAPI operation failed with error - {0} ({1}).</value>
-  </data>
-  <data name="net_gssapi_operation_failed" xml:space="preserve">
-    <value>GSSAPI operation failed with status: {0} (Minor status: {1}).</value>
-  </data>
-  <data name="net_gssapi_operation_failed_detailed_majoronly" xml:space="preserve">
-    <value>GSSAPI operation failed with error - {0}.</value>
-  </data>
-  <data name="net_gssapi_operation_failed_majoronly" xml:space="preserve">
-    <value>GSSAPI operation failed with status: {0}.</value>
-  </data>
-  <data name="net_gssapi_ntlm_missing_plugin" xml:space="preserve">
-    <value>NTLM authentication requires the GSSAPI plugin 'gss-ntlmssp'.</value>
-  </data>
-  <data name="net_ntlm_not_possible_default_cred" xml:space="preserve">
-    <value>NTLM authentication is not possible with default credentials on this platform.</value>
-  </data>
-  <data name="net_nego_not_supported_empty_target_with_defaultcreds" xml:space="preserve">
-    <value>Target name should be non empty if default credentials are passed.</value>
+  <data name="net_http_authvalidationfailure" xml:space="preserve">
+    <value>Authentication validation failed with error - {0}.</value>
   </data>
   <data name="net_http_hpack_huffman_decode_failed" xml:space="preserve">
     <value>Huffman-coded literal string failed to decode.</value>
@@ -525,20 +477,23 @@
   <data name="net_http_hpack_unexpected_end" xml:space="preserve">
     <value>End of headers reached with incomplete token.</value>
   </data>
-  <data name="net_http_hpack_encode_failure" xml:space="preserve">
-    <value>Failed to HPACK encode the headers.</value>
-  </data>
   <data name="net_http_headers_exceeded_length" xml:space="preserve">
     <value>The HTTP headers length exceeded the set limit of {0} bytes.</value>
   </data>
   <data name="net_http_invalid_header_name" xml:space="preserve">
     <value>Received an invalid header name: '{0}'.</value>
   </data>
+  <data name="net_http_http3_connection_not_established" xml:space="preserve">
+    <value>An HTTP/3 connection could not be established because the server did not complete the HTTP/3 handshake.</value>
+  </data>
   <data name="net_http_http3_connection_error" xml:space="preserve">
     <value>The HTTP/3 server sent invalid data on the connection. HTTP/3 error code '{0}' (0x{1}).</value>
   </data>
-  <data name="net_http_http3_stream_error" xml:space="preserve">
-    <value>The HTTP/3 server sent invalid data on the stream. HTTP/3 error code '{0}' (0x{1}).</value>
+  <data name="net_http_http3_connection_close" xml:space="preserve">
+    <value>The HTTP/3 server closed the connection. HTTP/3 error code '{0}' (0x{1}).</value>
+  </data>
+  <data name="net_http_http3_connection_quic_error" xml:space="preserve">
+    <value>The QUIC connection with the HTTP/3 server failed on the transport level.</value>
   </data>
   <data name="net_http_retry_on_older_version" xml:space="preserve">
     <value>The server is unable to process the request using the current HTTP version and indicates the request should be retried on an older HTTP version.</value>
@@ -546,17 +501,20 @@
   <data name="net_http_content_write_larger_than_content_length" xml:space="preserve">
     <value>Unable to write content to request stream; content would exceed Content-Length.</value>
   </data>
+  <data name="net_http_qpack_invalid_index" xml:space="preserve">
+    <value>The HTTP/3 server attempted to reference the static table index {0}, which does not exist.</value>
+  </data>
   <data name="net_http_qpack_no_dynamic_table" xml:space="preserve">
     <value>The HTTP/3 server attempted to reference a dynamic table index that does not exist.</value>
   </data>
   <data name="net_http_request_timedout" xml:space="preserve">
     <value>The request was canceled due to the configured HttpClient.Timeout of {0} seconds elapsing.</value>
   </data>
+  <data name="net_http_connect_timedout" xml:space="preserve">
+    <value>A connection could not be established within the configured ConnectTimeout.</value>
+  </data>
   <data name="net_quic_connectionaborted" xml:space="preserve">
     <value>Connection aborted by peer ({0}).</value>
-  </data>
-  <data name="net_quic_notsupported" xml:space="preserve">
-    <value>QUIC is not supported on this platform. See http://aka.ms/dotnetquic</value>
   </data>
   <data name="net_quic_operationaborted" xml:space="preserve">
     <value>Operation aborted.</value>
@@ -573,16 +531,73 @@
   <data name="net_http_upgrade_not_enabled_sync" xml:space="preserve">
     <value>HTTP request version upgrade is not enabled for synchronous '{0}'. Do not use '{1}' version policy for synchronous HTTP methods.</value>
   </data>
-  <data name="net_http_requested_version_not_enabled" xml:space="preserve">
-    <value>Requesting HTTP version {0} with version policy {1} while HTTP/{2} is not enabled.</value>
-  </data>
   <data name="net_http_requested_version_cannot_establish" xml:space="preserve">
     <value>Requesting HTTP version {0} with version policy {1} while unable to establish HTTP/{2} connection.</value>
   </data>
-  <data name="net_http_requested_version_alpn_refused" xml:space="preserve">
-    <value>Requesting HTTP version {0} with version policy {1} while server returned HTTP/1.1 in ALPN.</value>
-  </data>
   <data name="net_http_requested_version_server_refused" xml:space="preserve">
     <value>Requesting HTTP version {0} with version policy {1} while server offers only version fallback.</value>
+  </data>
+  <data name="net_http_exception_during_plaintext_filter" xml:space="preserve">
+    <value>An exception occurred while invoking the PlaintextStreamFilter.</value>
+  </data>
+  <data name="net_http_null_from_connect_callback" xml:space="preserve">
+    <value>The user-supplied ConnectCallback returned null.</value>
+  </data>
+  <data name="net_http_null_from_plaintext_filter" xml:space="preserve">
+    <value>The user-supplied PlaintextStreamFilter returned null.</value>
+  </data>
+  <data name="net_http_marshalling_response_promise_from_fetch" xml:space="preserve">
+    <value>Internal error marshalling the response Promise from `fetch`.</value>
+  </data>
+  <data name="net_http_synchronous_reads_not_supported" xml:space="preserve">
+    <value>Synchronous reads are not supported, use ReadAsync instead.</value>
+  </data>
+  <data name="net_http_synchronous_writes_not_supported" xml:space="preserve">
+    <value>Synchronous writes are not supported, use WriteAsync instead.</value>
+  </data>
+  <data name="net_socks_auth_failed" xml:space="preserve">
+    <value>Failed to authenticate with the SOCKS server.</value>
+  </data>
+  <data name="net_socks_bad_address_type" xml:space="preserve">
+    <value>SOCKS server returned an unknown address type.</value>
+  </data>
+  <data name="net_socks_connection_failed" xml:space="preserve">
+    <value>SOCKS server failed to connect to the destination. Received error code 0x{0}.</value>
+  </data>
+  <data name="net_socks_ipv6_notsupported" xml:space="preserve">
+    <value>SOCKS4 does not support IPv6 addresses.</value>
+  </data>
+  <data name="net_socks_no_auth_method" xml:space="preserve">
+    <value>SOCKS server did not return a suitable authentication method.</value>
+  </data>
+  <data name="net_socks_no_ipv4_address" xml:space="preserve">
+    <value>Failed to resolve the destination host to an IPv4 address.</value>
+  </data>
+  <data name="net_socks_unexpected_version" xml:space="preserve">
+    <value>Unexpected SOCKS protocol version. Required {0}, got {1}.</value>
+  </data>
+  <data name="net_socks_string_too_long" xml:space="preserve">
+    <value>Encoding the {0} took more than the maximum of 255 bytes.</value>
+  </data>
+  <data name="net_socks_auth_required" xml:space="preserve">
+    <value>SOCKS server requested username &amp; password authentication.</value>
+  </data>
+  <data name="net_http_proxy_tunnel_returned_failure_status_code" xml:space="preserve">
+    <value>The proxy tunnel request to proxy '{0}' failed with status code '{1}'."</value>
+  </data>
+  <data name="net_http_proxy_tunnel_error" xml:space="preserve">
+    <value>An error occurred while establishing a connection to the proxy tunnel.</value>
+  </data>
+  <data name="PlatformNotSupported_NetHttp" xml:space="preserve">
+    <value>System.Net.Http is not supported on this platform.</value>
+  </data>
+  <data name="net_http_chunk_too_large" xml:space="preserve">
+    <value>The HTTP/1.1 response chunk was too large.</value>
+  </data>
+  <data name="net_unsupported_extended_connect" xml:space="preserve">
+    <value>The HTTP/2 server does not support extended CONNECT requests. Try to downgrade the request version to HTTP/1.1.</value>
+  </data>
+  <data name="net_ping_request_timed_out" xml:space="preserve">
+    <value>The HTTP/2 server didn't respond to a ping request within the configured KeepAlivePingDelay.</value>
   </data>
 </root>

@@ -2,19 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Diagnostics;
 using System.Collections;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Runtime.InteropServices;
-using System.Net;
-using System.Security.Principal;
 using System.Collections.Specialized;
+using System.Diagnostics;
 using System.DirectoryServices;
+using System.DirectoryServices.ActiveDirectory;
+using System.Globalization;
+using System.Net;
+using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using MACLPrinc = System.Security.Principal;
-using System.Security.AccessControl;
-using System.DirectoryServices.ActiveDirectory;
 
 namespace System.DirectoryServices.AccountManagement
 {
@@ -139,11 +139,11 @@ namespace System.DirectoryServices.AccountManagement
                 // to build a list of ldap attributes for each object type.
                 if (null != ldapAttribute)
                 {
-                    if (propertyNameToLdapAttr.ContainsKey(propertyName))
+                    if (propertyNameToLdapAttr.TryGetValue(propertyName, out string[] ldapAttributes))
                     {
-                        string[] props = new string[propertyNameToLdapAttr[propertyName].Length + 1];
-                        propertyNameToLdapAttr[propertyName].CopyTo(props, 0);
-                        props[propertyNameToLdapAttr[propertyName].Length] = ldapAttribute;
+                        string[] props = new string[ldapAttributes.Length + 1];
+                        ldapAttributes.CopyTo(props, 0);
+                        props[ldapAttributes.Length] = ldapAttribute;
                         propertyNameToLdapAttr[propertyName] = props;
                     }
                     else
@@ -155,14 +155,12 @@ namespace System.DirectoryServices.AccountManagement
                 // (it's probably read-only, e.g., "lastLogon").
                 if (toLdap != null)
                 {
-                    if (mappingTableByProperty[propertyName] == null)
-                        mappingTableByProperty[propertyName] = new ArrayList();
+                    mappingTableByProperty[propertyName] ??= new ArrayList();
 
                     ((ArrayList)mappingTableByProperty[propertyName]).Add(propertyEntry);
                 }
 
-                if (mappingTableByPropertyFull[propertyName] == null)
-                    mappingTableByPropertyFull[propertyName] = new ArrayList();
+                mappingTableByPropertyFull[propertyName] ??= new ArrayList();
 
                 ((ArrayList)mappingTableByPropertyFull[propertyName]).Add(propertyEntry);
 
@@ -173,8 +171,7 @@ namespace System.DirectoryServices.AccountManagement
                 {
                     string ldapAttributeLower = ldapAttribute.ToLowerInvariant();
 
-                    if (mappingTableByLDAP[ldapAttributeLower] == null)
-                        mappingTableByLDAP[ldapAttributeLower] = new ArrayList();
+                    mappingTableByLDAP[ldapAttributeLower] ??= new ArrayList();
 
                     ((ArrayList)mappingTableByLDAP[ldapAttributeLower]).Add(propertyEntry);
                 }
@@ -364,8 +361,8 @@ namespace System.DirectoryServices.AccountManagement
         {
             try
             {
-                Debug.Assert(p.unpersisted == true);
-                Debug.Assert(p.fakePrincipal == false);
+                Debug.Assert(p.unpersisted);
+                Debug.Assert(!p.fakePrincipal);
 
                 // Insert the principal into the store
                 SDSUtils.InsertPrincipal(
@@ -381,11 +378,11 @@ namespace System.DirectoryServices.AccountManagement
                 //((DirectoryEntry)p.UnderlyingObject).RefreshCache();
                 LoadDirectoryEntryAttributes((DirectoryEntry)p.UnderlyingObject);
 
-                // If they set p.Enabled == true, enable the principal
+                // If they set p.Enabled, enable the principal
                 EnablePrincipalIfNecessary(p);
 
                 // If they set CannotChangePassword then we need to set it here after the object is already created.
-                SetPasswordSecurityifNeccessary(p);
+                SetPasswordSecurityifNecessary(p);
 
                 // Load in the StoreKey
                 Debug.Assert(p.Key == null); // since it was previously unpersisted
@@ -474,7 +471,7 @@ namespace System.DirectoryServices.AccountManagement
             }
         }
 
-        private void SetPasswordSecurityifNeccessary(Principal p)
+        private void SetPasswordSecurityifNecessary(Principal p)
         {
             if (p.GetChangeStatusForProperty(PropertyNames.PwdInfoCannotChangePassword))
             {
@@ -497,7 +494,7 @@ namespace System.DirectoryServices.AccountManagement
             // even before we call ObjectSecurity to see if it would return null, because once ObjectSecurity returns null the
             // first time, it'll keep returning null even if we refresh the cache.
             if (!de.Properties.Contains("nTSecurityDescriptor"))
-                de.RefreshCache(new string[] { "nTSecurityDescriptor" });
+                de.RefreshCache(s_nTSecurityDescriptor);
             ActiveDirectorySecurity adsSecurity = de.ObjectSecurity;
 
             bool denySelfFound;
@@ -606,7 +603,7 @@ namespace System.DirectoryServices.AccountManagement
         {
             try
             {
-                Debug.Assert(ap.fakePrincipal == false);
+                Debug.Assert(!ap.fakePrincipal);
 
                 int uacValue;
 
@@ -663,8 +660,8 @@ namespace System.DirectoryServices.AccountManagement
             {
                 GlobalDebug.WriteLineIf(GlobalDebug.Info, "ADStoreCtx", "Update");
 
-                Debug.Assert(p.fakePrincipal == false);
-                Debug.Assert(p.unpersisted == false);
+                Debug.Assert(!p.fakePrincipal);
+                Debug.Assert(!p.unpersisted);
                 Debug.Assert(p.UnderlyingObject != null);
                 Debug.Assert(p.UnderlyingObject is DirectoryEntry);
 
@@ -696,10 +693,10 @@ namespace System.DirectoryServices.AccountManagement
             {
                 GlobalDebug.WriteLineIf(GlobalDebug.Info, "ADStoreCtx", "Delete");
 
-                Debug.Assert(p.fakePrincipal == false);
+                Debug.Assert(!p.fakePrincipal);
 
                 // Principal.Delete() shouldn't be calling us on an unpersisted Principal.
-                Debug.Assert(p.unpersisted == false);
+                Debug.Assert(!p.unpersisted);
                 Debug.Assert(p.UnderlyingObject != null);
 
                 Debug.Assert(p.UnderlyingObject is DirectoryEntry);
@@ -760,7 +757,7 @@ namespace System.DirectoryServices.AccountManagement
                         }
                     }
 
-                    // If the base objects RDN prefix is not the same as the dervied class then we need to set both
+                    // If the base objects RDN prefix is not the same as the derived class then we need to set both
                     if (defaultRdn != rdnPrefix)
                     {
                         baseObjectRdnPrefix = defaultRdn;
@@ -795,8 +792,8 @@ namespace System.DirectoryServices.AccountManagement
         internal override void InitializeUserAccountControl(AuthenticablePrincipal p)
         {
             Debug.Assert(p != null);
-            Debug.Assert(p.fakePrincipal == false);
-            Debug.Assert(p.unpersisted == true); // should only ever be called for new principals
+            Debug.Assert(!p.fakePrincipal);
+            Debug.Assert(p.unpersisted); // should only ever be called for new principals
 
             // set the userAccountControl bits on the underlying directory entry
             DirectoryEntry de = (DirectoryEntry)p.UnderlyingObject;
@@ -825,14 +822,14 @@ namespace System.DirectoryServices.AccountManagement
         {
             try
             {
-                Debug.Assert(p.fakePrincipal == false);
+                Debug.Assert(!p.fakePrincipal);
 
-                Debug.Assert(p.unpersisted == false);
+                Debug.Assert(!p.unpersisted);
 
                 DirectoryEntry de = (DirectoryEntry)p.UnderlyingObject;
                 Debug.Assert(de != null);
 
-                de.RefreshCache(new string[] { "msDS-User-Account-Control-Computed", "lockoutTime" });
+                de.RefreshCache(s_msDSUACCLockoutTime);
 
                 if (de.Properties["msDS-User-Account-Control-Computed"].Count > 0)
                 {
@@ -887,7 +884,7 @@ namespace System.DirectoryServices.AccountManagement
         {
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "ADStoreCtx", "UnlockAccount");
 
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
             WriteAttribute(p, "lockoutTime", 0);
         }
@@ -900,7 +897,7 @@ namespace System.DirectoryServices.AccountManagement
         /// <param name="newPassword">New password</param>
         internal override void SetPassword(AuthenticablePrincipal p, string newPassword)
         {
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
             Debug.Assert(p != null);
             Debug.Assert(newPassword != null);  // but it could be an empty string
@@ -919,10 +916,10 @@ namespace System.DirectoryServices.AccountManagement
         /// <param name="newPassword">New password</param>
         internal override void ChangePassword(AuthenticablePrincipal p, string oldPassword, string newPassword)
         {
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
             // Shouldn't be being called if this is the case
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
 
             Debug.Assert(p != null);
             Debug.Assert(newPassword != null);  // but it could be an empty string
@@ -947,7 +944,7 @@ namespace System.DirectoryServices.AccountManagement
         {
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "ADStoreCtx", "ExpirePassword");
 
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
             WriteAttribute(p, "pwdLastSet", 0);
         }
@@ -960,7 +957,7 @@ namespace System.DirectoryServices.AccountManagement
         {
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "ADStoreCtx", "UnexpirePassword");
 
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
             WriteAttribute(p, "pwdLastSet", -1);
         }
@@ -995,34 +992,34 @@ namespace System.DirectoryServices.AccountManagement
         internal override ResultSet FindByLockoutTime(
             DateTime dt, MatchType matchType, Type principalType)
         {
-            return FindByDate(principalType, new string[] { "lockoutTime" }, matchType, dt);
+            return FindByDate(principalType, s_lockoutTime, matchType, dt);
         }
 
         internal override ResultSet FindByLogonTime(
             DateTime dt, MatchType matchType, Type principalType)
         {
-            return FindByDate(principalType, new string[] { "lastLogon", "lastLogonTimestamp" }, matchType, dt);
+            return FindByDate(principalType, s_lastLogonTime, matchType, dt);
         }
 
         internal override ResultSet FindByPasswordSetTime(
             DateTime dt, MatchType matchType, Type principalType)
         {
-            return FindByDate(principalType, new string[] { "pwdLastSet" }, matchType, dt);
+            return FindByDate(principalType, s_pwdLastSet, matchType, dt);
         }
 
         internal override ResultSet FindByBadPasswordAttempt(
             DateTime dt, MatchType matchType, Type principalType)
         {
-            return FindByDate(principalType, new string[] { "badPasswordTime" }, matchType, dt);
+            return FindByDate(principalType, s_badPasswordTime, matchType, dt);
         }
 
         internal override ResultSet FindByExpirationTime(
             DateTime dt, MatchType matchType, Type principalType)
         {
-            return FindByDate(principalType, new string[] { "accountExpires" }, matchType, dt);
+            return FindByDate(principalType, s_accountExpires, matchType, dt);
         }
 
-        private ResultSet FindByDate(Type subtype, string[] ldapAttributes, MatchType matchType, DateTime value)
+        private ADEntriesSet FindByDate(Type subtype, string[] ldapAttributes, MatchType matchType, DateTime value)
         {
             Debug.Assert(ldapAttributes != null);
             Debug.Assert(ldapAttributes.Length > 0);
@@ -1146,7 +1143,7 @@ namespace System.DirectoryServices.AccountManagement
         internal override ResultSet GetGroupsMemberOf(Principal p)
         {
             // Enforced by the methods that call us
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
 
             DirectoryEntry gcPrincipalDe = null;
             DirectorySearcher memberOfSearcher = null;
@@ -1192,9 +1189,9 @@ namespace System.DirectoryServices.AccountManagement
                     // duplicates because the list of global groups will show up on both the GC and DC.
                     Debug.Assert(p.ContextType == ContextType.Domain);
 
-                    Forest forest = Forest.GetForest(new DirectoryContext(DirectoryContextType.Forest, this.DnsForestName, this.credentials != null ? this.credentials.UserName : null, this.credentials != null ? this.credentials.Password : null));
+                    Forest forest = Forest.GetForest(new DirectoryContext(DirectoryContextType.Forest, this.DnsForestName, this.credentials?.UserName, this.credentials?.Password));
 
-                    DirectoryContext dc = new DirectoryContext(DirectoryContextType.Domain, this.DnsDomainName, this.credentials != null ? this.credentials.UserName : null, this.credentials != null ? this.credentials.Password : null);
+                    DirectoryContext dc = new DirectoryContext(DirectoryContextType.Domain, this.DnsDomainName, this.credentials?.UserName, this.credentials?.Password);
                     DomainController dd = DomainController.FindOne(dc);
 
                     GlobalCatalog gc = null;
@@ -1213,7 +1210,7 @@ namespace System.DirectoryServices.AccountManagement
                             }
                         }
 
-                        roots.Add(new DirectoryEntry("GC://" + gc.Name + "/" + p.DistinguishedName, this.credentials != null ? this.credentials.UserName : null, this.credentials != null ? this.credentials.Password : null, this.AuthTypes));
+                        roots.Add(new DirectoryEntry("GC://" + gc.Name + "/" + p.DistinguishedName, this.credentials?.UserName, this.credentials?.Password, this.AuthTypes));
 
                         if (!string.Equals(this.DnsDomainName, gc.Domain.Name, StringComparison.OrdinalIgnoreCase))
                         {
@@ -1251,18 +1248,12 @@ namespace System.DirectoryServices.AccountManagement
                     }
                     finally
                     {
-                        if (gc != null)
-                        {
-                            gc.Dispose();
-                        }
-                        if (forest != null)
-                        {
-                            forest.Dispose();
-                        }
+                        gc?.Dispose();
+                        forest?.Dispose();
                     }
                 }
 
-                if (false == useASQ)
+                if (!useASQ)
                 {
                     // If this is ADAM then we only need to use the original object.
                     // IF AD then we will use whatever enumerators we discovered above.
@@ -1309,7 +1300,7 @@ namespace System.DirectoryServices.AccountManagement
 
                 GlobalDebug.WriteLineIf(GlobalDebug.Info, "ADStoreCtx", "GetGroupsMemberOf: principalDN={0}", principalDN);
 
-                principalDE.RefreshCache(new string[] { "memberOf", "primaryGroupID" });
+                principalDE.RefreshCache(s_memberOfPrimaryGroupId);
 
                 if ((principalDE.Properties["primaryGroupID"].Count > 0) &&
                     (principalDE.Properties["objectSid"].Count > 0))
@@ -1362,15 +1353,8 @@ namespace System.DirectoryServices.AccountManagement
             }
             finally
             {
-                if (null != gcPrincipalDe)
-                {
-                    gcPrincipalDe.Dispose();
-                }
-
-                if (null != memberOfSearcher)
-                {
-                    memberOfSearcher.Dispose();
-                }
+                gcPrincipalDe?.Dispose();
+                memberOfSearcher?.Dispose();
             }
         }
 
@@ -1390,7 +1374,7 @@ namespace System.DirectoryServices.AccountManagement
             // SID search
             //
             //
-            //  If we can read the defaultNamingContext and retrive the well known path for the foreignSecurityPrincipal container start there.
+            //  If we can read the defaultNamingContext and retrieve the well known path for the foreignSecurityPrincipal container start there.
             //  If we can only read the defaultNamingContext then start there
             //  Else just start at the base DN from the original context
             //
@@ -1436,7 +1420,7 @@ namespace System.DirectoryServices.AccountManagement
 
                         GlobalDebug.WriteLineIf(GlobalDebug.Info, "ADStoreCtx", "GetGroupsMemberOf(ctx): Read DNC of {0}", this.DefaultNamingContext);
 
-                        fspWkDn = ADUtils.RetriveWkDn(dncContainer, this.DefaultNamingContext, this.UserSuppliedServerName, Constants.GUID_FOREIGNSECURITYPRINCIPALS_CONTAINER_BYTE);
+                        fspWkDn = ADUtils.RetrieveWkDn(dncContainer, this.DefaultNamingContext, this.UserSuppliedServerName, Constants.GUID_FOREIGNSECURITYPRINCIPALS_CONTAINER_BYTE);
 
                         if (null != fspWkDn)
                         {
@@ -1445,7 +1429,7 @@ namespace System.DirectoryServices.AccountManagement
                         }
                     }
 
-                    ds = new DirectorySearcher((fspContainer != null) ? fspContainer : ((dncContainer != null ? dncContainer : this.ctxBase)));
+                    ds = new DirectorySearcher(fspContainer ?? dncContainer ?? this.ctxBase);
 
                     // Pick some reasonable default values
                     ds.PageSize = 256;
@@ -1473,7 +1457,7 @@ namespace System.DirectoryServices.AccountManagement
 
                     if (sr == null)
                     {
-                        // no match so we better do a root level search in case we are targetting a domain where
+                        // no match so we better do a root level search in case we are targeting a domain where
                         // the user is not an FSP.
 
                         GlobalDebug.WriteLineIf(GlobalDebug.Info, "ADStoreCtx", "GetGroupsMemberOf(ctx): No match");
@@ -1492,7 +1476,7 @@ namespace System.DirectoryServices.AccountManagement
                             return new EmptySet();
                     }
 
-                    // Now that we found the corresponding principal, the rest is very similiar to the plain GetGroupsMemberOf()
+                    // Now that we found the corresponding principal, the rest is very similar to the plain GetGroupsMemberOf()
                     // case, exception we're working with search results (SearchResult/ResultPropertyValueCollection) rather
                     // than DirectoryEntry/PropertyValueCollection.
                     string principalDN = (string)sr.Properties["distinguishedName"][0];
@@ -1521,12 +1505,12 @@ namespace System.DirectoryServices.AccountManagement
                 }
                 else
                 {
-                    // We don't need to retrive the Primary group ID here because we have already established that this user is not from this domain
+                    // We don't need to retrieve the Primary group ID here because we have already established that this user is not from this domain
                     // and the users primary group must be from the same domain as the user.
                     Debug.Assert(foreignPrincipal.ContextType != ContextType.ApplicationDirectory);
 
                     DirectorySearcher[] memberSearcher = { SDSUtils.ConstructSearcher(this.ctxBase) };
-                    memberSearcher[0].Filter = "(&(objectClass=Group)(member=" + foreignPrincipal.DistinguishedName + "))";
+                    memberSearcher[0].Filter = "(&(objectClass=Group)(member=" + ADUtils.EscapeRFC2254SpecialChars(foreignPrincipal.DistinguishedName) + "))";
                     memberSearcher[0].CacheResults = false;
 
                     resultSet = new ADDNLinkedAttrSet(foreignPrincipal.DistinguishedName, memberSearcher, null, null, false, this);
@@ -1540,18 +1524,15 @@ namespace System.DirectoryServices.AccountManagement
             }
             finally
             {
-                if (null != fspContainer)
-                    fspContainer.Dispose();
-                if (null != ds)
-                    ds.Dispose();
-                if (null != dncContainer)
-                    dncContainer.Dispose();
+                fspContainer?.Dispose();
+                ds?.Dispose();
+                dncContainer?.Dispose();
             }
         }
 
-        private string GetGroupDnFromGroupID(byte[] userSid, int primaryGroupId)
+        private unsafe string GetGroupDnFromGroupID(byte[] userSid, int primaryGroupId)
         {
-            IntPtr pGroupSid = IntPtr.Zero;
+            void* pGroupSid = null;
             byte[] groupSid = null;
 
             // This function is based on the technique in KB article 297951.
@@ -1570,18 +1551,18 @@ namespace System.DirectoryServices.AccountManagement
                         sddlSid = sddlSid.Substring(0, index) + "-" + ((uint)primaryGroupId).ToString(CultureInfo.InvariantCulture);
 
                         // Now, we convert the SDDL back into a SID
-                        if (UnsafeNativeMethods.ConvertStringSidToSid(sddlSid, ref pGroupSid))
+                        if (Interop.Advapi32.ConvertStringSidToSid(sddlSid, out pGroupSid) != Interop.BOOL.FALSE)
                         {
                             // Now we convert the native SID to a byte[] SID
-                            groupSid = Utils.ConvertNativeSidToByteArray(pGroupSid);
+                            groupSid = Utils.ConvertNativeSidToByteArray((IntPtr)pGroupSid);
                         }
                     }
                 }
             }
             finally
             {
-                if (pGroupSid != IntPtr.Zero)
-                    UnsafeNativeMethods.LocalFree(pGroupSid);
+                if (pGroupSid is not null)
+                    Interop.Kernel32.LocalFree(pGroupSid);
             }
 
             if (groupSid != null)
@@ -1596,7 +1577,7 @@ namespace System.DirectoryServices.AccountManagement
         internal override ResultSet GetGroupsMemberOfAZ(Principal p)
         {
             // Enforced by the methods that call us
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
             Debug.Assert(p is UserPrincipal);
 
             // Get the user SID that AuthZ will use.
@@ -1619,7 +1600,7 @@ namespace System.DirectoryServices.AccountManagement
 
             try
             {
-                if (true == ADUtils.VerifyOutboundTrust(this.DnsDomainName, (this.credentials == null ? null : this.credentials.UserName), (this.credentials == null ? null : this.credentials.Password)))
+                if (ADUtils.VerifyOutboundTrust(this.DnsDomainName, this.credentials?.UserName, this.credentials?.Password))
                 {
                     return new AuthZSet(sid, this.credentials, this.contextOptions, this.FlatDomainName, this, this.ctxBase);
                 }
@@ -1644,7 +1625,7 @@ namespace System.DirectoryServices.AccountManagement
         internal override BookmarkableResultSet GetGroupMembership(GroupPrincipal g, bool recursive)
         {
             // Enforced by the methods that call us
-            Debug.Assert(g.unpersisted == false);
+            Debug.Assert(!g.unpersisted);
 
             // Fake groups are a member of other groups, but they themselves have no members
             // (they don't even exist in the store)
@@ -1743,8 +1724,8 @@ namespace System.DirectoryServices.AccountManagement
         /// With the p's SID and then call IsMember with the ADS Path returned from the search.
         internal override bool IsMemberOfInStore(GroupPrincipal g, Principal p)
         {
-            Debug.Assert(g.unpersisted == false);
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!g.unpersisted);
+            Debug.Assert(!p.unpersisted);
 
             // Consistent with GetGroupMembership, a group that is a fake principal has no members
             if (g.fakePrincipal)
@@ -1824,12 +1805,7 @@ namespace System.DirectoryServices.AccountManagement
 
             try
             {
-                string path = string.Format(
-                    CultureInfo.InvariantCulture,
-                    "LDAP://{0}/{1}",
-                    string.IsNullOrEmpty(this.UserSuppliedServerName) ? this.DnsHostName : this.UserSuppliedServerName,
-                    this.ContextBasePartitionDN
-                    );
+                string path = $"LDAP://{(string.IsNullOrEmpty(this.UserSuppliedServerName) ? this.DnsHostName : this.UserSuppliedServerName)}/{this.ContextBasePartitionDN}";
 
                 defaultNCDirEntry = SDSUtils.BuildDirectoryEntry(path, this.credentials, this.authTypes);
 
@@ -1878,14 +1854,8 @@ namespace System.DirectoryServices.AccountManagement
             }
             finally
             {
-                if (ds != null)
-                {
-                    ds.Dispose();
-                }
-                if (defaultNCDirEntry != null)
-                {
-                    defaultNCDirEntry.Dispose();
-                }
+                ds?.Dispose();
+                defaultNCDirEntry?.Dispose();
             }
         }
 
@@ -1960,8 +1930,7 @@ namespace System.DirectoryServices.AccountManagement
             }
             finally
             {
-                if (ds != null)
-                    ds.Dispose();
+                ds?.Dispose();
             }
         }
 
@@ -2159,18 +2128,7 @@ namespace System.DirectoryServices.AccountManagement
 
                     ContextOptions remoteOptions = DefaultContextOptions.ADDefaultContextOption;
 
-#if USE_CTX_CACHE
                     PrincipalContext remoteCtx = SDSCache.Domain.GetContext(domainName, this.credentials, remoteOptions);
-#else
-                    PrincipalContext remoteCtx = new PrincipalContext(
-                                    ContextType.Domain,
-                                    domainName,
-                                    null,
-                                    (this.credentials != null ? credentials.UserName : null),
-                                    (this.credentials != null ? credentials.Password : null),
-                                    remoteOptions);
-
-#endif
                     foreignStoreCtx = remoteCtx.QueryCtx;
                 }
 
@@ -2428,6 +2386,16 @@ namespace System.DirectoryServices.AccountManagement
         protected string contextBasePartitionDN; //contains the DN of the Partition to which the user supplied context base (this.ctxBase) belongs.
         protected string dnsHostName;
         protected ulong lockoutDuration;
+        private static readonly string[] s_lockoutTime = new string[] { "lockoutTime" };
+        private static readonly string[] s_lastLogonTime = new string[] { "lastLogon", "lastLogonTimestamp" };
+        private static readonly string[] s_pwdLastSet = new string[] { "pwdLastSet" };
+        private static readonly string[] s_badPasswordTime = new string[] { "badPasswordTime" };
+        private static readonly string[] s_accountExpires = new string[] { "accountExpires" };
+        private static readonly string[] s_nTSecurityDescriptor = new string[] { "nTSecurityDescriptor" };
+        private static readonly string[] s_msDSUACCLockoutTime = new string[] { "msDS-User-Account-Control-Computed", "lockoutTime" };
+        private static readonly string[] s_memberOfPrimaryGroupId = new string[] { "memberOf", "primaryGroupID" };
+        private static readonly string[] s_lockoutDuration = new string[] { "lockoutDuration" };
+        internal static readonly char[] s_comma = new char[] { ',' };
 
         protected enum StoreCapabilityMap
         {
@@ -2437,6 +2405,9 @@ namespace System.DirectoryServices.AccountManagement
         // Must be called inside of lock(domainInfoLock)
         protected virtual void LoadDomainInfo()
         {
+            const int LdapDefaultPort = 389;
+            const int LdapsDefaultPort = 636;
+
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "ADStoreCtx", "LoadComputerInfo");
 
             Debug.Assert(this.ctxBase != null);
@@ -2449,15 +2420,29 @@ namespace System.DirectoryServices.AccountManagement
             // From that, we can build the DNS Domain Name
             this.dnsHostName = ADUtils.GetServerName(this.ctxBase);
 
+            // Pull the requested port number
+            int port = LdapDefaultPort;
+            if (Uri.TryCreate(ctxBase.Path, UriKind.Absolute, out Uri ldapUri))
+            {
+                if (ldapUri.Port != -1)
+                {
+                    port = ldapUri.Port;
+                }
+                else if (string.Equals(ldapUri.Scheme, "LDAPS", StringComparison.OrdinalIgnoreCase))
+                {
+                    port = LdapsDefaultPort;
+                }
+            }
+
             string dnsDomainName = "";
 
-            using (DirectoryEntry rootDse = new DirectoryEntry("LDAP://" + this.dnsHostName + "/rootDse", "", "", AuthenticationTypes.Anonymous))
+            using (DirectoryEntry rootDse = new DirectoryEntry($"LDAP://{this.dnsHostName}:{port}/rootDse", "", "", AuthenticationTypes.Anonymous))
             {
                 this.defaultNamingContext = (string)rootDse.Properties["defaultNamingContext"][0];
                 this.contextBasePartitionDN = this.defaultNamingContext;
 
                 // Split the naming context's DN into its RDNs
-                string[] ncComponents = defaultNamingContext.Split(new char[] { ',' });
+                string[] ncComponents = defaultNamingContext.Split(s_comma);
 
                 StringBuilder sb = new StringBuilder();
 
@@ -2534,7 +2519,7 @@ namespace System.DirectoryServices.AccountManagement
                                                     this.authTypes);
 
             // So we don't load every property
-            domainNC.RefreshCache(new string[] { "lockoutDuration" });
+            domainNC.RefreshCache(s_lockoutDuration);
 
             if (domainNC.Properties["lockoutDuration"].Count > 0)
             {
@@ -2587,5 +2572,3 @@ namespace System.DirectoryServices.AccountManagement
         }
     }
 }
-
-//#endif  // PAPI_AD

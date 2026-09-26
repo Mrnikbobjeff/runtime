@@ -7,7 +7,7 @@ using Xunit;
 
 namespace System.Numerics.Tests
 {
-    public class QuaternionTests
+    public sealed class QuaternionTests
     {
         // A test for Dot (Quaternion, Quaternion)
         [Fact]
@@ -21,6 +21,41 @@ namespace System.Numerics.Tests
 
             actual = Quaternion.Dot(a, b);
             Assert.True(MathHelper.Equal(expected, actual), $"Quaternion.Dot did not return the expected value: expected {expected} actual {actual}");
+        }
+
+        [Theory]
+        [InlineData(0.0f, 1.0f, 0.0f, 1.0f)]
+        [InlineData(1.0f, 0.0f, 1.0f, 0.0f)]
+        [InlineData(3.1434343f, 1.1234123f, 0.1234123f, -0.1234123f)]
+        [InlineData(1.0000001f, 0.0000001f, 2.0000001f, 0.0000002f)]
+        public void QuaternionIndexerGetTest(float x, float y, float z, float w)
+        {
+            var quaternion = new Quaternion(x, y, z, w);
+
+            Assert.Equal(x, quaternion[0]);
+            Assert.Equal(y, quaternion[1]);
+            Assert.Equal(z, quaternion[2]);
+            Assert.Equal(w, quaternion[3]);
+        }
+
+        [Theory]
+        [InlineData(0.0f, 1.0f, 0.0f, 1.0f)]
+        [InlineData(1.0f, 0.0f, 1.0f, 0.0f)]
+        [InlineData(3.1434343f, 1.1234123f, 0.1234123f, -0.1234123f)]
+        [InlineData(1.0000001f, 0.0000001f, 2.0000001f, 0.0000002f)]
+        public void QuaternionIndexerSetTest(float x, float y, float z, float w)
+        {
+            var quaternion = new Quaternion(0.0f, 0.0f, 0.0f, 0.0f);
+
+            quaternion[0] = x;
+            quaternion[1] = y;
+            quaternion[2] = z;
+            quaternion[3] = w;
+
+            Assert.Equal(x, quaternion[0]);
+            Assert.Equal(y, quaternion[1]);
+            Assert.Equal(z, quaternion[2]);
+            Assert.Equal(w, quaternion[3]);
         }
 
         // A test for Length ()
@@ -291,7 +326,7 @@ namespace System.Numerics.Tests
             Vector3 axis = Vector3.Normalize(new Vector3(1.0f, 2.0f, 3.0f));
             float angle = MathHelper.ToRadians(30.0f);
 
-            Quaternion expected = new Quaternion(0.0691723f, 0.1383446f, 0.207516879f, 0.9659258f);
+            Quaternion expected = new Quaternion(0.06917231f, 0.13834462f, 0.2075169f, 0.9659258f);
             Quaternion actual;
 
             actual = Quaternion.CreateFromAxisAngle(axis, angle);
@@ -510,10 +545,11 @@ namespace System.Numerics.Tests
         public void QuaternionInverseTest1()
         {
             Quaternion a = new Quaternion();
+
+            Quaternion expected = Quaternion.Zero;
             Quaternion actual = Quaternion.Inverse(a);
 
-            Assert.True(float.IsNaN(actual.X) && float.IsNaN(actual.Y) && float.IsNaN(actual.Z) && float.IsNaN(actual.W)
-                , $"Quaternion.Inverse - did not return the expected value: expected {new Quaternion(float.NaN, float.NaN, float.NaN, float.NaN)} actual {actual}");
+            Assert.Equal(expected, actual);
         }
 
         // A test for ToString ()
@@ -598,7 +634,7 @@ namespace System.Numerics.Tests
         {
             Quaternion a = new Quaternion(1.0f, 2.0f, 3.0f, 4.0f);
 
-            int expected = unchecked(a.X.GetHashCode() + a.Y.GetHashCode() + a.Z.GetHashCode() + a.W.GetHashCode());
+            int expected = HashCode.Combine(a.X, a.Y, a.Z, a.W);
             int actual = a.GetHashCode();
             Assert.Equal(expected, actual);
         }
@@ -878,6 +914,20 @@ namespace System.Numerics.Tests
             Assert.Equal(expected, actual);
         }
 
+        // A test for Zero
+        [Fact]
+        public void QuaternionZeroTest()
+        {
+            // A default value should be equal to a zero value.
+            Assert.Equal(default(Quaternion), Quaternion.Zero);
+
+            // A newly constructed value should be equal to a zero value.
+            Assert.Equal(new Quaternion(), Quaternion.Zero);
+
+            // A newly constructed value with (0, 0, 0, 0) should be equal to a zero value.
+            Assert.Equal(new Quaternion(0, 0, 0, 0), Quaternion.Zero);
+        }
+
         // A test for Identity
         [Fact]
         public void QuaternionIdentityTest()
@@ -900,7 +950,7 @@ namespace System.Numerics.Tests
 
         // A test for Quaternion comparison involving NaN values
         [Fact]
-        public void QuaternionEqualsNanTest()
+        public void QuaternionEqualsNaNTest()
         {
             Quaternion a = new Quaternion(float.NaN, 0, 0, 0);
             Quaternion b = new Quaternion(0, float.NaN, 0, 0);
@@ -927,11 +977,10 @@ namespace System.Numerics.Tests
             Assert.False(c.IsIdentity);
             Assert.False(d.IsIdentity);
 
-            // Counterintuitive result - IEEE rules for NaN comparison are weird!
-            Assert.False(a.Equals(a));
-            Assert.False(b.Equals(b));
-            Assert.False(c.Equals(c));
-            Assert.False(d.Equals(d));
+            Assert.True(a.Equals(a));
+            Assert.True(b.Equals(b));
+            Assert.True(c.Equals(c));
+            Assert.True(d.Equals(d));
         }
 
         // A test to make sure these types are blittable directly into GPU buffer memory layouts

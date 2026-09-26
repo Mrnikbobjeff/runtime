@@ -3,10 +3,12 @@ using System.Text;
 using System.Security;
 using System.Runtime.InteropServices;
 using TestLibrary;
+using Xunit;
 
 //Value Pass N-->M	M--->N
 //Cdecl		 -1		 678
-public class Test
+[ActiveIssue("https://github.com/dotnet/runtime/issues/91388", typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.PlatformDoesNotSupportNativeTestAssets))]
+public class Test_FuncPtrAsDelegateParamManaged
 {
     //TestMethod1
     [DllImport("FuncPtrAsDelegateParamNative", CallingConvention = CallingConvention.Cdecl)]
@@ -29,7 +31,8 @@ public class Test
     }
 
     [SecuritySafeCritical]
-    static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         bool breturn = true;
 
@@ -39,7 +42,7 @@ public class Test
             breturn = false;
             TestFramework.LogError("04","The Return value(DoCallBack_Cdecl) is wrong");
         }
-        
+
         return breturn ? 100: 101;
     }
 }

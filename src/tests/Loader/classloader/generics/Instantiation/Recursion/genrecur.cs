@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
+using TestLibrary;
 
 #pragma warning disable 0414
 
@@ -928,7 +930,9 @@ class Test23
   
 
 public class M {
-  public static int Main() {
+  [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+  [Fact]
+  public static int TestEntryPoint() {
     Test1.Test();
     if (Utils.failures == 0) Console.WriteLine("Test1 OK");
     Test2.Test();

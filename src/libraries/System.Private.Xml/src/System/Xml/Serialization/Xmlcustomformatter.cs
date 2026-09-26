@@ -1,23 +1,23 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
+using System.Collections;
+using System.ComponentModel;
+using System.Configuration;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Text;
+using System.Xml;
+using System.Xml.Serialization.Configuration;
+
 namespace System.Xml.Serialization
 {
-    using System;
-    using System.Xml;
-    using System.Globalization;
-    using System.ComponentModel;
-    using System.Diagnostics;
-    using System.Diagnostics.CodeAnalysis;
-    using System.Text;
-    using System.Collections;
-    using System.Configuration;
-    using System.Xml.Serialization.Configuration;
-
     /// <summary>
     ///   The <see cref="XmlCustomFormatter"/> class provides a set of static methods for converting
     ///   primitive type values to and from their XML string representations.</summary>
-    internal class XmlCustomFormatter
+    internal static class XmlCustomFormatter
     {
         private static DateTimeSerializationSection.DateTimeSerializationMode s_mode;
 
@@ -32,9 +32,8 @@ namespace System.Xml.Serialization
                 return s_mode;
             }
         }
-        private XmlCustomFormatter() { }
 
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         internal static string? FromDefaultValue(object? value, string formatter)
         {
             if (value == null) return null;
@@ -81,6 +80,11 @@ namespace System.Xml.Serialization
             return XmlConvert.ToString(value, "yyyy-MM-dd");
         }
 
+        internal static string FromDateOnly(DateOnly value)
+        {
+            return value.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
         internal static string FromTime(DateTime value)
         {
             if (!LocalAppContextSwitches.IgnoreKindInUtcTimeSerialization && value.Kind == DateTimeKind.Utc)
@@ -92,6 +96,13 @@ namespace System.Xml.Serialization
                 return XmlConvert.ToString(DateTime.MinValue + value.TimeOfDay, "HH:mm:ss.fffffffzzzzzz");
             }
         }
+
+        internal static string FromTimeOnly(TimeOnly value)
+        {
+            return value.ToString("HH:mm:ss.FFFFFFF", CultureInfo.InvariantCulture);
+        }
+
+        internal static string FromTimeOnlyIgnoreOffset(TimeOnly value) => FromTimeOnly(value);
 
         internal static string FromDateTime(DateTime value)
         {
@@ -106,30 +117,51 @@ namespace System.Xml.Serialization
             }
         }
 
+        internal static bool TryFormatDateTime(DateTime value, Span<char> destination, out int charsWritten)
+        {
+            if (Mode == DateTimeSerializationSection.DateTimeSerializationMode.Local)
+            {
+                return XmlConvert.TryFormat(value, "yyyy-MM-ddTHH:mm:ss.fffffffzzzzzz", destination, out charsWritten);
+            }
+
+            // for mode DateTimeSerializationMode.Roundtrip and DateTimeSerializationMode.Default
+            return XmlConvert.TryFormat(value, XmlDateTimeSerializationMode.RoundtripKind, destination, out charsWritten);
+        }
+
+        internal static bool TryFormatDateOnly(DateOnly value, Span<char> destination, out int charsWritten)
+        {
+            return value.TryFormat(destination, out charsWritten, "yyyy-MM-dd");
+        }
+
+        internal static bool TryFormatTimeOnly(TimeOnly value, Span<char> destination, out int charsWritten)
+        {
+            return value.TryFormat(destination, out charsWritten, "HH:mm:ss.FFFFFFF");
+        }
+
         internal static string FromChar(char value)
         {
             return XmlConvert.ToString((ushort)value);
         }
 
-        [return: NotNullIfNotNull("name")]
+        [return: NotNullIfNotNull(nameof(name))]
         internal static string? FromXmlName(string? name)
         {
             return XmlConvert.EncodeName(name);
         }
 
-        [return: NotNullIfNotNull("ncName")]
+        [return: NotNullIfNotNull(nameof(ncName))]
         internal static string? FromXmlNCName(string? ncName)
         {
             return XmlConvert.EncodeLocalName(ncName);
         }
 
-        [return: NotNullIfNotNull("nmToken")]
+        [return: NotNullIfNotNull(nameof(nmToken))]
         internal static string? FromXmlNmToken(string? nmToken)
         {
             return XmlConvert.EncodeNmToken(nmToken);
         }
 
-        [return: NotNullIfNotNull("nmTokens")]
+        [return: NotNullIfNotNull(nameof(nmTokens))]
         internal static string? FromXmlNmTokens(string? nmTokens)
         {
             if (nmTokens == null)
@@ -158,7 +190,7 @@ namespace System.Xml.Serialization
             writer.WriteBase64(inData, start, count);
         }
 
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         internal static string? FromByteArrayHex(byte[]? value)
         {
             if (value == null)
@@ -202,7 +234,7 @@ namespace System.Xml.Serialization
             if (val != 0)
             {
                 // failed to parse the enum value
-                throw new InvalidOperationException(SR.Format(SR.XmlUnknownConstant, originalValue, typeName == null ? "enum" : typeName));
+                throw new InvalidOperationException(SR.Format(SR.XmlUnknownConstant, originalValue, typeName ?? "enum"));
             }
             if (sb.Length == 0 && iZero >= 0)
             {
@@ -383,6 +415,11 @@ namespace System.Xml.Serialization
             return ToDateTime(value, s_allDateFormats);
         }
 
+        internal static DateOnly ToDateOnly(string value)
+        {
+            return DateOnly.ParseExact(value, "yyyy-MM-dd", DateTimeFormatInfo.InvariantInfo, DateTimeStyles.AllowLeadingWhite | DateTimeStyles.AllowTrailingWhite);
+        }
+
         internal static DateTime ToTime(string value)
         {
             if (!LocalAppContextSwitches.IgnoreKindInUtcTimeSerialization)
@@ -395,36 +432,58 @@ namespace System.Xml.Serialization
             }
         }
 
+        internal static TimeOnly ToTimeOnly(string value)
+        {
+            if (LocalAppContextSwitches.AllowXsdTimeToTimeOnlyWithOffsetLoss)
+            {
+                return ToTimeOnlyIgnoreOffset(value);
+            }
+
+            // Strictly parse the expected TimeOnly format.
+            return TimeOnly.ParseExact(value, "HH:mm:ss.FFFFFFF", DateTimeFormatInfo.InvariantInfo, DateTimeStyles.AllowLeadingWhite | DateTimeStyles.AllowTrailingWhite);
+        }
+
+        internal static TimeOnly ToTimeOnlyIgnoreOffset(string value)
+        {
+            // Previous workarounds for lack of TimeOnly support included serializing a TimeOnly with 'DataType="time"'.
+            // xsd:time potentially contains an offset designation though, which TimeOnly does not. This would be considered
+            // a loss of data. If the intent was never to include that data, this switch allows for TimeOnly to receive
+            // data from an xsd:time, even if it contains offset information.
+            // Use DateTimeOffset so the time of day is not adjusted for the offset.
+            var dto = DateTimeOffset.ParseExact(value, s_allTimeFormats, DateTimeFormatInfo.InvariantInfo, DateTimeStyles.AllowLeadingWhite | DateTimeStyles.AllowTrailingWhite);
+            return TimeOnly.FromTimeSpan(dto.TimeOfDay);
+        }
+
         internal static char ToChar(string value)
         {
             return (char)XmlConvert.ToUInt16(value);
         }
 
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         internal static string? ToXmlName(string? value)
         {
             return XmlConvert.DecodeName(CollapseWhitespace(value));
         }
 
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         internal static string? ToXmlNCName(string? value)
         {
             return XmlConvert.DecodeName(CollapseWhitespace(value));
         }
 
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         internal static string? ToXmlNmToken(string? value)
         {
             return XmlConvert.DecodeName(CollapseWhitespace(value));
         }
 
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         internal static string? ToXmlNmTokens(string? value)
         {
             return XmlConvert.DecodeName(CollapseWhitespace(value));
         }
 
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         internal static byte[]? ToByteArrayBase64(string? value)
         {
             if (value == null) return null;
@@ -434,12 +493,11 @@ namespace System.Xml.Serialization
             return Convert.FromBase64String(value);
         }
 
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         internal static byte[]? ToByteArrayHex(string? value)
         {
             if (value == null) return null;
-            value = value.Trim();
-            return XmlConvert.FromBinHexString(value);
+            return XmlConvert.FromBinHexString(value.AsSpan().Trim(), true);
         }
 
         internal static long ToEnum(string val, Hashtable vals, string? typeName, bool validate)
@@ -457,7 +515,7 @@ namespace System.Xml.Serialization
             return value;
         }
 
-        [return: NotNullIfNotNull("value")]
+        [return: NotNullIfNotNull(nameof(value))]
         private static string? CollapseWhitespace(string? value)
         {
             if (value == null)

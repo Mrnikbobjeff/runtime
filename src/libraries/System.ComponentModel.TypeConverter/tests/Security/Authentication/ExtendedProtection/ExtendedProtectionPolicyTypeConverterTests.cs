@@ -17,7 +17,7 @@ namespace System.Security.Authentication.ExtendedProtection.Tests
         [InlineData(null)]
         [InlineData(typeof(float))]
         [InlineData(typeof(TypeConverter))]
-        public void CanConvertTo_NegativeTests(Type destinationType)
+        public void CanConvertTo_NegativeTests(Type? destinationType)
         {
             Assert.False(converter.CanConvertTo(null, destinationType));
         }
@@ -30,14 +30,14 @@ namespace System.Security.Authentication.ExtendedProtection.Tests
         }
 
         [Fact]
-        [PlatformSpecific(~TestPlatforms.Browser)] // System.Net.Security is not supported on this platform.
+        [SkipOnPlatform(TestPlatforms.Browser, "System.Net.Security is not supported on this platform.")]
         public void ConvertTo_NullTypeTests()
         {
             Assert.Throws<ArgumentNullException>(() => converter.ConvertTo(null, CultureInfo.InvariantCulture, new ExtendedProtectionPolicy(PolicyEnforcement.Never), null));
         }
 
         [Fact]
-        [PlatformSpecific(~TestPlatforms.Browser)] // System.Net.Security is not supported on this platform.
+        [SkipOnPlatform(TestPlatforms.Browser, "System.Net.Security is not supported on this platform.")]
         public void ConvertTo_PositiveTests()
         {
             ExtendedProtectionPolicy policy = new ExtendedProtectionPolicy(PolicyEnforcement.Never);
@@ -57,7 +57,8 @@ namespace System.Security.Authentication.ExtendedProtection.Tests
         }
 
         [Theory]
-        [PlatformSpecific(~TestPlatforms.Browser)] // System.Net.Security is not supported on this platform.
+        [SkipOnPlatform(TestPlatforms.Browser, "System.Net.Security is not supported on this platform.")]
+        [SkipOnPlatform(TestPlatforms.Wasi, "System.Net.Security is not supported on this platform.")]
         [InlineData(typeof(int))]
         [InlineData(typeof(ExtendedProtectionPolicy))]
         [InlineData(typeof(bool))]

@@ -1,11 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <FeatureInterpret>true</FeatureInterpret>
-    <IsInterpreting>false</IsInterpreting>
-    <DefineConstants Condition=" '$(IsInterpreting)' != 'true' ">$(DefineConstants);FEATURE_COMPILE</DefineConstants>
-    <DefineConstants Condition=" '$(FeatureInterpret)' == 'true' ">$(DefineConstants);FEATURE_INTERPRET</DefineConstants>
-    <TargetFrameworks>$(NetCoreAppCurrent)</TargetFrameworks>
+    <TargetFrameworks>$(NetCoreAppCurrent);$(NetCoreAppCurrent)-ios;$(NetCoreAppCurrent)-tvos;$(NetCoreAppCurrent)-maccatalyst</TargetFrameworks>
+    <IncludeRemoteExecutor>true</IncludeRemoteExecutor>
+    <!-- https://github.com/dotnet/runtime/issues/126862 -->
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <EnableAotAnalyzer>false</EnableAotAnalyzer>
   </PropertyGroup>
+
+  <ItemGroup>
+    <RdXmlFile Include="default.rd.xml" />
+  </ItemGroup>
+
   <ItemGroup>
     <AssembliesBeingTested Include="Microsoft.CSharp" />
   </ItemGroup>
@@ -180,6 +185,7 @@
     <Compile Include="TestExtensions\PerCompilationTypeAttribute.cs" />
     <Compile Include="TestExtensions\TestOrderer.cs" />
     <Compile Include="TestExtensions\TestOrderAttribute.cs" />
+    <Compile Include="TrimCompatibilityTests.cs" />
     <Compile Include="TypeBinary\TypeBinaryTests.cs" />
     <Compile Include="TypeBinary\TypeEqual.cs" />
     <Compile Include="TypeBinary\TypeIs.cs" />
@@ -219,9 +225,9 @@
     <Compile Include="Variables\VariableTests.cs" />
     <Compile Include="Visitor\VisitorTests.cs" />
   </ItemGroup>
-  <ItemGroup Condition=" '$(IsInterpreting)' != 'true' ">
-    <Compile Include="$(CommonTestPath)System\Collections\DictionaryExtensions.cs"
-             Link="Common\System\Collections\DictionaryExtensions.cs" />
+  <ItemGroup>
+    <Compile Include="$(CommonPath)Polyfills\DictionaryPolyfills.cs"
+             Link="Common\Polyfills\DictionaryPolyfills.cs" />
     <Compile Include="ILReader\DynamicMethodILProvider.cs" />
     <Compile Include="ILReader\DynamicScopeTokenResolver.cs" />
     <Compile Include="ILReader\FormatProvider.cs" />

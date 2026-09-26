@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Runtime.InteropServices;
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 
 namespace System.DirectoryServices.ActiveDirectory
 {
@@ -19,7 +19,7 @@ namespace System.DirectoryServices.ActiveDirectory
         private TopLevelNameStatus _status;
         internal readonly LARGE_INTEGER time;
 
-        internal TopLevelName(int flag, LSA_UNICODE_STRING val, LARGE_INTEGER time)
+        internal TopLevelName(int flag, global::Interop.UNICODE_STRING val, LARGE_INTEGER time)
         {
             _status = (TopLevelNameStatus)flag;
             Name = Marshal.PtrToStringUni(val.Buffer, val.Length / 2);

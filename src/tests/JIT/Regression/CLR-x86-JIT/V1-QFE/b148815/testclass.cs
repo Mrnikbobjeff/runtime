@@ -3,13 +3,16 @@
 //
 
 using System;
+using Xunit;
 
 namespace TestClass
 {
 
     public class Test
     {
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             double a = new TestClass().ApplyTime();
             if (a == 5000)

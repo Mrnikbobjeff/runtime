@@ -31,7 +31,9 @@ namespace System.Text.Json
             {
                 Debug.Assert(value >= 0);
                 if (value > JsonCommentHandling.Allow)
-                    throw ThrowHelper.GetArgumentOutOfRangeException_CommentEnumMustBeInRange(nameof(value));
+                {
+                    ThrowHelper.ThrowArgumentOutOfRangeException_CommentEnumMustBeInRange(nameof(value));
+                }
 
                 _commentHandling = value;
             }
@@ -52,7 +54,9 @@ namespace System.Text.Json
             set
             {
                 if (value < 0)
-                    throw ThrowHelper.GetArgumentOutOfRangeException_MaxDepthMustBePositive(nameof(value));
+                {
+                    ThrowHelper.ThrowArgumentOutOfRangeException_MaxDepthMustBePositive(nameof(value));
+                }
 
                 _maxDepth = value;
             }
@@ -66,5 +70,14 @@ namespace System.Text.Json
         /// By default, it's set to false, and <exception cref="JsonException"/> is thrown if a trailing comma is encountered.
         /// </remarks>
         public bool AllowTrailingCommas { get; set; }
+
+        /// <summary>
+        /// Defines whether the <see cref="Utf8JsonReader"/> should tolerate
+        /// zero or more top-level JSON values that are whitespace separated.
+        /// </summary>
+        /// <remarks>
+        /// By default, it's set to false, and <exception cref="JsonException"/> is thrown if trailing content is encountered after the first top-level JSON value.
+        /// </remarks>
+        public bool AllowMultipleValues { get; set; }
     }
 }

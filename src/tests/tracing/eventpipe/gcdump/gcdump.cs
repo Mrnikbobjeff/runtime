@@ -1,11 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-// See the LICENSE file in the project root for more information.
 
 using System;
 using System.Diagnostics.Tracing;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
@@ -15,12 +15,16 @@ using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Parsers;
 using Tracing.Tests.Common;
 using Microsoft.Diagnostics.Tracing.Parsers.Clr;
+using Xunit;
+using TestLibrary;
 
 namespace Tracing.Tests.EventSourceError
 {
     // Regression test for https://github.com/dotnet/runtime/issues/38639 
     public class GCDumpTest
     {
+        private static bool _seenGCStart = false;
+        private static bool _seenGCStop = false;
         private static int _bulkTypeCount = 0;
         private static int _bulkNodeCount = 0;
         private static int _bulkEdgeCount = 0;
@@ -28,19 +32,24 @@ namespace Tracing.Tests.EventSourceError
         private static int _bulkRootStaticVarCount = 0;
 
         private static readonly ulong GC_HeapDump_Keyword = 0x100000UL;
+        private static ManualResetEvent _gcStopReceived = new ManualResetEvent(false);
 
-        public static int Main(string[] args)
+        [ActiveIssue("System.Diagnostics.Process is not supported on wasm", TestPlatforms.Browser)]
+        [ActiveIssue("Can't find file dotnet-diagnostic-{pid}-*-socket", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoRuntime), nameof(PlatformDetection.IsRiscv64Process))]
+        [SkipOnCoreClr("This test is sensitive to JIT optimizations.", RuntimeTestModes.AnyJitOptimizationStress)]
+        [SkipOnCoreClr("Tracing tests routinely time out with JIT stress and GC stress.", RuntimeTestModes.AnyGCStress)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             // This test validates that if an EventSource generates an error
             // during construction it gets emitted over EventPipe
 
-            List<Provider> providers = new List<Provider>
+            List<EventPipeProvider> providers = new List<EventPipeProvider>
             {
-                new Provider("Microsoft-Windows-DotNETRuntime", eventLevel: EventLevel.Verbose, keywords: (ulong)ClrTraceEventParser.Keywords.GCHeapSnapshot)
+                new EventPipeProvider("Microsoft-Windows-DotNETRuntime", eventLevel: EventLevel.Verbose, keywords: (long)ClrTraceEventParser.Keywords.GCHeapSnapshot)
             };
 
-            var configuration = new SessionConfiguration(circularBufferSizeMB: 1024, format: EventPipeSerializationFormat.NetTrace,  providers: providers);
-            return IpcTraceTest.RunAndValidateEventCounts(_expectedEventCounts, _eventGeneratingAction, configuration, _DoesRundownContainMethodEvents);
+            return IpcTraceTest.RunAndValidateEventCounts(_expectedEventCounts, _eventGeneratingAction, providers, 1024, _DoesRundownContainMethodEvents);
         }
 
         private static Dictionary<string, ExpectedEventCount> _expectedEventCounts = new Dictionary<string, ExpectedEventCount>()
@@ -50,11 +59,17 @@ namespace Tracing.Tests.EventSourceError
 
         private static Action _eventGeneratingAction = () =>
         {
-            // This space intentionally left blank
+            // Wait up to 10 seconds to receive GCStop event.
+            _gcStopReceived.WaitOne(10000);
         };
 
         private static Func<EventPipeEventSource, Func<int>> _DoesRundownContainMethodEvents = (source) =>
         {
+            source.Clr.GCStart += (GCStartTraceData data) =>
+            {
+                _seenGCStart = true;
+            };
+
             source.Clr.TypeBulkType += (GCBulkTypeTraceData data) =>
             {
                 _bulkTypeCount += data.Count;
@@ -80,23 +95,33 @@ namespace Tracing.Tests.EventSourceError
                 _bulkRootStaticVarCount += data.Count;
             };
 
+            source.Clr.GCStop += (GCEndTraceData data) =>
+            {
+                _seenGCStop = true;
+                _gcStopReceived.Set();
+            };
+
             return () => 
             {
                 // Hopefully it is low enough to be resilient to changes in the runtime
                 // and high enough to catch issues. There should be between hundreds and thousands
                 // for each, but the number is variable and the point of the test is to verify
                 // that we get any events at all.
-                if (_bulkTypeCount > 50
+                
+                if (_seenGCStart
+                     && _seenGCStop
+                     && _bulkTypeCount > 50
                      && _bulkNodeCount > 50
-                     && _bulkEdgeCount > 50
-                     && _bulkRootEdgeCount > 50
-                     && _bulkRootStaticVarCount > 50)
+                     && _bulkEdgeCount > 50)
                 {
-                    return 100;
+                    // Native AOT hasn't yet implemented statics. Hence _bulkRootStaticVarCount is zero and _bulkRootEdgeCount can be low
+                    if ((TestLibrary.Utilities.IsNativeAot && _bulkRootEdgeCount > 20) || (_bulkRootStaticVarCount > 50 && _bulkRootEdgeCount > 50))
+                        return 100;
                 }
 
-
                 Console.WriteLine($"Test failed due to missing GC heap events.");
+                Console.WriteLine($"_seenGCStart =            {_seenGCStart}");
+                Console.WriteLine($"_seenGCStop =             {_seenGCStop}");
                 Console.WriteLine($"_bulkTypeCount =          {_bulkTypeCount}");
                 Console.WriteLine($"_bulkNodeCount =          {_bulkNodeCount}");
                 Console.WriteLine($"_bulkEdgeCount =          {_bulkEdgeCount}");

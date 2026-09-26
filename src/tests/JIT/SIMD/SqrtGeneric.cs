@@ -3,14 +3,24 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using Xunit;
 
-namespace VectorMathTests
+namespace SIMDTests.SqrtGenericTests
 {
-    class Program
+    public class Program
     {
-        static int Main(string[] args)
+        public const int DefaultSeed = 20010415;
+        public static int Seed = Environment.GetEnvironmentVariable("CORECLR_SEED") switch
         {
-            Random random = new Random(13);
+            string seedStr when seedStr.Equals("random", StringComparison.OrdinalIgnoreCase) => new Random().Next(),
+            string seedStr when int.TryParse(seedStr, out int envSeed) => envSeed,
+            _ => DefaultSeed
+        };
+
+        [Fact]
+        public static int TestEntryPoint()
+        {
+            Random random = new Random(Seed);
             var a = new System.Numerics.Vector<short>(25);
             a = System.Numerics.Vector.SquareRoot(a);
             if (a[0] != 5)

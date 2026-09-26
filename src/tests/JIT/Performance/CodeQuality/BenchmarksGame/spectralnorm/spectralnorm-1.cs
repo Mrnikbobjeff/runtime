@@ -7,6 +7,7 @@
 // Best-scoring single-threaded C# .NET Core version as of 2017-09-01
 
 /* The Computer Language Benchmarks Game
+using TestLibrary;
    http://benchmarksgame.alioth.debian.org/
  
    contributed by Isaac Gouy 
@@ -14,19 +15,23 @@
 
 using System;
 using System.Runtime.CompilerServices;
-using Microsoft.Xunit.Performance;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
 
 namespace BenchmarksGame
 {
     public class SpectralNorm_1
     {
-        public static int Main(String[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [Fact]
+        public static int TestEntryPoint()
         {
-            int n = 100;
-            if (args.Length > 0) n = Int32.Parse(args[0]);
+            return Test(null);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static int Test(int? arg)
+        {
+            int n = arg ?? 100;
 
             double norm = new SpectralNorm_1().Bench(n);
             Console.WriteLine("{0:f9}", norm);
@@ -34,17 +39,6 @@ namespace BenchmarksGame
             double expected = 1.274219991;
             bool result = Math.Abs(norm - expected) < 1e-4;
             return (result ? 100 : -1);
-        }
-
-        [Benchmark(InnerIterationCount = 700)]
-        public static void RunBench()
-        {
-            var obj = new SpectralNorm_1();
-            double norm = 0.0;
-            Benchmark.Iterate(() => { norm = obj.Bench(100); });
-
-            double expected = 1.274219991;
-            Assert.True(Math.Abs(norm - expected) < 1e-4);
         }
 
         [MethodImpl(MethodImplOptions.NoInlining)]

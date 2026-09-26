@@ -1,49 +1,98 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Threading;
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using System.Runtime.ExceptionServices;
+using System.Threading;
 
 namespace System.Diagnostics
 {
-    public sealed class ActivitySource : IDisposable
+    [DebuggerDisplay("Name = {Name}")]
+    public class ActivitySource : IDisposable
     {
         private static readonly SynchronizedList<ActivitySource> s_activeSources = new SynchronizedList<ActivitySource>();
         private static readonly SynchronizedList<ActivityListener> s_allListeners = new SynchronizedList<ActivityListener>();
+        private static readonly SynchronizedList<ActivityListener> s_disposedListeners = new SynchronizedList<ActivityListener>();
         private SynchronizedList<ActivityListener>? _listeners;
 
         /// <summary>
         /// Construct an ActivitySource object with the input name
         /// </summary>
         /// <param name="name">The name of the ActivitySource object</param>
-        /// <param name="version">The version of the component publishing the tracing info.</param>
-        public ActivitySource(string name, string? version = "")
-        {
-            if (name == null)
-            {
-                throw new ArgumentNullException(nameof(name));
-            }
+        public ActivitySource(string name) : this(name, version: "", tags: null, scope: null, telemetrySchemaUrl: null) {}
 
-            Name = name;
+        /// <summary>
+        /// Construct an ActivitySource object with the input name
+        /// </summary>
+        /// <param name="name">The name of the ActivitySource object</param>
+        /// <param name="version">The version of the component publishing the tracing info.</param>
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public ActivitySource(string name, string? version = "") : this(name, version, tags: null, scope: null, telemetrySchemaUrl: null) {}
+
+        /// <summary>
+        /// Construct an ActivitySource object with the input name
+        /// </summary>
+        /// <param name="name">The name of the ActivitySource object</param>
+        /// <param name="version">The version of the component publishing the tracing info.</param>
+        /// <param name="tags">The optional ActivitySource tags.</param>
+        public ActivitySource(string name, string? version = "", IEnumerable<KeyValuePair<string, object?>>? tags = default) : this(name, version, tags, scope: null, telemetrySchemaUrl: null) {}
+
+        /// <summary>
+        /// Initialize a new instance of the ActivitySource object using the <see cref="ActivitySourceOptions" />.
+        /// </summary>
+        /// <param name="options">The <see cref="ActivitySourceOptions" /> object to use for initializing the ActivitySource object.</param>
+        public ActivitySource(ActivitySourceOptions options) : this((options ?? throw new ArgumentNullException(nameof(options))).Name, options.Version, options.Tags, options.Scope, options.TelemetrySchemaUrl) {}
+
+        private ActivitySource(string name, string? version, IEnumerable<KeyValuePair<string, object?>>? tags, object? scope, string? telemetrySchemaUrl)
+        {
+            Name = name ?? throw new ArgumentNullException(nameof(name));
             Version = version;
+            Scope = scope;
+            TelemetrySchemaUrl = telemetrySchemaUrl;
+
+            // Sorting the tags to make sure the tags are always in the same order.
+            // Sorting can help in comparing the tags used for any scenario.
+            if (tags is not null)
+            {
+                var tagList = new List<KeyValuePair<string, object?>>(tags);
+                tagList.Sort((left, right) => string.Compare(left.Key, right.Key, StringComparison.Ordinal));
+                Tags = tagList.AsReadOnly();
+            }
 
             s_activeSources.Add(this);
 
-            if (s_allListeners.Count > 0)
+            s_allListeners.EnumWithAction((listener, source) =>
             {
-                s_allListeners.EnumWithAction((listener, source) =>
+                Func<ActivitySource, bool>? shouldListenTo = listener.ShouldListenTo;
+                if (shouldListenTo != null)
                 {
-                    Func<ActivitySource, bool>? shouldListenTo = listener.ShouldListenTo;
-                    if (shouldListenTo != null)
+                    var activitySource = (ActivitySource)source;
+                    if (shouldListenTo(activitySource))
                     {
-                        var activitySource = (ActivitySource)source;
-                        if (shouldListenTo(activitySource))
-                        {
-                            activitySource.AddListener(listener);
-                        }
+                        activitySource.AddListener(listener);
+                    }
+                }
+            }, this);
+
+            // If a listener was disposed concurrently with the walk above, its DetachListener
+            // sweep may have passed this source before we attached, leaving the listener
+            // resurrected on us. Sweep our own listeners and detach any disposed entries; the
+            // per-list ops are idempotent so racing Dispose's walk per listener is safe.
+            SynchronizedList<ActivityListener>? listeners = Volatile.Read(ref _listeners);
+            if (listeners is not null && !ReferenceEquals(listeners, s_disposedListeners))
+            {
+                listeners.EnumWithAction((listener, source) =>
+                {
+                    if (listener.IsDisposed)
+                    {
+                        ((ActivitySource)source).RemoveListener(listener);
                     }
                 }, this);
             }
+
+            GC.KeepAlive(DiagnosticSourceEventSource.Log);
         }
 
         /// <summary>
@@ -57,6 +106,21 @@ namespace System.Diagnostics
         public string? Version { get; }
 
         /// <summary>
+        /// Returns the tags associated with the ActivitySource.
+        /// </summary>
+        public IEnumerable<KeyValuePair<string, object?>>? Tags { get; }
+
+        /// <summary>
+        /// Returns the ActivitySource scope object.
+        /// </summary>
+        public object? Scope { get; }
+
+        /// <summary>
+        /// Returns the telemetry schema URL associated with the ActivitySource.
+        /// </summary>
+        public string? TelemetrySchemaUrl { get; }
+
+        /// <summary>
         /// Check if there is any listeners for this ActivitySource.
         /// This property can be helpful to tell if there is no listener, then no need to create Activity object
         /// and avoid creating the objects needed to create Activity (e.g. ActivityContext)
@@ -65,7 +129,9 @@ namespace System.Diagnostics
         public bool HasListeners()
         {
             SynchronizedList<ActivityListener>? listeners = _listeners;
-            return listeners != null && listeners.Count > 0;
+            return listeners != null
+                && !ReferenceEquals(listeners, s_disposedListeners)
+                && listeners.Count > 0;
         }
 
         /// <summary>
@@ -74,11 +140,56 @@ namespace System.Diagnostics
         /// <param name="name">The operation name of the Activity</param>
         /// <param name="kind">The <see cref="ActivityKind"/></param>
         /// <returns>The created <see cref="Activity"/> object or null if there is no any event listener.</returns>
-        public Activity? StartActivity(string name, ActivityKind kind = ActivityKind.Internal)
-            => StartActivity(name, kind, default, null, null, null, default);
+        /// <remarks>
+        /// If the Activity object is created, it will not start automatically. Callers need to call <see cref="Activity.Start()"/> to start it.
+        /// </remarks>
+        public Activity? CreateActivity(string name, ActivityKind kind)
+            => CreateActivity(name, kind, default, null, null, null, default, startIt: false);
 
         /// <summary>
-        /// Creates a new <see cref="Activity"/> object if there is any listener to the Activity events, returns null otherwise.
+        /// Creates a new <see cref="Activity"/> object if there is any listener to the Activity, returns null otherwise.
+        /// If the Activity object is created, it will not automatically start. Callers will need to call <see cref="Activity.Start()"/> to start it.
+        /// </summary>
+        /// <param name="name">The operation name of the Activity.</param>
+        /// <param name="kind">The <see cref="ActivityKind"/></param>
+        /// <param name="parentContext">The parent <see cref="ActivityContext"/> object to initialize the created Activity object with.</param>
+        /// <param name="tags">The optional tags list to initialize the created Activity object with.</param>
+        /// <param name="links">The optional <see cref="ActivityLink"/> list to initialize the created Activity object with.</param>
+        /// <param name="idFormat">The default Id format to use.</param>
+        /// <returns>The created <see cref="Activity"/> object or null if there is no any listener.</returns>
+        /// <remarks>
+        /// If the Activity object is created, it will not start automatically. Callers need to call <see cref="Activity.Start()"/> to start it.
+        /// </remarks>
+        public Activity? CreateActivity(string name, ActivityKind kind, ActivityContext parentContext, IEnumerable<KeyValuePair<string, object?>>? tags = null, IEnumerable<ActivityLink>? links = null, ActivityIdFormat idFormat = ActivityIdFormat.Unknown)
+            => CreateActivity(name, kind, parentContext, null, tags, links, default, startIt: false, idFormat);
+
+        /// <summary>
+        /// Creates a new <see cref="Activity"/> object if there is any listener to the Activity, returns null otherwise.
+        /// </summary>
+        /// <param name="name">The operation name of the Activity.</param>
+        /// <param name="kind">The <see cref="ActivityKind"/></param>
+        /// <param name="parentId">The parent Id to initialize the created Activity object with.</param>
+        /// <param name="tags">The optional tags list to initialize the created Activity object with.</param>
+        /// <param name="links">The optional <see cref="ActivityLink"/> list to initialize the created Activity object with.</param>
+        /// <param name="idFormat">The default Id format to use.</param>
+        /// <returns>The created <see cref="Activity"/> object or null if there is no any listener.</returns>
+        /// <remarks>
+        /// If the Activity object is created, it will not start automatically. Callers need to call <see cref="Activity.Start()"/> to start it.
+        /// </remarks>
+        public Activity? CreateActivity(string name, ActivityKind kind, string? parentId, IEnumerable<KeyValuePair<string, object?>>? tags = null, IEnumerable<ActivityLink>? links = null, ActivityIdFormat idFormat = ActivityIdFormat.Unknown)
+            => CreateActivity(name, kind, default, parentId, tags, links, default, startIt: false, idFormat);
+
+        /// <summary>
+        /// Creates and starts a new <see cref="Activity"/> object if there is any listener to the Activity, returns null otherwise.
+        /// </summary>
+        /// <param name="name">The operation name of the Activity</param>
+        /// <param name="kind">The <see cref="ActivityKind"/></param>
+        /// <returns>The created <see cref="Activity"/> object or null if there is no any event listener.</returns>
+        public Activity? StartActivity([CallerMemberName] string name = "", ActivityKind kind = ActivityKind.Internal)
+            => CreateActivity(name, kind, default, null, null, null, default);
+
+        /// <summary>
+        /// Creates and starts a new <see cref="Activity"/> object if there is any listener to the Activity events, returns null otherwise.
         /// </summary>
         /// <param name="name">The operation name of the Activity.</param>
         /// <param name="kind">The <see cref="ActivityKind"/></param>
@@ -88,10 +199,10 @@ namespace System.Diagnostics
         /// <param name="startTime">The optional start timestamp to set on the created Activity object.</param>
         /// <returns>The created <see cref="Activity"/> object or null if there is no any listener.</returns>
         public Activity? StartActivity(string name, ActivityKind kind, ActivityContext parentContext, IEnumerable<KeyValuePair<string, object?>>? tags = null, IEnumerable<ActivityLink>? links = null, DateTimeOffset startTime = default)
-            => StartActivity(name, kind, parentContext, null, tags, links, startTime);
+            => CreateActivity(name, kind, parentContext, null, tags, links, startTime);
 
         /// <summary>
-        /// Creates a new <see cref="Activity"/> object if there is any listener to the Activity events, returns null otherwise.
+        /// Creates and starts a new <see cref="Activity"/> object if there is any listener to the Activity events, returns null otherwise.
         /// </summary>
         /// <param name="name">The operation name of the Activity.</param>
         /// <param name="kind">The <see cref="ActivityKind"/></param>
@@ -100,48 +211,76 @@ namespace System.Diagnostics
         /// <param name="links">The optional <see cref="ActivityLink"/> list to initialize the created Activity object with.</param>
         /// <param name="startTime">The optional start timestamp to set on the created Activity object.</param>
         /// <returns>The created <see cref="Activity"/> object or null if there is no any listener.</returns>
-        public Activity? StartActivity(string name, ActivityKind kind, string parentId, IEnumerable<KeyValuePair<string, object?>>? tags = null, IEnumerable<ActivityLink>? links = null, DateTimeOffset startTime = default)
-            => StartActivity(name, kind, default, parentId, tags, links, startTime);
+        public Activity? StartActivity(string name, ActivityKind kind, string? parentId, IEnumerable<KeyValuePair<string, object?>>? tags = null, IEnumerable<ActivityLink>? links = null, DateTimeOffset startTime = default)
+            => CreateActivity(name, kind, default, parentId, tags, links, startTime);
 
-        private Activity? StartActivity(string name, ActivityKind kind, ActivityContext context, string? parentId, IEnumerable<KeyValuePair<string, object?>>? tags, IEnumerable<ActivityLink>? links, DateTimeOffset startTime)
+        /// <summary>
+        /// Creates and starts a new <see cref="Activity"/> object if there is any listener to the Activity events, returns null otherwise.
+        /// </summary>
+        /// <param name="kind">The <see cref="ActivityKind"/></param>
+        /// <param name="parentContext">The parent <see cref="ActivityContext"/> object to initialize the created Activity object with.</param>
+        /// <param name="tags">The optional tags list to initialize the created Activity object with.</param>
+        /// <param name="links">The optional <see cref="ActivityLink"/> list to initialize the created Activity object with.</param>
+        /// <param name="startTime">The optional start timestamp to set on the created Activity object.</param>
+        /// <param name="name">The operation name of the Activity.</param>
+        /// <returns>The created <see cref="Activity"/> object or null if there is no any listener.</returns>
+        public Activity? StartActivity(ActivityKind kind, ActivityContext parentContext = default, IEnumerable<KeyValuePair<string, object?>>? tags = null, IEnumerable<ActivityLink>? links = null, DateTimeOffset startTime = default, [CallerMemberName] string name = "")
+            => CreateActivity(name, kind, parentContext, null, tags, links, startTime);
+
+        private Activity? CreateActivity(string name, ActivityKind kind, ActivityContext context, string? parentId, IEnumerable<KeyValuePair<string, object?>>? tags,
+                                            IEnumerable<ActivityLink>? links, DateTimeOffset startTime, bool startIt = true, ActivityIdFormat idFormat = ActivityIdFormat.Unknown)
         {
-            // _listeners can get assigned to null in Dispose.
+            // _listeners can get assigned to the disposed sentinel in Dispose.
             SynchronizedList<ActivityListener>? listeners = _listeners;
             if (listeners == null || listeners.Count == 0)
             {
                 return null;
             }
 
+            Debug.Assert(!ReferenceEquals(listeners, s_disposedListeners));
+
             Activity? activity = null;
             ActivityTagsCollection? samplerTags;
+            string? traceState;
 
             ActivitySamplingResult samplingResult = ActivitySamplingResult.None;
 
             if (parentId != null)
             {
-                var aco = new ActivityCreationOptions<string>(this, name, parentId, kind, tags, links);
-                var acoContext = new ActivityCreationOptions<ActivityContext>(this, name, aco.GetContext(), kind, tags, links);
+                ActivityCreationOptions<string> aco = default;
+                ActivityCreationOptions<ActivityContext> acoContext = default;
+
+                aco = new ActivityCreationOptions<string>(this, name, parentId, kind, tags, links, idFormat);
+                if (aco.IdFormat == ActivityIdFormat.W3C)
+                {
+                    // acoContext is used only in the Sample calls which called only when we have W3C Id format.
+                    acoContext = new ActivityCreationOptions<ActivityContext>(this, name, aco.GetContext(), kind, tags, links, ActivityIdFormat.W3C);
+                }
 
                 listeners.EnumWithFunc((ActivityListener listener, ref ActivityCreationOptions<string> data, ref ActivitySamplingResult result, ref ActivityCreationOptions<ActivityContext> dataWithContext) => {
                     SampleActivity<string>? sampleUsingParentId = listener.SampleUsingParentId;
                     if (sampleUsingParentId != null)
                     {
                         ActivitySamplingResult sr = sampleUsingParentId(ref data);
+                        dataWithContext.SetTraceState(data.TraceState); // Keep the trace state in sync between data and dataWithContext
+
                         if (sr > result)
                         {
                             result = sr;
                         }
                     }
-                    else
+                    else if (data.IdFormat == ActivityIdFormat.W3C)
                     {
                         // In case we have a parent Id and the listener not providing the SampleUsingParentId, we'll try to find out if the following conditions are true:
                         //   - The listener is providing the Sample callback
                         //   - Can convert the parent Id to a Context. ActivityCreationOptions.TraceId != default means parent id converted to a valid context.
                         // Then we can call the listener Sample callback with the constructed context.
                         SampleActivity<ActivityContext>? sample = listener.Sample;
-                        if (sample != null && data.GetContext() != default) // data.GetContext() != default means parent Id parsed correctly to a context
+                        if (sample != null)
                         {
                             ActivitySamplingResult sr = sample(ref dataWithContext);
+                            data.SetTraceState(dataWithContext.TraceState); // Keep the trace state in sync between data and dataWithContext
+
                             if (sr > result)
                             {
                                 result = sr;
@@ -150,10 +289,18 @@ namespace System.Diagnostics
                     }
                 }, ref aco, ref samplingResult, ref acoContext);
 
-                if (context == default && aco.GetContext() != default)
+                if (context == default)
                 {
-                    context = aco.GetContext();
-                    parentId = null;
+                    if (aco.GetContext() != default)
+                    {
+                        context = aco.GetContext();
+                        parentId = null;
+                    }
+                    else if (acoContext.GetContext() != default)
+                    {
+                        context = acoContext.GetContext();
+                        parentId = null;
+                    }
                 }
 
                 samplerTags = aco.GetSamplingTags();
@@ -166,17 +313,20 @@ namespace System.Diagnostics
                     }
                     else
                     {
-                        foreach (KeyValuePair<string, object> tag in atc)
+                        foreach (KeyValuePair<string, object?> tag in atc)
                         {
                             samplerTags.Add(tag);
                         }
                     }
                 }
+
+                idFormat = aco.IdFormat;
+                traceState = aco.TraceState;
             }
             else
             {
                 bool useCurrentActivityContext = context == default && Activity.Current != null;
-                var aco = new ActivityCreationOptions<ActivityContext>(this, name, useCurrentActivityContext ? Activity.Current!.Context : context, kind, tags, links);
+                var aco = new ActivityCreationOptions<ActivityContext>(this, name, useCurrentActivityContext ? Activity.Current!.Context : context, kind, tags, links, idFormat);
                 listeners.EnumWithFunc((ActivityListener listener, ref ActivityCreationOptions<ActivityContext> data, ref ActivitySamplingResult result, ref ActivityCreationOptions<ActivityContext> unused) => {
                     SampleActivity<ActivityContext>? sample = listener.Sample;
                     if (sample != null)
@@ -198,12 +348,13 @@ namespace System.Diagnostics
                 }
 
                 samplerTags = aco.GetSamplingTags();
+                idFormat = aco.IdFormat;
+                traceState = aco.TraceState;
             }
 
             if (samplingResult != ActivitySamplingResult.None)
             {
-                activity = Activity.CreateAndStart(this, name, kind, parentId, context, tags, links, startTime, samplerTags, samplingResult);
-                listeners.EnumWithAction((listener, obj) => listener.ActivityStarted?.Invoke((Activity) obj), activity);
+                activity = Activity.Create(this, name, kind, parentId, context, tags, links, startTime, samplerTags, samplingResult, startIt, idFormat, traceState);
             }
 
             return activity;
@@ -214,20 +365,25 @@ namespace System.Diagnostics
         /// </summary>
         public void Dispose()
         {
-            _listeners = null;
-            s_activeSources.Remove(this);
+            Dispose(true);
+            GC.SuppressFinalize(this);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (Interlocked.Exchange(ref _listeners, s_disposedListeners) != s_disposedListeners)
+            {
+                s_activeSources.Remove(this);
+            }
         }
 
         /// <summary>
         /// Add a listener to the <see cref="Activity"/> starting and stopping events.
         /// </summary>
-        /// <param name="listener"> The <see cref="ActivityListener"/> object to use for listeneing to the <see cref="Activity"/> events.</param>
+        /// <param name="listener"> The <see cref="ActivityListener"/> object to use for listening to the <see cref="Activity"/> events.</param>
         public static void AddActivityListener(ActivityListener listener)
         {
-            if (listener == null)
-            {
-                throw new ArgumentNullException(nameof(listener));
-            }
+            ArgumentNullException.ThrowIfNull(listener);
 
             if (s_allListeners.AddIfNotExist(listener))
             {
@@ -238,6 +394,78 @@ namespace System.Diagnostics
                         source.AddListener((ActivityListener)obj);
                     }
                 }, listener);
+
+                // If Dispose ran concurrently it may have walked past some sources before we
+                // attached to them, leaving the listener resurrected. Re-run the same cleanup
+                // Dispose performs; every per-list op is idempotent, so racing Dispose's walk
+                // per source is safe regardless of order.
+                if (listener.IsDisposed)
+                {
+                    DetachListener(listener);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Resets source filters for the <see cref="ActivityListener"/> object to start or stop listening to the <see cref="Activity"/> events based on the listener configuration.
+        /// </summary>
+        /// <param name="listener">The <see cref="ActivityListener"/> instance whose configuration, in particular its <see cref="ActivityListener.ShouldListenTo"/> callback, determines which <see cref="ActivitySource"/> instances it should listen to.</param>
+        internal static void ResetSourceFilters(ActivityListener listener)
+        {
+            ArgumentNullException.ThrowIfNull(listener);
+
+            // Register first so any ActivitySource constructed after this point sees us
+            // in s_allListeners and self-attaches via its own walk (see the ActivitySource
+            // ctor walking s_allListeners). Without this, a source created during the
+            // iteration below could be missed by both us and itself.
+            s_allListeners.AddIfNotExist(listener);
+
+            List<Exception>? predicateFailures = null;
+            s_activeSources.EnumWithAction((source, obj) =>
+            {
+                var ls = (ActivityListener)obj;
+                bool listen;
+                try
+                {
+                    listen = ls.ShouldListenTo?.Invoke(source) ?? false;
+                }
+                catch (Exception ex)
+                {
+                    // Predicate threw for this source: leave its attachment state untouched
+                    // (the result was inconclusive, so neither attach nor detach is correct)
+                    // and continue with the remaining sources. We surface the throw(s) once
+                    // the walk completes so the caller sees what went wrong.
+                    (predicateFailures ??= new List<Exception>()).Add(ex);
+                    return;
+                }
+
+                if (listen)
+                {
+                    source.AddListener(ls);
+                }
+                else
+                {
+                    source.RemoveListener(ls);
+                }
+            }, listener);
+
+            // If Dispose ran concurrently it may have walked some sources before we
+            // attached to them, leaving the listener resurrected. Re-run the same
+            // cleanup Dispose performs; every per-list op is idempotent, so racing
+            // Dispose's walk per source is safe regardless of order.
+            if (listener.IsDisposed)
+            {
+                DetachListener(listener);
+            }
+
+            if (predicateFailures is not null)
+            {
+                if (predicateFailures.Count == 1)
+                {
+                    ExceptionDispatchInfo.Capture(predicateFailures[0]).Throw();
+                }
+
+                throw new AggregateException(SR.ActivityListener_RefreshSourceFilters_PredicateThrew, predicateFailures);
             }
         }
 
@@ -245,29 +473,58 @@ namespace System.Diagnostics
 
         internal void AddListener(ActivityListener listener)
         {
-            if (_listeners == null)
+            SynchronizedList<ActivityListener>? listeners = Volatile.Read(ref _listeners);
+            if (ReferenceEquals(listeners, s_disposedListeners))
             {
-                Interlocked.CompareExchange(ref _listeners, new SynchronizedList<ActivityListener>(), null);
+                return;
             }
 
-            _listeners.AddIfNotExist(listener);
+            if (listeners is null)
+            {
+                SynchronizedList<ActivityListener> newListeners = new SynchronizedList<ActivityListener>();
+                listeners = Interlocked.CompareExchange(ref _listeners, newListeners, null);
+                if (listeners is null)
+                {
+                    newListeners.AddIfNotExist(listener);
+                    return;
+                }
+
+                if (ReferenceEquals(listeners, s_disposedListeners))
+                {
+                    return;
+                }
+            }
+
+            listeners.AddIfNotExist(listener);
+        }
+
+        internal void RemoveListener(ActivityListener listener)
+        {
+            SynchronizedList<ActivityListener>? listeners = Volatile.Read(ref _listeners);
+            if (listeners is null || ReferenceEquals(listeners, s_disposedListeners))
+            {
+                return;
+            }
+
+            listeners.Remove(listener);
         }
 
         internal static void DetachListener(ActivityListener listener)
         {
             s_allListeners.Remove(listener);
-            s_activeSources.EnumWithAction((source, obj) => source._listeners?.Remove((ActivityListener) obj), listener);
+            s_activeSources.EnumWithAction((source, obj) => source.RemoveListener((ActivityListener)obj), listener);
         }
 
         internal void NotifyActivityStart(Activity activity)
         {
             Debug.Assert(activity != null);
 
-            // _listeners can get assigned to null in Dispose.
+            // _listeners can get assigned to the disposed sentinel in Dispose.
             SynchronizedList<ActivityListener>? listeners = _listeners;
-            if (listeners != null &&  listeners.Count > 0)
+            if (listeners != null && listeners.Count > 0)
             {
-                listeners.EnumWithAction((listener, obj) => listener.ActivityStarted?.Invoke((Activity) obj), activity);
+                Debug.Assert(!ReferenceEquals(listeners, s_disposedListeners));
+                listeners.EnumWithAction((listener, obj) => listener.ActivityStarted?.Invoke((Activity)obj), activity);
             }
         }
 
@@ -275,117 +532,132 @@ namespace System.Diagnostics
         {
             Debug.Assert(activity != null);
 
-            // _listeners can get assigned to null in Dispose.
+            // _listeners can get assigned to the disposed sentinel in Dispose.
             SynchronizedList<ActivityListener>? listeners = _listeners;
-            if (listeners != null &&  listeners.Count > 0)
+            if (listeners != null && listeners.Count > 0)
             {
-                listeners.EnumWithAction((listener, obj) => listener.ActivityStopped?.Invoke((Activity) obj), activity);
+                Debug.Assert(!ReferenceEquals(listeners, s_disposedListeners));
+                listeners.EnumWithAction((listener, obj) => listener.ActivityStopped?.Invoke((Activity)obj), activity);
+            }
+        }
+
+        internal void NotifyActivityAddException(Activity activity, Exception exception, ref TagList tags)
+        {
+            Debug.Assert(activity != null);
+
+            // _listeners can get assigned to the disposed sentinel in Dispose.
+            SynchronizedList<ActivityListener>? listeners = _listeners;
+            if (listeners != null && listeners.Count > 0)
+            {
+                Debug.Assert(!ReferenceEquals(listeners, s_disposedListeners));
+                listeners.EnumWithExceptionNotification(activity, exception, ref tags);
             }
         }
     }
 
-    // SynchronizedList<T> is a helper collection which ensure thread safety on the collection
-    // and allow enumerating the collection items and execute some action on the enumerated item and can detect any change in the collection
-    // during the enumeration which force restarting the enumeration again.
-    // Caution: We can have the action executed on the same item more than once which is ok in our scenarios.
-    internal class SynchronizedList<T>
+    // This class uses a copy-on-write design to ensure thread safety all operations are thread safe.
+    // However, it is possible for read-only operations to see stale versions of the item while a change
+    // is occurring.
+    internal sealed class SynchronizedList<T>
     {
-        private readonly List<T> _list;
-        private uint _version;
-
-        public SynchronizedList() => _list = new List<T>();
+        private readonly object _writeLock;
+        // This array must not be mutated directly. To mutate, obtain the lock, copy the array and then replace it with the new array.
+        private T[] _volatileArray;
+        public SynchronizedList()
+        {
+            _volatileArray = [];
+            _writeLock = new();
+        }
 
         public void Add(T item)
         {
-            lock (_list)
+            lock (_writeLock)
             {
-                _list.Add(item);
-                _version++;
+                T[] newArray = new T[_volatileArray.Length + 1];
+
+                Array.Copy(_volatileArray, newArray, _volatileArray.Length);// copy existing items
+                newArray[_volatileArray.Length] = item;// copy new item
+
+                _volatileArray = newArray;
             }
         }
 
         public bool AddIfNotExist(T item)
         {
-            lock (_list)
+            lock (_writeLock)
             {
-                if (!_list.Contains(item))
+                int index = Array.IndexOf(_volatileArray, item);
+
+                if (index >= 0)
                 {
-                    _list.Add(item);
-                    _version++;
-                    return true;
+                    return false;
                 }
-                return false;
+
+                T[] newArray = new T[_volatileArray.Length + 1];
+
+                Array.Copy(_volatileArray, newArray, _volatileArray.Length);// copy existing items
+                newArray[_volatileArray.Length] = item;// copy new item
+
+                _volatileArray = newArray;
+
+                return true;
             }
         }
 
         public bool Remove(T item)
         {
-            lock (_list)
+            lock (_writeLock)
             {
-                if (_list.Remove(item))
+                int index = Array.IndexOf(_volatileArray, item);
+
+                if (index < 0)
                 {
-                    _version++;
-                    return true;
+                    return false;
                 }
-                return false;
+
+                T[] newArray = new T[_volatileArray.Length - 1];
+
+                Array.Copy(_volatileArray, newArray, index);// copy existing items before index
+
+                Array.Copy(
+                    _volatileArray, index + 1, // position after the index, skipping it
+                    newArray, index, _volatileArray.Length - index - 1// remaining items accounting for removed item
+                );
+
+                _volatileArray = newArray;
+                return true;
             }
         }
 
-        public int Count => _list.Count;
+        public int Count => _volatileArray.Length;
 
         public void EnumWithFunc<TParent>(ActivitySource.Function<T, TParent> func, ref ActivityCreationOptions<TParent> data, ref ActivitySamplingResult samplingResult, ref ActivityCreationOptions<ActivityContext> dataWithContext)
         {
-            uint version = _version;
-            int index = 0;
-
-            while (index < _list.Count)
+            foreach (T item in _volatileArray)
             {
-                T item;
-                lock (_list)
-                {
-                    if (version != _version)
-                    {
-                        version = _version;
-                        index = 0;
-                        continue;
-                    }
-
-                    item = _list[index];
-                    index++;
-                }
-
-                // Important to call the func outside the lock.
-                // This is the whole point we are having this wrapper class.
                 func(item, ref data, ref samplingResult, ref dataWithContext);
             }
         }
 
         public void EnumWithAction(Action<T, object> action, object arg)
         {
-            uint version = _version;
-            int index = 0;
-
-            while (index < _list.Count)
+            foreach (T item in _volatileArray)
             {
-                T item;
-                lock (_list)
-                {
-                    if (version != _version)
-                    {
-                        version = _version;
-                        index = 0;
-                        continue;
-                    }
-
-                    item = _list[index];
-                    index++;
-                }
-
-                // Important to call the action outside the lock.
-                // This is the whole point we are having this wrapper class.
                 action(item, arg);
             }
         }
 
+        public void EnumWithExceptionNotification(Activity activity, Exception exception, ref TagList tags)
+        {
+            if (typeof(T) != typeof(ActivityListener))
+            {
+                return;
+            }
+
+            foreach (T item in _volatileArray)
+            {
+                (item as ActivityListener)!.ExceptionRecorder?.Invoke(activity, exception, ref tags);
+            }
+        }
     }
 }

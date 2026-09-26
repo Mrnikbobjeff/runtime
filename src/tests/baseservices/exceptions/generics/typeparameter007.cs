@@ -11,6 +11,7 @@
 // <Code> 
 
 using System;
+using Xunit;
 
 public struct ValX0 {}
 public struct ValY0 {}
@@ -42,17 +43,17 @@ public class Gen
 		}
 		catch(Ex E)
 		{
-			Test.Eval(Object.ReferenceEquals(e,E));
+			Test_typeparameter007.Eval(Object.ReferenceEquals(e,E));
 		}
 		catch
 		{
 			Console.WriteLine("Caught Wrong Exception");
-			Test.Eval(false);
+			Test_typeparameter007.Eval(false);
 		}
 	}
 }
 
-public class Test
+public class Test_typeparameter007
 {
 	public static int counter = 0;
 	public static bool result = true;
@@ -67,7 +68,8 @@ public class Test
 	
 	}
 	
-	public static int Main()
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		new Gen().ExceptionTest<Exception>(new Exception()); 
 		new Gen().ExceptionTest<Exception>(new InvalidOperationException());

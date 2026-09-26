@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
 namespace System
@@ -8,6 +9,7 @@ namespace System
     internal static partial class LocalAppContextSwitches
     {
         private static int s_enableUnsafeUTF7Encoding;
+        [FeatureSwitchDefinition("System.Text.Encoding.EnableUnsafeUTF7Encoding")]
         public static bool EnableUnsafeUTF7Encoding
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -34,18 +36,51 @@ namespace System
             get => GetCachedSwitchValue("Switch.System.Globalization.EnforceLegacyJapaneseDateParsing", ref s_enforceLegacyJapaneseDateParsing);
         }
 
-        private static int s_preserveEventListnerObjectIdentity;
-        public static bool PreserveEventListnerObjectIdentity
+        private static int s_preserveEventListenerObjectIdentity;
+        public static bool PreserveEventListenerObjectIdentity
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => GetCachedSwitchValue("Switch.System.Diagnostics.EventSource.PreserveEventListnerObjectIdentity", ref s_preserveEventListnerObjectIdentity);
+            get => GetCachedSwitchValue("Switch.System.Diagnostics.EventSource.PreserveEventListenerObjectIdentity", ref s_preserveEventListenerObjectIdentity);
+        }
+
+        private static int s_forceEmitInvoke;
+        public static bool ForceEmitInvoke
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => GetCachedSwitchValue("Switch.System.Reflection.ForceEmitInvoke", ref s_forceEmitInvoke);
+        }
+
+        private static int s_forceInterpretedInvoke;
+        public static bool ForceInterpretedInvoke
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => GetCachedSwitchValue("Switch.System.Reflection.ForceInterpretedInvoke", ref s_forceInterpretedInvoke);
         }
 
         private static int s_serializationGuard;
         public static bool SerializationGuard
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
-            get => GetCachedSwitchValue("Switch.System.Runtime.Serialization.SerializationGuard", ref s_serializationGuard);
+            get => GetCachedSwitchValue("Switch.System.Runtime.Serialization.SerializationGuard", ref s_serializationGuard, defaultValue: true);
+        }
+
+        private static int s_showILOffset;
+        private static bool GetDefaultShowILOffsetSetting()
+        {
+            if (s_showILOffset < 0) return false;
+            if (s_showILOffset > 0) return true;
+
+            // Disabled by default.
+            bool isSwitchEnabled = AppContextConfigHelper.GetBooleanConfig("Switch.System.Diagnostics.StackTrace.ShowILOffsets", false);
+            s_showILOffset = isSwitchEnabled ? 1 : -1;
+
+            return isSwitchEnabled;
+        }
+
+        public static bool ShowILOffsets
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => GetDefaultShowILOffsetSetting();
         }
     }
 }

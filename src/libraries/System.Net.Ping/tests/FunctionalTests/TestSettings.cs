@@ -11,12 +11,17 @@ namespace System.Net.NetworkInformation.Tests
     {
         public static readonly string LocalHost = "localhost";
         public static readonly string UnreachableAddress = "192.0.2.0"; // TEST-NET-1
+        public static readonly string UnreachableAddress2 = "100.64.0.1"; // CGNAT block
+        public static readonly string UnreachableAddress3 = "10.255.255.1"; // High address in the private 10.0.0.0/8 range. Likely unused and unrouted.
+
         public const int PingTimeout = 10 * 1000;
 
         public const string PayloadAsString = "'Post hoc ergo propter hoc'. 'After it, therefore because of it'. It means one thing follows the other, therefore it was caused by the other. But it's not always true. In fact it's hardly ever true.";
-        public static readonly byte[] PayloadAsBytes = Encoding.UTF8.GetBytes(TestSettings.PayloadAsString);
 
-        public static readonly byte[] PayloadAsBytesShort = Encoding.UTF8.GetBytes("ABCDEF0123456789");
+        // By default, FreeBSD supports buffer only up to 56 bytes
+        public static readonly byte[] PayloadAsBytes = Encoding.UTF8.GetBytes(OperatingSystem.IsFreeBSD() ? TestSettings.PayloadAsString.Substring(0, 55) : TestSettings.PayloadAsString);
+
+        public static readonly byte[] PayloadAsBytesShort = "ABCDEF0123456789"u8.ToArray();
 
         public static IPAddress[] GetLocalIPAddresses()
         {

@@ -2,18 +2,20 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b47047
 {
     using System;
 
-    class BB
+    public class BB
     {
         static void Method1() { }
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             bool local1 = false;
             for (; local1; Method1()) { }
-            return 100;
         }
     }
 }

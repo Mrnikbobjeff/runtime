@@ -3,9 +3,8 @@
 
 using System;
 using System.Text;
-using System.Xml.Schema;
-
 using System.Threading.Tasks;
+using System.Xml.Schema;
 
 namespace System.Xml
 {
@@ -18,7 +17,7 @@ namespace System.Xml
         Task ParsePIAsync(StringBuilder? sb);
         Task ParseCommentAsync(StringBuilder? sb);
 
-        Task<Tuple<int, bool>> PushEntityAsync(IDtdEntityInfo entity);
+        Task<(int, bool)> PushEntityAsync(IDtdEntityInfo entity);
 
         Task<bool> PushExternalSubsetAsync(string? systemId, string? publicId);
     }

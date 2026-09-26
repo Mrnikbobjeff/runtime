@@ -11,7 +11,7 @@
 After investigating all the details, it was decided that we won't support the following scenarios in unloadable `AssemblyLoadContext` unless we get strong feedback on a need to support those.
 * Loading IJW assemblies
 * Using R2R generated code from assemblies. R2R assemblies will be loaded as plain IL ones.
-* Implementation of the FixedAddressValueTypeAttribute
+* ~~Implementation of the FixedAddressValueTypeAttribute~~ Support added in .NET 9
 ## General scenarios
 Based on various discussions and feedback on github, the following general scenarios were often mentioned as use cases for unloadability.
 * Plugin scenarios when dynamic plugin loading and unloading is required.
@@ -29,7 +29,7 @@ ASP.NET (not Core) originally used AppDomains to support dynamic compiling and r
 ASP.NET Core moved to a more static model because of the lack of ability to unload stuff. Many of their customers did the same thing too. So, there is no pressing need for unloadability there at the moment.
 
 However, they use two tool that could potentially benefit from the unloadability
-* Dotnet watch tool that watches a directory with sources and when a source file changes, it triggers recompilation and re-deployment. So, people can edit a source code used for their web page and the web server gets automatically recompiled and restarted. A need to restart the process negatively affects its performance. So, the ability to unload and reload just the modified assemblies without process restart would be very helpful here. See https://docs.microsoft.com/en-us/aspnet/core/tutorials/dotnet-watch?view=aspnetcore-2.1 for more details on the watch tool usage in ASP.NET Core.
+* Dotnet watch tool that watches a directory with sources and when a source file changes, it triggers recompilation and re-deployment. So, people can edit a source code used for their web page and the web server gets automatically recompiled and restarted. A need to restart the process negatively affects its performance. So, the ability to unload and reload just the modified assemblies without process restart would be very helpful here. See https://learn.microsoft.com/aspnet/core/tutorials/dotnet-watch?view=aspnetcore-2.1 for more details on the watch tool usage in ASP.NET Core.
 * Compilation server for Razor pages (on demand .cshtml files compilation to .dll). (https://github.com/aspnet/Razor/blob/master/src/Microsoft.AspNetCore.Razor.Tools/CompilerHost.cs)
 ### LINQPad
 LINQPad (https://www.linqpad.net) is a very popular third-party tool for designing LINQ queries against various data sources. It uses AppDomains and their unloading mechanism heavily for the following purposes:
@@ -50,7 +50,7 @@ From the API surface perspective, there are only couple of new functions added:
 * `AssemblyLoadContext.IsCollectible` property to query whether the `AssemblyLoadContext` is unloadable or not.
 * `MemberInfo.IsCollectible` and `Assembly.IsCollectible` properties to enable developers to do the right thing for collectible assemblies (e.g. avoid caching them for a long time, etc.)
 
-The design of the feature builds on top of the existing collectible types. The isolation containter for this feature is provided by `AssemblyLoadContext`.  All assemblies loaded into an unloadable `AssemblyLoadContext` are marked as collectible.
+The design of the feature builds on top of the existing collectible types. The isolation container for this feature is provided by `AssemblyLoadContext`.  All assemblies loaded into an unloadable `AssemblyLoadContext` are marked as collectible.
 
 For each unloadable `AssemblyLoadContext`, an `AssemblyLoaderAllocator` is created. It is used to allocate all context specific memory related to the assemblies loaded into the context. The existing collectible types support ensures this behavior.
 
@@ -60,7 +60,7 @@ In addition to that, entries in the `AssemblySpecBindingCache` for assemblies lo
 
 There are also machine code thunks (tail call arg copy thunk, shuffle thunk cache, JIT helper logging thunk) and unwind info for the thunks that have lifetime bound to the lifetime of the `AssemblyLoadContext`. These were not allocated from a proper `AssemblyLoaderAllocator` in the existing implementation of collectible types. So the thunk related code is updated to fix that.
 
-At unload time, the `AssemblyLoaderAllocator`, its associated managed side helpers `LoaderAllocator` and `LoaderAllocatorScout`, the `CLRPrivBinderAssemblyLoadContext`, all the related `DomainAssembly` instances and the `AssemblyLoadContext` are destroyed in a coordinated manner. Details of this process are described in a paragraph below.
+At unload time, the `AssemblyLoaderAllocator`, its associated managed side helpers `LoaderAllocator` and `LoaderAllocatorScout`, the `CustomAssemblyBinder`, all the related `DomainAssembly` instances and the `AssemblyLoadContext` are destroyed in a coordinated manner. Details of this process are described in a paragraph below.
 ### Enable unloadability for all the features not supported by the existing collectible types
 These are features that were explicitly disabled when collectible assemblies were added to CLR in the past. They were not supported because they were not needed for the use cases of the collectible assemblies and they seemed to have potential non-trivial complexity.
 #### Support for interop
@@ -84,11 +84,9 @@ We can reuse the `ComCallableWrapperCache` with only a very minor modifications 
 
 The After the `AssemblyLoadContext` unload is initiated and the managed `LoaderAllocator` is collected, the `ComCallableWrapperCache` is destroyed in the `LoaderAllocator::Destroy` method.
 #### FixedAddressValueTypeAttribute for fields in collectible types
-After investigating all the details, it was decided that we won't add support for the FixedAddressValueTypeAttribute unless we get strong feedback on a need to support it.
+The fields with `FixedAddressValueTypeAttribute` are always pinned, so their address in memory never changes. Historically for non-collectible types, these fields are held pinned by a pinned `GCHandle`. But we could not use that for collectible types, since the `MethodTable` whose pointer is stored in the respective boxed instance of the value type would prevent the managed `LoaderAllocator` from being collected.
 
-If we decided to add support for it, we could do it as follows. The fields with `FixedAddressValueTypeAttribute` are always pinned, so their address in memory never changes. For non-collectible types, these fields are held pinned by a pinned `GCHandle`. But we cannot use that for collectible types, since the `MethodTable` whose pointer is stored in the respective boxed instance of the value type would prevent the managed `LoaderAllocator` from being collected.
-
-For collectible types, a new handle table can be added to `LoaderAllocator`. This handle table would be scanned during GC in a special way and all the objects the handles point to will be reported as pinned. The special scanning would be done in `Module::EnumRegularStaticGCRefs`. To pin the objects, the `promote_func` needs to be passed `GC_CALL_PINNED` in the third argument.
+Since .NET 9, we always allocate these fields in the Pinned Object Heap. That way, they are pinned without being held by a handle, and are able to be collected.
 ## AssemblyLoadContext unloading process
 For better understanding of the unloading process, it is important to understand relations between several components that play role in the lifetime management. The picture below shows these components and the ways they reference each other.
 The green marked relations and blocks are the new ones that were added to enable unloadable `AssemblyLoadContext`. The black ones were already present before.
@@ -96,12 +94,12 @@ The dashed lines represent indirect links from MethodTables of the objects to th
 
 ![](unloadability.svg)
 ### First phase of unloading
-Unloading is initialized by the user code calling `AssemblyLoadContext.Unload` metod or by execution of the `AssemblyLoadContext` finalizer. The following steps are performed to start the unloading process.
+Unloading is initialized by the user code calling `AssemblyLoadContext.Unload` method or by execution of the `AssemblyLoadContext` finalizer. The following steps are performed to start the unloading process.
 * The `AssemblyLoadContext` fires the `Unloading` event to allow the user code to perform cleanup if required (e.g. stop threads running inside of the context, remove references and destroy handles, etc.)
 * The `AssemblyLoadContext.InitiateUnload` method is called. It creates a strong GC handle referring to the `AssemblyLoadContext` to keep it around until the unload is complete. For example, finalizers of types that are loaded into the `AssemblyLoadContext` may need access to the `AssemblyLoadContext`.
-* Then it calls `AssemblyNative::PrepareForAssemblyLoadContextRelease` method with that strong handle as an argument, which in turn calls `CLRPrivBinderAssemblyLoadContext::PrepareForLoadContextRelease`
-* That method stores the passed in strong GC handle in `CLRPrivBinderAssemblyLoadContext::m_ptrManagedStrongAssemblyLoadContext`.
-* Then it decrements refcount of the `AssemblyLoaderAllocator` the `CLRPrivBinderAssemblyLoadContext` points to.
+* Then it calls `AssemblyNative::PrepareForAssemblyLoadContextRelease` method with that strong handle as an argument, which in turn calls `CustomAssemblyBinder::PrepareForLoadContextRelease`
+* That method stores the passed in strong GC handle in `CustomAssemblyBinder::m_ptrManagedStrongAssemblyLoadContext`.
+* Then it decrements refcount of the `AssemblyLoaderAllocator` the `CustomAssemblyBinder` points to.
 * Finally, it destroys the strong handle to the managed `LoaderAllocator`. That allows the `LoaderAllocator` to be collected.
 ### Second phase of unloading
 This phase is initiated after all instances of types from assemblies loaded into the `AssemblyLoadContext` are gone.
@@ -111,4 +109,4 @@ This phase is initiated after all instances of types from assemblies loaded into
 * If it was not the last reference, the native `AssemblyLoaderAllocator` must stay alive until there are no references to it, so there is nothing else to be done now. It will be destroyed later in `LoaderAllocator::GCLoaderAllocators` after the last reference goes away.
 * If we have released the last reference, the `LoaderAllocator::GCLoaderAllocators` is executed. This function finds all collectible LoaderAllocators that are not alive anymore and cleans up all domain assemblies in them. The cleanup removes each `DomainAssembly` from the `AppDomain` and also from the binding cache, it notifies debugger and finally destroys the `DomainAssembly`.
 * The strong and long weak handles to the managed `AssemblyLoadContext` in each of these LoaderAllocators are now destroyed. That enables these related `AssemblyLoadContext`s to be collected by GC.
-* Finally, these `LoaderAllocator`s are registered for cleanup in the `AppDomain`. Their actual destruction happens on the finalizer thread in `Thread::DoExtraWorkForFinalizer`. When a `LoaderAllocator` is destroyed, the related `CLRPrivBinderAssemblyLoadContext` is destroyed too.
+* Finally, these `LoaderAllocator`s are registered for cleanup in the `AppDomain`. Their actual destruction happens on the finalizer thread in `Thread::DoExtraWorkForFinalizer`. When a `LoaderAllocator` is destroyed, the related `CustomAssemblyBinder` is destroyed too.

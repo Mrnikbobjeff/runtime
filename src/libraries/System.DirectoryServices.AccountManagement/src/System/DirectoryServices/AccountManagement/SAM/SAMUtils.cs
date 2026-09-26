@@ -3,23 +3,22 @@
 
 using System;
 using System.Diagnostics;
+using System.DirectoryServices;
 using System.Globalization;
 using System.Runtime.InteropServices;
-using System.DirectoryServices;
-using System.Text;
 using System.Security.Principal;
+using System.Text;
 
 namespace System.DirectoryServices.AccountManagement
 {
-    internal class SAMUtils
+    internal static class SAMUtils
     {
-        // To stop the compiler from autogenerating a constructor for this class
-        private SAMUtils() { }
-
         internal static bool IsOfObjectClass(DirectoryEntry de, string classToCompare)
         {
             return string.Equals(de.SchemaClassName, classToCompare, StringComparison.OrdinalIgnoreCase);
         }
+
+        internal static readonly char[] s_dot = new char[] { '.' };
 
         internal static bool GetOSVersion(DirectoryEntry computerDE, out int versionMajor, out int versionMinor)
         {
@@ -51,7 +50,7 @@ namespace System.DirectoryServices.AccountManagement
             }
 
             // Couldn't retrieve the value
-            if (version == null || version.Length == 0)
+            if (string.IsNullOrEmpty(version))
                 return false;
 
             // This string should be in the form "M.N", where M and N are integers.
@@ -59,7 +58,7 @@ namespace System.DirectoryServices.AccountManagement
             //
             // We'll split the string into its period-separated components, and parse
             // each component into an int.
-            string[] versionComponents = version.Split(new char[] { '.' });
+            string[] versionComponents = version.Split(s_dot);
 
             Debug.Assert(versionComponents.Length >= 1);    // since version was a non-empty string
 
@@ -145,7 +144,7 @@ namespace System.DirectoryServices.AccountManagement
 
             foreach (char c in papiString)
             {
-                if (escapeMode == false)
+                if (!escapeMode)
                 {
                     switch (c)
                     {

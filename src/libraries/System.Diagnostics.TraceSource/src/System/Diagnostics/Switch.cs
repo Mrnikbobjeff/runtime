@@ -2,13 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Threading;
-using System.Runtime.InteropServices;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
-using System.Globalization;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace System.Diagnostics
 {
@@ -23,27 +23,16 @@ namespace System.Diagnostics
         private int _switchSetting;
         private volatile bool _initialized;
         private bool _initializing;
-        private volatile string _switchValueString = string.Empty;
-        private readonly string? _defaultValue;
-        private object? _initializedLock;
+        private volatile string? _switchValueString = string.Empty;
+        private readonly string _defaultValue;
 
-        private static readonly List<WeakReference> s_switches = new List<WeakReference>();
+        private static readonly List<WeakReference<Switch>> s_switches = new List<WeakReference<Switch>>();
         private static int s_LastCollectionCount;
         private StringDictionary? _attributes;
 
-        private object InitializedLock
-        {
-            get
-            {
-                if (_initializedLock == null)
-                {
-                    object o = new object();
-                    Interlocked.CompareExchange<object?>(ref _initializedLock, o, null);
-                }
+        private object InitializedLock =>
+            field ?? Interlocked.CompareExchange(ref field, new object(), null) ?? field;
 
-                return _initializedLock;
-            }
-        }
 
         /// <devdoc>
         /// <para>Initializes a new instance of the <see cref='System.Diagnostics.Switch'/>
@@ -53,20 +42,17 @@ namespace System.Diagnostics
         {
         }
 
-        protected Switch(string displayName, string? description, string? defaultSwitchValue)
+        protected Switch(string displayName, string? description, string defaultSwitchValue)
         {
-            // displayName is used as a hashtable key, so it can never
-            // be null.
-            if (displayName == null) displayName = string.Empty;
-
-            _displayName = displayName;
+            // displayName is used as a hashtable key, so it can never be null.
+            _displayName = displayName ?? string.Empty;
             _description = description;
 
             // Add a weakreference to this switch and cleanup invalid references
             lock (s_switches)
             {
                 _pruneCachedSwitches();
-                s_switches.Add(new WeakReference(this));
+                s_switches.Add(new WeakReference<Switch>(this));
             }
 
             _defaultValue = defaultSwitchValue;
@@ -78,11 +64,10 @@ namespace System.Diagnostics
             {
                 if (s_LastCollectionCount != GC.CollectionCount(2))
                 {
-                    List<WeakReference> buffer = new List<WeakReference>(s_switches.Count);
+                    List<WeakReference<Switch>> buffer = new List<WeakReference<Switch>>(s_switches.Count);
                     for (int i = 0; i < s_switches.Count; i++)
                     {
-                        Switch? s = ((Switch?)s_switches[i].Target);
-                        if (s != null)
+                        if (s_switches[i].TryGetTarget(out _))
                         {
                             buffer.Add(s_switches[i]);
                         }
@@ -116,7 +101,7 @@ namespace System.Diagnostics
         {
             get
             {
-                return (_description == null) ? string.Empty : _description;
+                return _description ?? string.Empty;
             }
         }
 
@@ -125,9 +110,7 @@ namespace System.Diagnostics
             get
             {
                 Initialize();
-                if (_attributes == null)
-                    _attributes = new StringDictionary();
-                return _attributes;
+                return _attributes ??= new StringDictionary();
             }
         }
 
@@ -143,7 +126,9 @@ namespace System.Diagnostics
                 if (!_initialized)
                 {
                     if (InitializeWithStatus())
+                    {
                         OnSwitchSettingChanged();
+                    }
                 }
                 return _switchSetting;
             }
@@ -169,12 +154,29 @@ namespace System.Diagnostics
 
         protected internal virtual string[]? GetSupportedAttributes() => null;
 
-        protected string Value
+        internal void SetSwitchValues(int switchSetting, string switchValueString)
+        {
+            Initialize();
+
+            Debug.Assert(switchValueString is not null, "Unexpected 'switchValueString' null value");
+            lock (InitializedLock)
+            {
+                _switchSetting = switchSetting;
+                _switchValueString = switchValueString;
+            }
+        }
+
+        /// <summary>
+        /// The default value assigned in the constructor.
+        /// </summary>
+        public string DefaultValue => _defaultValue;
+
+        public string Value
         {
             get
             {
                 Initialize();
-                return _switchValueString;
+                return _switchValueString!;
             }
             set
             {
@@ -182,6 +184,17 @@ namespace System.Diagnostics
                 _switchValueString = value;
                 OnValueChanged();
             }
+        }
+
+        /// <summary>
+        ///  Occurs when a <see cref="Switch"/> needs to be initialized.
+        /// </summary>
+        public static event EventHandler<InitializingSwitchEventArgs>? Initializing;
+
+        internal void OnInitializing()
+        {
+            Initializing?.Invoke(null, new InitializingSwitchEventArgs(this));
+            TraceUtils.VerifyAttributes(Attributes, GetSupportedAttributes(), this);
         }
 
         private void Initialize()
@@ -200,12 +213,29 @@ namespace System.Diagnostics
                         return false;
                     }
 
-                    // This method is re-entrent during initialization, since calls to OnValueChanged() in subclasses could end up having InitializeWithStatus()
+                    // This method is re-entrant during initialization, since calls to OnValueChanged() in subclasses could end up having InitializeWithStatus()
                     // called again, we don't want to get caught in an infinite loop.
                     _initializing = true;
 
-                    _switchValueString = _defaultValue!;
-                    OnValueChanged();
+                    _switchValueString = null;
+
+                    try
+                    {
+                        OnInitializing();
+                    }
+                    catch (Exception)
+                    {
+                        _initialized = false;
+                        _initializing = false;
+                        throw;
+                    }
+
+                    if (_switchValueString == null)
+                    {
+                        _switchValueString = _defaultValue;
+                        OnValueChanged();
+                    }
+
                     _initialized = true;
                     _initializing = false;
                 }
@@ -236,8 +266,7 @@ namespace System.Diagnostics
                 _pruneCachedSwitches();
                 for (int i = 0; i < s_switches.Count; i++)
                 {
-                    Switch? swtch = ((Switch?)s_switches[i].Target);
-                    if (swtch != null)
+                    if (s_switches[i].TryGetTarget(out Switch? swtch))
                     {
                         swtch.Refresh();
                     }
@@ -245,7 +274,10 @@ namespace System.Diagnostics
             }
         }
 
-        internal void Refresh()
+        /// <summary>
+        /// Refreshes the trace configuration data.
+        /// </summary>
+        public void Refresh()
         {
             lock (InitializedLock)
             {

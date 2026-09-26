@@ -13,8 +13,9 @@
 #include "mono-threads-debug.h"
 #include "mono-logger-internals.h"
 #include "mono-error-internals.h"
-#include <mono/metadata/w32subset.h>
 #include <mono/utils/checked-build.h>
+#include <mono/utils/w32subset.h>
+#include <mono/utils/mono-time.h>
 
 /* Empty handler only used to detect interrupt state of current thread. */
 /* Needed in order to correctly avoid entering wait methods under */
@@ -61,9 +62,9 @@ win32_wait_interrupt_handler (gpointer ignored)
 #define WIN32_ENTER_ALERTABLE_WAIT(info) \
 	do { \
 		if (info) { \
-			gboolean alerted = FALSE; \
-			mono_thread_info_install_interrupt (win32_wait_interrupt_handler, NULL, &alerted); \
-			if (alerted) { \
+			gboolean interrupted = FALSE; \
+			mono_thread_info_install_interrupt (win32_wait_interrupt_handler, NULL, &interrupted); \
+			if (interrupted) { \
 				SetLastError (WAIT_IO_COMPLETION); \
 				return WAIT_IO_COMPLETION; \
 			} \
@@ -71,54 +72,15 @@ win32_wait_interrupt_handler (gpointer ignored)
 		} \
 	} while (0)
 
-#define WIN32_LEAVE_ALERTABLE_WAIT(info) \
+#define WIN32_LEAVE_ALERTABLE_WAIT(info, alerted) \
 	do { \
 		if (info) { \
-			gboolean alerted = FALSE; \
-			mono_win32_leave_alertable_wait (info); \
-			mono_thread_info_uninstall_interrupt (&alerted); \
+			alerted = mono_win32_leave_alertable_wait (info); \
+			gboolean interrupted; \
+			mono_thread_info_uninstall_interrupt (&interrupted); \
+			alerted = alerted || interrupted; \
 		} \
 	} while (0)
-
-static DWORD
-win32_sleep_ex_interrupt_checked (MonoThreadInfo *info, DWORD timeout, BOOL alertable)
-{
-	WIN32_CHECK_INTERRUPT (info, alertable);
-	return SleepEx (timeout, alertable);
-}
-
-static DWORD
-win32_sleep_ex (DWORD timeout, BOOL alertable, BOOL cooperative)
-{
-	DWORD result = WAIT_FAILED;
-	MonoThreadInfo * const info = alertable ? mono_thread_info_current_unchecked () : NULL;
-
-	WIN32_ENTER_ALERTABLE_WAIT (info);
-
-	if (cooperative) {
-		MONO_ENTER_GC_SAFE;
-		result = win32_sleep_ex_interrupt_checked (info, timeout, alertable);
-		MONO_EXIT_GC_SAFE;
-	} else {
-		result = win32_sleep_ex_interrupt_checked (info, timeout, alertable);
-	}
-
-	WIN32_LEAVE_ALERTABLE_WAIT (info);
-
-	return result;
-}
-
-DWORD
-mono_win32_sleep_ex (DWORD timeout, BOOL alertable)
-{
-	return win32_sleep_ex (timeout, alertable, FALSE);
-}
-
-DWORD
-mono_coop_win32_sleep_ex (DWORD timeout, BOOL alertable)
-{
-	return win32_sleep_ex (timeout, alertable, TRUE);
-}
 
 static DWORD
 win32_wait_for_single_object_ex_interrupt_checked (MonoThreadInfo *info, HANDLE handle, DWORD timeout, BOOL alertable)
@@ -133,17 +95,46 @@ win32_wait_for_single_object_ex (HANDLE handle, DWORD timeout, BOOL alertable, B
 	DWORD result = WAIT_FAILED;
 	MonoThreadInfo * const info = alertable ? mono_thread_info_current_unchecked () : NULL;
 
-	WIN32_ENTER_ALERTABLE_WAIT (info);
+	guint64 start_ticks = 0;
+	gboolean done = FALSE;
 
-	if (cooperative) {
-		MONO_ENTER_GC_SAFE;
-		result = win32_wait_for_single_object_ex_interrupt_checked (info, handle, timeout, alertable);
-		MONO_EXIT_GC_SAFE;
-	} else {
-		result = win32_wait_for_single_object_ex_interrupt_checked (info, handle, timeout, alertable);
+	if (timeout != INFINITE && alertable)
+		start_ticks = GINT64_TO_UINT64 (mono_msec_ticks ());
+
+	while (!done)
+	{
+		DWORD current_timeout = timeout;
+
+		if (timeout != INFINITE && alertable && result == WAIT_IO_COMPLETION) {
+			DWORD elapsed = 0;
+			guint64 current_ticks = mono_msec_ticks ();
+
+			if (current_ticks >= start_ticks)
+				elapsed = GUINT64_TO_UINT32 (current_ticks - start_ticks);
+			else
+				elapsed = GUINT64_TO_UINT32 (G_MAXUINT64 - start_ticks + current_ticks);
+
+			if (elapsed > timeout)
+				return WAIT_TIMEOUT;
+
+			current_timeout = timeout - elapsed;
+		}
+
+		WIN32_ENTER_ALERTABLE_WAIT (info);
+
+		if (cooperative) {
+			MONO_ENTER_GC_SAFE;
+			result = win32_wait_for_single_object_ex_interrupt_checked (info, handle, current_timeout, alertable);
+			MONO_EXIT_GC_SAFE;
+		} else {
+			result = win32_wait_for_single_object_ex_interrupt_checked (info, handle, current_timeout, alertable);
+		}
+
+		gboolean alerted = FALSE;
+		WIN32_LEAVE_ALERTABLE_WAIT (info, alerted);
+
+		done = !(alertable && !alerted && result == WAIT_IO_COMPLETION);
 	}
-
-	WIN32_LEAVE_ALERTABLE_WAIT (info);
 
 	return result;
 }
@@ -173,17 +164,46 @@ win32_wait_for_multiple_objects_ex (DWORD count, CONST HANDLE *handles, BOOL wai
 	DWORD result = WAIT_FAILED;
 	MonoThreadInfo * const info = alertable ? mono_thread_info_current_unchecked () : NULL;
 
-	WIN32_ENTER_ALERTABLE_WAIT (info);
+	guint64 start_ticks = 0;
+	gboolean done = FALSE;
 
-	if (cooperative) {
-		MONO_ENTER_GC_SAFE;
-		result = win32_wait_for_multiple_objects_ex_interrupt_checked (info, count, handles, waitAll, timeout, alertable);
-		MONO_EXIT_GC_SAFE;
-	} else {
-		result = win32_wait_for_multiple_objects_ex_interrupt_checked (info, count, handles, waitAll, timeout, alertable);
+	if (timeout != INFINITE && alertable)
+		start_ticks = GINT64_TO_UINT64 (mono_msec_ticks ());
+
+	while (!done)
+	{
+		DWORD current_timeout = timeout;
+
+		if (timeout != INFINITE && alertable && result == WAIT_IO_COMPLETION) {
+			DWORD elapsed = 0;
+			guint64 current_ticks = mono_msec_ticks ();
+
+			if (current_ticks >= start_ticks)
+				elapsed = GUINT64_TO_UINT32 (current_ticks - start_ticks);
+			else
+				elapsed = GUINT64_TO_UINT32 (G_MAXUINT64 - start_ticks + current_ticks);
+
+			if (elapsed > timeout)
+				return WAIT_TIMEOUT;
+
+			current_timeout = timeout - elapsed;
+		}
+
+		WIN32_ENTER_ALERTABLE_WAIT (info);
+
+		if (cooperative) {
+			MONO_ENTER_GC_SAFE;
+			result = win32_wait_for_multiple_objects_ex_interrupt_checked (info, count, handles, waitAll, current_timeout, alertable);
+			MONO_EXIT_GC_SAFE;
+		} else {
+			result = win32_wait_for_multiple_objects_ex_interrupt_checked (info, count, handles, waitAll, current_timeout, alertable);
+		}
+
+		gboolean alerted = FALSE;
+		WIN32_LEAVE_ALERTABLE_WAIT (info, alerted);
+
+		done = !(alertable && !alerted && result == WAIT_IO_COMPLETION);
 	}
-
-	WIN32_LEAVE_ALERTABLE_WAIT (info);
 
 	// This is not perfect, but it is the best you can do in usermode and matches CoreCLR.
 	// i.e. handle-based instead of object-based.
@@ -219,131 +239,4 @@ DWORD
 mono_coop_win32_wait_for_multiple_objects_ex (DWORD count, CONST HANDLE *handles, BOOL waitAll, DWORD timeout, BOOL alertable, MonoError *error)
 {
 	return win32_wait_for_multiple_objects_ex (count, handles, waitAll, timeout, alertable, error, TRUE);
-}
-
-#if HAVE_API_SUPPORT_WIN32_SIGNAL_OBJECT_AND_WAIT
-
-static DWORD
-win32_signal_object_and_wait_interrupt_checked (MonoThreadInfo *info, HANDLE toSignal, HANDLE toWait, DWORD timeout, BOOL alertable)
-{
-	WIN32_CHECK_INTERRUPT (info, alertable);
-	return SignalObjectAndWait (toSignal, toWait, timeout, alertable);
-}
-
-static DWORD
-win32_signal_object_and_wait (HANDLE toSignal, HANDLE toWait, DWORD timeout, BOOL alertable, BOOL cooperative)
-{
-	DWORD result = WAIT_FAILED;
-	MonoThreadInfo * const info = alertable ? mono_thread_info_current_unchecked () : NULL;
-
-	WIN32_ENTER_ALERTABLE_WAIT (info);
-
-	if (cooperative) {
-		MONO_ENTER_GC_SAFE;
-		result = win32_signal_object_and_wait_interrupt_checked (info, toSignal, toWait, timeout, alertable);
-		MONO_EXIT_GC_SAFE;
-	} else {
-		result = win32_signal_object_and_wait_interrupt_checked (info, toSignal, toWait, timeout, alertable);
-	}
-
-	WIN32_LEAVE_ALERTABLE_WAIT (info);
-
-	return result;
-}
-
-DWORD
-mono_win32_signal_object_and_wait (HANDLE toSignal, HANDLE toWait, DWORD timeout, BOOL alertable)
-{
-	return win32_signal_object_and_wait (toSignal, toWait, timeout, alertable, FALSE);
-}
-
-DWORD
-mono_coop_win32_signal_object_and_wait (HANDLE toSignal, HANDLE toWait, DWORD timeout, BOOL alertable)
-{
-	return win32_signal_object_and_wait (toSignal, toWait, timeout, alertable, TRUE);
-}
-
-#endif /* HAVE_API_SUPPORT_WIN32_SIGNAL_OBJECT_AND_WAIT */
-
-#if HAVE_API_SUPPORT_WIN32_MSG_WAIT_FOR_MULTIPLE_OBJECTS
-static DWORD
-win32_msg_wait_for_multiple_objects_ex_interrupt_checked (MonoThreadInfo *info, DWORD count, CONST HANDLE *handles, DWORD timeout, DWORD wakeMask, DWORD flags, BOOL alertable)
-{
-	WIN32_CHECK_INTERRUPT (info, alertable);
-	return MsgWaitForMultipleObjectsEx (count, handles, timeout, wakeMask, flags);
-}
-
-static DWORD
-win32_msg_wait_for_multiple_objects_ex (DWORD count, CONST HANDLE *handles, DWORD timeout, DWORD wakeMask, DWORD flags, BOOL cooperative)
-{
-	DWORD result = WAIT_FAILED;
-	BOOL alertable = flags & MWMO_ALERTABLE;
-	MonoThreadInfo * const info = alertable ? mono_thread_info_current_unchecked () : NULL;
-
-	WIN32_ENTER_ALERTABLE_WAIT (info);
-
-	if (cooperative) {
-		MONO_ENTER_GC_SAFE;
-		result = win32_msg_wait_for_multiple_objects_ex_interrupt_checked (info, count, handles, timeout, wakeMask, flags, alertable);
-		MONO_EXIT_GC_SAFE;
-	} else {
-		result = win32_msg_wait_for_multiple_objects_ex_interrupt_checked (info, count, handles, timeout, wakeMask, flags, alertable);
-	}
-
-	WIN32_LEAVE_ALERTABLE_WAIT (info);
-
-	return result;
-}
-
-DWORD
-mono_win32_msg_wait_for_multiple_objects_ex (DWORD count, CONST HANDLE *handles, DWORD timeout, DWORD wakeMask, DWORD flags)
-{
-	return win32_msg_wait_for_multiple_objects_ex (count, handles, timeout, wakeMask, flags, FALSE);
-}
-
-DWORD
-mono_coop_win32_msg_wait_for_multiple_objects_ex (DWORD count, CONST HANDLE *handles, DWORD timeout, DWORD wakeMask, DWORD flags)
-{
-	return win32_msg_wait_for_multiple_objects_ex (count, handles, timeout, wakeMask, flags, TRUE);
-}
-#endif /* HAVE_API_SUPPORT_WIN32_MSG_WAIT_FOR_MULTIPLE_OBJECTS */
-
-static DWORD
-win32_wsa_wait_for_multiple_events_interrupt_checked (MonoThreadInfo *info, DWORD count, const WSAEVENT FAR *handles, BOOL waitAll, DWORD timeout, BOOL alertable)
-{
-	WIN32_CHECK_INTERRUPT (info, alertable);
-	return WSAWaitForMultipleEvents (count, handles, waitAll, timeout, alertable);
-}
-
-static DWORD
-win32_wsa_wait_for_multiple_events (DWORD count, const WSAEVENT FAR *handles, BOOL waitAll, DWORD timeout, BOOL alertable, BOOL cooperative)
-{
-	DWORD result = WAIT_FAILED;
-	MonoThreadInfo * const info = alertable ? mono_thread_info_current_unchecked () : NULL;
-
-	WIN32_ENTER_ALERTABLE_WAIT (info);
-
-	if (cooperative) {
-		MONO_ENTER_GC_SAFE;
-		result = win32_wsa_wait_for_multiple_events_interrupt_checked (info, count, handles, waitAll, timeout, alertable);
-		MONO_EXIT_GC_SAFE;
-	} else {
-		result = win32_wsa_wait_for_multiple_events_interrupt_checked (info, count, handles, waitAll, timeout, alertable);
-	}
-
-	WIN32_LEAVE_ALERTABLE_WAIT (info);
-
-	return result;
-}
-
-DWORD
-mono_win32_wsa_wait_for_multiple_events (DWORD count, const WSAEVENT FAR *handles, BOOL waitAll, DWORD timeout, BOOL alertable)
-{
-	return win32_wsa_wait_for_multiple_events (count, handles, waitAll, timeout, alertable, FALSE);
-}
-
-DWORD
-mono_coop_win32_wsa_wait_for_multiple_events (DWORD count, const WSAEVENT FAR *handles, BOOL waitAll, DWORD timeout, BOOL alertable)
-{
-	return win32_wsa_wait_for_multiple_events (count, handles, waitAll, timeout, alertable, TRUE);
 }

@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Pipes;
@@ -39,7 +40,7 @@ namespace System.Net.Sockets.Tests
             new object[] { SocketType.Unknown, ProtocolType.Udp },
         };
 
-        private static bool SupportsRawSockets => AdminHelpers.IsProcessElevated();
+        private static bool SupportsRawSockets => Environment.IsPrivilegedProcess && !OperatingSystem.IsWasi();
         private static bool NotSupportsRawSockets => !SupportsRawSockets;
 
         [OuterLoop]
@@ -101,7 +102,7 @@ namespace System.Net.Sockets.Tests
         [InlineData(AddressFamily.InterNetworkV6, ProtocolType.Tcp)]
         [InlineData(AddressFamily.InterNetworkV6, ProtocolType.Udp)]
         [InlineData(AddressFamily.InterNetworkV6, ProtocolType.IcmpV6)]
-        [ConditionalTheory(nameof(SupportsRawSockets))]
+        [ConditionalTheory(typeof(CreateSocket), nameof(SupportsRawSockets))]
         public void Ctor_Raw_Supported_Success(AddressFamily addressFamily, ProtocolType protocolType)
         {
             using (new Socket(addressFamily, SocketType.Raw, protocolType))
@@ -116,7 +117,8 @@ namespace System.Net.Sockets.Tests
         [InlineData(AddressFamily.InterNetworkV6, ProtocolType.Tcp)]
         [InlineData(AddressFamily.InterNetworkV6, ProtocolType.Udp)]
         [InlineData(AddressFamily.InterNetworkV6, ProtocolType.IcmpV6)]
-        [ConditionalTheory(nameof(NotSupportsRawSockets))]
+        [ConditionalTheory(typeof(CreateSocket), nameof(NotSupportsRawSockets))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/107981", TestPlatforms.Wasi)]
         public void Ctor_Raw_NotSupported_ExpectedError(AddressFamily addressFamily, ProtocolType protocolType)
         {
             SocketException e = Assert.Throws<SocketException>(() => new Socket(addressFamily, SocketType.Raw, protocolType));
@@ -130,14 +132,14 @@ namespace System.Net.Sockets.Tests
         [InlineData(false, 1)]
         [InlineData(true, 2)] // Begin/EndAccept
         [InlineData(false, 2)]
-        public void CtorAndAccept_SocketNotKeptAliveViaInheritance(bool validateClientOuter, int acceptApiOuter)
+        public async Task CtorAndAccept_SocketNotKeptAliveViaInheritance(bool validateClientOuter, int acceptApiOuter)
         {
             // 300 ms should be long enough to connect if the socket is actually present & listening.
             const int ConnectionTimeoutMs = 300;
 
             // Run the test in another process so as to not have trouble with other tests
             // launching child processes that might impact inheritance.
-            RemoteExecutor.Invoke((validateClientString, acceptApiString) =>
+            await RemoteExecutor.Invoke((validateClientString, acceptApiString) =>
             {
                 bool validateClient = bool.Parse(validateClientString);
                 int acceptApi = int.Parse(acceptApiString);
@@ -210,13 +212,13 @@ namespace System.Net.Sockets.Tests
                         }
                     }
                 }
-            }, validateClientOuter.ToString(), acceptApiOuter.ToString()).Dispose();
+            }, validateClientOuter.ToString(), acceptApiOuter.ToString()).DisposeAsync();
         }
 
         [Theory]
         [InlineData(AddressFamily.Packet)]
         [InlineData(AddressFamily.ControllerAreaNetwork)]
-        [PlatformSpecific(~TestPlatforms.Linux)]
+        [SkipOnPlatform(TestPlatforms.Linux, "Not supported on Linux.")]
         public void Ctor_Netcoreapp_Throws(AddressFamily addressFamily)
         {
             // All protocols are Linux specific and throw on other platforms
@@ -249,12 +251,18 @@ namespace System.Net.Sockets.Tests
         {
             AssertExtensions.Throws<ArgumentNullException>("handle", () => new Socket(null));
             AssertExtensions.Throws<ArgumentException>("handle", () => new Socket(new SafeSocketHandle((IntPtr)(-1), false)));
+        }
 
-            using (var pipe = new AnonymousPipeServerStream())
-            {
-                SocketException se = Assert.Throws<SocketException>(() => new Socket(new SafeSocketHandle(pipe.ClientSafePipeHandle.DangerousGetHandle(), false)));
-                Assert.Equal(SocketError.NotSocket, se.SocketErrorCode);
-            }
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        [PlatformSpecific(TestPlatforms.Linux)]
+        public void Ctor_Socket_FromPipeHandle_Ctor_Dispose_Success(bool ownsHandle)
+        {
+            (int fd1, int fd2) = pipe2();
+            close(fd2);
+
+            using var _ = new Socket(new SafeSocketHandle(new IntPtr(fd1), ownsHandle));
         }
 
         [Theory]
@@ -267,8 +275,29 @@ namespace System.Net.Sockets.Tests
         [InlineData(AddressFamily.InterNetworkV6, SocketType.Raw, ProtocolType.Unspecified)]
         [InlineData(AddressFamily.Packet, SocketType.Raw, ProtocolType.Raw)]
         [InlineData(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/52124", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void Ctor_SafeHandle_BasicPropertiesPropagate_Success(AddressFamily addressFamily, SocketType socketType, ProtocolType protocolType)
         {
+            if(OperatingSystem.IsWasi() && addressFamily == AddressFamily.Unix)
+            {
+                // WASI doesn't support Unix domain sockets.
+                return;
+            }
+            if(OperatingSystem.IsWasi() && socketType == SocketType.Raw)
+            {
+                // WASI doesn't support Raw sockets.
+                return;
+            }
+
+            bool isRawPacket = (addressFamily == AddressFamily.Packet) &&
+                               (socketType == SocketType.Raw);
+            if (isRawPacket)
+            {
+                // protocol is the IEEE 802.3 protocol number in network byte order.
+                const short ETH_P_ARP = 0x0806;
+                protocolType = (ProtocolType)IPAddress.HostToNetworkOrder(ETH_P_ARP);
+            }
+
             Socket tmpOrig;
             try
             {
@@ -295,8 +324,8 @@ namespace System.Net.Sockets.Tests
             if (copy.IsBound)
             {
                 // On Unix, we may successfully obtain an (empty) local end point, even though Bind wasn't called.
-                Debug.Assert(!RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
-                if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) // OSX gets some strange results in some cases, e.g. "@\0\0\0\0\0\0\0\0\0\0\0\0\0" for a UDS
+                Debug.Assert(!OperatingSystem.IsWindows());
+                if (OperatingSystem.IsLinux()) // OSX gets some strange results in some cases, e.g. "@\0\0\0\0\0\0\0\0\0\0\0\0\0" for a UDS
                 {
                     switch (addressFamily)
                     {
@@ -332,10 +361,16 @@ namespace System.Net.Sockets.Tests
 
             Assert.Equal(addressFamily, copy.AddressFamily);
             Assert.Equal(socketType, copy.SocketType);
-            Assert.Equal(protocolType, copy.ProtocolType);
+            ProtocolType expectedProtocolType = protocolType;
+            if (isRawPacket)
+            {
+                // raw packet doesn't support getting the protocol using getsockopt SO_PROTOCOL.
+                expectedProtocolType = ProtocolType.Unspecified;
+            }
+            Assert.Equal(expectedProtocolType, copy.ProtocolType);
 
-            Assert.True(orig.Blocking);
-            Assert.True(copy.Blocking);
+            if (!OperatingSystem.IsWasi()) Assert.True(orig.Blocking);
+            if (!OperatingSystem.IsWasi()) Assert.True(copy.Blocking);
 
             if (orig.AddressFamily == copy.AddressFamily)
             {
@@ -349,19 +384,25 @@ namespace System.Net.Sockets.Tests
             AssertEqualOrSameException(() => orig.LingerState.LingerTime, () => copy.LingerState.LingerTime);
             AssertEqualOrSameException(() => orig.NoDelay, () => copy.NoDelay);
 
-            Assert.Equal(orig.Available, copy.Available);
-            Assert.Equal(orig.ExclusiveAddressUse, copy.ExclusiveAddressUse);
+            if (!OperatingSystem.IsWasi()) Assert.Equal(orig.Available, copy.Available);
+            if (!OperatingSystem.IsWasi() || protocolType != ProtocolType.Udp)
+            {
+                Assert.Equal(orig.ExclusiveAddressUse, copy.ExclusiveAddressUse);
+            }
             Assert.Equal(orig.Handle, copy.Handle);
             Assert.Equal(orig.ReceiveBufferSize, copy.ReceiveBufferSize);
-            Assert.Equal(orig.ReceiveTimeout, copy.ReceiveTimeout);
+            if (!OperatingSystem.IsWasi()) Assert.Equal(orig.ReceiveTimeout, copy.ReceiveTimeout);
             Assert.Equal(orig.SendBufferSize, copy.SendBufferSize);
-            Assert.Equal(orig.SendTimeout, copy.SendTimeout);
+            if (!OperatingSystem.IsWasi()) Assert.Equal(orig.SendTimeout, copy.SendTimeout);
+#pragma warning disable 0618
             Assert.Equal(orig.UseOnlyOverlappedIO, copy.UseOnlyOverlappedIO);
+#pragma warning restore 0618
         }
 
         [Theory]
         [InlineData(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp)]
         [InlineData(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/52124", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public async Task Ctor_SafeHandle_Tcp_SendReceive_Success(AddressFamily addressFamily, SocketType socketType, ProtocolType protocolType)
         {
             using var orig = new Socket(addressFamily, socketType, protocolType);
@@ -383,28 +424,29 @@ namespace System.Net.Sockets.Tests
             Assert.Equal(orig.RemoteEndPoint, client.RemoteEndPoint);
 
             // Validating accessing other properties
-            Assert.Equal(orig.Available, client.Available);
-            Assert.True(orig.Blocking);
-            Assert.True(client.Blocking);
+            if (!OperatingSystem.IsWasi()) // https://github.com/WebAssembly/wasi-libc/issues/538
+                Assert.Equal(orig.Available, client.Available);
+            if (!OperatingSystem.IsWasi()) Assert.True(orig.Blocking);
+            if (!OperatingSystem.IsWasi()) Assert.True(client.Blocking);
             AssertEqualOrSameException(() => orig.DontFragment, () => client.DontFragment);
             AssertEqualOrSameException(() => orig.EnableBroadcast, () => client.EnableBroadcast);
             Assert.Equal(orig.ExclusiveAddressUse, client.ExclusiveAddressUse);
             Assert.Equal(orig.Handle, client.Handle);
             Assert.Equal(orig.IsBound, client.IsBound);
-            Assert.Equal(orig.LingerState.Enabled, client.LingerState.Enabled);
-            Assert.Equal(orig.LingerState.LingerTime, client.LingerState.LingerTime);
-            AssertEqualOrSameException(() => orig.MulticastLoopback, () => client.MulticastLoopback);
+            if (!OperatingSystem.IsWasi()) Assert.Equal(orig.LingerState.Enabled, client.LingerState.Enabled);
+            if (!OperatingSystem.IsWasi()) Assert.Equal(orig.LingerState.LingerTime, client.LingerState.LingerTime);
+            if (!OperatingSystem.IsWasi()) AssertEqualOrSameException(() => orig.MulticastLoopback, () => client.MulticastLoopback);
             Assert.Equal(orig.NoDelay, client.NoDelay);
             Assert.Equal(orig.ReceiveBufferSize, client.ReceiveBufferSize);
-            Assert.Equal(orig.ReceiveTimeout, client.ReceiveTimeout);
+            if (!OperatingSystem.IsWasi()) Assert.Equal(orig.ReceiveTimeout, client.ReceiveTimeout);
             Assert.Equal(orig.SendBufferSize, client.SendBufferSize);
-            Assert.Equal(orig.SendTimeout, client.SendTimeout);
+            if (!OperatingSystem.IsWasi()) Assert.Equal(orig.SendTimeout, client.SendTimeout);
             Assert.Equal(orig.Ttl, client.Ttl);
-            Assert.Equal(orig.UseOnlyOverlappedIO, client.UseOnlyOverlappedIO);
 
             // Validate setting various properties on the new instance and seeing them roundtrip back to the original.
-            client.ReceiveTimeout = 42;
-            Assert.Equal(client.ReceiveTimeout, orig.ReceiveTimeout);
+            if (!OperatingSystem.IsWasi()) // https://github.com/WebAssembly/wasi-libc/issues/539
+                client.ReceiveTimeout = 42;
+            if (!OperatingSystem.IsWasi()) Assert.Equal(client.ReceiveTimeout, orig.ReceiveTimeout);
 
             // Validate sending and receiving
             Assert.Equal(1, await client.SendAsync(new byte[1] { 42 }, SocketFlags.None));
@@ -418,40 +460,44 @@ namespace System.Net.Sockets.Tests
             Assert.Equal(42, buffer[0]);
         }
 
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(false)]
         [InlineData(true)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/52124", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public async Task Ctor_SafeHandle_Listening_Success(bool shareSafeHandle)
         {
-            using var listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            listener.Bind(new IPEndPoint(IPAddress.Loopback, 0));
-            listener.Listen();
-
-            using var listenerCopy = new Socket(shareSafeHandle ? listener.SafeHandle : new SafeSocketHandle(listener.Handle, ownsHandle: false));
-            Assert.False(listenerCopy.Connected);
-            // This will throw if _isListening is set internally. (before reaching any real code)
-            Assert.Throws<InvalidOperationException>(() => listenerCopy.Connect(new IPEndPoint(IPAddress.Loopback,0)));
-
-            Assert.Equal(listener.AddressFamily, listenerCopy.AddressFamily);
-            Assert.Equal(listener.Handle, listenerCopy.Handle);
-            Assert.Equal(listener.IsBound, listenerCopy.IsBound);
-            Assert.Equal(listener.LocalEndPoint, listenerCopy.LocalEndPoint);
-            Assert.Equal(listener.ProtocolType, listenerCopy.ProtocolType);
-            Assert.Equal(listener.SocketType, listenerCopy.SocketType);
-
-            foreach (Socket listenerSocket in new[] { listener, listenerCopy })
+            await Task.Run(async () =>
             {
-                using (var client1 = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+                using var listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                listener.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+                listener.Listen();
+
+                using var listenerCopy = new Socket(shareSafeHandle ? listener.SafeHandle : new SafeSocketHandle(listener.Handle, ownsHandle: false));
+                Assert.False(listenerCopy.Connected);
+                // This will throw if _isListening is set internally. (before reaching any real code)
+                Assert.Throws<InvalidOperationException>(() => listenerCopy.Connect(new IPEndPoint(IPAddress.Loopback, 0)));
+
+                Assert.Equal(listener.AddressFamily, listenerCopy.AddressFamily);
+                Assert.Equal(listener.Handle, listenerCopy.Handle);
+                Assert.Equal(listener.IsBound, listenerCopy.IsBound);
+                Assert.Equal(listener.LocalEndPoint, listenerCopy.LocalEndPoint);
+                Assert.Equal(listener.ProtocolType, listenerCopy.ProtocolType);
+                Assert.Equal(listener.SocketType, listenerCopy.SocketType);
+
+                foreach (Socket listenerSocket in new[] { listener, listenerCopy })
                 {
-                    Task connect1 = client1.ConnectAsync(listenerSocket.LocalEndPoint);
-                    using (Socket server1 = listenerSocket.Accept())
+                    using (var client1 = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
                     {
-                        await connect1;
-                        server1.Send(new byte[] { 42 });
-                        Assert.Equal(1, client1.Receive(new byte[1]));
+                        Task connect1 = client1.ConnectAsync(listenerSocket.LocalEndPoint);
+                        using (Socket server1 = listenerSocket.Accept())
+                        {
+                            await connect1;
+                            server1.Send(new byte[] { 42 });
+                            Assert.Equal(1, client1.Receive(new byte[1]));
+                        }
                     }
                 }
-            }
+            }).WaitAsync(TestSettings.PassingTestTimeout);
         }
 
         [DllImport("libc")]
@@ -512,7 +558,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        internal struct nlmsghdr
+        internal struct @nlmsghdr
         {
             internal int nlmsg_len;       /* Length of message including header */
             internal ushort nlmsg_type;   /* Type of message content */
@@ -522,13 +568,13 @@ namespace System.Net.Sockets.Tests
         };
 
         [StructLayout(LayoutKind.Sequential)]
-        private struct nlmsgerr {
+        private struct @nlmsgerr {
             internal int     error;
             internal nlmsghdr msg;
         }
 
         [StructLayout(LayoutKind.Sequential)]
-        internal unsafe struct rtmsg
+        internal unsafe struct @rtmsg
         {
             internal byte rtm_family;
             internal byte rtm_dst_len;
@@ -594,7 +640,7 @@ namespace System.Net.Sockets.Tests
 
                 if (nlh.nlmsg_type == NLMSG_ERROR)
                 {
-                    MemoryMarshal.TryRead<nlmsgerr>(response.AsSpan().Slice(sizeof(nlmsghdr)), out nlmsgerr err);
+                    MemoryMarshal.TryRead<nlmsgerr>(response.AsSpan(sizeof(nlmsghdr)), out nlmsgerr err);
                     _output.WriteLine("Netlink request failed with {0}", err.error);
                 }
 
@@ -609,8 +655,29 @@ namespace System.Net.Sockets.Tests
         [DllImport("libc")]
         private static extern int close(int fd);
 
+        [DllImport("libc", SetLastError = true)]
+        private static unsafe extern int pipe2(int* pipefd, int flags);
+
+        private static unsafe (int, int) pipe2(int flags = 0)
+        {
+            Span<int> pipefd = stackalloc int[2];
+            fixed (int* ptr = pipefd)
+            {
+                if (pipe2(ptr, flags) == 0)
+                {
+                    return (pipefd[0], pipefd[1]);
+                }
+                else
+                {
+                    throw new Win32Exception();
+                }
+            }
+        }
+
         [Fact]
         [PlatformSpecific(TestPlatforms.AnyUnix)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/52124", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/107981", TestPlatforms.Wasi)]
         public unsafe void Ctor_SafeHandle_SocketPair_Success()
         {
             // This is platform dependent but it seems like this is same on all supported platforms.
@@ -637,6 +704,20 @@ namespace System.Net.Sockets.Tests
 
             close(ptr[0]);
             close(ptr[1]);
+        }
+
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        [PlatformSpecific(TestPlatforms.AnyUnix)] // Windows has no API to query the blocking state of a socket and assumes true.
+        [SkipOnPlatform(TestPlatforms.Wasi, "Wasi doesn't support Socket.Blocking")]
+        public void Ctor_SafeHandle_BlockingMatchesHandle(bool blocking)
+        {
+            using var orig = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
+            orig.Blocking = blocking;
+
+            using var copy = new Socket(orig.SafeHandle);
+            Assert.Equal(blocking, copy.Blocking);
         }
 
         private static void AssertEqualOrSameException<T>(Func<T> expected, Func<T> actual)

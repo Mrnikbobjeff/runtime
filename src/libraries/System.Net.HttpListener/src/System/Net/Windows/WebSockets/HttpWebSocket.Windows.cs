@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -14,7 +15,7 @@ namespace System.Net.WebSockets
     internal static partial class HttpWebSocket
     {
         internal static Task<HttpListenerWebSocketContext> AcceptWebSocketAsync(HttpListenerContext context,
-            string subProtocol,
+            string? subProtocol,
             int receiveBufferSize,
             TimeSpan keepAliveInterval,
             ArraySegment<byte> internalBuffer)
@@ -27,7 +28,7 @@ namespace System.Net.WebSockets
         }
 
         private static async Task<HttpListenerWebSocketContext> AcceptWebSocketAsyncCore(HttpListenerContext context,
-            string subProtocol,
+            string? subProtocol,
             int receiveBufferSize,
             TimeSpan keepAliveInterval,
             ArraySegment<byte> internalBuffer)
@@ -89,7 +90,7 @@ namespace System.Net.WebSockets
                     NetEventSource.Info(null, $"{HttpKnownHeaderNames.SecWebSocketProtocol} = {outgoingSecWebSocketProtocolString}");
                 }
 
-                await response.OutputStream.FlushAsync().SuppressContextFlow();
+                await response.OutputStream.FlushAsync().ConfigureAwait(false);
 
                 HttpResponseStream responseStream = (response.OutputStream as HttpResponseStream)!;
                 Debug.Assert(responseStream != null, "'responseStream' MUST be castable to System.Net.HttpResponseStream.");
@@ -136,31 +137,6 @@ namespace System.Net.WebSockets
             return webSocketContext;
         }
 
-        internal static string GetTraceMsgForParameters(int offset, int count, CancellationToken cancellationToken)
-        {
-            return string.Format(CultureInfo.InvariantCulture,
-                "offset: {0}, count: {1}, cancellationToken.CanBeCanceled: {2}",
-                offset,
-                count,
-                cancellationToken.CanBeCanceled);
-        }
-
-        internal static ConfiguredTaskAwaitable SuppressContextFlow(this Task task)
-        {
-            // We don't flow the synchronization context within WebSocket.xxxAsync - but the calling application
-            // can decide whether the completion callback for the task returned from WebSocket.xxxAsync runs
-            // under the caller's synchronization context.
-            return task.ConfigureAwait(false);
-        }
-
-        internal static ConfiguredTaskAwaitable<T> SuppressContextFlow<T>(this Task<T> task)
-        {
-            // We don't flow the synchronization context within WebSocket.xxxAsync - but the calling application
-            // can decide whether the completion callback for the task returned from WebSocket.xxxAsync runs
-            // under the caller's synchronization context.
-            return task.ConfigureAwait(false);
-        }
-
         private static unsafe ulong SendWebSocketHeaders(HttpListenerResponse response)
         {
             return response.SendHeaders(null, null,
@@ -172,10 +148,7 @@ namespace System.Net.WebSockets
 
         internal static void ValidateInnerStream(Stream innerStream)
         {
-            if (innerStream == null)
-            {
-                throw new ArgumentNullException(nameof(innerStream));
-            }
+            ArgumentNullException.ThrowIfNull(innerStream);
 
             if (!innerStream.CanRead)
             {
@@ -197,6 +170,7 @@ namespace System.Net.WebSockets
             }
         }
 
+        [DoesNotReturn]
         internal static void ThrowPlatformNotSupportedException_WSPC()
         {
             throw new PlatformNotSupportedException(SR.net_WebSockets_UnsupportedPlatform);

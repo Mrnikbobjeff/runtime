@@ -1,12 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Xml;
+using System.Collections;
 using System.Data.SqlTypes;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Xml;
 using System.Xml.Serialization;
-using System.Collections;
 
 namespace System.Data.Common
 {
@@ -124,18 +125,15 @@ namespace System.Data.Common
 
         public override void SetCapacity(int capacity)
         {
-            SqlBoolean[] newValues = new SqlBoolean[capacity];
-            if (null != _values)
-            {
-                Array.Copy(_values, newValues, Math.Min(capacity, _values.Length));
-            }
-            _values = newValues;
+            Array.Resize(ref _values, capacity);
         }
 
+        [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+        [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
         public override object ConvertXmlToObject(string s)
         {
             SqlBoolean newValue = default;
-            string tempStr = string.Concat("<col>", s, "</col>"); // this is done since you can give fragmet to reader
+            string tempStr = string.Concat("<col>", s, "</col>"); // this is done since you can give fragment to reader
             StringReader strReader = new StringReader(tempStr);
 
             IXmlSerializable tmp = newValue;
@@ -147,6 +145,8 @@ namespace System.Data.Common
             return ((SqlBoolean)tmp);
         }
 
+        [RequiresUnreferencedCode(DataSet.RequiresUnreferencedCodeMessage)]
+        [RequiresDynamicCode(DataSet.RequiresDynamicCodeMessage)]
         public override string ConvertObjectToXml(object value)
         {
             Debug.Assert(!DataStorage.IsObjectNull(value), "we should have null here");

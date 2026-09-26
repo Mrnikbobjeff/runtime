@@ -9,14 +9,18 @@
 //generics.
 //Test returns 100 on success and 1 on failure.
 
-using System;
 
-abstract class Base<U>
+namespace b611219;
+
+using System;
+using Xunit;
+
+public abstract class Base<U>
 {
     public abstract int Foo<T>(T obj) where T : U;
 }
 
-class Derived : Base<string>
+public class Derived : Base<string>
 {
     public override int Foo<T>(T obj)
     {
@@ -26,7 +30,9 @@ class Derived : Base<string>
         return n;
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int ret = 100;
         string s = "abc";

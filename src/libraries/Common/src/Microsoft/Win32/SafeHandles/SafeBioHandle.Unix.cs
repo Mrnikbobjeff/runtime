@@ -2,18 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Security;
-using System.Runtime.InteropServices;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Security;
 
-#nullable enable
 namespace Microsoft.Win32.SafeHandles
 {
     internal sealed class SafeBioHandle : SafeHandle
     {
         private SafeHandle? _parent;
 
-        private SafeBioHandle() :
+        public SafeBioHandle() :
             base(IntPtr.Zero, ownsHandle: true)
         {
         }

@@ -4,11 +4,22 @@
 
 using System;
 using System.Numerics;
+using Xunit;
 
-internal partial class VectorTest
+namespace SIMDTests.VectorArrayInitTests;
+
+public partial class VectorTest : VectorTestBase
 {
     private const int Pass = 100;
     private const int Fail = -1;
+
+    private const int DefaultSeed = 20010415;
+    private static int Seed = Environment.GetEnvironmentVariable("CORECLR_SEED") switch
+    {
+        string seedStr when seedStr.Equals("random", StringComparison.OrdinalIgnoreCase) => new Random().Next(),
+        string seedStr when int.TryParse(seedStr, out int envSeed) => envSeed,
+        _ => DefaultSeed
+    };
 
     private class VectorArrayInitTest<T> where T : struct, IComparable<T>, IEquatable<T>
     {
@@ -59,7 +70,7 @@ internal partial class VectorTest
             {
                 Vector<T> v = new Vector<T>(inputArray, -1);
             }
-            catch (IndexOutOfRangeException)
+            catch (ArgumentOutOfRangeException)
             {
                 caught = true;
             }
@@ -69,7 +80,7 @@ internal partial class VectorTest
             }
             if (!caught)
             {
-                Console.WriteLine("Failed to throw IndexOutOfRangeException for a negative index.");
+                Console.WriteLine("Failed to throw ArgumentOutOfRangeException for a negative index.");
                 returnVal = Fail;
             }
 
@@ -79,7 +90,7 @@ internal partial class VectorTest
             {
                 Vector<T> v = new Vector<T>(inputArray, inputArray.Length);
             }
-            catch (IndexOutOfRangeException)
+            catch (ArgumentOutOfRangeException)
             {
                 caught = true;
             }
@@ -89,7 +100,7 @@ internal partial class VectorTest
             }
             if (!caught)
             {
-                Console.WriteLine("Failed to throw IndexOutOfRangeException for an out-of-range index.");
+                Console.WriteLine("Failed to throw ArgumentOutOfRangeException for an out-of-range index.");
                 returnVal = Fail;
             }
 
@@ -99,7 +110,7 @@ internal partial class VectorTest
             {
                 Vector<T> v = new Vector<T>(inputArray, inputArray.Length - 1);
             }
-            catch (IndexOutOfRangeException)
+            catch (ArgumentOutOfRangeException)
             {
                 caught = true;
             }
@@ -109,7 +120,7 @@ internal partial class VectorTest
             }
             if (!caught)
             {
-                Console.WriteLine("Failed to throw IndexOutOfRangeException for insufficient range in target array.");
+                Console.WriteLine("Failed to throw ArgumentOutOfRangeException for insufficient range in target array.");
                 returnVal = Fail;
             }
 
@@ -117,10 +128,11 @@ internal partial class VectorTest
         }
     }
 
-    private static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int returnVal = Pass;
-        Random random = new Random(100);
+        Random random = new Random(Seed);
 
         if (VectorArrayInitTest<Single>.VectorArrayInit(17, random) == Fail) returnVal = Fail;
         if (VectorArrayInitTest<Single>.VectorArrayInit(12, random) == Fail) returnVal = Fail;
@@ -142,6 +154,10 @@ internal partial class VectorTest
         if (VectorArrayInitTest<uint>.VectorArrayInit(17, random) == Fail) returnVal = Fail;
         if (VectorArrayInitTest<ulong>.VectorArrayInit(12, random) == Fail) returnVal = Fail;
         if (VectorArrayInitTest<ulong>.VectorArrayInit(17, random) == Fail) returnVal = Fail;
+        if (VectorArrayInitTest<nint>.VectorArrayInit(12, random) == Fail) returnVal = Fail;
+        if (VectorArrayInitTest<nint>.VectorArrayInit(17, random) == Fail) returnVal = Fail;
+        if (VectorArrayInitTest<nuint>.VectorArrayInit(12, random) == Fail) returnVal = Fail;
+        if (VectorArrayInitTest<nuint>.VectorArrayInit(17, random) == Fail) returnVal = Fail;
 
         JitLog jitLog = new JitLog();
         if (!jitLog.Check(".ctor(ref)", "Single")) returnVal = Fail;
@@ -164,6 +180,10 @@ internal partial class VectorTest
         if (!jitLog.Check(".ctor(ref,int)", "UInt32")) returnVal = Fail;
         if (!jitLog.Check(".ctor(ref)", "UInt64")) returnVal = Fail;
         if (!jitLog.Check(".ctor(ref,int)", "UInt64")) returnVal = Fail;
+        if (!jitLog.Check(".ctor(ref)", "IntPtr")) returnVal = Fail;
+        if (!jitLog.Check(".ctor(ref,int)", "IntPtr")) returnVal = Fail;
+        if (!jitLog.Check(".ctor(ref)", "UIntPtr")) returnVal = Fail;
+        if (!jitLog.Check(".ctor(ref,int)", "UIntPtr")) returnVal = Fail;
         jitLog.Dispose();
 
         return returnVal;

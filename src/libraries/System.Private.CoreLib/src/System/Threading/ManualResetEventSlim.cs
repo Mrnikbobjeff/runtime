@@ -2,6 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
+using System.Runtime.Versioning;
 
 namespace System.Threading
 {
@@ -19,7 +22,7 @@ namespace System.Threading
     //     eagerly, instead of waiting for finalization.
 
     /// <summary>
-    /// Provides a slimmed down version of <see cref="System.Threading.ManualResetEvent"/>.
+    /// Provides a slimmed down version of <see cref="ManualResetEvent"/>.
     /// </summary>
     /// <remarks>
     /// All public and protected members of <see cref="ManualResetEventSlim"/> are thread-safe and may be used
@@ -34,18 +37,19 @@ namespace System.Threading
         // These are the default spin counts we use on single-proc and MP machines.
         private const int DEFAULT_SPIN_SP = 1;
 
-        private volatile object? m_lock;
         // A lock used for waiting and pulsing. Lazily initialized via EnsureLockObjectCreated()
+        // We are not using thin/object lock here since our use pattern makes it nearly certain that
+        // a thin lock would be inflated even if we use m_lock only once.
+        private Lock? m_lock;
 
-        private volatile ManualResetEvent? m_eventObj; // A true Win32 event used for waiting.
+        private ManualResetEvent? m_eventObj; // A true Win32 event used for waiting.
 
         // -- State -- //
         // For a packed word a uint would seem better, but Interlocked.* doesn't support them as uint isn't CLS-compliant.
-        private volatile int m_combinedState; // ie a uint. Used for the state items listed below.
+        private int m_combinedState; // ie a uint. Used for the state items listed below.
 
         // 1-bit for  signalled state
         private const int SignalledState_BitMask = unchecked((int)0x80000000); // 1000 0000 0000 0000 0000 0000 0000 0000
-        private const int SignalledState_ShiftCount = 31;
 
         // 1-bit for disposed state
         private const int Dispose_BitMask = unchecked((int)0x40000000); // 0100 0000 0000 0000 0000 0000 0000 0000
@@ -57,15 +61,14 @@ namespace System.Threading
 
         // 19-bits for m_waiters.  This allows support of 512K threads waiting which should be ample
         private const int NumWaitersState_BitMask = unchecked((int)0x0007FFFF); // 0000 0000 0000 0111 1111 1111 1111 1111
-        private const int NumWaitersState_ShiftCount = 0;
         private const int NumWaitersState_MaxValue = (1 << 19) - 1; // 512K-1
         // ----------- //
 
         /// <summary>
-        /// Gets the underlying <see cref="System.Threading.WaitHandle"/> object for this <see
+        /// Gets the underlying <see cref="Threading.WaitHandle"/> object for this <see
         /// cref="ManualResetEventSlim"/>.
         /// </summary>
-        /// <value>The underlying <see cref="System.Threading.WaitHandle"/> event object fore this <see
+        /// <value>The underlying <see cref="Threading.WaitHandle"/> event object for this <see
         /// cref="ManualResetEventSlim"/>.</value>
         /// <remarks>
         /// Accessing this property forces initialization of an underlying event object if one hasn't
@@ -76,7 +79,7 @@ namespace System.Threading
         {
             get
             {
-                ThrowIfDisposed();
+                ObjectDisposedException.ThrowIf(IsDisposed, this);
                 if (m_eventObj == null)
                 {
                     // Lazily initialize the event object if needed.
@@ -94,8 +97,23 @@ namespace System.Threading
         /// <value>true if the event has is set; otherwise, false.</value>
         public bool IsSet
         {
-            get => 0 != ExtractStatePortion(m_combinedState, SignalledState_BitMask);
-            private set => UpdateStateAtomically(((value) ? 1 : 0) << SignalledState_ShiftCount, SignalledState_BitMask);
+            get
+            {
+                // Volatile to make sure checking IsSet is not optimized away or reordered
+                // when called as a public API.
+                return Volatile.Read(ref m_combinedState) < 0;
+            }
+            private set
+            {
+                if (value)
+                {
+                    Interlocked.Or(ref m_combinedState, SignalledState_BitMask);
+                }
+                else
+                {
+                    Interlocked.And(ref m_combinedState, ~SignalledState_BitMask);
+                }
+            }
         }
 
         /// <summary>
@@ -113,23 +131,32 @@ namespace System.Threading
             }
         }
 
-        /// <summary>
-        /// How many threads are waiting.
-        /// </summary>
-        private int Waiters
+        private void InterlockedIncrementWaiters()
         {
-            get => ExtractStatePortionAndShiftRight(m_combinedState, NumWaitersState_BitMask, NumWaitersState_ShiftCount);
-            set
+            int currentState = m_combinedState;
+            while (true)
             {
-                // setting to <0 would indicate an internal flaw, hence Assert is appropriate.
-                Debug.Assert(value >= 0, "NumWaiters should never be less than zero. This indicates an internal error.");
-
                 // it is possible for the max number of waiters to be exceeded via user-code, hence we use a real exception here.
-                if (value >= NumWaitersState_MaxValue)
+                if ((currentState & NumWaitersState_BitMask) >= NumWaitersState_MaxValue)
                     throw new InvalidOperationException(SR.Format(SR.ManualResetEventSlim_ctor_TooManyWaiters, NumWaitersState_MaxValue));
 
-                UpdateStateAtomically(value << NumWaitersState_ShiftCount, NumWaitersState_BitMask);
+                // The waiters count has room for one more, so adding 1 to the full state
+                // cannot carry out of NumWaitersState_BitMask.
+                int oldState = Interlocked.CompareExchange(ref m_combinedState, currentState + 1, currentState);
+                if (oldState == currentState)
+                    return;
+
+                // Highly unlikely contention, since we increment/decrement while holding a lock, just try again.
+                currentState = oldState;
             }
+        }
+
+        private void InterlockedDecrementWaiters()
+        {
+            // setting to <0 would indicate an internal flaw, hence Assert is appropriate.
+            Debug.Assert((m_combinedState & NumWaitersState_BitMask) != 0, "NumWaiters should never be less than zero. This indicates an internal error.");
+
+            Interlocked.Decrement(ref m_combinedState);
         }
 
         //-----------------------------------------------------------------------------------
@@ -156,7 +183,7 @@ namespace System.Threading
         {
             // Specify the default spin count, and use default spin if we're
             // on a multi-processor machine. Otherwise, we won't.
-            Initialize(initialState, SpinWait.SpinCountforSpinBeforeWait);
+            Initialize(initialState, SpinWait.SpinCountForSpinBeforeWait);
         }
 
         /// <summary>
@@ -168,21 +195,12 @@ namespace System.Threading
         /// to nonsignaled.</param>
         /// <param name="spinCount">The number of spin waits that will occur before falling back to a true
         /// wait.</param>
-        /// <exception cref="System.ArgumentOutOfRangeException"><paramref name="spinCount"/> is less than
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="spinCount"/> is less than
         /// 0 or greater than the maximum allowed value.</exception>
         public ManualResetEventSlim(bool initialState, int spinCount)
         {
-            if (spinCount < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(spinCount));
-            }
-
-            if (spinCount > SpinCountState_MaxValue)
-            {
-                throw new ArgumentOutOfRangeException(
-                    nameof(spinCount),
-                    SR.Format(SR.ManualResetEventSlim_ctor_SpinCountOutOfRange, SpinCountState_MaxValue));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(spinCount);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(spinCount, SpinCountState_MaxValue);
 
             // We will suppress default spin  because the user specified a count.
             Initialize(initialState, spinCount);
@@ -193,9 +211,11 @@ namespace System.Threading
         /// </summary>
         /// <param name="initialState">Whether the event is set initially or not.</param>
         /// <param name="spinCount">The spin count that decides when the event will block.</param>
+#pragma warning disable IDE0060 // Remove unused parameter spinCount, on single-threaded systems, the spin count is not used.
         private void Initialize(bool initialState, int spinCount)
         {
-            m_combinedState = initialState ? (1 << SignalledState_ShiftCount) : 0;
+            m_combinedState = initialState ? SignalledState_BitMask : 0;
+
             // the spinCount argument has been validated by the ctors.
             // but we now sanity check our predefined constants.
             Debug.Assert(DEFAULT_SPIN_SP >= 0, "Internal error - DEFAULT_SPIN_SP is outside the legal range.");
@@ -203,21 +223,22 @@ namespace System.Threading
 
             SpinCount = Environment.IsSingleProcessor ? DEFAULT_SPIN_SP : spinCount;
         }
+#pragma warning restore IDE0060
 
         /// <summary>
         /// Helper to ensure the lock object is created before first use.
         /// </summary>
+        [MemberNotNull(nameof(m_lock))]
         private void EnsureLockObjectCreated()
         {
-            if (m_lock != null)
-                return;
-
-            object newObj = new object();
-            Interlocked.CompareExchange(ref m_lock, newObj, null); // failure is benign. Someone else set the value.
+            if (m_lock is null)
+            {
+                Interlocked.CompareExchange(ref m_lock, new Lock(), null); // failure is benign. Someone else set the value.
+            }
         }
 
         /// <summary>
-        /// This method lazily initializes the event object. It uses CAS to guarantee that
+        /// This method lazily initializes the public wait object. It uses CAS to guarantee that
         /// many threads racing to call this at once don't result in more than one event
         /// being stored and used. The event will be signaled or unsignaled depending on
         /// the state of the thin-event itself, with synchronization taken into account.
@@ -239,7 +260,7 @@ namespace System.Threading
                 // Now that the event is published, verify that the state hasn't changed since
                 // we snapped the preInitializeState. Another thread could have done that
                 // between our initial observation above and here. The barrier incurred from
-                // the CAS above (in addition to m_state being volatile) prevents this read
+                // the CAS above prevents this read
                 // from moving earlier and being collapsed with our original one.
                 bool currentIsSet = IsSet;
                 if (currentIsSet != preInitializeIsSet)
@@ -273,21 +294,20 @@ namespace System.Threading
         /// Private helper to actually perform the Set.
         /// </summary>
         /// <param name="duringCancellation">Indicates whether we are calling Set() during cancellation.</param>
-        /// <exception cref="System.OperationCanceledException">The object has been canceled.</exception>
+        /// <exception cref="OperationCanceledException">The object has been canceled.</exception>
         private void Set(bool duringCancellation)
         {
-            // We need to ensure that IsSet=true does not get reordered past the read of m_eventObj
-            // This would be a legal movement according to the .NET memory model.
-            // The code is safe as IsSet involves an Interlocked.CompareExchange which provides a full memory barrier.
-            IsSet = true;
+            // We need to ensure that the state change happens before we read the m_eventObj.
+            // Interlocked guarantees that.
+            long origState = Interlocked.Or(ref m_combinedState, SignalledState_BitMask);
 
-            // If there are waiting threads, we need to pulse them.
-            if (Waiters > 0)
+            // If there were waiting threads when we flipped the state, we need to pulse them.
+            if ((origState & NumWaitersState_BitMask) != 0)
             {
                 Debug.Assert(m_lock != null); // if waiters>0, then m_lock has already been created.
-                lock (m_lock)
+                using (m_lock.EnterScope())
                 {
-                    Monitor.PulseAll(m_lock);
+                    m_lock.PulseAll();
                 }
             }
 
@@ -311,11 +331,8 @@ namespace System.Threading
 
                 lock (eventObj)
                 {
-                    if (m_eventObj != null)
-                    {
-                        // If somebody is waiting, we must set the event.
-                        m_eventObj.Set();
-                    }
+                    // If somebody is waiting, we must set the event.
+                    m_eventObj?.Set();
                 }
             }
         }
@@ -329,12 +346,10 @@ namespace System.Threading
         /// </remarks>
         public void Reset()
         {
-            ThrowIfDisposed();
+            ObjectDisposedException.ThrowIf(IsDisposed, this);
+
             // If there's an event, reset it.
-            if (m_eventObj != null)
-            {
-                m_eventObj.Reset();
-            }
+            m_eventObj?.Reset();
 
             // There is a race condition here. If another thread Sets the event, we will get into a state
             // where m_state will be unsignaled, yet the Win32 event object will have been signaled.
@@ -350,13 +365,16 @@ namespace System.Threading
         /// <summary>
         /// Blocks the current thread until the current <see cref="ManualResetEventSlim"/> is set.
         /// </summary>
-        /// <exception cref="System.InvalidOperationException">
+        /// <exception cref="InvalidOperationException">
         /// The maximum number of waiters has been exceeded.
         /// </exception>
         /// <remarks>
         /// The caller of this method blocks indefinitely until the current instance is set. The caller will
         /// return immediately if the event is currently in a set state.
         /// </remarks>
+#if !FEATURE_WASM_MANAGED_THREADS
+        [UnsupportedOSPlatform("browser")]
+#endif
         public void Wait()
         {
             Wait(Timeout.Infinite, CancellationToken.None);
@@ -364,19 +382,22 @@ namespace System.Threading
 
         /// <summary>
         /// Blocks the current thread until the current <see cref="ManualResetEventSlim"/> receives a signal,
-        /// while observing a <see cref="System.Threading.CancellationToken"/>.
+        /// while observing a <see cref="CancellationToken"/>.
         /// </summary>
-        /// <param name="cancellationToken">The <see cref="System.Threading.CancellationToken"/> to
+        /// <param name="cancellationToken">The <see cref="CancellationToken"/> to
         /// observe.</param>
-        /// <exception cref="System.InvalidOperationException">
+        /// <exception cref="InvalidOperationException">
         /// The maximum number of waiters has been exceeded.
         /// </exception>
-        /// <exception cref="System.OperationCanceledException"><paramref name="cancellationToken"/> was
+        /// <exception cref="OperationCanceledException"><paramref name="cancellationToken"/> was
         /// canceled.</exception>
         /// <remarks>
         /// The caller of this method blocks indefinitely until the current instance is set. The caller will
         /// return immediately if the event is currently in a set state.
         /// </remarks>
+#if !FEATURE_WASM_MANAGED_THREADS
+        [UnsupportedOSPlatform("browser")]
+#endif
         public void Wait(CancellationToken cancellationToken)
         {
             Wait(Timeout.Infinite, cancellationToken);
@@ -384,57 +405,61 @@ namespace System.Threading
 
         /// <summary>
         /// Blocks the current thread until the current <see cref="ManualResetEventSlim"/> is set, using a
-        /// <see cref="System.TimeSpan"/> to measure the time interval.
+        /// <see cref="TimeSpan"/> to measure the time interval.
         /// </summary>
-        /// <param name="timeout">A <see cref="System.TimeSpan"/> that represents the number of milliseconds
-        /// to wait, or a <see cref="System.TimeSpan"/> that represents -1 milliseconds to wait indefinitely.
+        /// <param name="timeout">A <see cref="TimeSpan"/> that represents the number of milliseconds
+        /// to wait, or a <see cref="TimeSpan"/> that represents -1 milliseconds to wait indefinitely.
         /// </param>
-        /// <returns>true if the <see cref="System.Threading.ManualResetEventSlim"/> was set; otherwise,
+        /// <returns>true if the <see cref="ManualResetEventSlim"/> was set; otherwise,
         /// false.</returns>
-        /// <exception cref="System.ArgumentOutOfRangeException"><paramref name="timeout"/> is a negative
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout"/> is a negative
         /// number other than -1 milliseconds, which represents an infinite time-out -or- timeout is greater
         /// than <see cref="int.MaxValue"/>.</exception>
-        /// <exception cref="System.InvalidOperationException">
+        /// <exception cref="InvalidOperationException">
         /// The maximum number of waiters has been exceeded.
         /// </exception>
+#if !FEATURE_WASM_MANAGED_THREADS
+        [UnsupportedOSPlatform("browser")]
+#endif
         public bool Wait(TimeSpan timeout)
         {
             long totalMilliseconds = (long)timeout.TotalMilliseconds;
-            if (totalMilliseconds < -1 || totalMilliseconds > int.MaxValue)
-            {
-                throw new ArgumentOutOfRangeException(nameof(timeout));
-            }
+
+            ArgumentOutOfRangeException.ThrowIfLessThan(totalMilliseconds, -1, nameof(timeout));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(totalMilliseconds, int.MaxValue, nameof(timeout));
 
             return Wait((int)totalMilliseconds, CancellationToken.None);
         }
 
         /// <summary>
         /// Blocks the current thread until the current <see cref="ManualResetEventSlim"/> is set, using a
-        /// <see cref="System.TimeSpan"/> to measure the time interval, while observing a <see
-        /// cref="System.Threading.CancellationToken"/>.
+        /// <see cref="TimeSpan"/> to measure the time interval, while observing a <see
+        /// cref="CancellationToken"/>.
         /// </summary>
-        /// <param name="timeout">A <see cref="System.TimeSpan"/> that represents the number of milliseconds
-        /// to wait, or a <see cref="System.TimeSpan"/> that represents -1 milliseconds to wait indefinitely.
+        /// <param name="timeout">A <see cref="TimeSpan"/> that represents the number of milliseconds
+        /// to wait, or a <see cref="TimeSpan"/> that represents -1 milliseconds to wait indefinitely.
         /// </param>
-        /// <param name="cancellationToken">The <see cref="System.Threading.CancellationToken"/> to
+        /// <param name="cancellationToken">The <see cref="CancellationToken"/> to
         /// observe.</param>
-        /// <returns>true if the <see cref="System.Threading.ManualResetEventSlim"/> was set; otherwise,
+        /// <returns>true if the <see cref="ManualResetEventSlim"/> was set; otherwise,
         /// false.</returns>
-        /// <exception cref="System.ArgumentOutOfRangeException"><paramref name="timeout"/> is a negative
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout"/> is a negative
         /// number other than -1 milliseconds, which represents an infinite time-out -or- timeout is greater
         /// than <see cref="int.MaxValue"/>.</exception>
-        /// <exception cref="System.OperationCanceledException"><paramref
+        /// <exception cref="OperationCanceledException"><paramref
         /// name="cancellationToken"/> was canceled.</exception>
-        /// <exception cref="System.InvalidOperationException">
+        /// <exception cref="InvalidOperationException">
         /// The maximum number of waiters has been exceeded.
         /// </exception>
+#if !FEATURE_WASM_MANAGED_THREADS
+        [UnsupportedOSPlatform("browser")]
+#endif
         public bool Wait(TimeSpan timeout, CancellationToken cancellationToken)
         {
             long totalMilliseconds = (long)timeout.TotalMilliseconds;
-            if (totalMilliseconds < -1 || totalMilliseconds > int.MaxValue)
-            {
-                throw new ArgumentOutOfRangeException(nameof(timeout));
-            }
+
+            ArgumentOutOfRangeException.ThrowIfLessThan(totalMilliseconds, -1, nameof(timeout));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(totalMilliseconds, int.MaxValue, nameof(timeout));
 
             return Wait((int)totalMilliseconds, cancellationToken);
         }
@@ -445,13 +470,16 @@ namespace System.Threading
         /// </summary>
         /// <param name="millisecondsTimeout">The number of milliseconds to wait, or <see
         /// cref="Timeout.Infinite"/>(-1) to wait indefinitely.</param>
-        /// <returns>true if the <see cref="System.Threading.ManualResetEventSlim"/> was set; otherwise,
+        /// <returns>true if the <see cref="ManualResetEventSlim"/> was set; otherwise,
         /// false.</returns>
-        /// <exception cref="System.ArgumentOutOfRangeException"><paramref name="millisecondsTimeout"/> is a
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="millisecondsTimeout"/> is a
         /// negative number other than -1, which represents an infinite time-out.</exception>
-        /// <exception cref="System.InvalidOperationException">
+        /// <exception cref="InvalidOperationException">
         /// The maximum number of waiters has been exceeded.
         /// </exception>
+#if !FEATURE_WASM_MANAGED_THREADS
+        [UnsupportedOSPlatform("browser")]
+#endif
         public bool Wait(int millisecondsTimeout)
         {
             return Wait(millisecondsTimeout, CancellationToken.None);
@@ -460,30 +488,32 @@ namespace System.Threading
         /// <summary>
         /// Blocks the current thread until the current <see cref="ManualResetEventSlim"/> is set, using a
         /// 32-bit signed integer to measure the time interval, while observing a <see
-        /// cref="System.Threading.CancellationToken"/>.
+        /// cref="CancellationToken"/>.
         /// </summary>
         /// <param name="millisecondsTimeout">The number of milliseconds to wait, or <see
         /// cref="Timeout.Infinite"/>(-1) to wait indefinitely.</param>
-        /// <param name="cancellationToken">The <see cref="System.Threading.CancellationToken"/> to
+        /// <param name="cancellationToken">The <see cref="CancellationToken"/> to
         /// observe.</param>
-        /// <returns>true if the <see cref="System.Threading.ManualResetEventSlim"/> was set; otherwise,
+        /// <returns>true if the <see cref="ManualResetEventSlim"/> was set; otherwise,
         /// false.</returns>
-        /// <exception cref="System.ArgumentOutOfRangeException"><paramref name="millisecondsTimeout"/> is a
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="millisecondsTimeout"/> is a
         /// negative number other than -1, which represents an infinite time-out.</exception>
-        /// <exception cref="System.InvalidOperationException">
+        /// <exception cref="InvalidOperationException">
         /// The maximum number of waiters has been exceeded.
         /// </exception>
-        /// <exception cref="System.OperationCanceledException"><paramref
+        /// <exception cref="OperationCanceledException"><paramref
         /// name="cancellationToken"/> was canceled.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
+        [UnsupportedOSPlatform("browser")]
+#endif
         public bool Wait(int millisecondsTimeout, CancellationToken cancellationToken)
         {
-            ThrowIfDisposed();
+            ObjectDisposedException.ThrowIf(IsDisposed, this);
             cancellationToken.ThrowIfCancellationRequested(); // an early convenience check
 
-            if (millisecondsTimeout < -1)
-            {
-                throw new ArgumentOutOfRangeException(nameof(millisecondsTimeout));
-            }
+            ArgumentOutOfRangeException.ThrowIfLessThan(millisecondsTimeout, -1);
+
+            RuntimeFeature.ThrowIfMultithreadingIsNotSupported();
 
             if (!IsSet)
             {
@@ -495,8 +525,7 @@ namespace System.Threading
 
 
                 // We spin briefly before falling back to allocating and/or waiting on a true event.
-                uint startTime = 0;
-                bool bNeedTimeoutAdjustment = false;
+                long startTime = 0;
                 int realMillisecondsTimeout = millisecondsTimeout; // this will be adjusted if necessary.
 
                 if (millisecondsTimeout != Timeout.Infinite)
@@ -507,8 +536,7 @@ namespace System.Threading
                     // period of time.  The timeout adjustments only take effect when and if we actually
                     // decide to block in the kernel below.
 
-                    startTime = TimeoutHelper.GetTime();
-                    bNeedTimeoutAdjustment = true;
+                    startTime = Environment.TickCount64;
                 }
 
                 // Spin
@@ -534,35 +562,35 @@ namespace System.Threading
                 // We must register and unregister the token outside of the lock, to avoid deadlocks.
                 using (cancellationToken.UnsafeRegister(s_cancellationTokenCallback, this))
                 {
-                    lock (m_lock!)
+                    // Loop to cope with spurious wakeups from other waits being canceled
+                    while (!IsSet)
                     {
-                        // Loop to cope with spurious wakeups from other waits being canceled
-                        while (!IsSet)
+                        // If our token was canceled, we must throw and exit.
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        // update timeout (delays in wait commencement are due to spinning and/or spurious wakeups from other waits being canceled)
+                        if (startTime != 0)
                         {
-                            // If our token was canceled, we must throw and exit.
-                            cancellationToken.ThrowIfCancellationRequested();
+                            // TimeoutHelper.UpdateTimeOut returns a long but the value is capped as millisecondsTimeout is an int.
+                            realMillisecondsTimeout = (int)TimeoutHelper.UpdateTimeOut(startTime, millisecondsTimeout);
+                            if (realMillisecondsTimeout <= 0)
+                                return false;
+                        }
 
-                            // update timeout (delays in wait commencement are due to spinning and/or spurious wakeups from other waits being canceled)
-                            if (bNeedTimeoutAdjustment)
-                            {
-                                realMillisecondsTimeout = TimeoutHelper.UpdateTimeOut(startTime, millisecondsTimeout);
-                                if (realMillisecondsTimeout <= 0)
-                                    return false;
-                            }
-
+                        using (m_lock.EnterScope())
+                        {
                             // There is a race condition that Set will fail to see that there are waiters as Set does not take the lock,
                             // so after updating waiters, we must check IsSet again.
                             // Also, we must ensure there cannot be any reordering of the assignment to Waiters and the
-                            // read from IsSet.  This is guaranteed as Waiters{set;} involves an Interlocked.CompareExchange
-                            // operation which provides a full memory barrier.
+                            // read from IsSet.  This is guaranteed as InterlockedIncrementWaiters is a full memory barrier.
                             // If we see IsSet=false, then we are guaranteed that Set() will see that we are
                             // waiting and will pulse the monitor correctly.
 
-                            Waiters++;
+                            InterlockedIncrementWaiters();
 
                             if (IsSet) // This check must occur after updating Waiters.
                             {
-                                Waiters--; // revert the increment.
+                                InterlockedDecrementWaiters(); // revert the increment.
                                 return true;
                             }
 
@@ -570,13 +598,13 @@ namespace System.Threading
                             try
                             {
                                 // ** the actual wait **
-                                if (!Monitor.Wait(m_lock, realMillisecondsTimeout))
+                                if (!m_lock.Wait(realMillisecondsTimeout))
                                     return false; // return immediately if the timeout has expired.
                             }
                             finally
                             {
                                 // Clean up: we're done waiting.
-                                Waiters--;
+                                InterlockedDecrementWaiters();
                             }
                             // Now just loop back around, and the right thing will happen.  Either:
                             //     1. We had a spurious wake-up due to some other wait being canceled via a different cancellationToken (rewait)
@@ -634,14 +662,7 @@ namespace System.Threading
             }
         }
 
-        /// <summary>
-        /// Throw ObjectDisposedException if the MRES is disposed
-        /// </summary>
-        private void ThrowIfDisposed()
-        {
-            if ((m_combinedState & Dispose_BitMask) != 0)
-                throw new ObjectDisposedException(SR.ManualResetEventSlim_Disposed);
-        }
+        private bool IsDisposed => (m_combinedState & Dispose_BitMask) != 0;
 
         /// <summary>
         /// Private helper method to wake up waiters when a cancellationToken gets canceled.
@@ -652,41 +673,9 @@ namespace System.Threading
             Debug.Assert(obj is ManualResetEventSlim, "Expected a ManualResetEventSlim");
             ManualResetEventSlim mre = (ManualResetEventSlim)obj;
             Debug.Assert(mre.m_lock != null); // the lock should have been created before this callback is registered for use.
-            lock (mre.m_lock)
+            using (mre.m_lock.EnterScope())
             {
-                Monitor.PulseAll(mre.m_lock); // awaken all waiters
-            }
-        }
-
-        /// <summary>
-        /// Private helper method for updating parts of a bit-string state value.
-        /// Mainly called from the IsSet and Waiters properties setters
-        /// </summary>
-        /// <remarks>
-        /// Note: the parameter types must be int as CompareExchange cannot take a Uint
-        /// </remarks>
-        /// <param name="newBits">The new value</param>
-        /// <param name="updateBitsMask">The mask used to set the bits</param>
-        private void UpdateStateAtomically(int newBits, int updateBitsMask)
-        {
-            SpinWait sw = default;
-
-            Debug.Assert((newBits | updateBitsMask) == updateBitsMask, "newBits do not fall within the updateBitsMask.");
-
-            while (true)
-            {
-                int oldState = m_combinedState; // cache the old value for testing in CAS
-
-                // Procedure:(1) zero the updateBits.  eg oldState = [11111111] flag= [00111000] newState = [11000111]
-                //           then (2) map in the newBits. eg [11000111] newBits=00101000, newState=[11101111]
-                int newState = (oldState & ~updateBitsMask) | newBits;
-
-                if (Interlocked.CompareExchange(ref m_combinedState, newState, oldState) == oldState)
-                {
-                    return;
-                }
-
-                sw.SpinOnce(sleep1Threshold: -1);
+                mre.m_lock.PulseAll(); // awaken all waiters
             }
         }
 
@@ -705,21 +694,6 @@ namespace System.Threading
             // convert to uint before shifting so that right-shift does not replicate the sign-bit,
             // then convert back to int.
             return unchecked((int)(((uint)(state & mask)) >> rightBitShiftCount));
-        }
-
-        /// <summary>
-        /// Performs a Mask operation, but does not perform the shift.
-        /// This is acceptable for boolean values for which the shift is unnecessary
-        /// eg (val &amp; Mask) != 0 is an appropriate way to extract a boolean rather than using
-        /// ((val &amp; Mask) &gt;&gt; shiftAmount) == 1
-        ///
-        /// ?? is there a common place to put this rather than being private to MRES?
-        /// </summary>
-        /// <param name="state"></param>
-        /// <param name="mask"></param>
-        private static int ExtractStatePortion(int state, int mask)
-        {
-            return state & mask;
         }
     }
 }

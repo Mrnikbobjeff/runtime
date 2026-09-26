@@ -1,8 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+namespace JitTest_Generics_pinvoke_instance03;
+
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
 
 internal class Win32Interop
 {
@@ -25,7 +28,7 @@ public struct Gen<T>
     }
 }
 
-public class Test
+public class Test_instance03
 {
     public static uint counter = 0;
     public static bool result = true;
@@ -39,7 +42,10 @@ public class Test
         }
     }
 
-    public static int Main()
+    [PlatformSpecific(TestPlatforms.Windows)]
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         Eval(new Gen<int>().PInvokeTest() == 6);
         Eval(new Gen<double>().PInvokeTest() == 6);
@@ -59,5 +65,4 @@ public class Test
         }
     }
 }
-
 

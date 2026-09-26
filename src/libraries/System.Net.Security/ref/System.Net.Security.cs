@@ -19,6 +19,8 @@ namespace System.Net.Security
         protected override void Dispose(bool disposing) { }
         public override System.Threading.Tasks.ValueTask DisposeAsync() { throw null; }
     }
+    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("android")]
+    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("windows")]
     public sealed partial class CipherSuitesPolicy
     {
         [System.CLSCompliantAttribute(false)]
@@ -29,10 +31,75 @@ namespace System.Net.Security
     public enum EncryptionPolicy
     {
         RequireEncryption = 0,
+        [System.ObsoleteAttribute("EncryptionPolicy.NoEncryption and AllowEncryption significantly reduce security and should not be used in production code.", DiagnosticId="SYSLIB0040", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         AllowNoEncryption = 1,
+        [System.ObsoleteAttribute("EncryptionPolicy.NoEncryption and AllowEncryption significantly reduce security and should not be used in production code.", DiagnosticId="SYSLIB0040", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         NoEncryption = 2,
     }
-    public delegate System.Security.Cryptography.X509Certificates.X509Certificate LocalCertificateSelectionCallback(object sender, string targetHost, System.Security.Cryptography.X509Certificates.X509CertificateCollection localCertificates, System.Security.Cryptography.X509Certificates.X509Certificate? remoteCertificate, string[] acceptableIssuers);
+    public delegate System.Security.Cryptography.X509Certificates.X509Certificate? LocalCertificateSelectionCallback(object sender, string targetHost, System.Security.Cryptography.X509Certificates.X509CertificateCollection localCertificates, System.Security.Cryptography.X509Certificates.X509Certificate? remoteCertificate, string[] acceptableIssuers);
+    public sealed partial class NegotiateAuthentication : System.IDisposable
+    {
+        public NegotiateAuthentication(System.Net.Security.NegotiateAuthenticationClientOptions clientOptions) { }
+        public NegotiateAuthentication(System.Net.Security.NegotiateAuthenticationServerOptions serverOptions) { }
+        public System.Security.Principal.TokenImpersonationLevel ImpersonationLevel { get { throw null; } }
+        public bool IsAuthenticated { get { throw null; } }
+        public bool IsEncrypted { get { throw null; } }
+        public bool IsMutuallyAuthenticated { get { throw null; } }
+        public bool IsServer { get { throw null; } }
+        public bool IsSigned { get { throw null; } }
+        public string Package { get { throw null; } }
+        public System.Net.Security.ProtectionLevel ProtectionLevel { get { throw null; } }
+        public System.Security.Principal.IIdentity RemoteIdentity { get { throw null; } }
+        public string? TargetName { get { throw null; } }
+        public void ComputeIntegrityCheck(System.ReadOnlySpan<byte> message, System.Buffers.IBufferWriter<byte> signatureWriter) { }
+        public void Dispose() { }
+        public byte[]? GetOutgoingBlob(System.ReadOnlySpan<byte> incomingBlob, out System.Net.Security.NegotiateAuthenticationStatusCode statusCode) { throw null; }
+        public string? GetOutgoingBlob(string? incomingBlob, out System.Net.Security.NegotiateAuthenticationStatusCode statusCode) { throw null; }
+        public System.Net.Security.NegotiateAuthenticationStatusCode Unwrap(System.ReadOnlySpan<byte> input, System.Buffers.IBufferWriter<byte> outputWriter, out bool wasEncrypted) { throw null; }
+        public System.Net.Security.NegotiateAuthenticationStatusCode UnwrapInPlace(System.Span<byte> input, out int unwrappedOffset, out int unwrappedLength, out bool wasEncrypted) { throw null; }
+        public bool VerifyIntegrityCheck(System.ReadOnlySpan<byte> message, System.ReadOnlySpan<byte> signature) { throw null; }
+        public System.Net.Security.NegotiateAuthenticationStatusCode Wrap(System.ReadOnlySpan<byte> input, System.Buffers.IBufferWriter<byte> outputWriter, bool requestEncryption, out bool isEncrypted) { throw null; }
+    }
+    public partial class NegotiateAuthenticationClientOptions
+    {
+        public NegotiateAuthenticationClientOptions() { }
+        public System.Security.Principal.TokenImpersonationLevel AllowedImpersonationLevel { get { throw null; } set { } }
+        public System.Security.Authentication.ExtendedProtection.ChannelBinding? Binding { get { throw null; } set { } }
+        public System.Net.NetworkCredential Credential { get { throw null; } set { } }
+        public string Package { get { throw null; } set { } }
+        public System.Net.Security.ProtectionLevel RequiredProtectionLevel { get { throw null; } set { } }
+        public bool RequireMutualAuthentication { get { throw null; } set { } }
+        public string? TargetName { get { throw null; } set { } }
+    }
+    public partial class NegotiateAuthenticationServerOptions
+    {
+        public NegotiateAuthenticationServerOptions() { }
+        public System.Security.Authentication.ExtendedProtection.ChannelBinding? Binding { get { throw null; } set { } }
+        public System.Net.NetworkCredential Credential { get { throw null; } set { } }
+        public string Package { get { throw null; } set { } }
+        public System.Security.Authentication.ExtendedProtection.ExtendedProtectionPolicy? Policy { get { throw null; } set { } }
+        public System.Security.Principal.TokenImpersonationLevel RequiredImpersonationLevel { get { throw null; } set { } }
+        public System.Net.Security.ProtectionLevel RequiredProtectionLevel { get { throw null; } set { } }
+    }
+    public enum NegotiateAuthenticationStatusCode
+    {
+        Completed = 0,
+        ContinueNeeded = 1,
+        GenericFailure = 2,
+        BadBinding = 3,
+        Unsupported = 4,
+        MessageAltered = 5,
+        ContextExpired = 6,
+        CredentialsExpired = 7,
+        InvalidCredentials = 8,
+        InvalidToken = 9,
+        UnknownCredentials = 10,
+        QopNotSupported = 11,
+        OutOfSequence = 12,
+        SecurityQosFailed = 13,
+        TargetUnknown = 14,
+        ImpersonationValidationFailed = 15,
+    }
     public partial class NegotiateStream : System.Net.Security.AuthenticatedStream
     {
         public NegotiateStream(System.IO.Stream innerStream) : base (default(System.IO.Stream), default(bool)) { }
@@ -91,12 +158,12 @@ namespace System.Net.Security
         public override System.Threading.Tasks.Task FlushAsync(System.Threading.CancellationToken cancellationToken) { throw null; }
         public override int Read(byte[] buffer, int offset, int count) { throw null; }
         public override System.Threading.Tasks.Task<int> ReadAsync(byte[] buffer, int offset, int count, System.Threading.CancellationToken cancellationToken) { throw null; }
-        public override System.Threading.Tasks.ValueTask<int> ReadAsync(System.Memory<byte> buffer, System.Threading.CancellationToken cancellationToken = default) { throw null; }
+        public override System.Threading.Tasks.ValueTask<int> ReadAsync(System.Memory<byte> buffer, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         public override long Seek(long offset, System.IO.SeekOrigin origin) { throw null; }
         public override void SetLength(long value) { }
         public override void Write(byte[] buffer, int offset, int count) { }
         public override System.Threading.Tasks.Task WriteAsync(byte[] buffer, int offset, int count, System.Threading.CancellationToken cancellationToken) { throw null; }
-        public override System.Threading.Tasks.ValueTask WriteAsync(System.ReadOnlyMemory<byte> buffer, System.Threading.CancellationToken cancellationToken = default) { throw null; }
+        public override System.Threading.Tasks.ValueTask WriteAsync(System.ReadOnlyMemory<byte> buffer, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
     }
     public enum ProtectionLevel
     {
@@ -104,43 +171,44 @@ namespace System.Net.Security
         Sign = 1,
         EncryptAndSign = 2,
     }
-    public readonly struct SslClientHelloInfo
-    {
-        public string ServerName { get; }
-        public System.Security.Authentication.SslProtocols SslProtocols { get; }
-        internal SslClientHelloInfo(string serverName, System.Security.Authentication.SslProtocols sslProtocol) { throw null; }
-    }
     public delegate bool RemoteCertificateValidationCallback(object sender, System.Security.Cryptography.X509Certificates.X509Certificate? certificate, System.Security.Cryptography.X509Certificates.X509Chain? chain, System.Net.Security.SslPolicyErrors sslPolicyErrors);
     public delegate System.Security.Cryptography.X509Certificates.X509Certificate ServerCertificateSelectionCallback(object sender, string? hostName);
-    public delegate System.Threading.Tasks.ValueTask<SslServerAuthenticationOptions> ServerOptionsSelectionCallback(SslStream stream, SslClientHelloInfo clientHelloInfo, object? state, System.Threading.CancellationToken cancellationToken);
+    public delegate System.Threading.Tasks.ValueTask<System.Net.Security.SslServerAuthenticationOptions> ServerOptionsSelectionCallback(System.Net.Security.SslStream stream, System.Net.Security.SslClientHelloInfo clientHelloInfo, object? state, System.Threading.CancellationToken cancellationToken);
     public readonly partial struct SslApplicationProtocol : System.IEquatable<System.Net.Security.SslApplicationProtocol>
     {
         private readonly object _dummy;
         private readonly int _dummyPrimitive;
         public static readonly System.Net.Security.SslApplicationProtocol Http11;
         public static readonly System.Net.Security.SslApplicationProtocol Http2;
+        public static readonly System.Net.Security.SslApplicationProtocol Http3;
         public SslApplicationProtocol(byte[] protocol) { throw null; }
         public SslApplicationProtocol(string protocol) { throw null; }
         public System.ReadOnlyMemory<byte> Protocol { get { throw null; } }
         public bool Equals(System.Net.Security.SslApplicationProtocol other) { throw null; }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public static bool operator ==(System.Net.Security.SslApplicationProtocol left, System.Net.Security.SslApplicationProtocol right) { throw null; }
         public static bool operator !=(System.Net.Security.SslApplicationProtocol left, System.Net.Security.SslApplicationProtocol right) { throw null; }
         public override string ToString() { throw null; }
     }
-    public sealed partial class SslStreamCertificateContext
+    public sealed partial class SslCertificateTrust
     {
-        internal SslStreamCertificateContext() { throw null; }
-        public static SslStreamCertificateContext Create(System.Security.Cryptography.X509Certificates.X509Certificate2 target, System.Security.Cryptography.X509Certificates.X509Certificate2Collection? additionalCertificates, bool offline = false) { throw null; }
+        internal SslCertificateTrust() { }
+        public static System.Net.Security.SslCertificateTrust CreateForX509Collection(System.Security.Cryptography.X509Certificates.X509Certificate2Collection trustList, bool sendTrustInHandshake = false) { throw null; }
+        public static System.Net.Security.SslCertificateTrust CreateForX509Store(System.Security.Cryptography.X509Certificates.X509Store store, bool sendTrustInHandshake = false) { throw null; }
     }
     public partial class SslClientAuthenticationOptions
     {
         public SslClientAuthenticationOptions() { }
         public bool AllowRenegotiation { get { throw null; } set { } }
+        public bool AllowRsaPkcs1Padding { get { throw null; } [System.Runtime.Versioning.SupportedOSPlatformAttribute("linux"), System.Runtime.Versioning.SupportedOSPlatformAttribute("windows")] set { } }
+        public bool AllowRsaPssPadding { get { throw null; } [System.Runtime.Versioning.SupportedOSPlatformAttribute("linux"), System.Runtime.Versioning.SupportedOSPlatformAttribute("windows")] set { } }
+        public bool AllowTlsResume { get { throw null; } set { } }
         public System.Collections.Generic.List<System.Net.Security.SslApplicationProtocol>? ApplicationProtocols { get { throw null; } set { } }
+        public System.Security.Cryptography.X509Certificates.X509ChainPolicy? CertificateChainPolicy { get { throw null; } set { } }
         public System.Security.Cryptography.X509Certificates.X509RevocationMode CertificateRevocationCheckMode { get { throw null; } set { } }
         public System.Net.Security.CipherSuitesPolicy? CipherSuitesPolicy { get { throw null; } set { } }
+        public System.Net.Security.SslStreamCertificateContext? ClientCertificateContext { get { throw null; } set { } }
         public System.Security.Cryptography.X509Certificates.X509CertificateCollection? ClientCertificates { get { throw null; } set { } }
         public System.Security.Authentication.SslProtocols EnabledSslProtocols { get { throw null; } set { } }
         public System.Net.Security.EncryptionPolicy EncryptionPolicy { get { throw null; } set { } }
@@ -148,11 +216,23 @@ namespace System.Net.Security
         public System.Net.Security.RemoteCertificateValidationCallback? RemoteCertificateValidationCallback { get { throw null; } set { } }
         public string? TargetHost { get { throw null; } set { } }
     }
+    public readonly partial struct SslClientHelloInfo
+    {
+        private readonly object _dummy;
+        private readonly int _dummyPrimitive;
+        public SslClientHelloInfo(string serverName, System.Security.Authentication.SslProtocols sslProtocols) { throw null; }
+        public string ServerName { get { throw null; } }
+        public System.Security.Authentication.SslProtocols SslProtocols { get { throw null; } }
+    }
     public partial class SslServerAuthenticationOptions
     {
         public SslServerAuthenticationOptions() { }
         public bool AllowRenegotiation { get { throw null; } set { } }
+        public bool AllowRsaPkcs1Padding { get { throw null; } [System.Runtime.Versioning.SupportedOSPlatformAttribute("linux"), System.Runtime.Versioning.SupportedOSPlatformAttribute("windows")] set { } }
+        public bool AllowRsaPssPadding { get { throw null; } [System.Runtime.Versioning.SupportedOSPlatformAttribute("linux"), System.Runtime.Versioning.SupportedOSPlatformAttribute("windows")] set { } }
+        public bool AllowTlsResume { get { throw null; } set { } }
         public System.Collections.Generic.List<System.Net.Security.SslApplicationProtocol>? ApplicationProtocols { get { throw null; } set { } }
+        public System.Security.Cryptography.X509Certificates.X509ChainPolicy? CertificateChainPolicy { get { throw null; } set { } }
         public System.Security.Cryptography.X509Certificates.X509RevocationMode CertificateRevocationCheckMode { get { throw null; } set { } }
         public System.Net.Security.CipherSuitesPolicy? CipherSuitesPolicy { get { throw null; } set { } }
         public bool ClientCertificateRequired { get { throw null; } set { } }
@@ -175,16 +255,22 @@ namespace System.Net.Security
         public override bool CanTimeout { get { throw null; } }
         public override bool CanWrite { get { throw null; } }
         public virtual bool CheckCertRevocationStatus { get { throw null; } }
+        [System.ObsoleteAttribute("KeyExchangeAlgorithm, KeyExchangeStrength, CipherAlgorithm, CipherStrength, HashAlgorithm and HashStrength properties of SslStream are obsolete. Use NegotiatedCipherSuite instead.", DiagnosticId="SYSLIB0058", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual System.Security.Authentication.CipherAlgorithmType CipherAlgorithm { get { throw null; } }
+        [System.ObsoleteAttribute("KeyExchangeAlgorithm, KeyExchangeStrength, CipherAlgorithm, CipherStrength, HashAlgorithm and HashStrength properties of SslStream are obsolete. Use NegotiatedCipherSuite instead.", DiagnosticId="SYSLIB0058", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual int CipherStrength { get { throw null; } }
+        [System.ObsoleteAttribute("KeyExchangeAlgorithm, KeyExchangeStrength, CipherAlgorithm, CipherStrength, HashAlgorithm and HashStrength properties of SslStream are obsolete. Use NegotiatedCipherSuite instead.", DiagnosticId="SYSLIB0058", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual System.Security.Authentication.HashAlgorithmType HashAlgorithm { get { throw null; } }
+        [System.ObsoleteAttribute("KeyExchangeAlgorithm, KeyExchangeStrength, CipherAlgorithm, CipherStrength, HashAlgorithm and HashStrength properties of SslStream are obsolete. Use NegotiatedCipherSuite instead.", DiagnosticId="SYSLIB0058", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual int HashStrength { get { throw null; } }
         public override bool IsAuthenticated { get { throw null; } }
         public override bool IsEncrypted { get { throw null; } }
         public override bool IsMutuallyAuthenticated { get { throw null; } }
         public override bool IsServer { get { throw null; } }
         public override bool IsSigned { get { throw null; } }
+        [System.ObsoleteAttribute("KeyExchangeAlgorithm, KeyExchangeStrength, CipherAlgorithm, CipherStrength, HashAlgorithm and HashStrength properties of SslStream are obsolete. Use NegotiatedCipherSuite instead.", DiagnosticId="SYSLIB0058", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual System.Security.Authentication.ExchangeAlgorithmType KeyExchangeAlgorithm { get { throw null; } }
+        [System.ObsoleteAttribute("KeyExchangeAlgorithm, KeyExchangeStrength, CipherAlgorithm, CipherStrength, HashAlgorithm and HashStrength properties of SslStream are obsolete. Use NegotiatedCipherSuite instead.", DiagnosticId="SYSLIB0058", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public virtual int KeyExchangeStrength { get { throw null; } }
         public override long Length { get { throw null; } }
         public virtual System.Security.Cryptography.X509Certificates.X509Certificate? LocalCertificate { get { throw null; } }
@@ -210,6 +296,7 @@ namespace System.Net.Security
         public virtual void AuthenticateAsServer(System.Security.Cryptography.X509Certificates.X509Certificate serverCertificate) { }
         public virtual void AuthenticateAsServer(System.Security.Cryptography.X509Certificates.X509Certificate serverCertificate, bool clientCertificateRequired, bool checkCertificateRevocation) { }
         public virtual void AuthenticateAsServer(System.Security.Cryptography.X509Certificates.X509Certificate serverCertificate, bool clientCertificateRequired, System.Security.Authentication.SslProtocols enabledSslProtocols, bool checkCertificateRevocation) { }
+        public System.Threading.Tasks.Task AuthenticateAsServerAsync(System.Net.Security.ServerOptionsSelectionCallback optionsCallback, object? state, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         public System.Threading.Tasks.Task AuthenticateAsServerAsync(System.Net.Security.SslServerAuthenticationOptions sslServerAuthenticationOptions, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         public virtual System.Threading.Tasks.Task AuthenticateAsServerAsync(System.Security.Cryptography.X509Certificates.X509Certificate serverCertificate) { throw null; }
         public virtual System.Threading.Tasks.Task AuthenticateAsServerAsync(System.Security.Cryptography.X509Certificates.X509Certificate serverCertificate, bool clientCertificateRequired, bool checkCertificateRevocation) { throw null; }
@@ -231,7 +318,12 @@ namespace System.Net.Security
         ~SslStream() { }
         public override void Flush() { }
         public override System.Threading.Tasks.Task FlushAsync(System.Threading.CancellationToken cancellationToken) { throw null; }
+        [System.Runtime.Versioning.SupportedOSPlatformAttribute("freebsd")]
+        [System.Runtime.Versioning.SupportedOSPlatformAttribute("linux")]
+        [System.Runtime.Versioning.SupportedOSPlatformAttribute("windows")]
+        public virtual System.Threading.Tasks.Task NegotiateClientCertificateAsync(System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         public override int Read(byte[] buffer, int offset, int count) { throw null; }
+        public override int Read(System.Span<byte> buffer) { throw null; }
         public override System.Threading.Tasks.Task<int> ReadAsync(byte[] buffer, int offset, int count, System.Threading.CancellationToken cancellationToken) { throw null; }
         public override System.Threading.Tasks.ValueTask<int> ReadAsync(System.Memory<byte> buffer, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
         public override int ReadByte() { throw null; }
@@ -240,9 +332,19 @@ namespace System.Net.Security
         public virtual System.Threading.Tasks.Task ShutdownAsync() { throw null; }
         public void Write(byte[] buffer) { }
         public override void Write(byte[] buffer, int offset, int count) { }
+        public override void Write(System.ReadOnlySpan<byte> buffer) { }
         public override System.Threading.Tasks.Task WriteAsync(byte[] buffer, int offset, int count, System.Threading.CancellationToken cancellationToken) { throw null; }
         public override System.Threading.Tasks.ValueTask WriteAsync(System.ReadOnlyMemory<byte> buffer, System.Threading.CancellationToken cancellationToken = default(System.Threading.CancellationToken)) { throw null; }
-        public System.Threading.Tasks.Task AuthenticateAsServerAsync(ServerOptionsSelectionCallback optionsCallback, object? state, System.Threading.CancellationToken cancellationToken = default) { throw null; }
+        public override void WriteByte(byte value) { }
+    }
+    public partial class SslStreamCertificateContext
+    {
+        internal SslStreamCertificateContext() { }
+        public System.Collections.ObjectModel.ReadOnlyCollection<System.Security.Cryptography.X509Certificates.X509Certificate2> IntermediateCertificates { get { throw null; } }
+        public System.Security.Cryptography.X509Certificates.X509Certificate2 TargetCertificate { get { throw null; } }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        public static System.Net.Security.SslStreamCertificateContext Create(System.Security.Cryptography.X509Certificates.X509Certificate2 target, System.Security.Cryptography.X509Certificates.X509Certificate2Collection? additionalCertificates, bool offline) { throw null; }
+        public static System.Net.Security.SslStreamCertificateContext Create(System.Security.Cryptography.X509Certificates.X509Certificate2 target, System.Security.Cryptography.X509Certificates.X509Certificate2Collection? additionalCertificates, bool offline = false, System.Net.Security.SslCertificateTrust? trust = null) { throw null; }
     }
     [System.CLSCompliantAttribute(false)]
     public enum TlsCipherSuite : ushort
@@ -585,12 +687,80 @@ namespace System.Net.Security
         TLS_ECDHE_PSK_WITH_AES_128_CCM_8_SHA256 = (ushort)53251,
         TLS_ECDHE_PSK_WITH_AES_128_CCM_SHA256 = (ushort)53253,
     }
+    [System.Diagnostics.CodeAnalysis.ExperimentalAttribute("SYSLIB5007", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+    public enum TlsOperationStatus
+    {
+        Complete = 0,
+        DestinationTooSmall = 1,
+        NeedMoreData = 2,
+        Closed = 3,
+        CertificateRequested = 4,
+        NeedsCertificateValidation = 5,
+        NeedsTlsContext = 6,
+    }
+    [System.Diagnostics.CodeAnalysis.ExperimentalAttribute("SYSLIB5007", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+    public sealed partial class TlsContext : System.IDisposable
+    {
+        internal TlsContext() { }
+        public static System.Net.Security.TlsContext CreateServer(System.Net.Security.SslServerAuthenticationOptions options) { throw null; }
+        public static System.Net.Security.TlsContext CreateClient(System.Net.Security.SslClientAuthenticationOptions options) { throw null; }
+        public void Dispose() { }
+    }
+    [System.Diagnostics.CodeAnalysis.ExperimentalAttribute("SYSLIB5007", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+    public abstract partial class TlsSession : System.IDisposable
+    {
+        private protected TlsSession() { }
+        public bool IsHandshakeComplete { get { throw null; } }
+        public bool HasPendingOutput { get { throw null; } }
+        public string? TargetHostName { get { throw null; } set { } }
+        public System.Net.Security.SslClientHelloInfo? ClientHelloInfo { get { throw null; } }
+        public int GetClientHelloLength() { throw null; }
+        public bool TryGetClientHelloBytes(System.Span<byte> destination, out int bytesWritten) { throw null; }
+        public System.Security.Authentication.SslProtocols NegotiatedProtocol { get { throw null; } }
+        [System.CLSCompliantAttribute(false)]
+        public System.Net.Security.TlsCipherSuite NegotiatedCipherSuite { get { throw null; } }
+        public System.Net.Security.SslApplicationProtocol NegotiatedApplicationProtocol { get { throw null; } }
+        public System.Security.Cryptography.X509Certificates.X509Certificate2? GetRemoteCertificate() { throw null; }
+        public System.Security.Cryptography.X509Certificates.X509Certificate2Collection? GetRemoteCertificates() { throw null; }
+        public System.Net.Security.SslPolicyErrors AcceptWithDefaultValidation() { throw null; }
+        public void SetRemoteCertificateValidationResult(System.Net.Security.SslPolicyErrors errors) { }
+        public void SetContext(System.Net.Security.TlsContext context) { }
+        public void SetClientCertificateContext(System.Net.Security.SslStreamCertificateContext? context) { }
+        public System.Collections.Generic.IReadOnlyList<string>? GetAcceptableIssuers() { throw null; }
+        public System.Security.Cryptography.X509Certificates.X509Certificate2? LocalCertificate { get { throw null; } }
+        public System.Security.Authentication.ExtendedProtection.ChannelBinding? GetChannelBinding(System.Security.Authentication.ExtendedProtection.ChannelBindingKind kind) { throw null; }
+        public void Dispose() { }
+    }
+    [System.Diagnostics.CodeAnalysis.ExperimentalAttribute("SYSLIB5007", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+    public sealed partial class TlsBufferSession : System.Net.Security.TlsSession
+    {
+        public TlsBufferSession() { }
+        public System.Net.Security.TlsOperationStatus Handshake(System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesConsumed, out int bytesWritten) { throw null; }
+        public System.Net.Security.TlsOperationStatus Write(System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesConsumed, out int bytesWritten) { throw null; }
+        public System.Net.Security.TlsOperationStatus Read(System.ReadOnlySpan<byte> source, System.Span<byte> destination, out int bytesConsumed, out int bytesWritten) { throw null; }
+        public System.Net.Security.TlsOperationStatus Shutdown(System.Span<byte> destination, out int bytesWritten) { throw null; }
+        public System.Net.Security.TlsOperationStatus DrainPendingOutput(System.Span<byte> destination, out int bytesWritten) { throw null; }
+        public System.Net.Security.TlsOperationStatus RequestClientCertificate(System.Span<byte> destination, out int bytesWritten) { throw null; }
+    }
+    [System.Diagnostics.CodeAnalysis.ExperimentalAttribute("SYSLIB5007", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+    public sealed partial class TlsSocketSession : System.Net.Security.TlsSession
+    {
+        public TlsSocketSession(System.Net.Sockets.SafeSocketHandle socket) { }
+        public System.Net.Sockets.SafeSocketHandle Socket { get { throw null; } }
+        public System.Net.Security.TlsOperationStatus Handshake() { throw null; }
+        public System.Net.Security.TlsOperationStatus Read(System.Span<byte> buffer, out int bytesRead) { throw null; }
+        public System.Net.Security.TlsOperationStatus Write(System.ReadOnlySpan<byte> buffer, out int bytesWritten) { throw null; }
+        public System.Net.Security.TlsOperationStatus Shutdown() { throw null; }
+        public System.Net.Security.TlsOperationStatus RequestClientCertificate() { throw null; }
+    }
 }
 namespace System.Security.Authentication
 {
     public partial class AuthenticationException : System.SystemException
     {
         public AuthenticationException() { }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId="SYSLIB0051", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         protected AuthenticationException(System.Runtime.Serialization.SerializationInfo serializationInfo, System.Runtime.Serialization.StreamingContext streamingContext) { }
         public AuthenticationException(string? message) { }
         public AuthenticationException(string? message, System.Exception? innerException) { }
@@ -598,6 +768,8 @@ namespace System.Security.Authentication
     public partial class InvalidCredentialException : System.Security.Authentication.AuthenticationException
     {
         public InvalidCredentialException() { }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId="SYSLIB0051", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         protected InvalidCredentialException(System.Runtime.Serialization.SerializationInfo serializationInfo, System.Runtime.Serialization.StreamingContext streamingContext) { }
         public InvalidCredentialException(string? message) { }
         public InvalidCredentialException(string? message, System.Exception? innerException) { }
@@ -607,6 +779,8 @@ namespace System.Security.Authentication.ExtendedProtection
 {
     public partial class ExtendedProtectionPolicy : System.Runtime.Serialization.ISerializable
     {
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId="SYSLIB0051", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         protected ExtendedProtectionPolicy(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public ExtendedProtectionPolicy(System.Security.Authentication.ExtendedProtection.PolicyEnforcement policyEnforcement) { }
         public ExtendedProtectionPolicy(System.Security.Authentication.ExtendedProtection.PolicyEnforcement policyEnforcement, System.Security.Authentication.ExtendedProtection.ChannelBinding customChannelBinding) { }

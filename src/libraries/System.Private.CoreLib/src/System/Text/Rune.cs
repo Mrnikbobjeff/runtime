@@ -1,11 +1,16 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Buffers;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Text.Unicode;
+
+#if !SYSTEM_PRIVATE_CORELIB
+#pragma warning disable CS3019 // CLS compliance checking will not be performed because it is not visible from outside this assembly
+#endif
 
 namespace System.Text
 {
@@ -17,7 +22,21 @@ namespace System.Text
     /// assuming that the underlying <see cref="Rune"/> instance is well-formed.
     /// </remarks>
     [DebuggerDisplay("{DebuggerDisplay,nq}")]
-    public readonly struct Rune : IComparable, IComparable<Rune>, IEquatable<Rune>
+#if SYSTEM_PRIVATE_CORELIB
+    public
+#else
+    internal
+#endif
+    readonly struct Rune : IComparable, IComparable<Rune>, IEquatable<Rune>
+#if SYSTEM_PRIVATE_CORELIB
+#pragma warning disable SA1001 // Commas should be spaced correctly
+        , ISpanFormattable
+        , IUtf8SpanFormattable
+        , IParsable<Rune>
+        , ISpanParsable<Rune>
+        , IUtf8SpanParsable<Rune>
+#pragma warning restore SA1001
+#endif
     {
         internal const int MaxUtf16CharsPerRune = 2; // supplementary plane code points are encoded as 2 UTF-16 code units
         internal const int MaxUtf8BytesPerRune = 4; // supplementary plane code points are encoded as 4 UTF-8 code units
@@ -35,8 +54,8 @@ namespace System.Text
         // - 0x40 bit if set means 'is letter or digit'
         // - 0x20 bit is reserved for future use
         // - bottom 5 bits are the UnicodeCategory of the character
-        private static ReadOnlySpan<byte> AsciiCharInfo => new byte[]
-        {
+        private static ReadOnlySpan<byte> AsciiCharInfo =>
+        [
             0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x8E, 0x8E, 0x8E, 0x8E, 0x8E, 0x0E, 0x0E, // U+0000..U+000F
             0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, 0x0E, // U+0010..U+001F
             0x8B, 0x18, 0x18, 0x18, 0x1A, 0x18, 0x18, 0x18, 0x14, 0x15, 0x18, 0x19, 0x18, 0x13, 0x18, 0x18, // U+0020..U+002F
@@ -45,7 +64,7 @@ namespace System.Text
             0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x40, 0x14, 0x18, 0x15, 0x1B, 0x12, // U+0050..U+005F
             0x1B, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, // U+0060..U+006F
             0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x14, 0x19, 0x15, 0x19, 0x0E, // U+0070..U+007F
-        };
+        ];
 
         private readonly uint _value;
 
@@ -106,7 +125,7 @@ namespace System.Text
         }
 
         // non-validating ctor
-        private Rune(uint scalarValue, bool unused)
+        private Rune(uint scalarValue, bool _)
         {
             UnicodeDebug.AssertIsValidScalar(scalarValue);
             _value = scalarValue;
@@ -134,7 +153,14 @@ namespace System.Text
         public static explicit operator Rune(int value) => new Rune(value);
 
         // Displayed as "'<char>' (U+XXXX)"; e.g., "'e' (U+0065)"
-        private string DebuggerDisplay => FormattableString.Invariant($"U+{_value:X4} '{(IsValid(_value) ? ToString() : "\uFFFD")}'");
+        private string DebuggerDisplay =>
+#if SYSTEM_PRIVATE_CORELIB
+            string.Create(
+                CultureInfo.InvariantCulture,
+#else
+            FormattableString.Invariant(
+#endif
+                $"U+{_value:X4} '{(IsValid(_value) ? ToString() : "\uFFFD")}'");
 
         /// <summary>
         /// Returns true if and only if this scalar value is ASCII ([ U+0000..U+007F ])
@@ -198,7 +224,7 @@ namespace System.Text
         public int Value => (int)_value;
 
 #if SYSTEM_PRIVATE_CORELIB
-        private static Rune ChangeCaseCultureAware(Rune rune, TextInfo textInfo, bool toUpper)
+        private static unsafe Rune ChangeCaseCultureAware(Rune rune, TextInfo textInfo, bool toUpper)
         {
             Debug.Assert(!GlobalizationMode.Invariant, "This should've been checked by the caller.");
             Debug.Assert(textInfo != null, "This should've been checked by the caller.");
@@ -233,9 +259,8 @@ namespace System.Text
             }
         }
 #else
-        private static Rune ChangeCaseCultureAware(Rune rune, CultureInfo culture, bool toUpper)
+        private static unsafe Rune ChangeCaseCultureAware(Rune rune, CultureInfo culture, bool toUpper)
         {
-            Debug.Assert(!GlobalizationMode.Invariant, "This should've been checked by the caller.");
             Debug.Assert(culture != null, "This should've been checked by the caller.");
 
             Span<char> original = stackalloc char[MaxUtf16CharsPerRune]; // worst case scenario = 2 code units (for a surrogate pair)
@@ -270,6 +295,13 @@ namespace System.Text
 #endif
 
         public int CompareTo(Rune other) => this.Value - other.Value; // values don't span entire 32-bit domain; won't integer overflow
+
+        internal ReadOnlySpan<char> AsSpan(Span<char> buffer)
+        {
+            Debug.Assert(buffer.Length >= MaxUtf16CharsPerRune);
+            int charsWritten = EncodeToUtf16(buffer);
+            return buffer.Slice(0, charsWritten);
+        }
 
         /// <summary>
         /// Decodes the <see cref="Rune"/> at the beginning of the provided UTF-16 source buffer.
@@ -315,7 +347,7 @@ namespace System.Text
                 // Let's optimistically assume for now it's a high surrogate and hope
                 // that combining it with the next char yields useful results.
 
-                if (1 < (uint)source.Length)
+                if (source.Length > 1)
                 {
                     char secondChar = source[1];
                     if (TryCreate(firstChar, secondChar, out result))
@@ -389,46 +421,38 @@ namespace System.Text
             // it tries to consume as many code units as possible as long as those code
             // units constitute the beginning of a longer well-formed subsequence per Table 3-7.
 
+            // Try reading source[0].
+
             int index = 0;
-
-            // Try reading input[0].
-
-            if ((uint)index >= (uint)source.Length)
+            if (source.IsEmpty)
             {
                 goto NeedsMoreData;
             }
 
-            uint tempValue = source[index];
-            if (!UnicodeUtility.IsAsciiCodePoint(tempValue))
+            uint tempValue = source[0];
+            if (UnicodeUtility.IsAsciiCodePoint(tempValue))
             {
-                goto NotAscii;
+                bytesConsumed = 1;
+                result = UnsafeCreate(tempValue);
+                return OperationStatus.Done;
             }
-
-        Finish:
-
-            bytesConsumed = index + 1;
-            Debug.Assert(1 <= bytesConsumed && bytesConsumed <= 4); // Valid subsequences are always length [1..4]
-            result = UnsafeCreate(tempValue);
-            return OperationStatus.Done;
-
-        NotAscii:
 
             // Per Table 3-7, the beginning of a multibyte sequence must be a code unit in
             // the range [C2..F4]. If it's outside of that range, it's either a standalone
             // continuation byte, or it's an overlong two-byte sequence, or it's an out-of-range
             // four-byte sequence.
 
+            // Try reading source[1].
+
+            index = 1;
             if (!UnicodeUtility.IsInRangeInclusive(tempValue, 0xC2, 0xF4))
             {
-                goto FirstByteInvalid;
+                goto Invalid;
             }
 
             tempValue = (tempValue - 0xC2) << 6;
 
-            // Try reading input[1].
-
-            index++;
-            if ((uint)index >= (uint)source.Length)
+            if (source.Length <= 1)
             {
                 goto NeedsMoreData;
             }
@@ -437,7 +461,7 @@ namespace System.Text
             // complement representation is in the range [-65..-128]. This allows us to
             // perform a single comparison to see if a byte is a continuation byte.
 
-            int thisByteSignExtended = (sbyte)source[index];
+            int thisByteSignExtended = (sbyte)source[1];
             if (thisByteSignExtended >= -64)
             {
                 goto Invalid;
@@ -479,15 +503,15 @@ namespace System.Text
             // The first two bytes were just fine. We don't need to perform any other checks
             // on the remaining bytes other than to see that they're valid continuation bytes.
 
-            // Try reading input[2].
+            // Try reading source[2].
 
-            index++;
-            if ((uint)index >= (uint)source.Length)
+            index = 2;
+            if (source.Length <= 2)
             {
                 goto NeedsMoreData;
             }
 
-            thisByteSignExtended = (sbyte)source[index];
+            thisByteSignExtended = (sbyte)source[2];
             if (thisByteSignExtended >= -64)
             {
                 goto Invalid; // this byte is not a UTF-8 continuation byte
@@ -504,15 +528,15 @@ namespace System.Text
                 goto Finish; // this is a valid 3-byte sequence
             }
 
-            // Try reading input[3].
+            // Try reading source[3].
 
-            index++;
-            if ((uint)index >= (uint)source.Length)
+            index = 3;
+            if (source.Length <= 3)
             {
                 goto NeedsMoreData;
             }
 
-            thisByteSignExtended = (sbyte)source[index];
+            thisByteSignExtended = (sbyte)source[3];
             if (thisByteSignExtended >= -64)
             {
                 goto Invalid; // this byte is not a UTF-8 continuation byte
@@ -523,19 +547,15 @@ namespace System.Text
             tempValue += 0x80; // remove the continuation byte marker
             tempValue -= (0xF0 - 0xE0) << 18; // remove the leading byte marker
 
+            // Valid 4-byte sequence
             UnicodeDebug.AssertIsValidSupplementaryPlaneScalar(tempValue);
-            goto Finish; // this is a valid 4-byte sequence
 
-        FirstByteInvalid:
+        Finish:
 
-            index = 1; // Invalid subsequences are always at least length 1.
-
-        Invalid:
-
-            Debug.Assert(1 <= index && index <= 3); // Invalid subsequences are always length 1..3
-            bytesConsumed = index;
-            result = ReplacementChar;
-            return OperationStatus.InvalidData;
+            bytesConsumed = index + 1;
+            Debug.Assert(1 <= bytesConsumed && bytesConsumed <= 4); // Valid subsequences are always length [1..4]
+            result = UnsafeCreate(tempValue);
+            return OperationStatus.Done;
 
         NeedsMoreData:
 
@@ -543,6 +563,13 @@ namespace System.Text
             bytesConsumed = index;
             result = ReplacementChar;
             return OperationStatus.NeedMoreData;
+
+        Invalid:
+
+            Debug.Assert(1 <= index && index <= 3); // Invalid subsequences are always length 1..3
+            bytesConsumed = index;
+            result = ReplacementChar;
+            return OperationStatus.InvalidData;
         }
 
         /// <summary>
@@ -758,12 +785,36 @@ namespace System.Text
             return bytesWritten;
         }
 
-        public override bool Equals(object? obj) => (obj is Rune other) && Equals(other);
+        public override bool Equals([NotNullWhen(true)] object? obj) => (obj is Rune other) && Equals(other);
 
         public bool Equals(Rune other) => this == other;
 
+        /// <summary>
+        /// Returns a value that indicates whether the current instance and a specified rune are equal using the specified comparison option.
+        /// </summary>
+        /// <param name="other">The rune to compare with the current instance.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules to use in the comparison.</param>
+        /// <returns><see langword="true"/> if the current instance and <paramref name="other"/> are equal; otherwise, <see langword="false"/>.</returns>
+        public unsafe bool Equals(Rune other, StringComparison comparisonType)
+        {
+            if (comparisonType is StringComparison.Ordinal)
+            {
+                return this == other;
+            }
+
+            // Convert this to span
+            ReadOnlySpan<char> thisChars = AsSpan(stackalloc char[MaxUtf16CharsPerRune]);
+
+            // Convert other to span
+            ReadOnlySpan<char> otherChars = other.AsSpan(stackalloc char[MaxUtf16CharsPerRune]);
+
+            // Compare span equality
+            return thisChars.Equals(otherChars, comparisonType);
+        }
+
         public override int GetHashCode() => Value;
 
+#if SYSTEM_PRIVATE_CORELIB
         /// <summary>
         /// Gets the <see cref="Rune"/> which begins at index <paramref name="index"/> in
         /// string <paramref name="input"/>.
@@ -782,6 +833,7 @@ namespace System.Text
 
             return UnsafeCreate((uint)runeValue);
         }
+#endif
 
         /// <summary>
         /// Returns <see langword="true"/> iff <paramref name="value"/> is a valid Unicode scalar
@@ -816,7 +868,7 @@ namespace System.Text
 
                 // Treat 'returnValue' as the high surrogate.
 
-                if (1 >= (uint)input.Length)
+                if (input.Length <= 1)
                 {
                     return -1; // not an argument exception - just a "bad data" failure
                 }
@@ -833,6 +885,7 @@ namespace System.Text
             return (int)returnValue;
         }
 
+#if SYSTEM_PRIVATE_CORELIB
         // returns a negative number on failure
         private static int ReadRuneFromString(string input, int index)
         {
@@ -841,9 +894,9 @@ namespace System.Text
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.input);
             }
 
-            if ((uint)index >= (uint)input!.Length)
+            if ((uint)index >= (uint)input.Length)
             {
-                ThrowHelper.ThrowArgumentOutOfRange_IndexException();
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessException();
             }
 
             // Optimistically assume input is within BMP.
@@ -880,11 +933,12 @@ namespace System.Text
 
             return (int)returnValue;
         }
+#endif
 
         /// <summary>
         /// Returns a <see cref="string"/> representation of this <see cref="Rune"/> instance.
         /// </summary>
-        public override string ToString()
+        public override unsafe string ToString()
         {
 #if SYSTEM_PRIVATE_CORELIB
             if (IsBmp)
@@ -909,6 +963,91 @@ namespace System.Text
             }
 #endif
         }
+
+#if SYSTEM_PRIVATE_CORELIB
+        bool ISpanFormattable.TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider? provider) =>
+            TryEncodeToUtf16(destination, out charsWritten);
+
+        bool IUtf8SpanFormattable.TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format, IFormatProvider? provider) =>
+            TryEncodeToUtf8(utf8Destination, out bytesWritten);
+
+        /// <inheritdoc cref="IUtf8SpanParsable{TSelf}.TryParse(ReadOnlySpan{byte}, IFormatProvider?, out TSelf)" />
+        static bool IUtf8SpanParsable<Rune>.TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider? provider, out Rune result)
+        {
+            if (DecodeFromUtf8(utf8Text, out result, out int bytesConsumed) == OperationStatus.Done)
+            {
+                if (bytesConsumed == utf8Text.Length)
+                {
+                    return true;
+                }
+
+                result = ReplacementChar;
+            }
+
+            return false;
+        }
+
+        /// <inheritdoc cref="IUtf8SpanParsable{TSelf}.Parse(ReadOnlySpan{byte}, IFormatProvider?)" />
+        static Rune IUtf8SpanParsable<Rune>.Parse(ReadOnlySpan<byte> utf8Text, System.IFormatProvider? provider)
+        {
+            if (DecodeFromUtf8(utf8Text, out Rune result, out int bytesConsumed) != OperationStatus.Done || bytesConsumed != utf8Text.Length)
+            {
+                ThrowHelper.ThrowFormatInvalidString();
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="IParsable{TSelf}.Parse(string, IFormatProvider?)" />
+        static Rune IParsable<Rune>.Parse(string s, IFormatProvider? provider)
+        {
+            ArgumentNullException.ThrowIfNull(s);
+
+            if (DecodeFromUtf16(s, out Rune result, out int charsConsumed) != OperationStatus.Done || charsConsumed != s.Length)
+            {
+                ThrowHelper.ThrowFormatInvalidString();
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="IParsable{TSelf}.TryParse(string?, IFormatProvider?, out TSelf)" />
+        static bool IParsable<Rune>.TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, out Rune result)
+        {
+            if (DecodeFromUtf16(s, out result, out int charsConsumed) != OperationStatus.Done || charsConsumed != s!.Length)
+            {
+                result = ReplacementChar;
+                return false;
+            }
+
+            return true;
+        }
+
+        /// <inheritdoc cref="ISpanParsable{TSelf}.Parse(ReadOnlySpan{char}, IFormatProvider?)" />
+        static Rune ISpanParsable<Rune>.Parse(ReadOnlySpan<char> s, IFormatProvider? provider)
+        {
+            if (DecodeFromUtf16(s, out Rune result, out int charsConsumed) != OperationStatus.Done || charsConsumed != s.Length)
+            {
+                ThrowHelper.ThrowFormatInvalidString();
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="ISpanParsable{TSelf}.TryParse(ReadOnlySpan{char}, IFormatProvider?, out TSelf)" />
+        static bool ISpanParsable<Rune>.TryParse(ReadOnlySpan<char> s, IFormatProvider? provider, out Rune result)
+        {
+            if (DecodeFromUtf16(s, out result, out int charsConsumed) != OperationStatus.Done || charsConsumed != s.Length)
+            {
+                result = ReplacementChar;
+                return false;
+            }
+
+            return true;
+        }
+
+        string IFormattable.ToString(string? format, IFormatProvider? formatProvider) => ToString();
+#endif
 
         /// <summary>
         /// Attempts to create a <see cref="Rune"/> from the provided input value.
@@ -993,19 +1132,27 @@ namespace System.Text
         /// The <see cref="Utf16SequenceLength"/> property can be queried ahead of time to determine
         /// the required size of the <paramref name="destination"/> buffer.
         /// </remarks>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryEncodeToUtf16(Span<char> destination, out int charsWritten)
         {
-            if (destination.Length >= 1)
+            // The Rune type fits cleanly into a register, so pass byval rather than byref
+            // to avoid stack-spilling the 'this' parameter.
+            return TryEncodeToUtf16(this, destination, out charsWritten);
+        }
+
+        private static bool TryEncodeToUtf16(Rune value, Span<char> destination, out int charsWritten)
+        {
+            if (!destination.IsEmpty)
             {
-                if (IsBmp)
+                if (value.IsBmp)
                 {
-                    destination[0] = (char)_value;
+                    destination[0] = (char)value._value;
                     charsWritten = 1;
                     return true;
                 }
-                else if (destination.Length >= 2)
+                else if (destination.Length > 1)
                 {
-                    UnicodeUtility.GetUtf16SurrogatesFromSupplementaryPlaneScalar(_value, out destination[0], out destination[1]);
+                    UnicodeUtility.GetUtf16SurrogatesFromSupplementaryPlaneScalar((uint)value._value, out destination[0], out destination[1]);
                     charsWritten = 2;
                     return true;
                 }
@@ -1029,49 +1176,57 @@ namespace System.Text
         /// The <see cref="Utf8SequenceLength"/> property can be queried ahead of time to determine
         /// the required size of the <paramref name="destination"/> buffer.
         /// </remarks>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public bool TryEncodeToUtf8(Span<byte> destination, out int bytesWritten)
+        {
+            // The Rune type fits cleanly into a register, so pass byval rather than byref
+            // to avoid stack-spilling the 'this' parameter.
+            return TryEncodeToUtf8(this, destination, out bytesWritten);
+        }
+
+        private static bool TryEncodeToUtf8(Rune value, Span<byte> destination, out int bytesWritten)
         {
             // The bit patterns below come from the Unicode Standard, Table 3-6.
 
-            if (destination.Length >= 1)
+            if (!destination.IsEmpty)
             {
-                if (IsAscii)
+                if (value.IsAscii)
                 {
-                    destination[0] = (byte)_value;
+                    destination[0] = (byte)value._value;
                     bytesWritten = 1;
                     return true;
                 }
 
-                if (destination.Length >= 2)
+                if (destination.Length > 1)
                 {
-                    if (_value <= 0x7FFu)
+                    if (value.Value <= 0x7FFu)
                     {
                         // Scalar 00000yyy yyxxxxxx -> bytes [ 110yyyyy 10xxxxxx ]
-                        destination[0] = (byte)((_value + (0b110u << 11)) >> 6);
-                        destination[1] = (byte)((_value & 0x3Fu) + 0x80u);
+                        destination[0] = (byte)((value._value + (0b110u << 11)) >> 6);
+                        destination[1] = (byte)((value._value & 0x3Fu) + 0x80u);
                         bytesWritten = 2;
                         return true;
                     }
 
-                    if (destination.Length >= 3)
+                    if (destination.Length > 2)
                     {
-                        if (_value <= 0xFFFFu)
+                        if (value.Value <= 0xFFFFu)
                         {
                             // Scalar zzzzyyyy yyxxxxxx -> bytes [ 1110zzzz 10yyyyyy 10xxxxxx ]
-                            destination[0] = (byte)((_value + (0b1110 << 16)) >> 12);
-                            destination[1] = (byte)(((_value & (0x3Fu << 6)) >> 6) + 0x80u);
-                            destination[2] = (byte)((_value & 0x3Fu) + 0x80u);
+                            destination[0] = (byte)((value._value + (0b1110 << 16)) >> 12);
+                            destination[1] = (byte)(((value._value & (0x3Fu << 6)) >> 6) + 0x80u);
+                            destination[2] = (byte)((value._value & 0x3Fu) + 0x80u);
                             bytesWritten = 3;
                             return true;
                         }
 
-                        if (destination.Length >= 4)
+                        if (destination.Length > 3)
                         {
                             // Scalar 000uuuuu zzzzyyyy yyxxxxxx -> bytes [ 11110uuu 10uuzzzz 10yyyyyy 10xxxxxx ]
-                            destination[0] = (byte)((_value + (0b11110 << 21)) >> 18);
-                            destination[1] = (byte)(((_value & (0x3Fu << 12)) >> 12) + 0x80u);
-                            destination[2] = (byte)(((_value & (0x3Fu << 6)) >> 6) + 0x80u);
-                            destination[3] = (byte)((_value & 0x3Fu) + 0x80u);
+                            destination[0] = (byte)((value._value + (0b11110 << 21)) >> 18);
+                            destination[1] = (byte)(((value._value & (0x3Fu << 12)) >> 12) + 0x80u);
+                            destination[2] = (byte)(((value._value & (0x3Fu << 6)) >> 6) + 0x80u);
+                            destination[3] = (byte)((value._value & 0x3Fu) + 0x80u);
                             bytesWritten = 4;
                             return true;
                         }
@@ -1085,6 +1240,7 @@ namespace System.Text
             return false;
         }
 
+#if SYSTEM_PRIVATE_CORELIB
         /// <summary>
         /// Attempts to get the <see cref="Rune"/> which begins at index <paramref name="index"/> in
         /// string <paramref name="input"/>.
@@ -1108,6 +1264,7 @@ namespace System.Text
                 return false;
             }
         }
+#endif
 
         // Allows constructing a Unicode scalar value from an arbitrary 32-bit integer without
         // validation. It is the caller's responsibility to have performed manual validation
@@ -1347,12 +1504,12 @@ namespace System.Text
             // ASCII characters differently than the invariant culture (e.g., Turkish I). Instead
             // we'll just jump straight to the globalization tables if they're available.
 
+#if SYSTEM_PRIVATE_CORELIB
             if (GlobalizationMode.Invariant)
             {
                 return ToLowerInvariant(value);
             }
 
-#if SYSTEM_PRIVATE_CORELIB
             return ChangeCaseCultureAware(value, culture.TextInfo, toUpper: false);
 #else
             return ChangeCaseCultureAware(value, culture, toUpper: false);
@@ -1371,16 +1528,14 @@ namespace System.Text
                 return UnsafeCreate(Utf16Utility.ConvertAllAsciiCharsInUInt32ToLowercase(value._value));
             }
 
+#if SYSTEM_PRIVATE_CORELIB
             if (GlobalizationMode.Invariant)
             {
-                // If the value isn't ASCII and if the globalization tables aren't available,
-                // case changing has no effect.
-                return value;
+                return UnsafeCreate(CharUnicodeInfo.ToLower(value._value));
             }
 
             // Non-ASCII data requires going through the case folding tables.
 
-#if SYSTEM_PRIVATE_CORELIB
             return ChangeCaseCultureAware(value, TextInfo.Invariant, toUpper: false);
 #else
             return ChangeCaseCultureAware(value, CultureInfo.InvariantCulture, toUpper: false);
@@ -1398,12 +1553,12 @@ namespace System.Text
             // ASCII characters differently than the invariant culture (e.g., Turkish I). Instead
             // we'll just jump straight to the globalization tables if they're available.
 
+#if SYSTEM_PRIVATE_CORELIB
             if (GlobalizationMode.Invariant)
             {
                 return ToUpperInvariant(value);
             }
 
-#if SYSTEM_PRIVATE_CORELIB
             return ChangeCaseCultureAware(value, culture.TextInfo, toUpper: true);
 #else
             return ChangeCaseCultureAware(value, culture, toUpper: true);
@@ -1422,21 +1577,69 @@ namespace System.Text
                 return UnsafeCreate(Utf16Utility.ConvertAllAsciiCharsInUInt32ToUppercase(value._value));
             }
 
+#if SYSTEM_PRIVATE_CORELIB
             if (GlobalizationMode.Invariant)
             {
-                // If the value isn't ASCII and if the globalization tables aren't available,
-                // case changing has no effect.
-                return value;
+                return UnsafeCreate(CharUnicodeInfo.ToUpper(value._value));
             }
 
             // Non-ASCII data requires going through the case folding tables.
 
-#if SYSTEM_PRIVATE_CORELIB
             return ChangeCaseCultureAware(value, TextInfo.Invariant, toUpper: true);
 #else
             return ChangeCaseCultureAware(value, CultureInfo.InvariantCulture, toUpper: true);
 #endif
         }
+
+#if SYSTEM_PRIVATE_CORELIB
+        /// <summary>
+        /// Returns a copy of <paramref name="value"/> converted to uppercase using the casing rules used by
+        /// <see cref="StringComparison.OrdinalIgnoreCase"/> comparisons.
+        /// </summary>
+        /// <param name="value">The character to convert.</param>
+        /// <returns>The uppercase equivalent of <paramref name="value"/>.</returns>
+        public static Rune ToUpperOrdinal(Rune value)
+        {
+            if (value.IsAscii)
+            {
+                return UnsafeCreate(Utf16Utility.ConvertAllAsciiCharsInUInt32ToUppercase(value._value));
+            }
+
+            if (value.IsBmp)
+            {
+                return UnsafeCreate(TextInfo.ToUpperOrdinal((char)value._value));
+            }
+
+            // Supplementary characters use the same simple scalar mapping as OrdinalIgnoreCase comparisons.
+            uint upper = CharUnicodeInfo.ToUpper(value._value);
+            return UnsafeCreate(GlobalizationMode.UseNls
+                ? Ordinal.PreserveNlsOrdinalCasingClass(value._value, upper)
+                : upper);
+        }
+
+        /// <summary>
+        /// Returns a copy of <paramref name="value"/> converted to lowercase using ordinal (simple, one-to-one) casing rules.
+        /// </summary>
+        /// <param name="value">The character to convert.</param>
+        /// <returns>The lowercase equivalent of <paramref name="value"/>.</returns>
+        public static Rune ToLowerOrdinal(Rune value)
+        {
+            if (value.IsAscii)
+            {
+                return UnsafeCreate(Utf16Utility.ConvertAllAsciiCharsInUInt32ToLowercase(value._value));
+            }
+
+            if (value.IsBmp)
+            {
+                return UnsafeCreate(TextInfo.ToLowerOrdinal((char)value._value));
+            }
+
+            uint lower = CharUnicodeInfo.ToLower(value._value);
+            return UnsafeCreate(GlobalizationMode.UseNls
+                ? Ordinal.PreserveNlsOrdinalCasingClass(value._value, lower)
+                : lower);
+        }
+#endif
 
         /// <inheritdoc cref="IComparable.CompareTo" />
         int IComparable.CompareTo(object? obj)
@@ -1451,7 +1654,11 @@ namespace System.Text
                 return this.CompareTo(other);
             }
 
+#if SYSTEM_PRIVATE_CORELIB
             throw new ArgumentException(SR.Arg_MustBeRune);
+#else
+            throw new ArgumentException();
+#endif
         }
     }
 }

@@ -1,11 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-namespace Test
+using Xunit;
+namespace b53226b
 {
     using System;
 
-    internal class App
+    public class App
     {
         private static int Main1()
         {
@@ -14,7 +15,9 @@ namespace Test
             byte bb = __refvalue((b ? __makeref(b) : tr), byte);
             return 0;
         }
-        private static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

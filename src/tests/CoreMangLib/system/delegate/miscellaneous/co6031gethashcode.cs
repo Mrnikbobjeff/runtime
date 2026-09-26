@@ -1,11 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
+using Xunit;
 
 delegate int Int32_VoidDelegate();
-public class TestClass
+public class Co6031GetHashCode
 {
-	public static int Main(string[] args) 
+	[OuterLoop]
+	[Fact]
+	public static int TestEntryPoint() 
 	{
 		int iTestCount= 0;
 		int iErrorCount= 0;
@@ -39,7 +42,7 @@ public class TestClass
 				LocStr = "loc_002";
 				iTestCount++;
 				Console.WriteLine( "test1: GetHashCode of delegate pointing to instance method " );
-				TestClass obj = new TestClass();
+				Co6031GetHashCode obj = new Co6031GetHashCode();
 				Int32_VoidDelegate sdg2 = new Int32_VoidDelegate( obj.instanceMethInt32_Void );
 			
 				int ihc1 = sdg2.GetHashCode();

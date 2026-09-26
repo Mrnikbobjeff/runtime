@@ -12,20 +12,22 @@
 
 
 using System;
+using Xunit;
+using TestLibrary;
 
 
 public class MyDerived : MyBase, I
 {
 }
 
-class MyTest
+public class MyTest
 {
-    public static int Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static void TestEntryPoint()
     {
         I I1 = new MyDerived();
 
         System.Console.WriteLine("I1.Print<object>: " + I1.Print<object>());
-
-        return 100;
     }
 }

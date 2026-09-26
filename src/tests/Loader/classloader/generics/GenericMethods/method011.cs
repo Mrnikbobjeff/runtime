@@ -3,6 +3,8 @@
 
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 interface IFoo 
 {
@@ -18,7 +20,7 @@ class Foo : IFoo
 		
 }
 
-public class Test
+public class Test_method011
 {
 	public static int counter = 0;
 	public static bool result = true;
@@ -33,7 +35,9 @@ public class Test
 	
 	}
 	
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		IFoo f = new Foo();
 

@@ -5,7 +5,8 @@
 
 using System;
 using System.Runtime.CompilerServices;
-public class BringUpTest
+using Xunit;
+public class BringUpTest_FPError
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -15,7 +16,8 @@ public class BringUpTest
          return x - (x/y)*y;
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         float y = FPError(81f, 16f);
         Console.WriteLine(y);

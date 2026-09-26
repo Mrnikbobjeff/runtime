@@ -25,7 +25,13 @@ typedef enum {
 	PROP_FIELD_DEF_VALUES = 7, /* MonoFieldDefaultValue* */
 	PROP_DECLSEC_FLAGS = 8, /* guint32 */
 	PROP_WEAK_BITMAP = 9,
-	PROP_DIM_CONFLICTS = 10 /* GSList of MonoMethod* */
+	PROP_DIM_CONFLICTS = 10, /* GSList of MonoMethod* */
+	PROP_FIELD_DEF_VALUES_2BYTESWIZZLE = 11, /* MonoFieldDefaultValue* with default values swizzled at 2 byte boundaries*/
+	PROP_FIELD_DEF_VALUES_4BYTESWIZZLE = 12, /* MonoFieldDefaultValue* with default values swizzled at 4 byte boundaries*/
+	PROP_FIELD_DEF_VALUES_8BYTESWIZZLE = 13, /* MonoFieldDefaultValue* with default values swizzled at 8 byte boundaries*/
+	PROP_METADATA_UPDATE_INFO = 14, /* MonoClassMetadataUpdateInfo* */
+	PROP_INLINEARRAY_VALUE = 15, /* System.Runtime.CompilerServices.InlineArrayAttribute length value */
+	PROP_EXTENDEDLAYOUT_VALUE = 16, /* System.Runtime.CompilerServices.ExtendedLayoutAttribute value */
 }  InfrequentDataKind;
 
 /* Accessors based on class kind*/
@@ -64,7 +70,9 @@ mono_class_try_get_generic_class (MonoClass *klass)
 guint32
 mono_class_get_flags (MonoClass *klass)
 {
-	switch (m_class_get_class_kind (klass)) {
+	g_assert (klass);
+	guint32 kind = m_class_get_class_kind (klass);
+	switch (kind) {
 	case MONO_CLASS_DEF:
 	case MONO_CLASS_GTD:
 		return m_classdef_get_flags ((MonoClassDef*)klass);
@@ -79,6 +87,9 @@ mono_class_get_flags (MonoClass *klass)
 		if (m_class_get_byval_arg (klass)->type == MONO_TYPE_FNPTR)
 			return TYPE_ATTRIBUTE_SEALED | TYPE_ATTRIBUTE_PUBLIC;
 		return TYPE_ATTRIBUTE_CLASS | (mono_class_get_flags (m_class_get_element_class (klass)) & TYPE_ATTRIBUTE_VISIBILITY_MASK);
+	case MONO_CLASS_GC_FILLER:
+		g_assertf (0, "%s: unexpected GC filler class", __func__);
+		break;
 	}
 	g_assert_not_reached ();
 }
@@ -174,6 +185,9 @@ mono_class_get_method_count (MonoClass *klass)
 		return m_classarray_get_method_count ((MonoClassArray*)klass);
 	case MONO_CLASS_POINTER:
 		return 0;
+	case MONO_CLASS_GC_FILLER:
+		g_assertf (0, "%s: unexpected GC filler class", __func__);
+		return 0;
 	default:
 		g_assert_not_reached ();
 		return 0;
@@ -197,6 +211,9 @@ mono_class_set_method_count (MonoClass *klass, guint32 count)
 	case MONO_CLASS_ARRAY:
 		((MonoClassArray*)klass)->method_count = count;
 		break;
+	case MONO_CLASS_GC_FILLER:
+		g_assertf (0, "%s: unexpected GC filler class", __func__);
+		break;
 	default:
 		g_assert_not_reached ();
 		break;
@@ -215,6 +232,9 @@ mono_class_get_field_count (MonoClass *klass)
 	case MONO_CLASS_GPARAM:
 	case MONO_CLASS_ARRAY:
 	case MONO_CLASS_POINTER:
+		return 0;
+	case MONO_CLASS_GC_FILLER:
+		g_assertf (0, "%s: unexpected GC filler class", __func__);
 		return 0;
 	default:
 		g_assert_not_reached ();
@@ -236,6 +256,9 @@ mono_class_set_field_count (MonoClass *klass, guint32 count)
 	case MONO_CLASS_ARRAY:
 	case MONO_CLASS_POINTER:
 		g_assert (count == 0);
+		break;
+	case MONO_CLASS_GC_FILLER:
+		g_assertf (0, "%s: unexpected GC filler class", __func__);
 		break;
 	default:
 		g_assert_not_reached ();
@@ -367,10 +390,37 @@ mono_class_get_field_def_values (MonoClass *klass)
 	return (MonoFieldDefaultValue*)get_pointer_property (klass, PROP_FIELD_DEF_VALUES);
 }
 
+MonoFieldDefaultValue*
+mono_class_get_field_def_values_with_swizzle (MonoClass *klass, int swizzle)
+{
+	InfrequentDataKind dataKind = PROP_FIELD_DEF_VALUES;
+	if (swizzle == 2)
+		dataKind = PROP_FIELD_DEF_VALUES_2BYTESWIZZLE;
+	else if (swizzle == 4)
+		dataKind = PROP_FIELD_DEF_VALUES_4BYTESWIZZLE;
+	else if (swizzle == 8)
+		dataKind = PROP_FIELD_DEF_VALUES_8BYTESWIZZLE;
+	return (MonoFieldDefaultValue*)get_pointer_property (klass, dataKind);
+}
+
+
 void
 mono_class_set_field_def_values (MonoClass *klass, MonoFieldDefaultValue *values)
 {
 	set_pointer_property (klass, PROP_FIELD_DEF_VALUES, values);
+}
+
+void
+mono_class_set_field_def_values_with_swizzle (MonoClass *klass, MonoFieldDefaultValue *values, int swizzle)
+{
+	InfrequentDataKind dataKind = PROP_FIELD_DEF_VALUES;
+	if (swizzle == 2)
+		dataKind = PROP_FIELD_DEF_VALUES_2BYTESWIZZLE;
+	else if (swizzle == 4)
+		dataKind = PROP_FIELD_DEF_VALUES_4BYTESWIZZLE;
+	else if (swizzle == 8)
+		dataKind = PROP_FIELD_DEF_VALUES_8BYTESWIZZLE;
+	set_pointer_property (klass, dataKind, values);
 }
 
 guint32
@@ -390,13 +440,9 @@ mono_class_set_declsec_flags (MonoClass *klass, guint32 value)
 }
 
 void
-mono_class_set_is_com_object (MonoClass *klass)
+mono_class_set_is_simd_type (MonoClass *klass, gboolean is_simd)
 {
-#ifndef DISABLE_COM
-	mono_loader_lock ();
-	klass->is_com_object = 1;
-	mono_loader_unlock ();
-#endif
+	klass->simd_type = is_simd;
 }
 
 MonoType*
@@ -444,6 +490,24 @@ mono_class_has_dim_conflicts (MonoClass *klass)
 		MonoClass *gklass = mono_class_get_generic_class (klass)->container_class;
 
 		return gklass->has_dim_conflicts;
+	}
+
+	return FALSE;
+}
+
+gboolean
+mono_class_is_method_ambiguous (MonoClass *klass, MonoMethod *method)
+{
+	GSList *l = mono_class_get_dim_conflicts (klass);
+	MonoMethod *decl = method;
+
+	if (decl->is_inflated)
+		decl = ((MonoMethodInflated*)decl)->declaring;
+
+	while (l) {
+		if (decl == l->data)
+			return TRUE;
+		l = l->next;
 	}
 
 	return FALSE;
@@ -507,6 +571,40 @@ mono_class_set_failure (MonoClass *klass, MonoErrorBoxed *boxed_error)
 }
 
 /**
+ * mono_class_set_skip_generic_constraints:
+ * \param klass class that should not validate generic constraints
+ *
+ * LOCKING: Acquires the loader lock.
+ */
+void
+mono_class_set_skip_generic_constraints (MonoClass *klass)
+{
+	if (klass->skip_generic_constraints)
+		return;
+
+	mono_loader_lock ();
+	klass->skip_generic_constraints = 1;
+	mono_loader_unlock ();
+}
+
+/**
+ * mono_class_set_deferred_failure:
+ * \param klass class in which the failure was detected
+ 
+ * This method marks the class with a deferred failure, indicating that a failure was detected but it will be processed during AOT runtime..
+ * Note that only the first failure is kept.
+ *
+ * LOCKING: Acquires the loader lock.
+ */
+void
+mono_class_set_deferred_failure (MonoClass *klass)
+{
+	mono_loader_lock ();
+	klass->has_deferred_failure = 1;
+	mono_loader_unlock ();
+}
+
+/**
  * mono_class_set_nonblittable:
  * \param klass class which will be marked as not blittable.
  *
@@ -520,13 +618,6 @@ mono_class_set_nonblittable (MonoClass *klass) {
 	klass->blittable = FALSE;
 	mono_loader_unlock ();
 }
-
-#ifndef DISABLE_REMOTING
-void
-mono_class_contextbound_bit_offset (int* byte_offset_out, guint8* mask_out) {
-	mono_marshal_find_bitfield_offset (MonoClass, contextbound, byte_offset_out, mask_out);
-}
-#endif
 
 /**
  * mono_class_publish_gc_descriptor:
@@ -549,6 +640,99 @@ mono_class_publish_gc_descriptor (MonoClass *klass, MonoGCDescriptor gc_descr)
 	klass->gc_descr_inited = TRUE;
 	mono_loader_unlock ();
 	return ret;
+}
+
+MonoClassMetadataUpdateInfo*
+mono_class_get_metadata_update_info (MonoClass *klass)
+{
+	switch (m_class_get_class_kind (klass)) {
+	case MONO_CLASS_DEF:
+	case MONO_CLASS_GTD:
+	case MONO_CLASS_GINST:
+		return (MonoClassMetadataUpdateInfo *)get_pointer_property (klass, PROP_METADATA_UPDATE_INFO);
+	case MONO_CLASS_GPARAM:
+	case MONO_CLASS_ARRAY:
+	case MONO_CLASS_POINTER:
+	case MONO_CLASS_GC_FILLER:
+		return NULL;
+	default:
+		g_assert_not_reached ();
+	}
+}
+
+/*
+ * LOCKING: assumes the loader lock is held
+ */
+void
+mono_class_set_metadata_update_info (MonoClass *klass, MonoClassMetadataUpdateInfo *value)
+{
+	switch (m_class_get_class_kind (klass)) {
+	case MONO_CLASS_GTD:
+	case MONO_CLASS_DEF:
+	case MONO_CLASS_GINST:
+		set_pointer_property (klass, PROP_METADATA_UPDATE_INFO, value);
+		return;
+	case MONO_CLASS_GPARAM:
+		/* metadata-update: this shouldn't happen */
+		g_assert_not_reached();
+	case MONO_CLASS_POINTER:
+	case MONO_CLASS_GC_FILLER:
+		g_assert_not_reached ();
+		break;
+	default:
+		g_assert_not_reached ();
+	}
+}
+
+gboolean
+mono_class_has_metadata_update_info (MonoClass *klass)
+{
+	switch (m_class_get_class_kind (klass)) {
+	case MONO_CLASS_GTD:
+	case MONO_CLASS_DEF:
+		return get_pointer_property (klass, PROP_METADATA_UPDATE_INFO) != NULL;
+	case MONO_CLASS_GINST:
+	case MONO_CLASS_GPARAM:
+		/* metadata-update: this shouldn't happen */
+		g_assert_not_reached();
+	case MONO_CLASS_POINTER:
+	case MONO_CLASS_GC_FILLER:
+		return FALSE;
+	default:
+		g_assert_not_reached ();
+	}
+}
+
+gint32
+mono_class_get_inlinearray_value (MonoClass *klass)
+{
+    Uint32Property *prop = (Uint32Property*)mono_property_bag_get (m_class_get_infrequent_data (klass), PROP_INLINEARRAY_VALUE);
+    return prop ? prop->value : 0;
+}
+
+void
+mono_class_set_inlinearray_value (MonoClass *klass, gint32 value)
+{
+    Uint32Property *prop = (Uint32Property*)mono_class_alloc (klass, sizeof (Uint32Property));
+    prop->head.tag = PROP_INLINEARRAY_VALUE;
+    prop->value = value;
+    mono_property_bag_add (m_class_get_infrequent_data (klass), prop);
+}
+
+gint32
+mono_class_get_extendedlayout_value (MonoClass *klass)
+{
+    Uint32Property *prop = (Uint32Property*)mono_property_bag_get (m_class_get_infrequent_data (klass), PROP_EXTENDEDLAYOUT_VALUE);
+    return prop ? prop->value : 0;
+}
+
+void
+mono_class_set_extendedlayout_value (MonoClass *klass, gint32 kind)
+{
+    Uint32Property *prop = (Uint32Property*)mono_class_alloc (klass, sizeof (Uint32Property));
+    prop->head.tag = PROP_EXTENDEDLAYOUT_VALUE;
+    prop->value = kind;
+    mono_property_bag_add (m_class_get_infrequent_data (klass), prop);
 }
 
 #ifdef MONO_CLASS_DEF_PRIVATE

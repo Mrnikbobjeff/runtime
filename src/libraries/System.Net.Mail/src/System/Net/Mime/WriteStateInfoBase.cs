@@ -54,14 +54,11 @@ namespace System.Net.Mime
         // This should be called before ANY direct write to Buffer.
         private void EnsureSpaceInBuffer(int moreBytes)
         {
-            int newsize = Buffer.Length;
-            while (_currentBufferUsed + moreBytes >= newsize)
+            if ((uint)(_currentBufferUsed + moreBytes) >= (uint)Buffer.Length)
             {
-                newsize *= 2;
-            }
+                // Use uint arithmetic to avoid overflow; the allocation will throw if the size is too large.
+                uint newsize = Math.Max((uint)_currentBufferUsed + (uint)moreBytes + 1, Math.Min((uint)Array.MaxLength, 2 * (uint)Buffer.Length));
 
-            if (newsize > Buffer.Length)
-            {
                 //try to resize- if the machine doesn't have the memory to resize just let it throw
                 byte[] tempBuffer = new byte[newsize];
 
@@ -77,10 +74,10 @@ namespace System.Net.Mime
             _currentLineLength++;
         }
 
-        internal void Append(params byte[] bytes)
+        internal void Append(ReadOnlySpan<byte> bytes)
         {
             EnsureSpaceInBuffer(bytes.Length);
-            bytes.CopyTo(_buffer, Length);
+            bytes.CopyTo(_buffer.AsSpan(Length));
             _currentLineLength += bytes.Length;
             _currentBufferUsed += bytes.Length;
         }
@@ -90,7 +87,7 @@ namespace System.Net.Mime
             AppendFooter();
 
             //add soft line break
-            Append((byte)'\r', (byte)'\n');
+            Append("\r\n"u8);
             _currentLineLength = 0; // New Line
             if (includeSpace)
             {

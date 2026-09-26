@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
 using System.ComponentModel.Composition.Hosting;
 using System.IO;
 using System.Linq;
@@ -28,7 +29,7 @@ namespace System.ComponentModel.Composition.Primitives
 
             foreach (var e in expectations)
             {
-                string directoryPath = GetTemporaryDirectory(e.Location);
+                string directoryPath = TemporaryFileCopier.GetNewTemporaryDirectory();
                 var catalog = CreateDirectoryCatalog(directoryPath);
 
                 var proxy = new DirectoryCatalog.DirectoryCatalogDebuggerProxy(catalog);
@@ -41,7 +42,7 @@ namespace System.ComponentModel.Composition.Primitives
         [ActiveIssue("https://github.com/dotnet/runtime/issues/24240")]
         public void Constructor_ValueAsCatalogArgument_ShouldSetAssemblyProperty()
         {
-            string directoryPath = GetTemporaryDirectory();
+            string directoryPath = TemporaryFileCopier.GetNewTemporaryDirectory();
             var expectations = Expectations.GetAssemblies();
 
             foreach (string fileName in expectations.Select(assembly => assembly.Location).ToArray())
@@ -56,9 +57,9 @@ namespace System.ComponentModel.Composition.Primitives
         }
 
         [Fact]
-        public void Constuctor_ValueAsCatalogArgument_ShouldSetPathProperty()
+        public void Constructor_ValueAsCatalogArgument_ShouldSetPathProperty()
         {
-            string path = GetTemporaryDirectory();
+            string path = TemporaryFileCopier.GetNewTemporaryDirectory();
 
             var catalog = CreateDirectoryCatalog(path);
             var proxy = new DirectoryCatalog.DirectoryCatalogDebuggerProxy(catalog);
@@ -68,9 +69,9 @@ namespace System.ComponentModel.Composition.Primitives
 
         [Fact]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/24240", TestPlatforms.AnyUnix)] // System.Reflection.ReflectionTypeLoadException : Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information.
-        public void Constuctor_ValueAsCatalogArgument_ShouldSetSearchPatternProperty()
+        public void Constructor_ValueAsCatalogArgument_ShouldSetSearchPatternProperty()
         {
-            string directoryPath = GetTemporaryDirectory();
+            string directoryPath = TemporaryFileCopier.GetNewTemporaryDirectory();
             var expectations = new ExpectationCollection<string, string>();
 
             expectations.Add("*.*", "*.*");
@@ -92,7 +93,7 @@ namespace System.ComponentModel.Composition.Primitives
         [ActiveIssue("https://github.com/dotnet/runtime/issues/24240")]
         public void FullPath_ValidPath_ShouldBeFine()
         {
-            string directoryPath = GetTemporaryDirectory();
+            string directoryPath = TemporaryFileCopier.GetNewTemporaryDirectory();
             var expectations = new ExpectationCollection<string, string>();
 
             // Ensure the path is always normalized properly.
@@ -118,17 +119,17 @@ namespace System.ComponentModel.Composition.Primitives
         [ActiveIssue("https://github.com/dotnet/runtime/issues/24240", TestPlatforms.AnyUnix)] // System.Reflection.ReflectionTypeLoadException : Unable to load one or more of the requested types. Retrieve the LoaderExceptions property for more information.
         public void LoadedFiles_EmptyDirectory_ShouldBeFine()
         {
-            string directoryPath = GetTemporaryDirectory();
+            string directoryPath = TemporaryFileCopier.GetNewTemporaryDirectory();
             var cat = CreateDirectoryCatalog(directoryPath);
             var proxy = new DirectoryCatalog.DirectoryCatalogDebuggerProxy(cat);
 
             Assert.Equal(0, proxy.LoadedFiles.Count);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.HasAssemblyFiles))]
         public void LoadedFiles_ContainsMultipleDllsAndSomeNonDll_ShouldOnlyContainDlls()
         {
-            string directoryPath = GetTemporaryDirectory();
+            string directoryPath = TemporaryFileCopier.GetNewTemporaryDirectory();
             // Add one text file
             using (File.CreateText(Path.Combine(directoryPath, "Test.txt")))
             { }
@@ -160,13 +161,6 @@ namespace System.ComponentModel.Composition.Primitives
         {
             return new DirectoryCatalog(path, filter);
         }
-
-        private string GetTemporaryDirectory(string location = null)
-        {
-            string tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            Directory.CreateDirectory(tempDirectory);
-            return tempDirectory;
-        }
     }
 
     public class TemporaryFileCopier
@@ -192,16 +186,7 @@ namespace System.ComponentModel.Composition.Primitives
 
         public static string GetNewTemporaryDirectory()
         {
-            string tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            Directory.CreateDirectory(tempDirectory);
-            return tempDirectory;
-        }
-
-        public static string GetTemporaryDirectory()
-        {
-            string tempDirectory = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            Directory.CreateDirectory(tempDirectory);
-            return tempDirectory;
+            return Directory.CreateTempSubdirectory().FullName;
         }
     }
 }

@@ -7,7 +7,7 @@ using Microsoft.Extensions.Options;
 
 namespace Microsoft.Extensions.Logging
 {
-    internal class LoggerFilterConfigureOptions : IConfigureOptions<LoggerFilterOptions>
+    internal sealed class LoggerFilterConfigureOptions : IConfigureOptions<LoggerFilterOptions>
     {
         private const string LogLevelKey = "LogLevel";
         private const string DefaultCategory = "Default";
@@ -52,13 +52,13 @@ namespace Microsoft.Extensions.Logging
             }
         }
 
-        private void LoadRules(LoggerFilterOptions options, IConfigurationSection configurationSection, string logger)
+        private static void LoadRules(LoggerFilterOptions options, IConfigurationSection configurationSection, string? logger)
         {
-            foreach (System.Collections.Generic.KeyValuePair<string, string> section in configurationSection.AsEnumerable(true))
+            foreach (System.Collections.Generic.KeyValuePair<string, string?> section in configurationSection.AsEnumerable(true))
             {
                 if (TryGetSwitch(section.Value, out LogLevel level))
                 {
-                    string category = section.Key;
+                    string? category = section.Key;
                     if (category.Equals(DefaultCategory, StringComparison.OrdinalIgnoreCase))
                     {
                         category = null;
@@ -69,7 +69,7 @@ namespace Microsoft.Extensions.Logging
             }
         }
 
-        private static bool TryGetSwitch(string value, out LogLevel level)
+        private static bool TryGetSwitch(string? value, out LogLevel level)
         {
             if (string.IsNullOrEmpty(value))
             {
@@ -82,7 +82,7 @@ namespace Microsoft.Extensions.Logging
             }
             else
             {
-                throw new InvalidOperationException($"Configuration value '{value}' is not supported.");
+                throw new InvalidOperationException(SR.Format(SR.ValueNotSupported, value));
             }
         }
     }

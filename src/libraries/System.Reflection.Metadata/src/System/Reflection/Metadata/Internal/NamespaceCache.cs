@@ -8,11 +8,11 @@ using System.Runtime.CompilerServices;
 
 namespace System.Reflection.Metadata.Ecma335
 {
-    internal class NamespaceCache
+    internal sealed class NamespaceCache
     {
         private readonly MetadataReader _metadataReader;
         private readonly object _namespaceTableAndListLock = new object();
-        private volatile Dictionary<NamespaceDefinitionHandle, NamespaceData>? _namespaceTable;
+        private Dictionary<NamespaceDefinitionHandle, NamespaceData>? _namespaceTable;
         private NamespaceData? _rootNamespace;
         private uint _virtualNamespaceCounter;
 
@@ -164,7 +164,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// namespace. It has to create 'stringTable' as an intermediate dictionary, so it will hand it
         /// back to the caller should the caller want to use it.
         /// </summary>
-        private void MergeDuplicateNamespaces(Dictionary<NamespaceDefinitionHandle, NamespaceDataBuilder> table, out Dictionary<string, NamespaceDataBuilder> stringTable)
+        private static void MergeDuplicateNamespaces(Dictionary<NamespaceDefinitionHandle, NamespaceDataBuilder> table, out Dictionary<string, NamespaceDataBuilder> stringTable)
         {
             var namespaces = new Dictionary<string, NamespaceDataBuilder>();
             List<KeyValuePair<NamespaceDefinitionHandle, NamespaceDataBuilder>>? remaps = null;
@@ -178,10 +178,7 @@ namespace System.Reflection.Metadata.Ecma335
                     Debug.Assert(data.Namespaces!.Count == 0);
                     data.MergeInto(existingRecord);
 
-                    if (remaps == null)
-                    {
-                        remaps = new List<KeyValuePair<NamespaceDefinitionHandle, NamespaceDataBuilder>>();
-                    }
+                    remaps ??= new List<KeyValuePair<NamespaceDefinitionHandle, NamespaceDataBuilder>>();
                     remaps.Add(new KeyValuePair<NamespaceDefinitionHandle, NamespaceDataBuilder>(group.Key, existingRecord));
                 }
                 else
@@ -210,14 +207,7 @@ namespace System.Reflection.Metadata.Ecma335
         {
             Debug.Assert(realChild.HasFullName);
 
-            int numberOfSegments = 0;
-            foreach (char c in fullName)
-            {
-                if (c == '.')
-                {
-                    numberOfSegments++;
-                }
-            }
+            int numberOfSegments = fullName.AsSpan().Count('.');
 
             StringHandle simpleName = GetSimpleName(realChild, numberOfSegments);
             var namespaceHandle = NamespaceDefinitionHandle.FromVirtualIndex(++_virtualNamespaceCounter);
@@ -227,7 +217,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// <summary>
         /// Quick convenience method that handles linking together child + parent
         /// </summary>
-        private void LinkChildDataToParentData(NamespaceDataBuilder child, NamespaceDataBuilder parent)
+        private static void LinkChildDataToParentData(NamespaceDataBuilder child, NamespaceDataBuilder parent)
         {
             Debug.Assert(child != null && parent != null);
             Debug.Assert(!child.Handle.IsNil);
@@ -406,7 +396,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// This class assumes that the builders will not be modified in any way after the first call to
         /// Freeze().
         /// </summary>
-        private class NamespaceDataBuilder
+        private sealed class NamespaceDataBuilder
         {
             public readonly NamespaceDefinitionHandle Handle;
             public readonly StringHandle Name;

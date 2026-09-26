@@ -8,8 +8,8 @@
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using System.Diagnostics;
+using System.Threading.Tasks;
 
 namespace System.Linq.Parallel
 {
@@ -20,7 +20,7 @@ namespace System.Linq.Parallel
     /// </summary>
     /// <typeparam name="TInputOutput"></typeparam>
     /// <typeparam name="TKey"></typeparam>
-    internal class OrderPreservingMergeHelper<TInputOutput, TKey> : IMergeHelper<TInputOutput>
+    internal sealed class OrderPreservingMergeHelper<TInputOutput, TKey> : IMergeHelper<TInputOutput>
     {
         private readonly QueryTaskGroupState _taskGroupState; // State shared among tasks.
         private readonly PartitionedStream<TInputOutput, TKey> _partitions; // Source partitions.

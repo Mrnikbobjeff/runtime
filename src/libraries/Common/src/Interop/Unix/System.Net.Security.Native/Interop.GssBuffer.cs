@@ -11,17 +11,17 @@ internal static partial class Interop
     internal static partial class NetSecurityNative
     {
         [StructLayout(LayoutKind.Sequential)]
-        internal struct GssBuffer : IDisposable
+        internal unsafe struct GssBuffer : IDisposable
         {
             internal ulong _length;
-            internal IntPtr _data;
+            internal byte* _data;
 
             internal int Copy(byte[] destination, int offset)
             {
                 Debug.Assert(destination != null, "target destination cannot be null");
-                Debug.Assert((offset >= 0 && offset < destination.Length) || destination.Length == 0, "invalid offset " + offset);
+                Debug.Assert((offset >= 0 && offset < destination.Length) || destination.Length == 0, $"invalid offset {offset}");
 
-                if (_data == IntPtr.Zero || _length == 0)
+                if (_data == null || _length == 0)
                 {
                     return 0;
                 }
@@ -34,33 +34,33 @@ internal static partial class Interop
                     throw new NetSecurityNative.GssApiException(SR.Format(SR.net_context_buffer_too_small, sourceLength, destinationAvailable));
                 }
 
-                Marshal.Copy(_data, destination, offset, sourceLength);
+                Span.CopyTo(destination.AsSpan(offset, sourceLength));
                 return sourceLength;
             }
 
             internal byte[] ToByteArray()
             {
-                if (_data == IntPtr.Zero || _length == 0)
+                if (_data == null || _length == 0)
                 {
                     return Array.Empty<byte>();
                 }
 
                 int destinationLength = Convert.ToInt32(_length);
                 byte[] destination = new byte[destinationLength];
-                Marshal.Copy(_data, destination, 0, destinationLength);
+                Span.CopyTo(destination);
                 return destination;
             }
 
-            internal unsafe ReadOnlySpan<byte> Span => (_data != IntPtr.Zero && _length != 0) ?
-                new ReadOnlySpan<byte>(_data.ToPointer(), checked((int)_length)) :
+            internal ReadOnlySpan<byte> Span => (_data != null && _length != 0) ?
+                new ReadOnlySpan<byte>(_data, checked((int)_length)) :
                 default;
 
             public void Dispose()
             {
-                if (_data != IntPtr.Zero)
+                if (_data != null)
                 {
                     Interop.NetSecurityNative.ReleaseGssBuffer(_data, _length);
-                    _data = IntPtr.Zero;
+                    _data = null;
                 }
 
                 _length = 0;
@@ -71,7 +71,7 @@ internal static partial class Interop
             {
                 // Verify managed size on both 32-bit and 64-bit matches the PAL_GssBuffer
                 // native struct size, which is also padded on 32-bit.
-                Debug.Assert(Marshal.SizeOf<GssBuffer>() == 16);
+                Debug.Assert(sizeof(GssBuffer) == 16);
             }
 #endif
         }

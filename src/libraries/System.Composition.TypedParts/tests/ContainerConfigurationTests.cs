@@ -7,6 +7,7 @@ using System.ComponentModel.DataAnnotations;
 using System.Composition.Convention;
 using System.Composition.Hosting.Core;
 using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
 using Xunit;
 
@@ -247,10 +248,46 @@ namespace System.Composition.Hosting.Tests
         }
 
         [Fact]
-        public void WithAssemby_Null_ThrowsNullReferenceExceptionOnCreation()
+        public void WithAssembly_Null_ThrowsNullReferenceExceptionOnCreation()
         {
             ContainerConfiguration configuration = new ContainerConfiguration().WithAssembly(null);
             Assert.Throws<NullReferenceException>(() => configuration.CreateContainer());
+        }
+
+        [Fact]
+        public void WithExport_Base_Success()
+        {
+            var instance = new Base();
+
+            var configuration = new ContainerConfiguration();
+            Assert.Same(configuration, configuration.WithExport<Base>(instance));
+
+            CompositionHost container = configuration.CreateContainer();
+            Assert.Same(instance, container.GetExport<Base>());
+        }
+
+        [Fact]
+        public void WithExport_Derived_Success()
+        {
+            var instance = new Derived();
+
+            var configuration = new ContainerConfiguration();
+            Assert.Same(configuration, configuration.WithExport<Base>(instance));
+
+            CompositionHost container = configuration.CreateContainer();
+            Assert.Same(instance, container.GetExport<Base>());
+        }
+
+        [Fact]
+        public void WithExport_ContractName_Success()
+        {
+            var instance = new Base();
+
+            var configuration = new ContainerConfiguration();
+            Assert.Same(configuration, configuration.WithExport<Base>(instance, "Contract"));
+
+            CompositionHost container = configuration.CreateContainer();
+            Assert.Same(instance, container.GetExport<Base>("Contract"));
         }
 
         [Fact]
@@ -302,7 +339,7 @@ namespace System.Composition.Hosting.Tests
             public T Fetch() => default(T);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         public void CreateContainer_ImportConventionsWithInheritedProperties_Success()
         {
             var conventions = new ConventionBuilder();
@@ -350,7 +387,7 @@ namespace System.Composition.Hosting.Tests
 
         public class DerivedFromBaseWithExport : BaseWithExport { }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         public void CreateContainer_ExportsToInheritedProperties_DontInterfereWithBase()
         {
             var conventions = new ConventionBuilder();
@@ -591,5 +628,45 @@ namespace System.Composition.Hosting.Tests
                 Assert.NotNull(property.GetValue(debuggerAttributeInfo.Instance));
             }
         }
+
+        [Fact]
+        public void CreateContainer_GenericExportWithDependencyConstructorHasConvention_Success()
+        {
+            var conventions = new ConventionBuilder();
+
+            conventions
+                .ForType<Dependency>()
+                .Export<Dependency>();
+
+            conventions
+                .ForType(typeof(MoreOpenWithDependency<>))
+                .ExportInterfaces(
+                    (i) => i.GetGenericTypeDefinition() == typeof(IOpen<>),
+                    (type, builder) => builder.AsContractType(typeof(IOpen<>)))
+                .SelectConstructor(ctors => ctors.ElementAt(0));
+
+            var configuration = new ContainerConfiguration()
+                .WithParts(new[] { typeof(IOpen<>), typeof(MoreOpenWithDependency<>), typeof(Dependency) }, conventions);
+
+            using (var container = configuration.CreateContainer())
+            {
+                var service = container.GetExport(typeof(IOpen<object>)) as MoreOpenWithDependency<object>;
+                Assert.NotNull(service);
+                Assert.NotNull(service.Dependency);
+            }
+        }
+        public interface IOpen<T>
+        {
+        }
+        public class MoreOpenWithDependency<T> : IOpen<T>
+        {
+            public Dependency Dependency { get; set; }
+            public MoreOpenWithDependency(Dependency dep)
+            {
+                Dependency = dep;
+            }
+        }
+
+        public class Dependency { }
     }
 }

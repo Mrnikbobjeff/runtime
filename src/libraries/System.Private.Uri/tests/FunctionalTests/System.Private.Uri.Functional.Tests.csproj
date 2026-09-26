@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFrameworks>$(NetCoreAppCurrent)</TargetFrameworks>
+    <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
+    <NoWarn>$(NoWarn),SYSLIB0013</NoWarn>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="AppxUriValue.cs" />
@@ -15,11 +16,15 @@
     <Compile Include="UriBuilderParameterTest.cs" />
     <Compile Include="UriBuilderRefreshTest.cs" />
     <Compile Include="UriBuilderTests.cs" />
+    <Compile Include="UriCreateStringTests.cs" />
+    <Compile Include="UriCreateUriTests.cs" />
+    <Compile Include="UriCreationOptionsTest.cs" />
     <Compile Include="UriEscapingTest.cs" />
     <Compile Include="UriGetComponentsTest.cs" />
     <Compile Include="UriIpHostTest.cs" />
     <Compile Include="UriIsWellFormedUriStringTest.cs" />
     <Compile Include="UriMailToTest.cs" />
+    <Compile Include="UriMethodsTests.cs" />
     <Compile Include="UriParameterValidationTest.cs" />
     <Compile Include="UriParserTest.cs" />
     <Compile Include="UriRelativeResolutionTest.cs" />

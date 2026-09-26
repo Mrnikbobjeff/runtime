@@ -5,8 +5,8 @@ using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Runtime.Versioning;
+using System.Text;
 
 namespace System.IO
 {
@@ -48,18 +48,12 @@ namespace System.IO
             get
             {
                 long userBytes, totalBytes, freeBytes;
-                uint oldMode;
-                bool success = Interop.Kernel32.SetThreadErrorMode(Interop.Kernel32.SEM_FAILCRITICALERRORS, out oldMode);
-                try
+
+                using (DisableMediaInsertionPrompt.Create())
                 {
                     bool r = Interop.Kernel32.GetDiskFreeSpaceEx(Name, out userBytes, out totalBytes, out freeBytes);
                     if (!r)
                         throw Error.GetExceptionForLastWin32DriveError(Name);
-                }
-                finally
-                {
-                    if (success)
-                        Interop.Kernel32.SetThreadErrorMode(oldMode, out _);
                 }
                 return userBytes;
             }
@@ -70,18 +64,12 @@ namespace System.IO
             get
             {
                 long userBytes, totalBytes, freeBytes;
-                uint oldMode;
-                bool success = Interop.Kernel32.SetThreadErrorMode(Interop.Kernel32.SEM_FAILCRITICALERRORS, out oldMode);
-                try
+
+                using (DisableMediaInsertionPrompt.Create())
                 {
                     bool r = Interop.Kernel32.GetDiskFreeSpaceEx(Name, out userBytes, out totalBytes, out freeBytes);
                     if (!r)
                         throw Error.GetExceptionForLastWin32DriveError(Name);
-                }
-                finally
-                {
-                    if (success)
-                        Interop.Kernel32.SetThreadErrorMode(oldMode, out _);
                 }
                 return freeBytes;
             }
@@ -94,17 +82,12 @@ namespace System.IO
                 // Don't cache this, to handle variable sized floppy drives
                 // or other various removable media drives.
                 long userBytes, totalBytes, freeBytes;
-                uint oldMode;
-                Interop.Kernel32.SetThreadErrorMode(Interop.Kernel32.SEM_FAILCRITICALERRORS, out oldMode);
-                try
+
+                using (DisableMediaInsertionPrompt.Create())
                 {
                     bool r = Interop.Kernel32.GetDiskFreeSpaceEx(Name, out userBytes, out totalBytes, out freeBytes);
                     if (!r)
                         throw Error.GetExceptionForLastWin32DriveError(Name);
-                }
-                finally
-                {
-                    Interop.Kernel32.SetThreadErrorMode(oldMode, out _);
                 }
                 return totalBytes;
             }
@@ -142,24 +125,17 @@ namespace System.IO
             [SupportedOSPlatform("windows")]
             set
             {
-                uint oldMode;
-                bool success = Interop.Kernel32.SetThreadErrorMode(Interop.Kernel32.SEM_FAILCRITICALERRORS, out oldMode);
-                try
+                using (DisableMediaInsertionPrompt.Create())
                 {
                     bool r = Interop.Kernel32.SetVolumeLabel(Name, value);
                     if (!r)
                     {
-                        int errorCode = Marshal.GetLastWin32Error();
+                        int errorCode = Marshal.GetLastPInvokeError();
                         // Provide better message
                         if (errorCode == Interop.Errors.ERROR_ACCESS_DENIED)
                             throw new UnauthorizedAccessException(SR.InvalidOperation_SetVolumeLabelFailed);
                         throw Error.GetExceptionForWin32DriveError(errorCode, Name);
                     }
-                }
-                finally
-                {
-                    if (success)
-                        Interop.Kernel32.SetThreadErrorMode(oldMode, out _);
                 }
             }
         }

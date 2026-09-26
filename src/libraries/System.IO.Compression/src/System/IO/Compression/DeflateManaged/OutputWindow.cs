@@ -14,7 +14,7 @@ namespace System.IO.Compression
     /// </summary>
     internal sealed class OutputWindow
     {
-        // With Deflate64 we can have up to a 65536 length as well as up to a 65538 distance. This means we need a Window that is at
+        // With Deflate64 we can have up to a 65538 length as well as up to a 65536 distance. This means we need a Window that is at
         // least 131074 bytes long so we have space to retrieve up to a full 64kb in lookback and place it in our buffer without
         // overwriting existing data. OutputWindow requires that the WindowSize be an exponent of 2, so we round up to 2^18.
         private const int WindowSize = 262144;
@@ -117,35 +117,33 @@ namespace System.IO.Compression
         /// <summary>Bytes not consumed in output window.</summary>
         public int AvailableBytes => _bytesUsed;
 
-        /// <summary>Copy the decompressed bytes to output array.</summary>
-        public int CopyTo(byte[] output, int offset, int length)
+        /// <summary>Copy the decompressed bytes to output buffer.</summary>
+        public int CopyTo(Span<byte> output)
         {
             int copy_end;
 
-            if (length > _bytesUsed)
+            if (output.Length > _bytesUsed)
             {
                 // we can copy all the decompressed bytes out
                 copy_end = _end;
-                length = _bytesUsed;
+                output = output.Slice(0, _bytesUsed);
             }
             else
             {
-                copy_end = (_end - _bytesUsed + length) & WindowMask; // copy length of bytes
+                copy_end = (_end - _bytesUsed + output.Length) & WindowMask; // copy length of bytes
             }
 
-            int copied = length;
+            int copied = output.Length;
 
-            int tailLen = length - copy_end;
+            int tailLen = output.Length - copy_end;
             if (tailLen > 0)
             {
                 // this means we need to copy two parts separately
-                // copy tailLen bytes from the end of output window
-                Array.Copy(_window, WindowSize - tailLen,
-                                  output, offset, tailLen);
-                offset += tailLen;
-                length = copy_end;
+                // copy the taillen bytes from the end of the output window
+                _window.AsSpan(WindowSize - tailLen, tailLen).CopyTo(output);
+                output = output.Slice(tailLen, copy_end);
             }
-            Array.Copy(_window, copy_end - length, output, offset, length);
+            _window.AsSpan(copy_end - output.Length, output.Length).CopyTo(output);
             _bytesUsed -= copied;
             Debug.Assert(_bytesUsed >= 0, "check this function and find why we copied more bytes than we have");
             return copied;

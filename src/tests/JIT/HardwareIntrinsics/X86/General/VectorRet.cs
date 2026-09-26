@@ -2,19 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-// This test case is ported from S.N.Vector counterpart 
-// https://github.com/dotnet/coreclr/blob/master/tests/src/JIT/SIMD/VectorReturn.cs
+// This test case is ported from S.N.Vector counterpart
+// https://github.com/dotnet/runtime/blob/main/src/tests/JIT/SIMD/VectorReturn.cs
 
 using System;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using System.Runtime.CompilerServices;
+using Xunit;
+using TestLibrary;
 
-internal partial class IntelHardwareIntrinsicTest
+namespace IntelHardwareIntrinsicTest.General;
+public partial class Program
 {
-    private const int Pass = 100;
-    private const int Fail = -1;
-
     private static Vector128<float>[] s_v128_array;
     private static Vector128<float> s_v128_0;
     private static Vector128<float> s_v128_1;
@@ -40,7 +40,7 @@ internal partial class IntelHardwareIntrinsicTest
     private static Vector256<byte> s_v256i_3;
 
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
-    public static void init()
+    static void init()
     {
         Random random = new Random(100);
 
@@ -274,7 +274,7 @@ internal partial class IntelHardwareIntrinsicTest
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
     public static Vector128<short> GetVector128Int16One()
     {
-        return Vector128.Create((short)1);
+        return Vector128<short>.One;
     }
 
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
@@ -351,7 +351,7 @@ internal partial class IntelHardwareIntrinsicTest
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
     public static Vector256<int> GetVector256Int32One()
     {
-        return Vector256.Create(1);
+        return Vector256<int>.One;
     }
 
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
@@ -385,7 +385,10 @@ internal partial class IntelHardwareIntrinsicTest
         return Pass;
     }
 
-    public static unsafe int Main()
+    [Xunit.ActiveIssue("https://github.com/dotnet/runtime/issues/75767", typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsMonoLLVMAOT))]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/75767", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoLLVMAOT))]
+    [Fact]
+    public static unsafe void VectorRet()
     {
         init();
 
@@ -410,14 +413,14 @@ internal partial class IntelHardwareIntrinsicTest
                         Console.Write(result[j] + ", ");
                     }
                     Console.WriteLine("]");
-                    return Fail;
+                    Assert.Fail("");
                 }
             }
 
             if (Vector128ReturnTest() != Pass)
             {
                 Console.WriteLine("Vector128ReturnTest FAILED");
-                return Fail;
+                Assert.Fail("");
             }
 
             Vector128<short> result_v128i = F2_v128i(6);
@@ -439,14 +442,14 @@ internal partial class IntelHardwareIntrinsicTest
                         Console.Write(results[j] + ", ");
                     }
                     Console.WriteLine("]");
-                    return Fail;
+                    Assert.Fail("");
                 }
             }
 
             if (Vector128Int16ReturnTest() != Pass)
             {
                 Console.WriteLine("Vector128Int16ReturnTest FAILED");
-                return Fail;
+                Assert.Fail("");
             }
         }
 
@@ -471,14 +474,14 @@ internal partial class IntelHardwareIntrinsicTest
                         Console.Write(result[j] + ", ");
                     }
                     Console.WriteLine("]");
-                    return Fail;
+                    Assert.Fail("");
                 }
             }
 
             if (Vector256ReturnTest() != Pass)
             {
                 Console.WriteLine("Vector256ReturnTest FAILED");
-                return Fail;
+                Assert.Fail("");
             }
 
             Vector256<byte> result_v256i = F2_v256i(7);
@@ -500,18 +503,17 @@ internal partial class IntelHardwareIntrinsicTest
                         Console.Write(resultb[j] + ", ");
                     }
                     Console.WriteLine("]");
-                    return Fail;
+                    Assert.Fail("");
                 }
             }
 
             if (Vector256Int32ReturnTest() != Pass)
             {
                 Console.WriteLine("Vector128Int16ReturnTest FAILED");
-                return Fail;
+                Assert.Fail("");
             }
         }
 
         Console.WriteLine("PASSED");
-        return Pass;
     }
 }

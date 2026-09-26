@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic;
 using System.Numerics.Hashing;
 using Microsoft.CSharp.RuntimeBinder.Semantics;
@@ -11,6 +12,8 @@ namespace Microsoft.CSharp.RuntimeBinder
     /// <summary>
     /// Used to test whether a dynamic member over which += or -= is used is an event member.
     /// </summary>
+    [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+    [RequiresDynamicCode(Binder.DynamicCodeWarning)]
     internal sealed class CSharpIsEventBinder : DynamicMetaObjectBinder, ICSharpBinder
     {
         public BindingFlag BindingFlags => 0;

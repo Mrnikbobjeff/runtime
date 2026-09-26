@@ -1,6 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
+using System.Net.Security;
+using System.Runtime.InteropServices;
 using System.Security;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
@@ -11,8 +14,15 @@ namespace System.Net
     {
         private static readonly object s_syncObject = new object();
 
-        private static volatile X509Store? s_myCertStoreEx;
-        private static volatile X509Store? s_myMachineCertStoreEx;
+        private static X509Store? s_myCertStoreEx;
+        private static X509Store? s_myMachineCertStoreEx;
+        private static X509Chain? s_chain;
+
+        internal static X509Certificate2? GetRemoteCertificate(SafeDeleteContext? securityContext) =>
+            GetRemoteCertificate(securityContext, retrieveChainCertificates: false, ref s_chain, null);
+
+        internal static X509Certificate2? GetRemoteCertificate(SafeDeleteContext? securityContext, ref X509Chain? chain, X509ChainPolicy? chainPolicy) =>
+            GetRemoteCertificate(securityContext, retrieveChainCertificates: true, ref chain, chainPolicy);
 
         static partial void CheckSupportsStore(StoreLocation storeLocation, ref bool hasSupport);
 
@@ -63,8 +73,7 @@ namespace System.Net
                         {
                             if (exception is CryptographicException || exception is SecurityException)
                             {
-                                NetEventSource.Fail(null,
-                                    $"Failed to open cert store, location: {storeLocation} exception: {exception}");
+                                Debug.Fail($"Failed to open cert store, location: {storeLocation} exception: {exception}");
                                 return null;
                             }
 

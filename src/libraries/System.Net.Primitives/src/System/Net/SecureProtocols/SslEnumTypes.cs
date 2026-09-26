@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
 using System.Net;
 using System.Runtime.InteropServices;
 
@@ -10,15 +11,21 @@ namespace System.Security.Authentication
     public enum SslProtocols
     {
         None = 0,
+        [System.ObsoleteAttribute("SslProtocols.Ssl2 has been deprecated and is not supported.")]
         Ssl2 = Interop.SChannel.SP_PROT_SSL2,
+        [System.ObsoleteAttribute("SslProtocols.Ssl3 has been deprecated and is not supported.")]
         Ssl3 = Interop.SChannel.SP_PROT_SSL3,
+        [System.ObsoleteAttribute(Obsoletions.TlsVersion10and11Message, DiagnosticId = Obsoletions.TlsVersion10and11DiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         Tls = Interop.SChannel.SP_PROT_TLS1_0,
+        [System.ObsoleteAttribute(Obsoletions.TlsVersion10and11Message, DiagnosticId = Obsoletions.TlsVersion10and11DiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         Tls11 = Interop.SChannel.SP_PROT_TLS1_1,
         Tls12 = Interop.SChannel.SP_PROT_TLS1_2,
         Tls13 = Interop.SChannel.SP_PROT_TLS1_3,
+        [System.ObsoleteAttribute("SslProtocols.Default has been deprecated and is not supported.")]
         Default = Ssl3 | Tls
     }
 
+    [Obsolete(Obsoletions.TlsCipherAlgorithmEnumsMessage, DiagnosticId = Obsoletions.TlsCipherAlgorithmEnumsDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
     public enum ExchangeAlgorithmType
     {
         None = 0,
@@ -27,6 +34,7 @@ namespace System.Security.Authentication
         DiffieHellman = (Interop.Crypt32.ALG_CLASS_KEY_EXCHANGE | Interop.Crypt32.ALG_TYPE_DH | Interop.Crypt32.ALG_SID_DH_EPHEM),
     }
 
+    [Obsolete(Obsoletions.TlsCipherAlgorithmEnumsMessage, DiagnosticId = Obsoletions.TlsCipherAlgorithmEnumsDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
     public enum CipherAlgorithmType
     {
         None = 0,  // No encryption
@@ -41,6 +49,7 @@ namespace System.Security.Authentication
         Null = (Interop.Crypt32.ALG_CLASS_ENCRYPT),  // 0-bit NULL cipher algorithm
     }
 
+    [Obsolete(Obsoletions.TlsCipherAlgorithmEnumsMessage, DiagnosticId = Obsoletions.TlsCipherAlgorithmEnumsDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
     public enum HashAlgorithmType
     {
         None = 0,

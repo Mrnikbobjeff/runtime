@@ -8,7 +8,7 @@ using Xunit;
 
 namespace System.Security.Cryptography.EcDiffieHellman.Tests
 {
-#if NETCOREAPP
+#if NET
     // These test cases are from http://csrc.nist.gov/groups/STM/cavp/component-testing.html#test-vectors
     // SP 800-56A ECCCDH Primitive test vectors
     // ecccdhtestvectors.zip
@@ -16,7 +16,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
     public partial class ECDiffieHellmanTests
     {
         [Fact]
-        public static void ValidateNistP256_0()
+        public void ValidateNistP256_0()
         {
             Verify(
                 ECCurve.NamedCurves.nistP256,
@@ -30,7 +30,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
         }
 
         [Fact]
-        public static void ValidateNistP256_1()
+        public void ValidateNistP256_1()
         {
             Verify(
                 ECCurve.NamedCurves.nistP256,
@@ -44,7 +44,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
         }
 
         [Fact]
-        public static void ValidateNistP384_0()
+        public void ValidateNistP384_0()
         {
             Verify(
                 ECCurve.NamedCurves.nistP384,
@@ -58,7 +58,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
         }
 
         [Fact]
-        public static void ValidateNistP384_1()
+        public void ValidateNistP384_1()
         {
             Verify(
                 ECCurve.NamedCurves.nistP384,
@@ -72,7 +72,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
         }
 
         [Fact]
-        public static void ValidateNistP521_0()
+        public void ValidateNistP521_0()
         {
             Verify(
                 ECCurve.NamedCurves.nistP521,
@@ -86,7 +86,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
         }
 
         [Fact]
-        public static void ValidateNistP521_1()
+        public void ValidateNistP521_1()
         {
             Verify(
                 ECCurve.NamedCurves.nistP521,
@@ -99,7 +99,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
                 "000b3920ac830ade812c8f96805da2236e002acbbf13596a9ab254d44d0e91b6255ebf1229f366fb5a05c5884ef46032c26d42189273ca4efa4c3db6bd12a6853759");
         }
 
-        private static void Verify(
+        private void Verify(
             ECCurve namedCurve,
             ECCurve explicitCurve,
             string cavsQx,
@@ -136,7 +136,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
             Verify(ref iutParameters, ref cavsParameters, explicitCurve, iutZ.HexToByteArray());
         }
 
-        private static void Verify(
+        private void Verify(
             ref ECParameters iutParameters,
             ref ECParameters cavsParameters,
             ECCurve explicitCurve,
@@ -185,7 +185,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
                             // represent the same curve.
                             //
                             // secp256r1 and secp521r1 both succeed this block, secp384r1 fails.
-                            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                            if (OperatingSystem.IsWindows())
                             {
                                 throw;
                             }
@@ -216,16 +216,26 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
             }
         }
 
-        private static void Verify(
+        private void Verify(
             ECDiffieHellman iut,
             ECDiffieHellmanPublicKey cavsPublic,
             HashAlgorithm zHasher,
             HashAlgorithmName zHashAlgorithm,
             byte[] iutZ)
         {
-            byte[] result = iut.DeriveKeyFromHash(cavsPublic, zHashAlgorithm);
+            byte[] deriveHash = iut.DeriveKeyFromHash(cavsPublic, zHashAlgorithm);
             byte[] hashedZ = zHasher.ComputeHash(iutZ);
-            Assert.Equal(hashedZ.ByteArrayToHex(), result.ByteArrayToHex());
+            Assert.Equal(hashedZ.ByteArrayToHex(), deriveHash.ByteArrayToHex());
+
+            if (ECDiffieHellmanFactory.SupportsRawDerivation)
+            {
+                byte[] rawDerived = iut.DeriveRawSecretAgreement(cavsPublic);
+                Assert.Equal(iutZ.ByteArrayToHex(), rawDerived.ByteArrayToHex());
+            }
+            else
+            {
+                Assert.Throws<PlatformNotSupportedException>(() => iut.DeriveRawSecretAgreement(cavsPublic));
+            }
         }
     }
 #endif

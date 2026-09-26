@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-
-using SuppressMessageAttribute = System.Diagnostics.CodeAnalysis.SuppressMessageAttribute;
 using Encoding = System.Text.Encoding;
+using SuppressMessageAttribute = System.Diagnostics.CodeAnalysis.SuppressMessageAttribute;
 
 namespace System.Xml.Linq
 {
@@ -59,7 +59,7 @@ namespace System.Xml.Linq
         /// See <see cref="XContainer.Add(object)"/> for details about the content that can be added
         /// using this method.
         /// </remarks>
-        public XDocument(params object[] content)
+        public XDocument(params object?[] content)
             : this()
         {
             AddContentSkipNotify(content);
@@ -87,7 +87,7 @@ namespace System.Xml.Linq
         /// See <see cref="XContainer.Add(object)"/> for details about the content that can be added
         /// using this method.
         /// </remarks>
-        public XDocument(XDeclaration? declaration, params object[] content)
+        public XDocument(XDeclaration? declaration, params object?[] content)
             : this(content)
         {
             _declaration = declaration;
@@ -183,7 +183,7 @@ namespace System.Xml.Linq
         /// An <see cref="XDocument"/> initialized with the contents of the file referenced
         /// in the passed in uri parameter.
         /// </returns>
-        public static XDocument Load(string uri)
+        public static XDocument Load([StringSyntax(StringSyntaxAttribute.Uri)] string uri)
         {
             return Load(uri, LoadOptions.None);
         }
@@ -211,7 +211,7 @@ namespace System.Xml.Linq
         /// in the passed uri parameter.  If LoadOptions.PreserveWhitespace is enabled then
         /// all whitespace will be preserved.
         /// </returns>
-        public static XDocument Load(string uri, LoadOptions options)
+        public static XDocument Load([StringSyntax(StringSyntaxAttribute.Uri)] string uri, LoadOptions options)
         {
             XmlReaderSettings rs = GetXmlReaderSettings(options);
             using (XmlReader r = XmlReader.Create(uri, rs))
@@ -420,10 +420,17 @@ namespace System.Xml.Linq
         /// </returns>
         public static XDocument Load(XmlReader reader, LoadOptions options)
         {
-            if (reader == null) throw new ArgumentNullException(nameof(reader));
+            ArgumentNullException.ThrowIfNull(reader);
+
             if (reader.ReadState == ReadState.Initial) reader.Read();
 
             XDocument d = InitLoad(reader, options);
+
+            if (reader.NodeType == XmlNodeType.XmlDeclaration)
+            {
+                d.Declaration = new XDeclaration(reader);
+            }
+
             d.ReadContentFrom(reader, options);
 
             if (!reader.EOF) throw new InvalidOperationException(SR.InvalidOperation_ExpectedEndOfFile);
@@ -451,8 +458,8 @@ namespace System.Xml.Linq
         /// </returns>
         public static Task<XDocument> LoadAsync(XmlReader reader, LoadOptions options, CancellationToken cancellationToken)
         {
-            if (reader == null)
-                throw new ArgumentNullException(nameof(reader));
+            ArgumentNullException.ThrowIfNull(reader);
+
             if (cancellationToken.IsCancellationRequested)
                 return Task.FromCanceled<XDocument>(cancellationToken);
             return LoadAsyncInternal(reader, options, cancellationToken);
@@ -466,6 +473,12 @@ namespace System.Xml.Linq
             }
 
             XDocument d = InitLoad(reader, options);
+
+            if (reader.NodeType == XmlNodeType.XmlDeclaration)
+            {
+                d.Declaration = await XDeclaration.CreateAsync(reader).ConfigureAwait(false);
+            }
+
             await d.ReadContentFromAsync(reader, options, cancellationToken).ConfigureAwait(false);
 
             if (!reader.EOF) throw new InvalidOperationException(SR.InvalidOperation_ExpectedEndOfFile);
@@ -494,10 +507,6 @@ namespace System.Xml.Linq
                 {
                     d.SetLineInfo(li.LineNumber, li.LinePosition);
                 }
-            }
-            if (reader.NodeType == XmlNodeType.XmlDeclaration)
-            {
-                d.Declaration = new XDeclaration(reader);
             }
             return d;
         }
@@ -793,7 +802,8 @@ namespace System.Xml.Linq
         /// </param>
         public override void WriteTo(XmlWriter writer)
         {
-            if (writer == null) throw new ArgumentNullException(nameof(writer));
+            ArgumentNullException.ThrowIfNull(writer);
+
             if (_declaration != null && _declaration.Standalone == "yes")
             {
                 writer.WriteStartDocument(true);
@@ -822,8 +832,8 @@ namespace System.Xml.Linq
         /// <param name="cancellationToken">A cancellation token.</param>
         public override Task WriteToAsync(XmlWriter writer, CancellationToken cancellationToken)
         {
-            if (writer == null)
-                throw new ArgumentNullException(nameof(writer));
+            ArgumentNullException.ThrowIfNull(writer);
+
             if (cancellationToken.IsCancellationRequested)
                 return Task.FromCanceled(cancellationToken);
             return WriteToAsyncInternal(writer, cancellationToken);
@@ -891,15 +901,6 @@ namespace System.Xml.Linq
             return null;
         }
 
-        internal static bool IsWhitespace(string s)
-        {
-            foreach (char ch in s)
-            {
-                if (ch != ' ' && ch != '\t' && ch != '\r' && ch != '\n') return false;
-            }
-            return true;
-        }
-
         internal override void ValidateNode(XNode node, XNode? previous)
         {
             switch (node.NodeType)
@@ -942,7 +943,10 @@ namespace System.Xml.Linq
 
         internal override void ValidateString(string s)
         {
-            if (!IsWhitespace(s)) throw new ArgumentException(SR.Argument_AddNonWhitespace);
+            if (s.AsSpan().ContainsAnyExcept(" \t\r\n"))
+            {
+                throw new ArgumentException(SR.Argument_AddNonWhitespace);
+            }
         }
     }
 }

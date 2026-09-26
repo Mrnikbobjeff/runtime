@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
+using Xunit;
 
 /// <summary>
 /// System.Enum.IConvertibleToUint32(System.Type,IFormatProvider )
@@ -187,7 +188,9 @@ public class EnumIConvertibleToUint32
     #endregion
     #endregion
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         EnumIConvertibleToUint32 test = new EnumIConvertibleToUint32();
 

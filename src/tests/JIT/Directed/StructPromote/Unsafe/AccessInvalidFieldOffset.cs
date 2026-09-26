@@ -5,12 +5,15 @@
 // It tries to access field from a promoted struct with an offset that 
 // is not valid for the promoted struct type.
 
+namespace JitTest_Directed_StructPromote_Unsafe_AccessInvalidFieldOffset;
+
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
 using System;
+using Xunit;
 
-class TestStructAccessThroughRef
+public class TestStructAccessThroughRef
 {
 
     [StructLayout(LayoutKind.Explicit)]
@@ -37,7 +40,8 @@ class TestStructAccessThroughRef
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    static void TestStructCasts()
+    [Fact]
+    public static void TestStructCasts()
     {
         PromotedStruct a = new PromotedStruct(); // Addr-exposed, cannot be independent promoted.
         a.anotherField = 5;
@@ -52,11 +56,4 @@ class TestStructAccessThroughRef
         PromotedStruct.AsNotPromotedStruct(ref a).overlappingField = 0x700000000;
         Debug.Assert(a.smallField == 0x7);
     }
-
-    static int Main()
-    {
-        TestStructCasts();
-        return 100;
-    }
-
 }

@@ -4,6 +4,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Microsoft.Extensions.FileProviders.Composite
 {
@@ -15,26 +16,25 @@ namespace Microsoft.Extensions.FileProviders.Composite
     {
         private readonly IList<IFileProvider> _fileProviders;
         private readonly string _subPath;
-        private List<IFileInfo> _files;
+        private List<IFileInfo>? _files;
         private bool _exists;
-        private List<IDirectoryContents> _directories;
+        private List<IDirectoryContents>? _directories;
 
         /// <summary>
-        /// Creates a new instance of <see cref="CompositeDirectoryContents"/> to represents the result of a call composition of
+        /// Initializes a new instance of the <see cref="CompositeDirectoryContents"/> class to represent the result of a call composition of
         /// <see cref="IFileProvider.GetDirectoryContents(string)"/>.
         /// </summary>
         /// <param name="fileProviders">The list of <see cref="IFileProvider"/> for which the results have to be composed.</param>
         /// <param name="subpath">The path.</param>
         public CompositeDirectoryContents(IList<IFileProvider> fileProviders, string subpath)
         {
-            if (fileProviders == null)
-            {
-                throw new ArgumentNullException(nameof(fileProviders));
-            }
+            ArgumentNullException.ThrowIfNull(fileProviders);
+
             _fileProviders = fileProviders;
             _subPath = subpath;
         }
 
+        [MemberNotNull(nameof(_directories))]
         private void EnsureDirectoriesAreInitialized()
         {
             if (_directories == null)
@@ -52,6 +52,8 @@ namespace Microsoft.Extensions.FileProviders.Composite
             }
         }
 
+        [MemberNotNull(nameof(_files))]
+        [MemberNotNull(nameof(_directories))]
         private void EnsureFilesAreInitialized()
         {
             EnsureDirectoriesAreInitialized();
@@ -77,7 +79,7 @@ namespace Microsoft.Extensions.FileProviders.Composite
         /// Creates an enumerator for all files in all providers given.
         /// Ensures each item in the collection is distinct.
         /// </summary>
-        /// <returns>An enumerator over all files in all given providers</returns>
+        /// <returns>An enumerator over all files in all given providers.</returns>
         public IEnumerator<IFileInfo> GetEnumerator()
         {
             EnsureFilesAreInitialized();
@@ -91,7 +93,7 @@ namespace Microsoft.Extensions.FileProviders.Composite
         }
 
         /// <summary>
-        /// True if any given providers exists
+        /// Gets a value that indicates if any given providers exist.
         /// </summary>
         public bool Exists
         {

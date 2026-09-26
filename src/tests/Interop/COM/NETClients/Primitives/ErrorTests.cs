@@ -5,20 +5,22 @@ namespace NetClient
 {
     using System;
     using System.Runtime.InteropServices;
-    using TestLibrary;
+    using Xunit;
 
     class ErrorTests
     {
         private readonly Server.Contract.Servers.ErrorMarshalTesting server;
         public ErrorTests()
         {
-            this.server = (Server.Contract.Servers.ErrorMarshalTesting)new Server.Contract.Servers.ErrorMarshalTestingClass();
+            this.server = new Server.Contract.Servers.ErrorMarshalTesting();
         }
 
         public void Run()
         {
+            Console.WriteLine(nameof(ErrorTests));
             this.VerifyExpectedException();
             this.VerifyReturnHResult();
+            this.VerifyHelpLink();
         }
 
         private void VerifyExpectedException()
@@ -40,21 +42,29 @@ namespace NetClient
 
             var hrs = new[]
             {
-                    unchecked((int)0x80004001),
-                    unchecked((int)0x80004003),
-                    unchecked((int)0x80070005),
-                    unchecked((int)0x80070057),
-                    unchecked((int)0x8000ffff),
-                    -1,
-                    1,
-                    2
-                };
+                unchecked((int)0x80004001),
+                unchecked((int)0x80004003),
+                unchecked((int)0x80070005),
+                unchecked((int)0x80070057),
+                unchecked((int)0x8000ffff),
+                -1,
+                1,
+                2
+            };
 
             foreach (var hr in hrs)
             {
-                Assert.AreEqual(hr, this.server.Return_As_HResult(hr));
-                Assert.AreEqual(hr, this.server.Return_As_HResult_Struct(hr).hr);
+                Assert.Equal(hr, this.server.Return_As_HResult(hr));
+                Assert.Equal(hr, this.server.Return_As_HResult_Struct(hr).hr);
             }
+        }
+
+        private void VerifyHelpLink()
+        {
+            string helpLink = "X:\\NotA\\RealPath\\dummy.hlp";
+            uint helpContext = 5678;
+            var ex = Assert.Throws<COMException>(() => { this.server.Throw_HResult_HelpLink(unchecked((int)-1), helpLink, helpContext); });
+            Assert.Equal($"{helpLink}#{helpContext}", ex.HelpLink);
         }
     }
 }

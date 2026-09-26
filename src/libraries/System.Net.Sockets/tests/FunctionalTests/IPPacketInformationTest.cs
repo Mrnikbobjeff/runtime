@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Threading;
+using System.Threading.Tasks;
 
 using Xunit;
 
@@ -13,7 +14,10 @@ namespace System.Net.Sockets.Tests
         public void Equals_DefaultValues_Success()
         {
             Assert.Equal(default(IPPacketInformation), default(IPPacketInformation));
+
             Assert.True(default(IPPacketInformation) == default(IPPacketInformation));
+            Assert.True(default(IPPacketInformation).Equals(default(IPPacketInformation)));
+
             Assert.False(default(IPPacketInformation) != default(IPPacketInformation));
         }
 
@@ -24,60 +28,49 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
-        public void Equals_NonDefaultValue_Success()
+        public async Task Equals_NonDefaultValue_Success()
         {
-            IPPacketInformation packetInfo = GetNonDefaultIPPacketInformation();
+            IPPacketInformation packetInfo = await GetNonDefaultIPPacketInformation();
             IPPacketInformation packetInfoCopy = packetInfo;
 
             Assert.Equal(packetInfo, packetInfoCopy);
             Assert.True(packetInfo == packetInfoCopy);
+            Assert.True(packetInfo.Equals(packetInfoCopy));
+            Assert.True(packetInfo.Equals((object)packetInfoCopy));
             Assert.False(packetInfo != packetInfoCopy);
 
             Assert.NotEqual(default, packetInfo);
             Assert.False(packetInfo == default(IPPacketInformation));
+            Assert.False(packetInfo.Equals(default(IPPacketInformation)));
+            Assert.False(packetInfo.Equals((object)default(IPPacketInformation)));
             Assert.True(packetInfo != default(IPPacketInformation));
 
             int ignored = packetInfo.Interface; // just make sure it doesn't throw, nothing else to verify
         }
 
         [Fact]
-        public void GetHashCode_NonDefaultValue_Succes()
+        public async Task GetHashCode_NonDefaultValue_Success()
         {
-            IPPacketInformation packetInfo = GetNonDefaultIPPacketInformation();
+            IPPacketInformation packetInfo = await GetNonDefaultIPPacketInformation();
 
             Assert.Equal(packetInfo.GetHashCode(), packetInfo.GetHashCode());
         }
 
-        private IPPacketInformation GetNonDefaultIPPacketInformation()
+        private async Task<IPPacketInformation> GetNonDefaultIPPacketInformation()
         {
-            const int ReceiveTimeout = 10000;
-
             using (var receiver = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
             using (var sender = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
             {
                 int port = receiver.BindToAnonymousPort(IPAddress.Loopback);
-
-                var waitHandle = new ManualResetEvent(false);
-
-                SocketAsyncEventArgs receiveArgs = new SocketAsyncEventArgs {
-                    RemoteEndPoint = new IPEndPoint(IPAddress.Loopback, port),
-                    UserToken = waitHandle
-                };
-
-                receiveArgs.SetBuffer(new byte[1], 0, 1);
-                receiveArgs.Completed += (_, args) => ((ManualResetEvent)args.UserToken).Set();
-
-                Assert.True(receiver.ReceiveMessageFromAsync(receiveArgs), "receiver.ReceiveMessageFromAsync");
-
                 // Send a few packets, in case they aren't delivered reliably.
-                for (int i = 0; i < TestSettings.UDPRedundancy; i++)
-                {
-                    sender.SendTo(new byte[1], new IPEndPoint(IPAddress.Loopback, port));
-                }
+                var receiveTask = receiver.ReceiveMessageFromAsync(new byte[1], new IPEndPoint(IPAddress.Loopback, port));
+                var sendTask = sender.SendToAsync(new byte[1], new IPEndPoint(IPAddress.Loopback, port));
 
-                Assert.True(waitHandle.WaitOne(ReceiveTimeout), "waitHandle.WaitOne");
+                Assert.True(await Task.WhenAny(receiveTask, Task.Delay(TestSettings.PassingTestTimeout)) == receiveTask, "Timed out");
 
-                return receiveArgs.ReceiveMessageFromPacketInfo;
+                var result = await receiveTask;
+
+                return result.PacketInformation;
             }
         }
     }

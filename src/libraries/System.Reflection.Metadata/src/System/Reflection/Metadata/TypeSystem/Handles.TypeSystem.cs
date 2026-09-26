@@ -1,7 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers.Binary;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata.Ecma335;
 
 namespace System.Reflection.Metadata
@@ -70,7 +72,7 @@ namespace System.Reflection.Metadata
 
         public override bool Equals(object? obj)
         {
-            return obj is ModuleDefinitionHandle && ((ModuleDefinitionHandle)obj)._rowId == _rowId;
+            return obj is ModuleDefinitionHandle moduleDefinition && moduleDefinition._rowId == _rowId;
         }
 
         public bool Equals(ModuleDefinitionHandle other)
@@ -2518,9 +2520,9 @@ namespace System.Reflection.Metadata
             return StringHandle.FromOffset(GetHeapOffset());
         }
 
-        public override bool Equals(object? obj)
+        public override bool Equals([NotNullWhen(true)] object? obj)
         {
-            return obj is NamespaceDefinitionHandle && Equals((NamespaceDefinitionHandle)obj);
+            return obj is NamespaceDefinitionHandle ndh && Equals(ndh);
         }
 
         public bool Equals(NamespaceDefinitionHandle other)
@@ -2590,14 +2592,11 @@ namespace System.Reflection.Metadata
 
         internal const int TemplateParameterOffset_AttributeUsageTarget = 2;
 
-        internal unsafe void SubstituteTemplateParameters(byte[] blob)
+        internal void SubstituteTemplateParameters(byte[] blob)
         {
             Debug.Assert(blob.Length >= TemplateParameterOffset_AttributeUsageTarget + 4);
 
-            fixed (byte* ptr = &blob[TemplateParameterOffset_AttributeUsageTarget])
-            {
-                *((uint*)ptr) = VirtualValue;
-            }
+            BinaryPrimitives.WriteUInt32LittleEndian(blob.AsSpan(TemplateParameterOffset_AttributeUsageTarget), VirtualValue);
         }
 
         public static implicit operator Handle(BlobHandle handle)
@@ -2649,9 +2648,9 @@ namespace System.Reflection.Metadata
             get { return unchecked((ushort)(_value >> 8)); }
         }
 
-        public override bool Equals(object? obj)
+        public override bool Equals([NotNullWhen(true)] object? obj)
         {
-            return obj is BlobHandle && Equals((BlobHandle)obj);
+            return obj is BlobHandle bh && Equals(bh);
         }
 
         public bool Equals(BlobHandle other)
@@ -2717,9 +2716,9 @@ namespace System.Reflection.Metadata
             get { return _index; }
         }
 
-        public override bool Equals(object? obj)
+        public override bool Equals([NotNullWhen(true)] object? obj)
         {
-            return obj is GuidHandle && Equals((GuidHandle)obj);
+            return obj is GuidHandle gh && Equals(gh);
         }
 
         public bool Equals(GuidHandle other)

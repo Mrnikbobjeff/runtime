@@ -1,9 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Numerics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -45,7 +46,7 @@ namespace System.Collections.Concurrent
         {
             // Validate the length
             Debug.Assert(boundedLength >= 2, $"Must be >= 2, got {boundedLength}");
-            Debug.Assert((boundedLength & (boundedLength - 1)) == 0, $"Must be a power of 2, got {boundedLength}");
+            Debug.Assert(BitOperations.IsPow2(boundedLength), $"Must be a power of 2, got {boundedLength}");
 
             // Initialize the slots and the mask.  The mask is used as a way of quickly doing "% _slots.Length",
             // instead letting us do "& _slotsMask".
@@ -70,19 +71,6 @@ namespace System.Collections.Concurrent
             {
                 _slots[i].SequenceNumber = i;
             }
-        }
-
-        /// <summary>Round the specified value up to the next power of 2, if it isn't one already.</summary>
-        internal static int RoundUpToPowerOf2(int i)
-        {
-            // Based on https://graphics.stanford.edu/~seander/bithacks.html#RoundUpPowerOf2
-            --i;
-            i |= i >> 1;
-            i |= i >> 2;
-            i |= i >> 4;
-            i |= i >> 8;
-            i |= i >> 16;
-            return i + 1;
         }
 
         /// <summary>Gets the number of elements this segment can store.</summary>
@@ -110,8 +98,10 @@ namespace System.Collections.Concurrent
         {
             if (!_frozenForEnqueues) // flag used to ensure we don't increase the Tail more than once if frozen more than once
             {
-                _frozenForEnqueues = true;
+                // Bump the Tail before setting the flag, as TryDequeue reads the flag and then
+                // the Tail: a set flag must guarantee that the Tail read includes the FreezeOffset.
                 Interlocked.Add(ref _headAndTail.Tail, FreezeOffset);
+                _frozenForEnqueues = true;
             }
         }
 
@@ -154,11 +144,17 @@ namespace System.Collections.Concurrent
                             // If we're preserving, though, we don't zero out the slot, as we need it for
                             // enumerations, peeking, ToArray, etc.  And we don't update the sequence number,
                             // so that an enqueuer will see it as full and be forced to move to a new segment.
-                            slots[slotsIndex].Item = default;
+                            if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
+                            {
+                                slots[slotsIndex].Item = default;
+                            }
                             Volatile.Write(ref slots[slotsIndex].SequenceNumber, currentHead + slots.Length);
                         }
                         return true;
                     }
+
+                    // The head was already advanced by another thread. A newer head has already been observed and the next
+                    // iteration would make forward progress, so there's no need to spin-wait before trying again.
                 }
                 else if (diff < 0)
                 {
@@ -169,8 +165,8 @@ namespace System.Collections.Concurrent
                     // this one that are available, but we need to dequeue in order.  So before declaring
                     // failure and that the segment is empty, we check the tail to see if we're actually
                     // empty or if we're just waiting for items in flight or after this one to become available.
-                    bool frozen = _frozenForEnqueues;
-                    int currentTail = Volatile.Read(ref _headAndTail.Tail);
+                    bool frozen = Volatile.Read(ref _frozenForEnqueues);
+                    int currentTail = _headAndTail.Tail;
                     if (currentTail - currentHead <= 0 || (frozen && (currentTail - FreezeOffset - currentHead <= 0)))
                     {
                         item = default;
@@ -179,11 +175,19 @@ namespace System.Collections.Concurrent
 
                     // It's possible it could have become frozen after we checked _frozenForEnqueues
                     // and before reading the tail.  That's ok: in that rare race condition, we just
-                    // loop around again.
+                    // loop around again. This is not necessarily an always-forward-progressing
+                    // situation since this thread is waiting for another to write to the slot and
+                    // this thread may have to check the same slot multiple times. Spin-wait to avoid
+                    // a potential busy-wait, and then try again.
+                    spinner.SpinOnce(sleep1Threshold: -1);
                 }
-
-                // Lost a race. Spin a bit, then try again.
-                spinner.SpinOnce(sleep1Threshold: -1);
+                else
+                {
+                    // The item was already dequeued by another thread. The head has already been updated beyond what was
+                    // observed above, and the sequence number observed above as a volatile load is more recent than the update
+                    // to the head. So, the next iteration of the loop is guaranteed to see a new head. Since this is an
+                    // always-forward-progressing situation, there's no need to spin-wait before trying again.
+                }
             }
         }
 
@@ -230,8 +234,8 @@ namespace System.Collections.Concurrent
                     // this one that are available, but we need to peek in order.  So before declaring
                     // failure and that the segment is empty, we check the tail to see if we're actually
                     // empty or if we're just waiting for items in flight or after this one to become available.
-                    bool frozen = _frozenForEnqueues;
-                    int currentTail = Volatile.Read(ref _headAndTail.Tail);
+                    bool frozen = Volatile.Read(ref _frozenForEnqueues);
+                    int currentTail = _headAndTail.Tail;
                     if (currentTail - currentHead <= 0 || (frozen && (currentTail - FreezeOffset - currentHead <= 0)))
                     {
                         result = default;
@@ -240,11 +244,19 @@ namespace System.Collections.Concurrent
 
                     // It's possible it could have become frozen after we checked _frozenForEnqueues
                     // and before reading the tail.  That's ok: in that rare race condition, we just
-                    // loop around again.
+                    // loop around again. This is not necessarily an always-forward-progressing
+                    // situation since this thread is waiting for another to write to the slot and
+                    // this thread may have to check the same slot multiple times. Spin-wait to avoid
+                    // a potential busy-wait, and then try again.
+                    spinner.SpinOnce(sleep1Threshold: -1);
                 }
-
-                // Lost a race. Spin a bit, then try again.
-                spinner.SpinOnce(sleep1Threshold: -1);
+                else
+                {
+                    // The item was already dequeued by another thread. The head has already been updated beyond what was
+                    // observed above, and the sequence number observed above as a volatile load is more recent than the update
+                    // to the head. So, the next iteration of the loop is guaranteed to see a new head. Since this is an
+                    // always-forward-progressing situation, there's no need to spin-wait before trying again.
+                }
             }
         }
 
@@ -258,7 +270,6 @@ namespace System.Collections.Concurrent
             Slot[] slots = _slots;
 
             // Loop in case of contention...
-            SpinWait spinner = default;
             while (true)
             {
                 // Get the tail at which to try to return.
@@ -289,6 +300,9 @@ namespace System.Collections.Concurrent
                         Volatile.Write(ref slots[slotsIndex].SequenceNumber, currentTail + 1);
                         return true;
                     }
+
+                    // The tail was already advanced by another thread. A newer tail has already been observed and the next
+                    // iteration would make forward progress, so there's no need to spin-wait before trying again.
                 }
                 else if (diff < 0)
                 {
@@ -299,9 +313,14 @@ namespace System.Collections.Concurrent
                     // we need to enqueue in order.
                     return false;
                 }
-
-                // Lost a race. Spin a bit, then try again.
-                spinner.SpinOnce(sleep1Threshold: -1);
+                else
+                {
+                    // Either the slot contains an item, or it is empty but because the slot was filled and dequeued. In either
+                    // case, the tail has already been updated beyond what was observed above, and the sequence number observed
+                    // above as a volatile load is more recent than the update to the tail. So, the next iteration of the loop
+                    // is guaranteed to see a new tail. Since this is an always-forward-progressing situation, there's no need
+                    // to spin-wait before trying again.
+                }
             }
         }
 

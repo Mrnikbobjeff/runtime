@@ -5,11 +5,7 @@ using System.Xml;
 
 namespace System.Runtime.Serialization
 {
-#if USE_REFEMIT
-    public static class DictionaryGlobals
-#else
     internal static class DictionaryGlobals
-#endif
     {
         // Update array size when adding new strings or templates
         private static readonly XmlDictionary s_dictionary = new XmlDictionary(61);
@@ -100,5 +96,7 @@ namespace System.Runtime.Serialization
 
         // 60
         public static readonly XmlDictionaryString AsmxTypesNamespace = s_dictionary.Add("http://microsoft.com/wsdl/types/");
+        public static readonly XmlDictionaryString DateOnlyLocalName = s_dictionary.Add("dateOnly");
+        public static readonly XmlDictionaryString TimeOnlyLocalName = s_dictionary.Add("timeOnly");
     }
 }

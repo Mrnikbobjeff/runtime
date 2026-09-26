@@ -5,6 +5,8 @@ using System.Diagnostics.CodeAnalysis;
 using System.Net.Mime;
 using System.Runtime.ExceptionServices;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace System.Net.Mail
 {
@@ -15,17 +17,14 @@ namespace System.Net.Mail
         High = 2
     }
 
-    internal class Message
+    internal sealed class Message
     {
         #region Fields
 
         private MailAddress? _from;
         private MailAddress? _sender;
-        private MailAddressCollection? _replyToList;
         private MailAddress? _replyTo;
         private MailAddressCollection? _to;
-        private MailAddressCollection? _cc;
-        private MailAddressCollection? _bcc;
         private MimeBasePart? _content;
         private HeaderCollection? _headers;
         private HeaderCollection? _envelopeHeaders;
@@ -44,17 +43,8 @@ namespace System.Net.Mail
 
         internal Message(string from, string to) : this()
         {
-            if (from == null)
-                throw new ArgumentNullException(nameof(from));
-
-            if (to == null)
-                throw new ArgumentNullException(nameof(to));
-
-            if (from.Length == 0)
-                throw new ArgumentException(SR.Format(SR.net_emptystringcall, nameof(from)), nameof(from));
-
-            if (to.Length == 0)
-                throw new ArgumentException(SR.Format(SR.net_emptystringcall, nameof(to)), nameof(to));
+            ArgumentException.ThrowIfNullOrEmpty(from);
+            ArgumentException.ThrowIfNullOrEmpty(to);
 
             _from = new MailAddress(from);
             MailAddressCollection collection = new MailAddressCollection();
@@ -94,10 +84,7 @@ namespace System.Net.Mail
             }
             set
             {
-                if (value == null)
-                {
-                    throw new ArgumentNullException(nameof(value));
-                }
+                ArgumentNullException.ThrowIfNull(value);
                 _from = value;
             }
         }
@@ -128,13 +115,13 @@ namespace System.Net.Mail
             }
         }
 
-        internal MailAddressCollection ReplyToList => _replyToList ??= new MailAddressCollection();
+        internal MailAddressCollection ReplyToList => field ??= new MailAddressCollection();
 
         internal MailAddressCollection To => _to ??= new MailAddressCollection();
 
-        internal MailAddressCollection Bcc => _bcc ??= new MailAddressCollection();
+        internal MailAddressCollection Bcc => field ??= new MailAddressCollection();
 
-        internal MailAddressCollection CC => _cc ??= new MailAddressCollection();
+        internal MailAddressCollection CC => field ??= new MailAddressCollection();
 
 
         internal string? Subject
@@ -151,7 +138,9 @@ namespace System.Net.Mail
                     // extract the encoding from =?encoding?BorQ?blablalba?=
                     inputEncoding = MimeBasePart.DecodeEncoding(value);
                 }
-                catch (ArgumentException) { };
+                catch (ArgumentException)
+                {
+                }
 
                 if (inputEncoding != null && value != null)
                 {
@@ -159,7 +148,7 @@ namespace System.Net.Mail
                     {
                         // Store the decoded value, we'll re-encode before sending
                         value = MimeBasePart.DecodeHeaderValue(value);
-                        _subjectEncoding = _subjectEncoding ?? inputEncoding;
+                        _subjectEncoding ??= inputEncoding;
                     }
                     // Failed to decode, just pass it through as ascii (legacy)
                     catch (FormatException) { }
@@ -235,7 +224,7 @@ namespace System.Net.Mail
         }
 
         [DisallowNull]
-        internal virtual MimeBasePart? Content
+        internal MimeBasePart? Content
         {
             get
             {
@@ -243,11 +232,7 @@ namespace System.Net.Mail
             }
             set
             {
-                if (value == null)
-                {
-                    throw new ArgumentNullException(nameof(value));
-                }
-
+                ArgumentNullException.ThrowIfNull(value);
                 _content = value;
             }
         }
@@ -256,123 +241,32 @@ namespace System.Net.Mail
 
         #region Sending
 
-        internal void EmptySendCallback(IAsyncResult result)
-        {
-            Exception? e = null;
-
-            if (result.CompletedSynchronously)
-            {
-                return;
-            }
-
-            EmptySendContext context = (EmptySendContext)result.AsyncState!;
-            try
-            {
-                context._writer.EndGetContentStream(result).Close();
-            }
-            catch (Exception ex)
-            {
-                e = ex;
-            }
-            context._result.InvokeCallback(e);
-        }
-
-        internal class EmptySendContext
-        {
-            internal EmptySendContext(BaseWriter writer, LazyAsyncResult result)
-            {
-                _writer = writer;
-                _result = result;
-            }
-
-            internal LazyAsyncResult _result;
-            internal BaseWriter _writer;
-        }
-
-        internal virtual IAsyncResult BeginSend(BaseWriter writer, bool sendEnvelope, bool allowUnicode,
-            AsyncCallback? callback, object? state)
-        {
-            PrepareHeaders(sendEnvelope, allowUnicode);
-            writer.WriteHeaders(Headers, allowUnicode);
-
-            if (Content != null)
-            {
-                return Content.BeginSend(writer, callback, allowUnicode, state);
-            }
-            else
-            {
-                LazyAsyncResult result = new LazyAsyncResult(this, state, callback);
-                IAsyncResult newResult = writer.BeginGetContentStream(EmptySendCallback, new EmptySendContext(writer, result));
-                if (newResult.CompletedSynchronously)
-                {
-                    writer.EndGetContentStream(newResult).Close();
-                    result.InvokeCallback();
-                }
-                return result;
-            }
-        }
-
-        internal virtual void EndSend(IAsyncResult asyncResult)
-        {
-            if (asyncResult == null)
-            {
-                throw new ArgumentNullException(nameof(asyncResult));
-            }
-
-            if (Content != null)
-            {
-                Content.EndSend(asyncResult);
-            }
-            else
-            {
-                LazyAsyncResult? castedAsyncResult = asyncResult as LazyAsyncResult;
-
-                if (castedAsyncResult == null || castedAsyncResult.AsyncObject != this)
-                {
-                    throw new ArgumentException(SR.net_io_invalidasyncresult);
-                }
-
-                if (castedAsyncResult.EndCalled)
-                {
-                    throw new InvalidOperationException(SR.Format(SR.net_io_invalidendcall, nameof(EndSend)));
-                }
-
-                castedAsyncResult.InternalWaitForCompletion();
-                castedAsyncResult.EndCalled = true;
-                if (castedAsyncResult.Result is Exception e)
-                {
-                    ExceptionDispatchInfo.Throw(e);
-                }
-            }
-        }
-
-        internal virtual void Send(BaseWriter writer, bool sendEnvelope, bool allowUnicode)
+        internal async Task SendAsync<TIOAdapter>(BaseWriter writer, bool sendEnvelope, bool allowUnicode, CancellationToken cancellationToken = default)
+            where TIOAdapter : IReadWriteAdapter
         {
             if (sendEnvelope)
             {
-                PrepareEnvelopeHeaders(sendEnvelope, allowUnicode);
+                PrepareEnvelopeHeaders(allowUnicode);
                 writer.WriteHeaders(EnvelopeHeaders, allowUnicode);
             }
 
-            PrepareHeaders(sendEnvelope, allowUnicode);
+            PrepareHeaders(allowUnicode);
             writer.WriteHeaders(Headers, allowUnicode);
 
             if (Content != null)
             {
-                Content.Send(writer, allowUnicode);
+                await Content.SendAsync<TIOAdapter>(writer, allowUnicode, cancellationToken).ConfigureAwait(false);
             }
             else
             {
+                // No content to write, just close the stream
                 writer.GetContentStream().Close();
             }
         }
 
-        internal void PrepareEnvelopeHeaders(bool sendEnvelope, bool allowUnicode)
+        internal void PrepareEnvelopeHeaders(bool allowUnicode)
         {
-            if (_headersEncoding == null)
-            {
-                _headersEncoding = Encoding.GetEncoding(MimeBasePart.DefaultCharSet);
-            }
+            _headersEncoding ??= Encoding.GetEncoding(MimeBasePart.DefaultCharSet);
 
             EncodeHeaders(EnvelopeHeaders, allowUnicode);
 
@@ -401,14 +295,9 @@ namespace System.Net.Mail
             }
         }
 
-        internal void PrepareHeaders(bool sendEnvelope, bool allowUnicode)
+        internal void PrepareHeaders(bool allowUnicode)
         {
-            string headerName;
-
-            if (_headersEncoding == null)
-            {
-                _headersEncoding = Encoding.GetEncoding(MimeBasePart.DefaultCharSet);
-            }
+            _headersEncoding ??= Encoding.GetEncoding(MimeBasePart.DefaultCharSet);
 
             //ContentType is written directly to the stream so remove potential user duplicate
             Headers.Remove(MailHeaderInfo.GetString(MailHeaderID.ContentType)!);
@@ -417,7 +306,7 @@ namespace System.Net.Mail
 
             // add sender to headers first so that it is written first to allow the IIS smtp svc to
             // send MAIL FROM with the sender if both sender and from are present
-            headerName = MailHeaderInfo.GetString(MailHeaderID.Sender)!;
+            string headerName = MailHeaderInfo.GetString(MailHeaderID.Sender)!;
             if (Sender != null)
             {
                 Headers.InternalAdd(headerName, Sender.Encode(headerName.Length, allowUnicode));
@@ -532,7 +421,7 @@ namespace System.Net.Mail
                 }
 
                 string[] values = headers.GetValues(headerName)!;
-                string encodedValue = string.Empty;
+                string encodedValue;
                 for (int j = 0; j < values.Length; j++)
                 {
                     //encode if we need to

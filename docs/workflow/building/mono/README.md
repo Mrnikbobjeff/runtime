@@ -13,11 +13,11 @@ Before proceeding further, please click on the link above that matches your mach
 To build a complete runtime environment, you need to build both the Mono runtime and libraries.  At the repo root, simply execute:
 
 ```bash
-./build.sh --subset mono+libs
+./build.sh mono+libs
 ```
 or on Windows,
-```bat
-build.cmd -subset mono+libs
+```cmd
+build.cmd mono+libs
 ```
 Note that the debug configuration is the default option. It generates a 'debug' output and that includes asserts, fewer code optimizations, and is easier for debugging. If you want to make performance measurements, or just want tests to execute more quickly, you can also build the 'release' version which does not have these checks by adding the flag `-configuration release` (or `-c release`).
 
@@ -25,68 +25,73 @@ Note that the debug configuration is the default option. It generates a 'debug' 
 Once you've built the complete runtime and assuming you want to work with just mono, you want to use the following command:
 
 ```bash
-./build.sh --subset mono
+./build.sh mono
 ```
 or on Windows,
-```bat
-build.cmd -subset mono
+```cmd
+build.cmd mono
 ```
 When the build completes, product binaries will be dropped in the `artifacts\bin\mono\<OS>.<arch>.<flavor>` folder.
+
+If you need to run library tests or run HelloWorld sample with your change to mono, you want to build mono with this command instead:
+
+```bash
+./build.sh mono+libs.pretest
+```
+or on Windows,
+```cmd
+build.cmd mono+libs.pretest
+```
+
+If you want to skip restoring nuget packages, when only making change to mono, you want to use this command:
+```bash
+./build.sh mono --build
+```
+or on Windows,
+```cmd
+build.cmd mono --build
+```
 
 ### Useful Build Arguments
 Here are a list of build arguments that may be of use:
 
-`/p:MonoEnableLlvm=true` - Builds mono w/ LLVM
+`/p:MonoEnableLLVM=true` - Builds mono w/ LLVM
 
-`/p:MonoEnableLlvm=true /p:MonoLLVMDir=path/to/llvm` - Builds mono w/ LLVM from a custom path
+`/p:MonoEnableLLVM=true /p:MonoLLVMDir=path/to/llvm` - Builds mono w/ LLVM from a custom path
 
-`/p:MonoEnableLlvm=true /p:MonoLLVMDir=path/to/llvm /p:MonoLLVMUseCxx11Abi=true` - Builds mono w/ LLVM
+`/p:MonoEnableLLVM=true /p:MonoLLVMDir=path/to/llvm /p:MonoLLVMUseCxx11Abi=true` - Builds mono w/ LLVM
 from a custom path (and that LLVM was built with C++11 ABI)
 
 For `build.sh`
 
 `/p:DisableCrossgen=true` - Skips building the installer if you don't need it (builds faster)
 
+`/p:KeepNativeSymbols=true` - Keep the symbols in the binary instead of stripping them out to a separate file. This helps with debugging Mono with lldb.
+
 The build has a number of options that you can learn about using build -?.
 
 ### WebAssembly
 
-In addition to the normal build requirements, WebAssembly builds require a local emsdk to be downloaded. This can either be external or acquired via a make target.
+See the instructions for [Building WebAssembly](../../../../src/mono/browser/README.md).
 
-To acquire it externally, move to a directory outside of the runtime repository and run:
-```bash
-git clone https://github.com/emscripten-core/emsdk.git
-```
+### Android
 
-To use the make target, from the root of the runtime repo:
-```bash
-cd src/mono/wasm
-make provision-wasm
-cd ../../..
-```
+See the instructions for [Testing Android](../../testing/libraries/testing-android.md)
 
-When building for WebAssembly, regardless of the machine architecture, you must set the `EMSDK_PATH` environmental variable and architecture/os, calling build.sh like so:
-```bash
-EMSDK_PATH={path to emsdk repo} ./build.sh --subset mono+libs --arch wasm --os browser -c release
-```
+### iOS
 
-If using the locally provisioned emsdk, this will be:
-```bash
-EMSDK_PATH={path to runtime repo}/src/mono/wasm/emsdk ./build.sh --subset mono+libs --arch wasm --os browser -c release
-```
-
-Artifacts will be placed in `artifacts/bin/microsoft.netcore.app.runtime.browser-wasm/Release/`. When rebuilding with `build.sh`, you _must_ rebuild with `mono+libs` even for mono-only changes, or this directory will not be updated. Alternative, you can rebuild just the runtime-specific bits from the `src/mono/wasm` directory by running either `make runtime` or `make corlib` when modifying Mono or System.Private.CoreLib respectively.
+See the instructions for [Testing iOS](../../testing/libraries/testing-apple.md)
 
 ## Packages
 
 To generate nuget packages:
 
 ```bash
-./build.sh --subset mono -pack (with optional release configuration)
+./build.sh packs -runtimeFlavor mono (with optional release configuration)
 ```
 or on Windows,
-```bat
-build.cmd -subset mono -pack (with optional release configuration)
+```cmd
+build.cmd packs -runtimeFlavor mono (with optional release configuration)
 ```
 
 The following packages will be created under `artifacts\packages\<configuration>\Shipping`:
@@ -95,6 +100,14 @@ The following packages will be created under `artifacts\packages\<configuration>
 - `runtime.<OS>.Microsoft.NETCore.Runtime.Mono.<version>-dev.<number>.1.nupkg`
 - `transport.Microsoft.NETCore.Runtime.Mono.<version>-dev.<number>.1.nupkg`
 - `transport.runtime.<OS>.Microsoft.NETCore.Runtime.Mono.<version>-dev.<number>.1.nupkg`
+
+## To get started with "Hello World"
+
+Try the sample at `src/mono/sample/HelloWorld`.
+To run this sample, from the above folder
+```cd ../..
+make run
+```
 
 ## Important Notes
 

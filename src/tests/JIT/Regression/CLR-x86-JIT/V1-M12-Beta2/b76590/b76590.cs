@@ -12,8 +12,12 @@
 //</Expects>
 
 
+
+namespace b76590;
+
 using System;
 using System.IO;
+using Xunit;
 
 public class Bug26518
 {
@@ -23,7 +27,9 @@ public class Bug26518
         one = 1,
     }
 
-    public static int Main(String[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         E1 e1 = E1.one;
         Object that = E1.one;

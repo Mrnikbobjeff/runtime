@@ -1,7 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.ComponentModel.Design;
+using System.Diagnostics.CodeAnalysis;
 
 namespace System.ComponentModel
 {
@@ -19,7 +19,9 @@ namespace System.ComponentModel
         /// </summary>
         public DesignerAttribute(string designerTypeName)
         {
-            DesignerTypeName = designerTypeName ?? throw new ArgumentNullException(nameof(designerTypeName));
+            ArgumentNullException.ThrowIfNull(designerTypeName);
+
+            DesignerTypeName = designerTypeName;
             DesignerBaseTypeName = "System.ComponentModel.Design.IDesigner, System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089";
         }
 
@@ -29,10 +31,7 @@ namespace System.ComponentModel
         /// </summary>
         public DesignerAttribute(Type designerType)
         {
-            if (designerType == null)
-            {
-                throw new ArgumentNullException(nameof(designerType));
-            }
+            ArgumentNullException.ThrowIfNull(designerType);
 
             DesignerTypeName = designerType.AssemblyQualifiedName!;
             DesignerBaseTypeName = "System.ComponentModel.Design.IDesigner, System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089";
@@ -44,7 +43,9 @@ namespace System.ComponentModel
         /// </summary>
         public DesignerAttribute(string designerTypeName, string designerBaseTypeName)
         {
-            DesignerTypeName = designerTypeName ?? throw new ArgumentNullException(nameof(designerTypeName));
+            ArgumentNullException.ThrowIfNull(designerTypeName);
+
+            DesignerTypeName = designerTypeName;
             DesignerBaseTypeName = designerBaseTypeName;
         }
 
@@ -54,14 +55,8 @@ namespace System.ComponentModel
         /// </summary>
         public DesignerAttribute(string designerTypeName, Type designerBaseType)
         {
-            if (designerTypeName == null)
-            {
-                throw new ArgumentNullException(nameof(designerTypeName));
-            }
-            if (designerBaseType == null)
-            {
-                throw new ArgumentNullException(nameof(designerBaseType));
-            }
+            ArgumentNullException.ThrowIfNull(designerTypeName);
+            ArgumentNullException.ThrowIfNull(designerBaseType);
 
             DesignerTypeName = designerTypeName;
             DesignerBaseTypeName = designerBaseType.AssemblyQualifiedName!;
@@ -73,14 +68,8 @@ namespace System.ComponentModel
         /// </summary>
         public DesignerAttribute(Type designerType, Type designerBaseType)
         {
-            if (designerType == null)
-            {
-                throw new ArgumentNullException(nameof(designerType));
-            }
-            if (designerBaseType == null)
-            {
-                throw new ArgumentNullException(nameof(designerBaseType));
-            }
+            ArgumentNullException.ThrowIfNull(designerType);
+            ArgumentNullException.ThrowIfNull(designerBaseType);
 
             DesignerTypeName = designerType.AssemblyQualifiedName!;
             DesignerBaseTypeName = designerBaseType.AssemblyQualifiedName!;
@@ -89,6 +78,7 @@ namespace System.ComponentModel
         /// <summary>
         /// Gets the name of the base type of this designer.
         /// </summary>
+        // Using PublicParameterlessConstructor to preserve the type. See https://github.com/mono/linker/issues/1878
         public string DesignerBaseTypeName { get; }
 
         /// <summary>

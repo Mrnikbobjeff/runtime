@@ -1,27 +1,38 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Threading;
-using System.Text;
-using Microsoft.Win32;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
+using System.Security.Principal;
+using System.Text;
+using System.Threading;
+using Microsoft.Win32;
 
 namespace System.Diagnostics
 {
     internal static partial class NetFrameworkUtils
     {
-        internal static void EnterMutex(string name, ref Mutex mutex)
+        internal static void EnterMutex(string name, ref Mutex? mutex)
         {
             string mutexName = "Global\\" + name;
             EnterMutexWithoutGlobal(mutexName, ref mutex);
         }
 
-        internal static void EnterMutexWithoutGlobal(string mutexName, ref Mutex mutex)
+        internal static void EnterMutexWithoutGlobal(string mutexName, ref Mutex? mutex)
         {
-            bool createdNew;
+            Mutex tmpMutex = new Mutex(false, mutexName, out bool createdNew);
 
-            Mutex tmpMutex = new Mutex(false, mutexName, out createdNew);
+            if (createdNew)
+            {
+                // Specify a SID in case the mutex has not yet been created; this prevents it from using the SID from the current thread.
+                // This SID (AuthenticatedUserSid) is the same one used by .NET Framework.
+                MutexSecurity sec = new MutexSecurity();
+                SecurityIdentifier authenticatedUserSid = new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null);
+                sec.AddAccessRule(new MutexAccessRule(authenticatedUserSid, MutexRights.Synchronize | MutexRights.Modify, AccessControlType.Allow));
+                tmpMutex.SetAccessControl(sec);
+            }
 
             SafeWaitForMutex(tmpMutex, ref mutex);
         }
@@ -36,7 +47,7 @@ namespace System.Diagnostics
         // just to allow us to poll for abort). A limitation of CERs in Whidbey (and part of the problem that put us in this
         // position in the first place) is that a CER root in a method will cause the entire method to delay thread aborts. So we
         // need to carefully partition the real CER part of out logic in a sub-method (and ensure the jit doesn't inline on us).
-        private static bool SafeWaitForMutex(Mutex mutexIn, ref Mutex mutexOut)
+        private static bool SafeWaitForMutex(Mutex mutexIn, ref Mutex? mutexOut)
         {
             Debug.Assert(mutexOut == null, "You must pass in a null ref Mutex");
 
@@ -60,7 +71,7 @@ namespace System.Diagnostics
         // The portion of SafeWaitForMutex that runs under a CER and thus must not block for a arbitrary period of time.
         // This method must not be inlined (to stop the CER accidently spilling into the calling method).
         [MethodImplAttribute(MethodImplOptions.NoInlining)]
-        private static bool SafeWaitForMutexOnce(Mutex mutexIn, ref Mutex mutexOut)
+        private static bool SafeWaitForMutexOnce(Mutex mutexIn, ref Mutex? mutexOut)
         {
             bool ret;
 
@@ -109,8 +120,8 @@ namespace System.Diagnostics
         internal static string GetLatestBuildDllDirectory(string machineName)
         {
             string dllDir = "";
-            RegistryKey baseKey = null;
-            RegistryKey complusReg = null;
+            RegistryKey? baseKey = null;
+            RegistryKey? complusReg = null;
 
             try
             {
@@ -125,7 +136,7 @@ namespace System.Diagnostics
                 complusReg = baseKey.OpenSubKey("SOFTWARE\\Microsoft\\.NETFramework");
                 if (complusReg != null)
                 {
-                    string installRoot = (string)complusReg.GetValue("InstallRoot");
+                    string? installRoot = (string?)complusReg.GetValue("InstallRoot");
                     if (installRoot != null && installRoot != string.Empty)
                     {
                         // the "policy" subkey contains a v{major}.{minor} subkey for each version installed.  There are also
@@ -133,17 +144,17 @@ namespace System.Diagnostics
 
                         // first we figure out what version we are...
                         string versionPrefix = "v" + Environment.Version.Major + "." + Environment.Version.Minor;
-                        RegistryKey policyKey = complusReg.OpenSubKey("policy");
+                        RegistryKey? policyKey = complusReg.OpenSubKey("policy");
 
                         // This is the full version string of the install on the remote machine we want to use (for example "v2.0.50727")
-                        string version = null;
+                        string? version = null;
 
                         if (policyKey != null)
                         {
                             try
                             {
                                 // First check to see if there is a version of the runtime with the same minor and major number:
-                                RegistryKey bestKey = policyKey.OpenSubKey(versionPrefix);
+                                RegistryKey? bestKey = policyKey.OpenSubKey(versionPrefix);
 
                                 if (bestKey != null)
                                 {
@@ -167,7 +178,7 @@ namespace System.Diagnostics
                                         string majorVersion = majorVersions[i];
 
                                         // If this looks like a key of the form v{something}.{something}, we should see if it's a usable build.
-                                        if (majorVersion.Length > 1 && majorVersion[0] == 'v' && majorVersion.Contains(".")) // string.Contains(char) is .NetCore2.1+ specific
+                                        if (majorVersion.Length > 1 && majorVersion[0] == 'v' && majorVersion.Contains('.'))
                                         {
                                             int[] currentVersion = new int[] { -1, -1, -1 };
 
@@ -183,7 +194,7 @@ namespace System.Diagnostics
                                                 continue;
                                             }
 
-                                            RegistryKey k = policyKey.OpenSubKey(majorVersion);
+                                            RegistryKey? k = policyKey.OpenSubKey(majorVersion);
                                             if (k == null)
                                             {
                                                 // We may be able to use another subkey
@@ -214,14 +225,9 @@ namespace System.Diagnostics
                                 policyKey.Close();
                             }
 
-                            if (version != null && version != string.Empty)
+                            if (!string.IsNullOrEmpty(version))
                             {
-                                StringBuilder installBuilder = new StringBuilder();
-                                installBuilder.Append(installRoot);
-                                if (!installRoot.EndsWith("\\", StringComparison.Ordinal))
-                                    installBuilder.Append('\\');
-                                installBuilder.Append(version);
-                                dllDir = installBuilder.ToString();
+                                dllDir = Path.Combine(installRoot, version);
                             }
                         }
                     }

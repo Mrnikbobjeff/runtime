@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 /*
+using TestLibrary;
 	This is regression test for DevDiv #607
 	Runtime was throwing a TypeLoadException
 	Unhandled Exception: System.TypeLoadException: 
@@ -9,10 +10,14 @@
 	has a contracting interface set for some instantiations.
 */
 using System;
+using Xunit;
+using TestLibrary;
 
-public class Test
+public class Test_DevDiv607
 {	
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		try
 		{

@@ -11,11 +11,11 @@ namespace System.Threading.Tests
     public static class ThreadTestHelpers
     {
         public const int ExpectedTimeoutMilliseconds = 50;
-        public const int UnexpectedTimeoutMilliseconds = 1000 * 30;
+        public const int UnexpectedTimeoutMilliseconds = 1000 * 60;
 
         // Wait longer for a thread to time out, so that an unexpected timeout in the thread is more likely to expire first and
         // provide a better stack trace for the failure
-        public const int UnexpectedThreadTimeoutMilliseconds =
+        public static readonly int UnexpectedThreadTimeoutMilliseconds =
             UnexpectedTimeoutMilliseconds + RemoteExecutor.FailWaitTimeoutMilliseconds;
 
         public static Thread CreateGuardedThread(out Action waitForThread, Action start)

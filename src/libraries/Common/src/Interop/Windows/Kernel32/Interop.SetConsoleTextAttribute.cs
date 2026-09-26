@@ -4,11 +4,12 @@
 using System;
 using System.Runtime.InteropServices;
 
-internal partial class Interop
+internal static partial class Interop
 {
-    internal partial class Kernel32
+    internal static partial class Kernel32
     {
-        [DllImport(Libraries.Kernel32, SetLastError = true)]
-        internal static extern int SetConsoleTextAttribute(IntPtr hConsoleOutput, short wAttributes);
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [LibraryImport(Libraries.Kernel32, SetLastError = true)]
+        internal static partial int SetConsoleTextAttribute(IntPtr hConsoleOutput, short wAttributes);
     }
 }

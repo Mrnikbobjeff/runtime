@@ -1,13 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
+using System.Diagnostics;
+using System.Xml;
+using System.Xml.XPath;
+
 namespace System.Xml.Xsl.XsltOld
 {
-    using System;
-    using System.Diagnostics;
-    using System.Xml;
-    using System.Xml.XPath;
-
     internal sealed class CopyNodeSetAction : Action
     {
         private const int BeginEvent = 2;
@@ -46,7 +46,7 @@ namespace System.Xml.Xsl.XsltOld
                     case BeginEvent:
                         Debug.Assert(frame.State == BeginEvent);
 
-                        if (SendBeginEvent(processor, frame.Node!) == false)
+                        if (!SendBeginEvent(processor, frame.Node!))
                         {
                             // This one wasn't output
                             break;
@@ -65,7 +65,7 @@ namespace System.Xml.Xsl.XsltOld
                             break;
                         }
 
-                        if (SendTextEvent(processor, frame.Node) == false)
+                        if (!SendTextEvent(processor, frame.Node))
                         {
                             // This one wasn't output
                             break;
@@ -96,7 +96,7 @@ namespace System.Xml.Xsl.XsltOld
                     case EndEvent:
                         Debug.Assert(frame.State == EndEvent);
 
-                        if (SendEndEvent(processor, frame.Node!) == false)
+                        if (!SendEndEvent(processor, frame.Node!))
                         {
                             // This one wasn't output
                             break;

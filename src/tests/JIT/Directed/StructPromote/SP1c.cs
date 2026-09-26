@@ -2,10 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Directed_StructPromote_SP1c;
+
 using System.Runtime.CompilerServices;
 using System;
+using Xunit;
 
-class SP1c
+public class SP1c
 {
 
     // Struct in reg (2 ints)
@@ -30,7 +33,9 @@ class SP1c
         return Foo(i1, i0, i4, s);  // r0 <= r1; r1 <= r0; r2 <= inarg[0]; r3 <= r3; outarg[0] <= r2
     }
 
-    public static int Main(String[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int res = M(2, 3, 4, 5, 1);
         Console.WriteLine("M(2, 3, 4, 5, 1) is {0}.", res);

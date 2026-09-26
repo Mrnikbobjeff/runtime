@@ -2,14 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b13569;
+
 using System;
+using Xunit;
 
 public class Foo
 {
-
-    public static int Main()
+    [Fact]
+    public static void TestEntryPoint()
     {
-
         const int a = 0x7fffffff; // highest positive int
         const int b = -a - 1; // lowest negative int
         int intMin = b;
@@ -55,9 +58,5 @@ public class Foo
         {
             Console.WriteLine(f);
         }
-
-        return 100;
-
     }
-
 }

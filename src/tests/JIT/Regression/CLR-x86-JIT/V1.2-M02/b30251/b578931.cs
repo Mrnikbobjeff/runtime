@@ -2,11 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-class Test
+namespace b30251;
+
+using System;
+using Xunit;
+
+public class Test_b578931
 {
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int N = 3;
         int tmp = (1 << N) - 1;

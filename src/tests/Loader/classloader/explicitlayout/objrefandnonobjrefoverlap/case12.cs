@@ -4,6 +4,8 @@
 // super simple case. forget wrapper structs, just overlap an int and an objref!
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
+using TestLibrary;
 
 [ StructLayout( LayoutKind.Explicit )] public struct MyUnion1 {
     [ FieldOffset( 0 )] public int i;
@@ -12,7 +14,9 @@ using System.Runtime.InteropServices;
 
 public class Test{
 
-  public static int Main(string[] args){
+  [ActiveIssue("expected failure: overlapped structs fail at AOT compile time, not runtime", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoFULLAOT))]
+  [Fact]
+  public static int TestEntryPoint(){
       bool caught=false;
       try{
           Go();

@@ -4,8 +4,11 @@
 
 using System;
 using System.Numerics;
+using Xunit;
 
-internal partial class VectorTest
+namespace SIMDTests.VectorAddTests;
+
+public partial class VectorTest : VectorTestBase
 {
     private const int Pass = 100;
     private const int Fail = -1;
@@ -69,7 +72,8 @@ internal partial class VectorTest
         }
     }
 
-    private static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int returnVal = Pass;
         if (VectorAddTest<float>.VectorAdd(1, 2, (float)(1 + 2)) != Pass) returnVal = Fail;
@@ -85,6 +89,8 @@ internal partial class VectorTest
         if (VectorAddTest<sbyte>.VectorAdd(-1, -2, (sbyte)(-1 - 2)) != Pass) returnVal = Fail;
         if (VectorAddTest<uint>.VectorAdd(0x41000000u, 0x42000000u, 0x41000000u + 0x42000000u) != Pass) returnVal = Fail;
         if (VectorAddTest<ulong>.VectorAdd(0x4100000000000000ul, 0x4200000000000000ul, 0x4100000000000000ul + 0x4200000000000000ul) != Pass) returnVal = Fail;
+        if (VectorAddTest<nint>.VectorAdd(1, 2, (nint)(1 + 2)) != Pass) returnVal = Fail;
+        if (VectorAddTest<nuint>.VectorAdd(0x41000000u, 0x42000000u, 0x41000000u + 0x42000000u) != Pass) returnVal = Fail;
 
         JitLog jitLog = new JitLog();
         if (!jitLog.Check("op_Addition", "Single")) returnVal = Fail;
@@ -100,6 +106,8 @@ internal partial class VectorTest
         if (!jitLog.Check("op_Addition", "SByte")) returnVal = Fail;
         if (!jitLog.Check("op_Addition", "UInt32")) returnVal = Fail;
         if (!jitLog.Check("op_Addition", "UInt64")) returnVal = Fail;
+        if (!jitLog.Check("op_Addition", "IntPtr")) returnVal = Fail;
+        if (!jitLog.Check("op_Addition", "UIntPtr")) returnVal = Fail;
         jitLog.Dispose();
 
         return returnVal;

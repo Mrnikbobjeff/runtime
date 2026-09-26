@@ -2,41 +2,39 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Security.Cryptography.Tests;
+using Xunit;
 
 namespace System.Security.Cryptography.EcDiffieHellman.Tests
 {
-    public class ECDhKeyFileTests : ECKeyFileTests<ECDiffieHellman>
+    [SkipOnPlatform(TestPlatforms.Browser, "Not supported on Browser")]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/64389", TestPlatforms.Windows)]
+    public abstract class ECDhKeyFileTests : ECKeyFileTests<ECDiffieHellman>
     {
-        protected override ECDiffieHellman CreateKey()
-        {
-            return ECDiffieHellmanFactory.Create();
-        }
+        protected abstract ECDiffieHellmanProvider ECDiffieHellmanFactory { get; }
 
-        protected override byte[] ExportECPrivateKey(ECDiffieHellman key)
-        {
-            return key.ExportECPrivateKey();
-        }
-
-        protected override bool TryExportECPrivateKey(ECDiffieHellman key, Span<byte> destination, out int bytesWritten)
-        {
-            return key.TryExportECPrivateKey(destination, out bytesWritten);
-        }
-
-        protected override void ImportECPrivateKey(ECDiffieHellman key, ReadOnlySpan<byte> source, out int bytesRead)
-        {
-            key.ImportECPrivateKey(source, out bytesRead);
-        }
-
-        protected override void ImportParameters(ECDiffieHellman key, ECParameters ecParameters)
-        {
-            key.ImportParameters(ecParameters);
-        }
-
-        protected override ECParameters ExportParameters(ECDiffieHellman key, bool includePrivate)
-        {
-            return key.ExportParameters(includePrivate);
-        }
-
+        protected override ECDiffieHellman CreateKey() => ECDiffieHellmanFactory.Create();
         protected override void Exercise(ECDiffieHellman key) => key.Exercise();
+        protected override bool CanDeriveNewPublicKey => ECDiffieHellmanFactory.CanDeriveNewPublicKey;
+        protected override bool SupportsExplicitCurves =>
+            ECDiffieHellmanFactory.ExplicitCurvesSupported || ECDiffieHellmanProvider.ExplicitCurvesSupportFailOnUseOnly;
+        protected override bool IsCurveSupported(Oid oid) => ECDiffieHellmanFactory.IsCurveValid(oid);
+
+        protected override Func<ECDiffieHellman, byte[]> PublicKeyWriteArrayFunc { get; } =
+            key =>
+            {
+                using (ECDiffieHellmanPublicKey publicKey = key.PublicKey)
+                {
+                    return publicKey.ExportSubjectPublicKeyInfo();
+                }
+            };
+
+        protected override WriteKeyToSpanFunc PublicKeyWriteSpanFunc { get; } =
+            (ECDiffieHellman key, Span<byte> destination, out int bytesWritten) =>
+            {
+                using (ECDiffieHellmanPublicKey publicKey = key.PublicKey)
+                {
+                    return publicKey.TryExportSubjectPublicKeyInfo(destination, out bytesWritten);
+                }
+            };
     }
 }

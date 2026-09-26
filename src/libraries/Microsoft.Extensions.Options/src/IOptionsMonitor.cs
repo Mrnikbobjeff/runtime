@@ -7,26 +7,35 @@ using System.Diagnostics.CodeAnalysis;
 namespace Microsoft.Extensions.Options
 {
     /// <summary>
-    /// Used for notifications when <typeparamref name="TOptions"/> instances change.
+    /// Monitors changes on a <typeparamref name="TOptions"/> instance.
     /// </summary>
     /// <typeparam name="TOptions">The options type.</typeparam>
+    /// <remarks>
+    /// The default implementation, <see cref="OptionsMonitor{TOptions}"/>, recreates and validates options
+    /// synchronously after change notifications. It does not invoke
+    /// <see cref="IAsyncValidateOptions{TOptions}.ValidateAsync"/>. The built-in asynchronous validators therefore
+    /// cause reload to fail and prevent registered change listeners from being called; no asynchronous last-known-good
+    /// guarantee is provided.
+    /// </remarks>
     public interface IOptionsMonitor<[DynamicallyAccessedMembers(Options.DynamicallyAccessedMembers)] out TOptions>
     {
         /// <summary>
-        /// Returns the current <typeparamref name="TOptions"/> instance with the <see cref="Options.DefaultName"/>.
+        /// Gets the current <typeparamref name="TOptions"/> instance with the <see cref="Options.DefaultName"/>.
         /// </summary>
         TOptions CurrentValue { get; }
 
         /// <summary>
-        /// Returns a configured <typeparamref name="TOptions"/> instance with the given name.
+        /// Returns a configured <typeparamref name="TOptions"/> instance with the given <paramref name="name"/>.
         /// </summary>
-        TOptions Get(string name);
+        /// <param name="name">The name of the <typeparamref name="TOptions"/> instance. If <see langword="null"/>, <see cref="Options.DefaultName"/>, which is the empty string, is used.</param>
+        /// <returns>The <typeparamref name="TOptions"/> instance that matches the given <paramref name="name"/>.</returns>
+        TOptions Get(string? name);
 
         /// <summary>
         /// Registers a listener to be called whenever a named <typeparamref name="TOptions"/> changes.
         /// </summary>
         /// <param name="listener">The action to be invoked when <typeparamref name="TOptions"/> has changed.</param>
-        /// <returns>An <see cref="IDisposable"/> which should be disposed to stop listening for changes.</returns>
-        IDisposable OnChange(Action<TOptions, string> listener);
+        /// <returns>An <see cref="IDisposable"/> that should be disposed to stop listening for changes.</returns>
+        IDisposable? OnChange(Action<TOptions, string?> listener);
     }
 }

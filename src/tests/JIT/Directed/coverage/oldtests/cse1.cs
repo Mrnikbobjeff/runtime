@@ -3,7 +3,10 @@
 
 //testing common sub-expression elimination
 
+namespace JitTest_Directed_coverage_oldtests_cse1;
+
 using System;
+using Xunit;
 public class CL
 {
     public int item;
@@ -104,7 +107,9 @@ public class CSE1
         return result;
     }
 
-    public static int Main(string[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int result;
         s_sa = 0;

@@ -3,8 +3,11 @@
 
 using System.Runtime.InteropServices;
 using System;
+using Xunit;
+using TestLibrary;
 
-class ClientPInvokeIntNativeTest
+[ActiveIssue("https://github.com/dotnet/runtime/issues/91388", typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.PlatformDoesNotSupportNativeTestAssets))]
+public class ClientPInvokeIntNativeTest
 {
     [DllImport("PInvokeIntNative")]
     private static extern int Marshal_In([In]int intValue);
@@ -24,8 +27,19 @@ class ClientPInvokeIntNativeTest
     [DllImport("PInvokeIntNative")]
     private static extern int MarshalPointer_Out(out int pintValue);
 
+    [DllImport("PInvokeIntNative")]
+    private static extern int Marshal_InMany([In]short i1, [In]short i2, [In]short i3, [In]short i4, [In]short i5, [In]short i6, [In]short i7, [In]short i8, [In]short i9, [In]short i10, [In]short i11, [In]byte i12, [In]byte i13, [In]int i14, [In]short i15);
 
-    public static int Main(string[] args)
+    [DllImport("PInvokeIntNative")]
+    private static extern int Marshal_InMany_InOutPointer([In]short i1, [In]short i2, [In]short i3, [In]short i4, [In]short i5, [In]short i6, [In]short i7, [In]short i8, [In]short i9, [In]short i10, [In]short i11, [In]byte i12, [In]byte i13, [In]int i14, [In]short i15, ref int pintValue);
+
+
+    [ActiveIssue("Needs coreclr build", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoFULLAOT))]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/82859", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoMiniJIT), nameof(PlatformDetection.IsArm64Process))]
+    [ActiveIssue("needs triage", TestPlatforms.Android)]
+    [ActiveIssue("missing assembly", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int failures = 0;
         int intManaged = (int)1000;
@@ -97,6 +111,24 @@ class ClientPInvokeIntNativeTest
         {
             failures++;
             Console.WriteLine("Out byref value is wrong.");
+        }
+
+        if(120 != Marshal_InMany(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15))
+        {
+            failures++;
+            Console.WriteLine("InMany return value is wrong");
+        }
+
+        int int7 = intManaged;
+        if(120 != Marshal_InMany_InOutPointer(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, ref int7))
+        {
+            failures++;
+            Console.WriteLine("InMany_InOutPointer return value is wrong");
+        }
+        if (intNative != int7)
+        {
+            failures++;
+            Console.WriteLine("InMany_InOutPointer byref value is wrong.");
         }
 
         return 100 + failures;

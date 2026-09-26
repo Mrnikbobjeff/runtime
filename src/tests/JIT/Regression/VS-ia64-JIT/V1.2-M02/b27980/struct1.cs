@@ -2,7 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b27980;
+
 using System;
+using Xunit;
 
 struct S
 {
@@ -10,21 +14,22 @@ struct S
 }
 
 
-class Test
+public class Test_struct1
 {
-    public static void c(S s1)
+    static void c(S s1)
     {
         GC.Collect();
         Console.WriteLine(s1.str);
         GC.Collect();
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         S sM;
 
         sM.str = "test";
         c(sM);
-        return 100;
     }
 }

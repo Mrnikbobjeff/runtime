@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Globalization;
+using System.Collections;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
 using System.Text;
-using System.Collections;
-using System.Diagnostics.CodeAnalysis;
 
 namespace System.Xml.Xsl.XsltOld
 {
@@ -37,7 +37,6 @@ namespace System.Xml.Xsl.XsltOld
         private static readonly BuilderInfo s_DefaultInfo = new BuilderInfo();
 
         private readonly XmlEncoder _encoder = new XmlEncoder();
-        private XmlCharType _xmlCharType = XmlCharType.Instance;
 
         internal ReaderOutput(Processor processor)
         {
@@ -72,7 +71,7 @@ namespace System.Xml.Xsl.XsltOld
                 {
                     if (localName.Length > 0)
                     {
-                        return _nameTable.Add(prefix + ":" + localName);
+                        return _nameTable.Add($"{prefix}:{localName}");
                     }
                     else
                     {
@@ -158,7 +157,7 @@ namespace System.Xml.Xsl.XsltOld
 
         public override char QuoteChar
         {
-            get { return _encoder.QuoteChar; }
+            get { return XmlEncoder.QuoteChar; }
         }
 
         public override bool IsDefault
@@ -263,10 +262,8 @@ namespace System.Xml.Xsl.XsltOld
 
         public override void MoveToAttribute(int i)
         {
-            if (i < 0 || _attributeCount <= i)
-            {
-                throw new ArgumentOutOfRangeException(nameof(i));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(i);
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(i, _attributeCount);
             SetAttribute(i);
         }
 
@@ -323,7 +320,7 @@ namespace System.Xml.Xsl.XsltOld
             }
 
             while (true)
-            { // while -- to ignor empty whitespace nodes.
+            { // while -- to ignore empty whitespace nodes.
                 if (_haveRecord)
                 {
                     _processor!.ResetOutput();
@@ -336,22 +333,22 @@ namespace System.Xml.Xsl.XsltOld
                 {
                     CheckCurrentInfo();
                     // check text nodes on whitespace;
-                    switch (this.NodeType)
+                    switch (NodeType)
                     {
                         case XmlNodeType.Text:
-                            if (_xmlCharType.IsOnlyWhitespace(this.Value))
+                            if (XmlCharType.IsOnlyWhitespace(Value))
                             {
                                 _currentInfo.NodeType = XmlNodeType.Whitespace;
                                 goto case XmlNodeType.Whitespace;
                             }
-                            Debug.Assert(this.Value.Length != 0, "It whould be Whitespace in this case");
+                            Debug.Assert(Value.Length != 0, "It whould be Whitespace in this case");
                             break;
                         case XmlNodeType.Whitespace:
-                            if (this.Value.Length == 0)
+                            if (Value.Length == 0)
                             {
                                 continue;                          // ignoring emty text nodes
                             }
-                            if (this.XmlSpace == XmlSpace.Preserve)
+                            if (XmlSpace == XmlSpace.Preserve)
                             {
                                 _currentInfo.NodeType = XmlNodeType.SignificantWhitespace;
                             }
@@ -421,10 +418,7 @@ namespace System.Xml.Xsl.XsltOld
                         }
                         else
                         {
-                            if (sb == null)
-                            {
-                                sb = new StringBuilder(result);
-                            }
+                            sb ??= new StringBuilder(result);
                             sb.Append(this.Value);
                         }
                         if (!Read())
@@ -617,10 +611,8 @@ namespace System.Xml.Xsl.XsltOld
 
         private BuilderInfo GetBuilderInfo(int attrib)
         {
-            if (attrib < 0 || _attributeCount <= attrib)
-            {
-                throw new ArgumentOutOfRangeException(nameof(attrib));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(attrib);
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(attrib, _attributeCount);
 
             Debug.Assert(_attributeList![attrib] is BuilderInfo);
 
@@ -629,14 +621,8 @@ namespace System.Xml.Xsl.XsltOld
 
         private bool FindAttribute(string? localName, string? namespaceURI, out int attrIndex)
         {
-            if (namespaceURI == null)
-            {
-                namespaceURI = string.Empty;
-            }
-            if (localName == null)
-            {
-                localName = string.Empty;
-            }
+            namespaceURI ??= string.Empty;
+            localName ??= string.Empty;
 
             for (int index = 0; index < _attributeCount; index++)
             {
@@ -656,10 +642,7 @@ namespace System.Xml.Xsl.XsltOld
 
         private bool FindAttribute(string? name, out int attrIndex)
         {
-            if (name == null)
-            {
-                name = string.Empty;
-            }
+            name ??= string.Empty;
 
             for (int index = 0; index < _attributeCount; index++)
             {
@@ -696,7 +679,7 @@ namespace System.Xml.Xsl.XsltOld
             Debug.Assert((_currentIndex == -1) || (_currentInfo == _attributeValue || _attributeList![_currentIndex] is BuilderInfo && _attributeList[_currentIndex] == _currentInfo));
         }
 
-        private class XmlEncoder
+        private sealed class XmlEncoder
         {
             private StringBuilder? _buffer;
             private XmlTextEncoder? _encoder;
@@ -733,10 +716,7 @@ namespace System.Xml.Xsl.XsltOld
                 return _buffer.ToString();
             }
 
-            public char QuoteChar
-            {
-                get { return '"'; }
-            }
+            public const char QuoteChar = '"';
         }
     }
 }

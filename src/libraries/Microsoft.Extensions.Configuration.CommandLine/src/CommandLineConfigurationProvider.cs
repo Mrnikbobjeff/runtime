@@ -7,20 +7,22 @@ using System.Collections.Generic;
 namespace Microsoft.Extensions.Configuration.CommandLine
 {
     /// <summary>
-    /// A command line based <see cref="ConfigurationProvider"/>.
+    /// Provides configuration key-value pairs that are obtained from the command line.
     /// </summary>
     public class CommandLineConfigurationProvider : ConfigurationProvider
     {
-        private readonly Dictionary<string, string> _switchMappings;
+        private readonly Dictionary<string, string>? _switchMappings;
 
         /// <summary>
         /// Initializes a new instance.
         /// </summary>
         /// <param name="args">The command line args.</param>
         /// <param name="switchMappings">The switch mappings.</param>
-        public CommandLineConfigurationProvider(IEnumerable<string> args, IDictionary<string, string> switchMappings = null)
+        public CommandLineConfigurationProvider(IEnumerable<string> args, IDictionary<string, string>? switchMappings = null)
         {
-            Args = args ?? throw new ArgumentNullException(nameof(args));
+            ArgumentNullException.ThrowIfNull(args);
+
+            Args = args;
 
             if (switchMappings != null)
             {
@@ -29,16 +31,16 @@ namespace Microsoft.Extensions.Configuration.CommandLine
         }
 
         /// <summary>
-        /// The command line arguments.
+        /// Gets the command-line arguments.
         /// </summary>
-        protected IEnumerable<string> Args { get; private set; }
+        protected IEnumerable<string> Args { get; }
 
         /// <summary>
-        /// Loads the configuration data from the command line args.
+        /// Loads the configuration data from the command-line arguments.
         /// </summary>
         public override void Load()
         {
-            var data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var data = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
             string key, value;
 
             using (IEnumerator<string> enumerator = Args.GetEnumerator())
@@ -52,15 +54,15 @@ namespace Microsoft.Extensions.Configuration.CommandLine
                     {
                         keyStartIndex = 2;
                     }
-                    else if (currentArg.StartsWith("-"))
+                    else if (currentArg.StartsWith('-'))
                     {
                         keyStartIndex = 1;
                     }
-                    else if (currentArg.StartsWith("/"))
+                    else if (currentArg.StartsWith('/'))
                     {
                         // "/SomeSwitch" is equivalent to "--SomeSwitch" when interpreting switch mappings
                         // So we do a conversion to simplify later processing
-                        currentArg = string.Format("--{0}", currentArg.Substring(1));
+                        currentArg = $"--{currentArg.Substring(1)}";
                         keyStartIndex = 2;
                     }
 
@@ -68,7 +70,7 @@ namespace Microsoft.Extensions.Configuration.CommandLine
 
                     if (separator < 0)
                     {
-                        // If there is neither equal sign nor prefix in current arugment, it is an invalid format
+                        // If there is neither equal sign nor prefix in current argument, it is an invalid format
                         if (keyStartIndex == 0)
                         {
                             // Ignore invalid formats
@@ -76,7 +78,7 @@ namespace Microsoft.Extensions.Configuration.CommandLine
                         }
 
                         // If the switch is a key in given switch mappings, interpret it
-                        if (_switchMappings != null && _switchMappings.TryGetValue(currentArg, out string mappedKey))
+                        if (_switchMappings != null && _switchMappings.TryGetValue(currentArg, out string? mappedKey))
                         {
                             key = mappedKey;
                         }
@@ -91,7 +93,6 @@ namespace Microsoft.Extensions.Configuration.CommandLine
                             key = currentArg.Substring(keyStartIndex);
                         }
 
-                        string previousKey = enumerator.Current;
                         if (!enumerator.MoveNext())
                         {
                             // ignore missing values
@@ -105,7 +106,7 @@ namespace Microsoft.Extensions.Configuration.CommandLine
                         string keySegment = currentArg.Substring(0, separator);
 
                         // If the switch is a key in given switch mappings, interpret it
-                        if (_switchMappings != null && _switchMappings.TryGetValue(keySegment, out string mappedKeySegment))
+                        if (_switchMappings != null && _switchMappings.TryGetValue(keySegment, out string? mappedKeySegment))
                         {
                             key = mappedKeySegment;
                         }
@@ -131,7 +132,7 @@ namespace Microsoft.Extensions.Configuration.CommandLine
             Data = data;
         }
 
-        private Dictionary<string, string> GetValidatedSwitchMappingsCopy(IDictionary<string, string> switchMappings)
+        private static Dictionary<string, string> GetValidatedSwitchMappingsCopy(IDictionary<string, string> switchMappings)
         {
             // The dictionary passed in might be constructed with a case-sensitive comparer
             // However, the keys in configuration providers are all case-insensitive
@@ -140,7 +141,7 @@ namespace Microsoft.Extensions.Configuration.CommandLine
             foreach (KeyValuePair<string, string> mapping in switchMappings)
             {
                 // Only keys start with "--" or "-" are acceptable
-                if (!mapping.Key.StartsWith("-") && !mapping.Key.StartsWith("--"))
+                if (!mapping.Key.StartsWith('-'))
                 {
                     throw new ArgumentException(
                         SR.Format(SR.Error_InvalidSwitchMapping, mapping.Key),

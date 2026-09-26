@@ -1,13 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <CLRTestPriority>1</CLRTestPriority>
+    <!-- TODO: Re-enable when a WebAssembly JIT or equivalent makes the billion-call stress practical.
+         Tracked by https://github.com/dotnet/runtime/issues/131321. -->
+    <CLRTestTargetUnsupported Condition="'$(RuntimeFlavor)' == 'coreclr' and '$(TargetOS)' == 'browser'">true</CLRTestTargetUnsupported>
   </PropertyGroup>
   <PropertyGroup>
-    <!-- Set to 'Full' if the Debug? column is marked in the spreadsheet. Leave blank otherwise. -->
     <DebugType>None</DebugType>
-    <NoStandardLib>True</NoStandardLib>
-    <Noconfig>True</Noconfig>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="LotsOfInlines.cs" />

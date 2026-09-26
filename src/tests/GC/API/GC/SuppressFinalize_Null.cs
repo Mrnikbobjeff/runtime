@@ -4,8 +4,9 @@
 // Tests SuppressFinalize()
 
 using System;
+using Xunit;
 
-public class Test
+public class Test_SuppressFinalize_Null
 {
     public bool RunTest()
     {
@@ -26,9 +27,10 @@ public class Test
     }
 
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
-        Test t = new Test();
+        Test_SuppressFinalize_Null t = new Test_SuppressFinalize_Null();
         if (t.RunTest())
         {
             Console.WriteLine("Null test for SuppressFinalize() passed!");

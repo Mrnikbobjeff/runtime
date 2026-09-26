@@ -24,16 +24,22 @@ namespace System.Reflection.Emit.Tests
         {
             TypeBuilder type = Helpers.DynamicType(attributes);
             Type createdType = type.CreateType();
+            Assert.NotNull(createdType);
             Assert.Equal(type.Name, createdType.Name);
 
-            Assert.Equal(type.CreateTypeInfo(), createdType.GetTypeInfo());
+            TypeInfo typeInfo = type.CreateTypeInfo();
+            Assert.Equal(typeInfo, createdType.GetTypeInfo());
+
+            // Verify MetadataToken
+            Assert.Equal(type.MetadataToken, typeInfo.MetadataToken);
+            TypeInfo typeFromToken = (TypeInfo)type.Module.ResolveType(typeInfo.MetadataToken);
+            Assert.Equal(createdType, typeFromToken);
         }
 
         [Theory]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/2389", TestRuntimes.Mono)]
         [InlineData(TypeAttributes.ClassSemanticsMask)]
         [InlineData(TypeAttributes.HasSecurity)]
-        [InlineData(TypeAttributes.LayoutMask)]
         [InlineData(TypeAttributes.NestedAssembly)]
         [InlineData(TypeAttributes.NestedFamANDAssem)]
         [InlineData(TypeAttributes.NestedFamily)]
@@ -59,7 +65,7 @@ namespace System.Reflection.Emit.Tests
                 return; // All others should fail with this exception
             }
 
-            Assert.True(false, "Type creation should have failed.");
+            Assert.Fail("Type creation should have failed.");
         }
 
         [Fact]
@@ -69,6 +75,7 @@ namespace System.Reflection.Emit.Tests
             type.DefineNestedType("NestedType");
 
             Type createdType = type.CreateType();
+            Assert.NotNull(createdType);
             Assert.Equal(type.Name, createdType.Name);
         }
 
@@ -79,6 +86,7 @@ namespace System.Reflection.Emit.Tests
             type.DefineGenericParameters("T");
 
             Type createdType = type.CreateType();
+            Assert.NotNull(createdType);
             Assert.Equal(type.Name, createdType.Name);
         }
     }

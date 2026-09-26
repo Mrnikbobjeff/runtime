@@ -7,6 +7,8 @@
 // Return types have to be covariant
 
 using System;
+using Xunit;
+using TestLibrary;
 
 public class Base { }
 public class Sub : Base { }
@@ -140,7 +142,9 @@ public class TestClass
 		}
 	}
 
-	public static int Main(String[] args)
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 
 		if (RunTests())

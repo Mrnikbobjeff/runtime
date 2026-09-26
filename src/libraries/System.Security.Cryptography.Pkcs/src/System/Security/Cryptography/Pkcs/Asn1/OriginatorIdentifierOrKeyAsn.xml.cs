@@ -1,4 +1,4 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #pragma warning disable SA1028 // ignore whitespace warnings for generated code
@@ -8,15 +8,10 @@ using System.Runtime.InteropServices;
 
 namespace System.Security.Cryptography.Pkcs.Asn1
 {
-    [StructLayout(LayoutKind.Sequential)]
-    internal partial struct OriginatorIdentifierOrKeyAsn
-    {
-        internal System.Security.Cryptography.Pkcs.Asn1.IssuerAndSerialNumberAsn? IssuerAndSerialNumber;
-        internal ReadOnlyMemory<byte>? SubjectKeyIdentifier;
-        internal System.Security.Cryptography.Pkcs.Asn1.OriginatorPublicKeyAsn? OriginatorKey;
-
 #if DEBUG
-        static OriginatorIdentifierOrKeyAsn()
+    file static class ValidateOriginatorIdentifierOrKeyAsn
+    {
+        static ValidateOriginatorIdentifierOrKeyAsn()
         {
             var usedTags = new System.Collections.Generic.Dictionary<Asn1Tag, string>();
             Action<Asn1Tag, string> ensureUniqueTag = (tag, fieldName) =>
@@ -33,9 +28,29 @@ namespace System.Security.Cryptography.Pkcs.Asn1
             ensureUniqueTag(new Asn1Tag(TagClass.ContextSpecific, 0), "SubjectKeyIdentifier");
             ensureUniqueTag(new Asn1Tag(TagClass.ContextSpecific, 1), "OriginatorKey");
         }
+
+        [System.Runtime.CompilerServices.MethodImpl(
+            System.Runtime.CompilerServices.MethodImplOptions.NoInlining |
+            System.Runtime.CompilerServices.MethodImplOptions.NoOptimization)]
+        internal static void Validate() { }
+    }
 #endif
 
-        internal void Encode(AsnWriter writer)
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial struct OriginatorIdentifierOrKeyAsn
+    {
+        internal System.Security.Cryptography.Asn1.Pkcs7.IssuerAndSerialNumberAsn? IssuerAndSerialNumber;
+        internal ReadOnlyMemory<byte>? SubjectKeyIdentifier;
+        internal System.Security.Cryptography.Pkcs.Asn1.OriginatorPublicKeyAsn? OriginatorKey;
+
+#if DEBUG
+        static OriginatorIdentifierOrKeyAsn()
+        {
+            ValidateOriginatorIdentifierOrKeyAsn.Validate();
+        }
+#endif
+
+        internal readonly void Encode(AsnWriter writer)
         {
             bool wroteValue = false;
 
@@ -76,9 +91,9 @@ namespace System.Security.Cryptography.Pkcs.Asn1
         {
             try
             {
-                AsnValueReader reader = new AsnValueReader(encoded.Span, ruleSet);
+                ValueAsnReader reader = new ValueAsnReader(encoded.Span, ruleSet);
 
-                Decode(ref reader, encoded, out OriginatorIdentifierOrKeyAsn decoded);
+                DecodeCore(ref reader, encoded, out OriginatorIdentifierOrKeyAsn decoded);
                 reader.ThrowIfNotEmpty();
                 return decoded;
             }
@@ -88,7 +103,7 @@ namespace System.Security.Cryptography.Pkcs.Asn1
             }
         }
 
-        internal static void Decode(ref AsnValueReader reader, ReadOnlyMemory<byte> rebind, out OriginatorIdentifierOrKeyAsn decoded)
+        internal static void Decode(ref ValueAsnReader reader, ReadOnlyMemory<byte> rebind, out OriginatorIdentifierOrKeyAsn decoded)
         {
             try
             {
@@ -100,7 +115,7 @@ namespace System.Security.Cryptography.Pkcs.Asn1
             }
         }
 
-        private static void DecodeCore(ref AsnValueReader reader, ReadOnlyMemory<byte> rebind, out OriginatorIdentifierOrKeyAsn decoded)
+        private static void DecodeCore(ref ValueAsnReader reader, ReadOnlyMemory<byte> rebind, out OriginatorIdentifierOrKeyAsn decoded)
         {
             decoded = default;
             Asn1Tag tag = reader.PeekTag();
@@ -110,8 +125,8 @@ namespace System.Security.Cryptography.Pkcs.Asn1
 
             if (tag.HasSameClassAndValue(Asn1Tag.Sequence))
             {
-                System.Security.Cryptography.Pkcs.Asn1.IssuerAndSerialNumberAsn tmpIssuerAndSerialNumber;
-                System.Security.Cryptography.Pkcs.Asn1.IssuerAndSerialNumberAsn.Decode(ref reader, rebind, out tmpIssuerAndSerialNumber);
+                System.Security.Cryptography.Asn1.Pkcs7.IssuerAndSerialNumberAsn tmpIssuerAndSerialNumber;
+                System.Security.Cryptography.Asn1.Pkcs7.IssuerAndSerialNumberAsn.Decode(ref reader, rebind, out tmpIssuerAndSerialNumber);
                 decoded.IssuerAndSerialNumber = tmpIssuerAndSerialNumber;
 
             }

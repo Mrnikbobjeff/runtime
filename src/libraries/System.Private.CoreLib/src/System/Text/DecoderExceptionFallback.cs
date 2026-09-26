@@ -3,6 +3,7 @@
 
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 
 namespace System.Text
@@ -17,7 +18,7 @@ namespace System.Text
         // Maximum number of characters that this instance of this fallback could return
         public override int MaxCharCount => 0;
 
-        public override bool Equals(object? value) =>
+        public override bool Equals([NotNullWhen(true)] object? value) =>
             value is DecoderExceptionFallback;
 
         public override int GetHashCode() => 879;
@@ -41,9 +42,9 @@ namespace System.Text
         public override int Remaining => 0;
 
         [DoesNotReturn]
-        private void Throw(byte[] bytesUnknown, int index)
+        private static void Throw(byte[] bytesUnknown, int index)
         {
-            bytesUnknown ??= Array.Empty<byte>();
+            bytesUnknown ??= [];
 
             // Create a string representation of our bytes.
             StringBuilder strBytes = new StringBuilder(bytesUnknown.Length * 4);
@@ -51,9 +52,7 @@ namespace System.Text
             const int MaxLength = 20;
             for (int i = 0; i < bytesUnknown.Length && i < MaxLength; i++)
             {
-                strBytes.Append('[');
-                strBytes.Append(bytesUnknown[i].ToString("X2", CultureInfo.InvariantCulture));
-                strBytes.Append(']');
+                strBytes.Append($"[{bytesUnknown[i]:X2}]");
             }
 
             // In case the string's really long
@@ -71,7 +70,7 @@ namespace System.Text
 
     // Exception for decoding unknown byte sequences.
     [Serializable]
-    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
+    [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public sealed class DecoderFallbackException : ArgumentException
     {
         private readonly byte[]? _bytesUnknown;
@@ -102,6 +101,7 @@ namespace System.Text
             _index = index;
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         private DecoderFallbackException(SerializationInfo serializationInfo, StreamingContext streamingContext)
             : base(serializationInfo, streamingContext)
         {

@@ -1,16 +1,16 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.Tracing;
-using System.Runtime.InteropServices;
+using System.Net.Sockets;
 using System.Threading;
-using Microsoft.Extensions.Internal;
 
 namespace System.Net
 {
     [EventSource(Name = "System.Net.NameResolution")]
-    internal sealed class NameResolutionTelemetry : EventSource
+    internal sealed partial class NameResolutionTelemetry : EventSource
     {
         public static readonly NameResolutionTelemetry Log = new NameResolutionTelemetry();
 
@@ -19,9 +19,11 @@ namespace System.Net
         private const int ResolutionFailedEventId = 3;
 
         private PollingCounter? _lookupsRequestedCounter;
+        private PollingCounter? _currentLookupsCounter;
         private EventCounter? _lookupsDuration;
 
         private long _lookupsRequested;
+        private long _currentLookups;
 
         protected override void OnEventCommand(EventCommandEventArgs command)
         {
@@ -33,6 +35,12 @@ namespace System.Net
                     DisplayName = "DNS Lookups Requested"
                 };
 
+                // Current number of DNS requests pending
+                _currentLookupsCounter ??= new PollingCounter("current-dns-lookups", this, () => Interlocked.Read(ref _currentLookups))
+                {
+                    DisplayName = "Current DNS Lookups"
+                };
+
                 _lookupsDuration ??= new EventCounter("dns-lookups-duration", this)
                 {
                     DisplayName = "Average DNS Lookup Duration",
@@ -40,9 +48,6 @@ namespace System.Net
                 };
             }
         }
-
-
-        private const int MaxIPFormattedLength = 128;
 
         [Event(ResolutionStartEventId, Level = EventLevel.Informational)]
         private void ResolutionStart(string hostNameOrAddress) => WriteEvent(ResolutionStartEventId, hostNameOrAddress);
@@ -53,57 +58,56 @@ namespace System.Net
         [Event(ResolutionFailedEventId, Level = EventLevel.Informational)]
         private void ResolutionFailed() => WriteEvent(ResolutionFailedEventId);
 
+        [NonEvent]
+        public static bool AnyDiagnosticsEnabled() => !OperatingSystem.IsWasi() && (Log.IsEnabled() || NameResolutionMetrics.IsEnabled() || NameResolutionActivity.IsTracingEnabled());
 
         [NonEvent]
-        public ValueStopwatch BeforeResolution(string hostNameOrAddress)
+        public NameResolutionActivity BeforeResolution(object hostNameOrAddress, long startingTimestamp = 0)
         {
-            Debug.Assert(hostNameOrAddress != null);
+            if (!AnyDiagnosticsEnabled())
+            {
+                return default;
+            }
 
             if (IsEnabled())
             {
                 Interlocked.Increment(ref _lookupsRequested);
+                Interlocked.Increment(ref _currentLookups);
 
                 if (IsEnabled(EventLevel.Informational, EventKeywords.None))
                 {
-                    ResolutionStart(hostNameOrAddress);
+                    string host = GetHostnameFromStateObject(hostNameOrAddress);
+
+                    ResolutionStart(host);
                 }
 
-                return ValueStopwatch.StartNew();
+                startingTimestamp = startingTimestamp is not 0 ? startingTimestamp : Stopwatch.GetTimestamp();
             }
 
-            return default;
+            startingTimestamp = startingTimestamp is not 0 ? startingTimestamp : NameResolutionMetrics.IsEnabled() ? Stopwatch.GetTimestamp() : 0;
+            return new NameResolutionActivity(hostNameOrAddress, startingTimestamp);
         }
 
         [NonEvent]
-        public ValueStopwatch BeforeResolution(IPAddress address)
+        public void AfterResolution(object hostNameOrAddress, in NameResolutionActivity activity, object? answer, Exception? exception = null)
         {
-            Debug.Assert(address != null);
+            if (OperatingSystem.IsWasi()) return;
+
+            if (!activity.Stop(answer, exception, out TimeSpan duration))
+            {
+                // We stopped the System.Diagnostics.Activity at this point and neither metrics nor EventSource is enabled.
+                return;
+            }
 
             if (IsEnabled())
             {
-                Interlocked.Increment(ref _lookupsRequested);
+                Interlocked.Decrement(ref _currentLookups);
+
+                _lookupsDuration?.WriteMetric(duration.TotalMilliseconds);
 
                 if (IsEnabled(EventLevel.Informational, EventKeywords.None))
                 {
-                    WriteEvent(ResolutionStartEventId, FormatIPAddressNullTerminated(address, stackalloc char[MaxIPFormattedLength]));
-                }
-
-                return ValueStopwatch.StartNew();
-            }
-
-            return default;
-        }
-
-        [NonEvent]
-        public void AfterResolution(ValueStopwatch stopwatch, bool successful)
-        {
-            if (stopwatch.IsActive)
-            {
-                _lookupsDuration!.WriteMetric(stopwatch.GetElapsedTime().TotalMilliseconds);
-
-                if (IsEnabled(EventLevel.Informational, EventKeywords.None))
-                {
-                    if (!successful)
+                    if (exception is not null)
                     {
                         ResolutionFailed();
                     }
@@ -111,44 +115,128 @@ namespace System.Net
                     ResolutionStop();
                 }
             }
-        }
 
-
-        [NonEvent]
-        private static Span<char> FormatIPAddressNullTerminated(IPAddress address, Span<char> destination)
-        {
-            Debug.Assert(address != null);
-
-            bool success = address.TryFormat(destination, out int charsWritten);
-            Debug.Assert(success);
-
-            Debug.Assert(charsWritten < destination.Length);
-            destination[charsWritten] = '\0';
-
-            return destination.Slice(0, charsWritten + 1);
-        }
-
-
-        // WriteEvent overloads taking Span<char> are imitating string arguments
-        // Span arguments are expected to be null-terminated
-
-        [NonEvent]
-        private unsafe void WriteEvent(int eventId, Span<char> arg1)
-        {
-            Debug.Assert(!arg1.IsEmpty && arg1.IndexOf('\0') == arg1.Length - 1, "Expecting a null-terminated ROS<char>");
-
-            if (IsEnabled())
+            if (NameResolutionMetrics.IsEnabled())
             {
-                fixed (char* arg1Ptr = &MemoryMarshal.GetReference(arg1))
-                {
-                    EventData descr = new EventData
-                    {
-                        DataPointer = (IntPtr)(arg1Ptr),
-                        Size = arg1.Length * sizeof(char)
-                    };
+                NameResolutionMetrics.AfterResolution(duration, GetHostnameFromStateObject(hostNameOrAddress), exception);
+            }
+        }
 
-                    WriteEventCore(eventId, eventDataCount: 1, &descr);
+        [NonEvent]
+        internal static string GetHostnameFromStateObject(object hostNameOrAddress)
+        {
+            Debug.Assert(hostNameOrAddress is not null);
+
+            string host = hostNameOrAddress switch
+            {
+                string h => h,
+                KeyValuePair<string, AddressFamily> t => t.Key,
+                IPAddress a => a.ToString(),
+                KeyValuePair<IPAddress, AddressFamily> t => t.Key.ToString(),
+                _ => null!
+            };
+
+            Debug.Assert(host is not null, $"Unknown hostNameOrAddress type: {hostNameOrAddress.GetType().Name}");
+
+            return host;
+        }
+
+        [NonEvent]
+        internal static string GetErrorType(Exception exception) => (exception as SocketException)?.SocketErrorCode switch
+        {
+            SocketError.HostNotFound => "host_not_found",
+            SocketError.TryAgain => "try_again",
+            SocketError.AddressFamilyNotSupported => "address_family_not_supported",
+            SocketError.NoRecovery => "no_recovery",
+
+            _ => exception.GetType().FullName!
+        };
+    }
+
+    /// <summary>
+    /// Encapsulates the starting timestamp together with an optional Activity, to represent the name resolution span for various telemetry pillars.
+    /// </summary>
+    internal readonly struct NameResolutionActivity
+    {
+        private const string ActivitySourceName = "Experimental.System.Net.NameResolution";
+        private const string ActivityName = ActivitySourceName + ".DnsLookup";
+        private static readonly ActivitySource s_activitySource = new ActivitySource(ActivitySourceName);
+
+        // _startingTimestamp == 0 means NameResolutionTelemetry and NameResolutionMetrics are both disabled.
+        private readonly long _startingTimestamp;
+        private readonly Activity? _activity;
+
+        public NameResolutionActivity(object hostNameOrAddress, long startingTimestamp)
+        {
+            _startingTimestamp = startingTimestamp;
+            _activity = s_activitySource.StartActivity(ActivityName);
+            if (_activity is not null)
+            {
+                string host = NameResolutionTelemetry.GetHostnameFromStateObject(hostNameOrAddress);
+                _activity.DisplayName = hostNameOrAddress is IPAddress ? $"DNS reverse lookup {host}" : $"DNS lookup {host}";
+                if (_activity.IsAllDataRequested)
+                {
+                    _activity.SetTag("dns.question.name", host);
                 }
+            }
+        }
+
+        public static bool IsTracingEnabled() => s_activitySource.HasListeners();
+
+        // Returns true if either NameResolutionTelemetry or NameResolutionMetrics is enabled.
+        public bool Stop(object? answer, Exception? exception, out TimeSpan duration)
+        {
+            if (_activity is not null)
+            {
+                if (_activity.IsAllDataRequested)
+                {
+                    if (answer is not null)
+                    {
+                        string[]? answerValues = answer switch
+                        {
+                            string h => [h],
+                            string[] values => values,
+                            IPAddress[] addresses => GetStringValues(addresses),
+                            IPHostEntry entry => GetStringValues(entry.AddressList),
+                            _ => null
+                        };
+
+                        Debug.Assert(answerValues is not null);
+                        _activity.SetTag("dns.answers", answerValues);
+                    }
+                    else
+                    {
+                        Debug.Assert(exception is not null);
+                        string errorType = NameResolutionTelemetry.GetErrorType(exception);
+                        _activity.SetTag("error.type", errorType);
+                    }
+                }
+
+                if (exception is not null)
+                {
+                    _activity.SetStatus(ActivityStatusCode.Error);
+                }
+
+                _activity.Stop();
+            }
+
+            if (_startingTimestamp == 0)
+            {
+                duration = default;
+                return false;
+            }
+
+            duration = Stopwatch.GetElapsedTime(_startingTimestamp);
+            return true;
+
+            static string[] GetStringValues(IPAddress[] addresses)
+            {
+                string[] result = new string[addresses.Length];
+                for (int i = 0; i < addresses.Length; i++)
+                {
+                    result[i] = addresses[i].ToString();
+                }
+                return result;
             }
         }
     }

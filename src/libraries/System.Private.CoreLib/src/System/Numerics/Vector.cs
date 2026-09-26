@@ -1,4623 +1,3842 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Text;
-
-using Internal.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
 
 namespace System.Numerics
 {
-    /* Note: The following patterns are used throughout the code here and are described here
-    *
-    * PATTERN:
-    *    if (typeof(T) == typeof(int)) { ... }
-    *    else if (typeof(T) == typeof(float)) { ... }
-    * EXPLANATION:
-    *    At runtime, each instantiation of Vector<T> will be type-specific, and each of these typeof blocks will be eliminated,
-    *    as typeof(T) is a (JIT) compile-time constant for each instantiation. This design was chosen to eliminate any overhead from
-    *    delegates and other patterns.
-    *
-    * PATTERN:
-    *    if (Vector.IsHardwareAccelerated) { ... }
-    *    else { ... }
-    * EXPLANATION
-    *    This pattern solves two problems:
-    *        1. Allows us to unroll loops when we know the size (when no hardware acceleration is present)
-    *        2. Allows reflection to work:
-    *            - If a method is called via reflection, it will not be "intrinsified", which would cause issues if we did
-    *              not provide an implementation for that case (i.e. if it only included a case which assumed 16-byte registers)
-    *    (NOTE: It is assumed that Vector.IsHardwareAccelerated will be a compile-time constant, eliminating these checks
-    *        from the JIT'd code.)
-    *
-    * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-
-    /// <summary>
-    /// A structure that represents a single Vector. The count of this Vector is fixed but CPU register dependent.
-    /// This struct only supports numerical types. This type is intended to be used as a building block for vectorizing
-    /// large algorithms. This type is immutable, individual elements cannot be modified.
-    /// </summary>
-    [Intrinsic]
-    public struct Vector<T> : IEquatable<Vector<T>>, IFormattable where T : struct
-    {
-        #region Fields
-        private Register register;
-        #endregion Fields
-
-        #region Static Members
-        /// <summary>
-        /// Returns the number of elements stored in the vector. This value is hardware dependent.
-        /// </summary>
-        public static int Count
-        {
-            [Intrinsic]
-            get
-            {
-                ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-                return Unsafe.SizeOf<Vector<T>>() / Unsafe.SizeOf<T>();
-            }
-        }
-
-        /// <summary>
-        /// Returns a vector containing all zeroes.
-        /// </summary>
-        public static Vector<T> Zero
-        {
-            [Intrinsic]
-            get
-            {
-                ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-                return default;
-            }
-        }
-
-        /// <summary>
-        /// Returns a vector containing all ones.
-        /// </summary>
-        public static Vector<T> One
-        {
-            [Intrinsic]
-            get
-            {
-                ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-                return new Vector<T>(GetOneValue());
-            }
-        }
-
-        internal static Vector<T> AllBitsSet
-        {
-            [Intrinsic]
-            get
-            {
-                ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-                return new Vector<T>(GetAllBitsSetValue());
-            }
-        }
-        #endregion Static Members
-
-        #region Constructors
-        /// <summary>
-        /// Constructs a vector whose components are all <code>value</code>
-        /// </summary>
-        [Intrinsic]
-        public unsafe Vector(T value)
-            : this()
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            if (Vector.IsHardwareAccelerated)
-            {
-                if (typeof(T) == typeof(byte))
-                {
-                    fixed (byte* basePtr = &this.register.byte_0)
-                    {
-                        for (nint g = 0; g < Count; g++)
-                        {
-                            *(basePtr + g) = (byte)(object)value;
-                        }
-                    }
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    fixed (sbyte* basePtr = &this.register.sbyte_0)
-                    {
-                        for (nint g = 0; g < Count; g++)
-                        {
-                            *(basePtr + g) = (sbyte)(object)value;
-                        }
-                    }
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    fixed (ushort* basePtr = &this.register.uint16_0)
-                    {
-                        for (nint g = 0; g < Count; g++)
-                        {
-                            *(basePtr + g) = (ushort)(object)value;
-                        }
-                    }
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    fixed (short* basePtr = &this.register.int16_0)
-                    {
-                        for (nint g = 0; g < Count; g++)
-                        {
-                            *(basePtr + g) = (short)(object)value;
-                        }
-                    }
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    fixed (uint* basePtr = &this.register.uint32_0)
-                    {
-                        for (nint g = 0; g < Count; g++)
-                        {
-                            *(basePtr + g) = (uint)(object)value;
-                        }
-                    }
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    fixed (int* basePtr = &this.register.int32_0)
-                    {
-                        for (nint g = 0; g < Count; g++)
-                        {
-                            *(basePtr + g) = (int)(object)value;
-                        }
-                    }
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    fixed (ulong* basePtr = &this.register.uint64_0)
-                    {
-                        for (nint g = 0; g < Count; g++)
-                        {
-                            *(basePtr + g) = (ulong)(object)value;
-                        }
-                    }
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    fixed (long* basePtr = &this.register.int64_0)
-                    {
-                        for (nint g = 0; g < Count; g++)
-                        {
-                            *(basePtr + g) = (long)(object)value;
-                        }
-                    }
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    fixed (float* basePtr = &this.register.single_0)
-                    {
-                        for (nint g = 0; g < Count; g++)
-                        {
-                            *(basePtr + g) = (float)(object)value;
-                        }
-                    }
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    fixed (double* basePtr = &this.register.double_0)
-                    {
-                        for (nint g = 0; g < Count; g++)
-                        {
-                            *(basePtr + g) = (double)(object)value;
-                        }
-                    }
-                }
-            }
-            else
-            {
-                if (typeof(T) == typeof(byte))
-                {
-                    register.byte_0 = (byte)(object)value;
-                    register.byte_1 = (byte)(object)value;
-                    register.byte_2 = (byte)(object)value;
-                    register.byte_3 = (byte)(object)value;
-                    register.byte_4 = (byte)(object)value;
-                    register.byte_5 = (byte)(object)value;
-                    register.byte_6 = (byte)(object)value;
-                    register.byte_7 = (byte)(object)value;
-                    register.byte_8 = (byte)(object)value;
-                    register.byte_9 = (byte)(object)value;
-                    register.byte_10 = (byte)(object)value;
-                    register.byte_11 = (byte)(object)value;
-                    register.byte_12 = (byte)(object)value;
-                    register.byte_13 = (byte)(object)value;
-                    register.byte_14 = (byte)(object)value;
-                    register.byte_15 = (byte)(object)value;
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    register.sbyte_0 = (sbyte)(object)value;
-                    register.sbyte_1 = (sbyte)(object)value;
-                    register.sbyte_2 = (sbyte)(object)value;
-                    register.sbyte_3 = (sbyte)(object)value;
-                    register.sbyte_4 = (sbyte)(object)value;
-                    register.sbyte_5 = (sbyte)(object)value;
-                    register.sbyte_6 = (sbyte)(object)value;
-                    register.sbyte_7 = (sbyte)(object)value;
-                    register.sbyte_8 = (sbyte)(object)value;
-                    register.sbyte_9 = (sbyte)(object)value;
-                    register.sbyte_10 = (sbyte)(object)value;
-                    register.sbyte_11 = (sbyte)(object)value;
-                    register.sbyte_12 = (sbyte)(object)value;
-                    register.sbyte_13 = (sbyte)(object)value;
-                    register.sbyte_14 = (sbyte)(object)value;
-                    register.sbyte_15 = (sbyte)(object)value;
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    register.uint16_0 = (ushort)(object)value;
-                    register.uint16_1 = (ushort)(object)value;
-                    register.uint16_2 = (ushort)(object)value;
-                    register.uint16_3 = (ushort)(object)value;
-                    register.uint16_4 = (ushort)(object)value;
-                    register.uint16_5 = (ushort)(object)value;
-                    register.uint16_6 = (ushort)(object)value;
-                    register.uint16_7 = (ushort)(object)value;
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    register.int16_0 = (short)(object)value;
-                    register.int16_1 = (short)(object)value;
-                    register.int16_2 = (short)(object)value;
-                    register.int16_3 = (short)(object)value;
-                    register.int16_4 = (short)(object)value;
-                    register.int16_5 = (short)(object)value;
-                    register.int16_6 = (short)(object)value;
-                    register.int16_7 = (short)(object)value;
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    register.uint32_0 = (uint)(object)value;
-                    register.uint32_1 = (uint)(object)value;
-                    register.uint32_2 = (uint)(object)value;
-                    register.uint32_3 = (uint)(object)value;
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    register.int32_0 = (int)(object)value;
-                    register.int32_1 = (int)(object)value;
-                    register.int32_2 = (int)(object)value;
-                    register.int32_3 = (int)(object)value;
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    register.uint64_0 = (ulong)(object)value;
-                    register.uint64_1 = (ulong)(object)value;
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    register.int64_0 = (long)(object)value;
-                    register.int64_1 = (long)(object)value;
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    register.single_0 = (float)(object)value;
-                    register.single_1 = (float)(object)value;
-                    register.single_2 = (float)(object)value;
-                    register.single_3 = (float)(object)value;
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    register.double_0 = (double)(object)value;
-                    register.double_1 = (double)(object)value;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Constructs a vector from the given array. The size of the given array must be at least Vector'T.Count.
-        /// </summary>
-        [Intrinsic]
-        public unsafe Vector(T[] values) : this(values, 0) { }
-
-        /// <summary>
-        /// Constructs a vector from the given array, starting from the given index.
-        /// The array must contain at least Vector'T.Count from the given index.
-        /// </summary>
-        [Intrinsic]
-        public unsafe Vector(T[] values, int index)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            if (values == null)
-            {
-                // Match the JIT's exception type here. For perf, a NullReference is thrown instead of an ArgumentNull.
-                throw new NullReferenceException(SR.Arg_NullArgumentNullRef);
-            }
-
-            if (index < 0 || (values.Length - index) < Count)
-            {
-                Vector.ThrowInsufficientNumberOfElementsException(Vector<T>.Count);
-            }
-
-            this = Unsafe.ReadUnaligned<Vector<T>>(ref Unsafe.As<T, byte>(ref values[index]));
-        }
-
-        internal unsafe Vector(void* dataPointer)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-            this = Unsafe.ReadUnaligned<Vector<T>>(dataPointer);
-        }
-
-        private Vector(ref Register existingRegister)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-            this.register = existingRegister;
-        }
-
-        /// <summary>
-        /// Constructs a vector from the given <see cref="ReadOnlySpan{Byte}"/>. The span must contain at least <see cref="Vector{Byte}.Count"/> elements.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Vector(ReadOnlySpan<byte> values)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            if (values.Length < Vector<byte>.Count)
-            {
-                Vector.ThrowInsufficientNumberOfElementsException(Vector<byte>.Count);
-            }
-
-            this = Unsafe.ReadUnaligned<Vector<T>>(ref MemoryMarshal.GetReference(values));
-        }
-
-        /// <summary>
-        /// Constructs a vector from the given <see cref="ReadOnlySpan{T}"/>. The span must contain at least <see cref="Vector{T}.Count"/> elements.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Vector(ReadOnlySpan<T> values)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            if (values.Length < Count)
-            {
-                Vector.ThrowInsufficientNumberOfElementsException(Vector<T>.Count);
-            }
-
-            this = Unsafe.ReadUnaligned<Vector<T>>(ref Unsafe.As<T, byte>(ref MemoryMarshal.GetReference(values)));
-        }
-
-        /// <summary>
-        /// Constructs a vector from the given <see cref="Span{T}"/>. The span must contain at least <see cref="Vector{T}.Count"/> elements.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public Vector(Span<T> values)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            if (values.Length < Count)
-            {
-                Vector.ThrowInsufficientNumberOfElementsException(Vector<T>.Count);
-            }
-
-            this = Unsafe.ReadUnaligned<Vector<T>>(ref Unsafe.As<T, byte>(ref MemoryMarshal.GetReference(values)));
-        }
-        #endregion Constructors
-
-        #region Public Instance Methods
-        /// <summary>
-        /// Copies the vector to the given <see cref="Span{Byte}"/>. The destination span must be at least size <see cref="Vector{Byte}.Count"/>.
-        /// </summary>
-        /// <param name="destination">The destination span which the values are copied into</param>
-        /// <exception cref="ArgumentException">If number of elements in source vector is greater than those available in destination span</exception>
-        public readonly void CopyTo(Span<byte> destination)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            if ((uint)destination.Length < (uint)Vector<byte>.Count)
-            {
-                ThrowHelper.ThrowArgumentException_DestinationTooShort();
-            }
-
-            Unsafe.WriteUnaligned<Vector<T>>(ref MemoryMarshal.GetReference(destination), this);
-        }
-
-        /// <summary>
-        /// Copies the vector to the given <see cref="Span{T}"/>. The destination span must be at least size <see cref="Vector{T}.Count"/>.
-        /// </summary>
-        /// <param name="destination">The destination span which the values are copied into</param>
-        /// <exception cref="ArgumentException">If number of elements in source vector is greater than those available in destination span</exception>
-        public readonly void CopyTo(Span<T> destination)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            if ((uint)destination.Length < (uint)Count)
-            {
-                ThrowHelper.ThrowArgumentException_DestinationTooShort();
-            }
-
-            Unsafe.WriteUnaligned<Vector<T>>(ref Unsafe.As<T, byte>(ref MemoryMarshal.GetReference(destination)), this);
-        }
-
-        /// <summary>
-        /// Copies the vector to the given destination array. The destination array must be at least size Vector'T.Count.
-        /// </summary>
-        /// <param name="destination">The destination array which the values are copied into</param>
-        /// <exception cref="ArgumentNullException">If the destination array is null</exception>
-        /// <exception cref="ArgumentException">If number of elements in source vector is greater than those available in destination array</exception>
-        [Intrinsic]
-        public readonly void CopyTo(T[] destination) => CopyTo(destination, 0);
-
-        /// <summary>
-        /// Copies the vector to the given destination array. The destination array must be at least size Vector'T.Count.
-        /// </summary>
-        /// <param name="destination">The destination array which the values are copied into</param>
-        /// <param name="startIndex">The index to start copying to</param>
-        /// <exception cref="ArgumentNullException">If the destination array is null</exception>
-        /// <exception cref="ArgumentOutOfRangeException">If index is greater than end of the array or index is less than zero</exception>
-        /// <exception cref="ArgumentException">If number of elements in source vector is greater than those available in destination array</exception>
-        [Intrinsic]
-        public readonly unsafe void CopyTo(T[] destination, int startIndex)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            if (destination == null)
-            {
-                // Match the JIT's exception type here. For perf, a NullReference is thrown instead of an ArgumentNull.
-                throw new NullReferenceException(SR.Arg_NullArgumentNullRef);
-            }
-
-            if ((uint)startIndex >= (uint)destination.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.Format(SR.Arg_ArgumentOutOfRangeException, startIndex));
-            }
-
-            if ((destination.Length - startIndex) < Count)
-            {
-                throw new ArgumentException(SR.Format(SR.Arg_ElementsInSourceIsGreaterThanDestination, startIndex));
-            }
-
-            Unsafe.WriteUnaligned<Vector<T>>(ref Unsafe.As<T, byte>(ref destination[startIndex]), this);
-        }
-
-        /// <summary>
-        /// Returns the element at the given index.
-        /// </summary>
-        public readonly unsafe T this[int index]
-        {
-            [Intrinsic]
-            get
-            {
-                ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-                if ((uint)index >= (uint)Count)
-                {
-                    throw new IndexOutOfRangeException(SR.Format(SR.Arg_ArgumentOutOfRangeException, index));
-                }
-
-                return Unsafe.Add(ref Unsafe.As<Vector<T>, T>(ref Unsafe.AsRef<Vector<T>>(in this)), index);
-            }
-        }
-
-        /// <summary>
-        /// Returns a boolean indicating whether the given Object is equal to this vector instance.
-        /// </summary>
-        /// <param name="obj">The Object to compare against.</param>
-        /// <returns>True if the Object is equal to this vector; False otherwise.</returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public override readonly bool Equals(object? obj) => (obj is Vector<T> other) && Equals(other);
-
-        /// <summary>
-        /// Returns a boolean indicating whether the given vector is equal to this vector instance.
-        /// </summary>
-        /// <param name="other">The vector to compare this instance to.</param>
-        /// <returns>True if the other vector is equal to this instance; False otherwise.</returns>
-        [Intrinsic]
-        public readonly bool Equals(Vector<T> other) => this == other;
-
-        /// <summary>
-        /// Returns the hash code for this instance.
-        /// </summary>
-        /// <returns>The hash code.</returns>
-        public override readonly int GetHashCode()
-        {
-            HashCode hashCode = default;
-
-            if (typeof(T) == typeof(byte) ||
-                typeof(T) == typeof(sbyte) ||
-                typeof(T) == typeof(ushort) ||
-                typeof(T) == typeof(short) ||
-                typeof(T) == typeof(int) ||
-                typeof(T) == typeof(uint) ||
-                typeof(T) == typeof(long) ||
-                typeof(T) == typeof(ulong))
-            {
-                for (nint g = 0; g < Vector<int>.Count; g++)
-                {
-                    hashCode.Add(Unsafe.Add(ref Unsafe.As<Vector<T>, int>(ref Unsafe.AsRef<Vector<T>>(in this)), (IntPtr)g));
-                }
-            }
-            else if (typeof(T) == typeof(float))
-            {
-                for (nint g = 0; g < Count; g++)
-                {
-                    hashCode.Add(Unsafe.Add(ref Unsafe.As<Vector<T>, float>(ref Unsafe.AsRef<Vector<T>>(in this)), (IntPtr)g));
-                }
-            }
-            else if (typeof(T) == typeof(double))
-            {
-                for (nint g = 0; g < Count; g++)
-                {
-                    hashCode.Add(Unsafe.Add(ref Unsafe.As<Vector<T>, double>(ref Unsafe.AsRef<Vector<T>>(in this)), (IntPtr)g));
-                }
-            }
-            else
-            {
-                throw new NotSupportedException(SR.Arg_TypeNotSupported);
-            }
-
-            return hashCode.ToHashCode();
-        }
-
-        /// <summary>
-        /// Returns a String representing this vector.
-        /// </summary>
-        /// <returns>The string representation.</returns>
-        public override readonly string ToString() => ToString("G", CultureInfo.CurrentCulture);
-
-        /// <summary>
-        /// Returns a String representing this vector, using the specified format string to format individual elements.
-        /// </summary>
-        /// <param name="format">The format of individual elements.</param>
-        /// <returns>The string representation.</returns>
-        public readonly string ToString(string? format) => ToString(format, CultureInfo.CurrentCulture);
-
-        /// <summary>
-        /// Returns a String representing this vector, using the specified format string to format individual elements
-        /// and the given IFormatProvider.
-        /// </summary>
-        /// <param name="format">The format of individual elements.</param>
-        /// <param name="formatProvider">The format provider to use when formatting elements.</param>
-        /// <returns>The string representation.</returns>
-        public readonly string ToString(string? format, IFormatProvider? formatProvider)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            StringBuilder sb = new StringBuilder();
-            string separator = NumberFormatInfo.GetInstance(formatProvider).NumberGroupSeparator;
-            sb.Append('<');
-            for (int g = 0; g < Count - 1; g++)
-            {
-                sb.Append(((IFormattable)this[g]).ToString(format, formatProvider));
-                sb.Append(separator);
-                sb.Append(' ');
-            }
-            // Append last element w/out separator
-            sb.Append(((IFormattable)this[Count - 1]).ToString(format, formatProvider));
-            sb.Append('>');
-            return sb.ToString();
-        }
-
-        /// <summary>
-        /// Attempts to copy the vector to the given <see cref="Span{Byte}"/>. The destination span must be at least size <see cref="Vector{Byte}.Count"/>.
-        /// </summary>
-        /// <param name="destination">The destination span which the values are copied into</param>
-        /// <returns>True if the source vector was successfully copied to <paramref name="destination"/>. False if
-        /// <paramref name="destination"/> is not large enough to hold the source vector.</returns>
-        public readonly bool TryCopyTo(Span<byte> destination)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            if ((uint)destination.Length < (uint)Vector<byte>.Count)
-            {
-                return false;
-            }
-
-            Unsafe.WriteUnaligned<Vector<T>>(ref MemoryMarshal.GetReference(destination), this);
-            return true;
-        }
-
-        /// <summary>
-        /// Attempts to copy the vector to the given <see cref="Span{T}"/>. The destination span must be at least size <see cref="Vector{T}.Count"/>.
-        /// </summary>
-        /// <param name="destination">The destination span which the values are copied into</param>
-        /// <returns>True if the source vector was successfully copied to <paramref name="destination"/>. False if
-        /// <paramref name="destination"/> is not large enough to hold the source vector.</returns>
-        public readonly bool TryCopyTo(Span<T> destination)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            if ((uint)destination.Length < (uint)Count)
-            {
-                return false;
-            }
-
-            Unsafe.WriteUnaligned<Vector<T>>(ref Unsafe.As<T, byte>(ref MemoryMarshal.GetReference(destination)), this);
-            return true;
-        }
-        #endregion Public Instance Methods
-
-        #region Arithmetic Operators
-        /// <summary>
-        /// Adds two vectors together.
-        /// </summary>
-        /// <param name="left">The first source vector.</param>
-        /// <param name="right">The second source vector.</param>
-        /// <returns>The summed vector.</returns>
-        [Intrinsic]
-        public static unsafe Vector<T> operator +(Vector<T> left, Vector<T> right)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            unchecked
-            {
-                if (Vector.IsHardwareAccelerated)
-                {
-                    if (typeof(T) == typeof(byte))
-                    {
-                        byte* dataPtr = stackalloc byte[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (byte)(object)ScalarAdd(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(sbyte))
-                    {
-                        sbyte* dataPtr = stackalloc sbyte[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (sbyte)(object)ScalarAdd(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(ushort))
-                    {
-                        ushort* dataPtr = stackalloc ushort[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (ushort)(object)ScalarAdd(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(short))
-                    {
-                        short* dataPtr = stackalloc short[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (short)(object)ScalarAdd(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(uint))
-                    {
-                        uint* dataPtr = stackalloc uint[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (uint)(object)ScalarAdd(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(int))
-                    {
-                        int* dataPtr = stackalloc int[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (int)(object)ScalarAdd(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(ulong))
-                    {
-                        ulong* dataPtr = stackalloc ulong[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (ulong)(object)ScalarAdd(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(long))
-                    {
-                        long* dataPtr = stackalloc long[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (long)(object)ScalarAdd(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(float))
-                    {
-                        float* dataPtr = stackalloc float[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (float)(object)ScalarAdd(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(double))
-                    {
-                        double* dataPtr = stackalloc double[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (double)(object)ScalarAdd(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else
-                    {
-                        throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                    }
-                }
-                else
-                {
-                    Vector<T> sum = default;
-                    if (typeof(T) == typeof(byte))
-                    {
-                        sum.register.byte_0 = (byte)(left.register.byte_0 + right.register.byte_0);
-                        sum.register.byte_1 = (byte)(left.register.byte_1 + right.register.byte_1);
-                        sum.register.byte_2 = (byte)(left.register.byte_2 + right.register.byte_2);
-                        sum.register.byte_3 = (byte)(left.register.byte_3 + right.register.byte_3);
-                        sum.register.byte_4 = (byte)(left.register.byte_4 + right.register.byte_4);
-                        sum.register.byte_5 = (byte)(left.register.byte_5 + right.register.byte_5);
-                        sum.register.byte_6 = (byte)(left.register.byte_6 + right.register.byte_6);
-                        sum.register.byte_7 = (byte)(left.register.byte_7 + right.register.byte_7);
-                        sum.register.byte_8 = (byte)(left.register.byte_8 + right.register.byte_8);
-                        sum.register.byte_9 = (byte)(left.register.byte_9 + right.register.byte_9);
-                        sum.register.byte_10 = (byte)(left.register.byte_10 + right.register.byte_10);
-                        sum.register.byte_11 = (byte)(left.register.byte_11 + right.register.byte_11);
-                        sum.register.byte_12 = (byte)(left.register.byte_12 + right.register.byte_12);
-                        sum.register.byte_13 = (byte)(left.register.byte_13 + right.register.byte_13);
-                        sum.register.byte_14 = (byte)(left.register.byte_14 + right.register.byte_14);
-                        sum.register.byte_15 = (byte)(left.register.byte_15 + right.register.byte_15);
-                    }
-                    else if (typeof(T) == typeof(sbyte))
-                    {
-                        sum.register.sbyte_0 = (sbyte)(left.register.sbyte_0 + right.register.sbyte_0);
-                        sum.register.sbyte_1 = (sbyte)(left.register.sbyte_1 + right.register.sbyte_1);
-                        sum.register.sbyte_2 = (sbyte)(left.register.sbyte_2 + right.register.sbyte_2);
-                        sum.register.sbyte_3 = (sbyte)(left.register.sbyte_3 + right.register.sbyte_3);
-                        sum.register.sbyte_4 = (sbyte)(left.register.sbyte_4 + right.register.sbyte_4);
-                        sum.register.sbyte_5 = (sbyte)(left.register.sbyte_5 + right.register.sbyte_5);
-                        sum.register.sbyte_6 = (sbyte)(left.register.sbyte_6 + right.register.sbyte_6);
-                        sum.register.sbyte_7 = (sbyte)(left.register.sbyte_7 + right.register.sbyte_7);
-                        sum.register.sbyte_8 = (sbyte)(left.register.sbyte_8 + right.register.sbyte_8);
-                        sum.register.sbyte_9 = (sbyte)(left.register.sbyte_9 + right.register.sbyte_9);
-                        sum.register.sbyte_10 = (sbyte)(left.register.sbyte_10 + right.register.sbyte_10);
-                        sum.register.sbyte_11 = (sbyte)(left.register.sbyte_11 + right.register.sbyte_11);
-                        sum.register.sbyte_12 = (sbyte)(left.register.sbyte_12 + right.register.sbyte_12);
-                        sum.register.sbyte_13 = (sbyte)(left.register.sbyte_13 + right.register.sbyte_13);
-                        sum.register.sbyte_14 = (sbyte)(left.register.sbyte_14 + right.register.sbyte_14);
-                        sum.register.sbyte_15 = (sbyte)(left.register.sbyte_15 + right.register.sbyte_15);
-                    }
-                    else if (typeof(T) == typeof(ushort))
-                    {
-                        sum.register.uint16_0 = (ushort)(left.register.uint16_0 + right.register.uint16_0);
-                        sum.register.uint16_1 = (ushort)(left.register.uint16_1 + right.register.uint16_1);
-                        sum.register.uint16_2 = (ushort)(left.register.uint16_2 + right.register.uint16_2);
-                        sum.register.uint16_3 = (ushort)(left.register.uint16_3 + right.register.uint16_3);
-                        sum.register.uint16_4 = (ushort)(left.register.uint16_4 + right.register.uint16_4);
-                        sum.register.uint16_5 = (ushort)(left.register.uint16_5 + right.register.uint16_5);
-                        sum.register.uint16_6 = (ushort)(left.register.uint16_6 + right.register.uint16_6);
-                        sum.register.uint16_7 = (ushort)(left.register.uint16_7 + right.register.uint16_7);
-                    }
-                    else if (typeof(T) == typeof(short))
-                    {
-                        sum.register.int16_0 = (short)(left.register.int16_0 + right.register.int16_0);
-                        sum.register.int16_1 = (short)(left.register.int16_1 + right.register.int16_1);
-                        sum.register.int16_2 = (short)(left.register.int16_2 + right.register.int16_2);
-                        sum.register.int16_3 = (short)(left.register.int16_3 + right.register.int16_3);
-                        sum.register.int16_4 = (short)(left.register.int16_4 + right.register.int16_4);
-                        sum.register.int16_5 = (short)(left.register.int16_5 + right.register.int16_5);
-                        sum.register.int16_6 = (short)(left.register.int16_6 + right.register.int16_6);
-                        sum.register.int16_7 = (short)(left.register.int16_7 + right.register.int16_7);
-                    }
-                    else if (typeof(T) == typeof(uint))
-                    {
-                        sum.register.uint32_0 = (uint)(left.register.uint32_0 + right.register.uint32_0);
-                        sum.register.uint32_1 = (uint)(left.register.uint32_1 + right.register.uint32_1);
-                        sum.register.uint32_2 = (uint)(left.register.uint32_2 + right.register.uint32_2);
-                        sum.register.uint32_3 = (uint)(left.register.uint32_3 + right.register.uint32_3);
-                    }
-                    else if (typeof(T) == typeof(int))
-                    {
-                        sum.register.int32_0 = (int)(left.register.int32_0 + right.register.int32_0);
-                        sum.register.int32_1 = (int)(left.register.int32_1 + right.register.int32_1);
-                        sum.register.int32_2 = (int)(left.register.int32_2 + right.register.int32_2);
-                        sum.register.int32_3 = (int)(left.register.int32_3 + right.register.int32_3);
-                    }
-                    else if (typeof(T) == typeof(ulong))
-                    {
-                        sum.register.uint64_0 = (ulong)(left.register.uint64_0 + right.register.uint64_0);
-                        sum.register.uint64_1 = (ulong)(left.register.uint64_1 + right.register.uint64_1);
-                    }
-                    else if (typeof(T) == typeof(long))
-                    {
-                        sum.register.int64_0 = (long)(left.register.int64_0 + right.register.int64_0);
-                        sum.register.int64_1 = (long)(left.register.int64_1 + right.register.int64_1);
-                    }
-                    else if (typeof(T) == typeof(float))
-                    {
-                        sum.register.single_0 = (float)(left.register.single_0 + right.register.single_0);
-                        sum.register.single_1 = (float)(left.register.single_1 + right.register.single_1);
-                        sum.register.single_2 = (float)(left.register.single_2 + right.register.single_2);
-                        sum.register.single_3 = (float)(left.register.single_3 + right.register.single_3);
-                    }
-                    else if (typeof(T) == typeof(double))
-                    {
-                        sum.register.double_0 = (double)(left.register.double_0 + right.register.double_0);
-                        sum.register.double_1 = (double)(left.register.double_1 + right.register.double_1);
-                    }
-                    return sum;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Subtracts the second vector from the first.
-        /// </summary>
-        /// <param name="left">The first source vector.</param>
-        /// <param name="right">The second source vector.</param>
-        /// <returns>The difference vector.</returns>
-        [Intrinsic]
-        public static unsafe Vector<T> operator -(Vector<T> left, Vector<T> right)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            unchecked
-            {
-                if (Vector.IsHardwareAccelerated)
-                {
-                    if (typeof(T) == typeof(byte))
-                    {
-                        byte* dataPtr = stackalloc byte[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (byte)(object)ScalarSubtract(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(sbyte))
-                    {
-                        sbyte* dataPtr = stackalloc sbyte[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (sbyte)(object)ScalarSubtract(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(ushort))
-                    {
-                        ushort* dataPtr = stackalloc ushort[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (ushort)(object)ScalarSubtract(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(short))
-                    {
-                        short* dataPtr = stackalloc short[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (short)(object)ScalarSubtract(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(uint))
-                    {
-                        uint* dataPtr = stackalloc uint[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (uint)(object)ScalarSubtract(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(int))
-                    {
-                        int* dataPtr = stackalloc int[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (int)(object)ScalarSubtract(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(ulong))
-                    {
-                        ulong* dataPtr = stackalloc ulong[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (ulong)(object)ScalarSubtract(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(long))
-                    {
-                        long* dataPtr = stackalloc long[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (long)(object)ScalarSubtract(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(float))
-                    {
-                        float* dataPtr = stackalloc float[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (float)(object)ScalarSubtract(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(double))
-                    {
-                        double* dataPtr = stackalloc double[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (double)(object)ScalarSubtract(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else
-                    {
-                        throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                    }
-                }
-                else
-                {
-                    Vector<T> difference = default;
-                    if (typeof(T) == typeof(byte))
-                    {
-                        difference.register.byte_0 = (byte)(left.register.byte_0 - right.register.byte_0);
-                        difference.register.byte_1 = (byte)(left.register.byte_1 - right.register.byte_1);
-                        difference.register.byte_2 = (byte)(left.register.byte_2 - right.register.byte_2);
-                        difference.register.byte_3 = (byte)(left.register.byte_3 - right.register.byte_3);
-                        difference.register.byte_4 = (byte)(left.register.byte_4 - right.register.byte_4);
-                        difference.register.byte_5 = (byte)(left.register.byte_5 - right.register.byte_5);
-                        difference.register.byte_6 = (byte)(left.register.byte_6 - right.register.byte_6);
-                        difference.register.byte_7 = (byte)(left.register.byte_7 - right.register.byte_7);
-                        difference.register.byte_8 = (byte)(left.register.byte_8 - right.register.byte_8);
-                        difference.register.byte_9 = (byte)(left.register.byte_9 - right.register.byte_9);
-                        difference.register.byte_10 = (byte)(left.register.byte_10 - right.register.byte_10);
-                        difference.register.byte_11 = (byte)(left.register.byte_11 - right.register.byte_11);
-                        difference.register.byte_12 = (byte)(left.register.byte_12 - right.register.byte_12);
-                        difference.register.byte_13 = (byte)(left.register.byte_13 - right.register.byte_13);
-                        difference.register.byte_14 = (byte)(left.register.byte_14 - right.register.byte_14);
-                        difference.register.byte_15 = (byte)(left.register.byte_15 - right.register.byte_15);
-                    }
-                    else if (typeof(T) == typeof(sbyte))
-                    {
-                        difference.register.sbyte_0 = (sbyte)(left.register.sbyte_0 - right.register.sbyte_0);
-                        difference.register.sbyte_1 = (sbyte)(left.register.sbyte_1 - right.register.sbyte_1);
-                        difference.register.sbyte_2 = (sbyte)(left.register.sbyte_2 - right.register.sbyte_2);
-                        difference.register.sbyte_3 = (sbyte)(left.register.sbyte_3 - right.register.sbyte_3);
-                        difference.register.sbyte_4 = (sbyte)(left.register.sbyte_4 - right.register.sbyte_4);
-                        difference.register.sbyte_5 = (sbyte)(left.register.sbyte_5 - right.register.sbyte_5);
-                        difference.register.sbyte_6 = (sbyte)(left.register.sbyte_6 - right.register.sbyte_6);
-                        difference.register.sbyte_7 = (sbyte)(left.register.sbyte_7 - right.register.sbyte_7);
-                        difference.register.sbyte_8 = (sbyte)(left.register.sbyte_8 - right.register.sbyte_8);
-                        difference.register.sbyte_9 = (sbyte)(left.register.sbyte_9 - right.register.sbyte_9);
-                        difference.register.sbyte_10 = (sbyte)(left.register.sbyte_10 - right.register.sbyte_10);
-                        difference.register.sbyte_11 = (sbyte)(left.register.sbyte_11 - right.register.sbyte_11);
-                        difference.register.sbyte_12 = (sbyte)(left.register.sbyte_12 - right.register.sbyte_12);
-                        difference.register.sbyte_13 = (sbyte)(left.register.sbyte_13 - right.register.sbyte_13);
-                        difference.register.sbyte_14 = (sbyte)(left.register.sbyte_14 - right.register.sbyte_14);
-                        difference.register.sbyte_15 = (sbyte)(left.register.sbyte_15 - right.register.sbyte_15);
-                    }
-                    else if (typeof(T) == typeof(ushort))
-                    {
-                        difference.register.uint16_0 = (ushort)(left.register.uint16_0 - right.register.uint16_0);
-                        difference.register.uint16_1 = (ushort)(left.register.uint16_1 - right.register.uint16_1);
-                        difference.register.uint16_2 = (ushort)(left.register.uint16_2 - right.register.uint16_2);
-                        difference.register.uint16_3 = (ushort)(left.register.uint16_3 - right.register.uint16_3);
-                        difference.register.uint16_4 = (ushort)(left.register.uint16_4 - right.register.uint16_4);
-                        difference.register.uint16_5 = (ushort)(left.register.uint16_5 - right.register.uint16_5);
-                        difference.register.uint16_6 = (ushort)(left.register.uint16_6 - right.register.uint16_6);
-                        difference.register.uint16_7 = (ushort)(left.register.uint16_7 - right.register.uint16_7);
-                    }
-                    else if (typeof(T) == typeof(short))
-                    {
-                        difference.register.int16_0 = (short)(left.register.int16_0 - right.register.int16_0);
-                        difference.register.int16_1 = (short)(left.register.int16_1 - right.register.int16_1);
-                        difference.register.int16_2 = (short)(left.register.int16_2 - right.register.int16_2);
-                        difference.register.int16_3 = (short)(left.register.int16_3 - right.register.int16_3);
-                        difference.register.int16_4 = (short)(left.register.int16_4 - right.register.int16_4);
-                        difference.register.int16_5 = (short)(left.register.int16_5 - right.register.int16_5);
-                        difference.register.int16_6 = (short)(left.register.int16_6 - right.register.int16_6);
-                        difference.register.int16_7 = (short)(left.register.int16_7 - right.register.int16_7);
-                    }
-                    else if (typeof(T) == typeof(uint))
-                    {
-                        difference.register.uint32_0 = (uint)(left.register.uint32_0 - right.register.uint32_0);
-                        difference.register.uint32_1 = (uint)(left.register.uint32_1 - right.register.uint32_1);
-                        difference.register.uint32_2 = (uint)(left.register.uint32_2 - right.register.uint32_2);
-                        difference.register.uint32_3 = (uint)(left.register.uint32_3 - right.register.uint32_3);
-                    }
-                    else if (typeof(T) == typeof(int))
-                    {
-                        difference.register.int32_0 = (int)(left.register.int32_0 - right.register.int32_0);
-                        difference.register.int32_1 = (int)(left.register.int32_1 - right.register.int32_1);
-                        difference.register.int32_2 = (int)(left.register.int32_2 - right.register.int32_2);
-                        difference.register.int32_3 = (int)(left.register.int32_3 - right.register.int32_3);
-                    }
-                    else if (typeof(T) == typeof(ulong))
-                    {
-                        difference.register.uint64_0 = (ulong)(left.register.uint64_0 - right.register.uint64_0);
-                        difference.register.uint64_1 = (ulong)(left.register.uint64_1 - right.register.uint64_1);
-                    }
-                    else if (typeof(T) == typeof(long))
-                    {
-                        difference.register.int64_0 = (long)(left.register.int64_0 - right.register.int64_0);
-                        difference.register.int64_1 = (long)(left.register.int64_1 - right.register.int64_1);
-                    }
-                    else if (typeof(T) == typeof(float))
-                    {
-                        difference.register.single_0 = (float)(left.register.single_0 - right.register.single_0);
-                        difference.register.single_1 = (float)(left.register.single_1 - right.register.single_1);
-                        difference.register.single_2 = (float)(left.register.single_2 - right.register.single_2);
-                        difference.register.single_3 = (float)(left.register.single_3 - right.register.single_3);
-                    }
-                    else if (typeof(T) == typeof(double))
-                    {
-                        difference.register.double_0 = (double)(left.register.double_0 - right.register.double_0);
-                        difference.register.double_1 = (double)(left.register.double_1 - right.register.double_1);
-                    }
-                    return difference;
-                }
-            }
-        }
-
-        // This method is intrinsic only for certain types. It cannot access fields directly unless we are sure the context is unaccelerated.
-        /// <summary>
-        /// Multiplies two vectors together.
-        /// </summary>
-        /// <param name="left">The first source vector.</param>
-        /// <param name="right">The second source vector.</param>
-        /// <returns>The product vector.</returns>
-        [Intrinsic]
-        public static unsafe Vector<T> operator *(Vector<T> left, Vector<T> right)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            unchecked
-            {
-                if (Vector.IsHardwareAccelerated)
-                {
-                    if (typeof(T) == typeof(byte))
-                    {
-                        byte* dataPtr = stackalloc byte[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (byte)(object)ScalarMultiply(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(sbyte))
-                    {
-                        sbyte* dataPtr = stackalloc sbyte[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (sbyte)(object)ScalarMultiply(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(ushort))
-                    {
-                        ushort* dataPtr = stackalloc ushort[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (ushort)(object)ScalarMultiply(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(short))
-                    {
-                        short* dataPtr = stackalloc short[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (short)(object)ScalarMultiply(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(uint))
-                    {
-                        uint* dataPtr = stackalloc uint[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (uint)(object)ScalarMultiply(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(int))
-                    {
-                        int* dataPtr = stackalloc int[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (int)(object)ScalarMultiply(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(ulong))
-                    {
-                        ulong* dataPtr = stackalloc ulong[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (ulong)(object)ScalarMultiply(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(long))
-                    {
-                        long* dataPtr = stackalloc long[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (long)(object)ScalarMultiply(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(float))
-                    {
-                        float* dataPtr = stackalloc float[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (float)(object)ScalarMultiply(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(double))
-                    {
-                        double* dataPtr = stackalloc double[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (double)(object)ScalarMultiply(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else
-                    {
-                        throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                    }
-                }
-                else
-                {
-                    Vector<T> product = default;
-                    if (typeof(T) == typeof(byte))
-                    {
-                        product.register.byte_0 = (byte)(left.register.byte_0 * right.register.byte_0);
-                        product.register.byte_1 = (byte)(left.register.byte_1 * right.register.byte_1);
-                        product.register.byte_2 = (byte)(left.register.byte_2 * right.register.byte_2);
-                        product.register.byte_3 = (byte)(left.register.byte_3 * right.register.byte_3);
-                        product.register.byte_4 = (byte)(left.register.byte_4 * right.register.byte_4);
-                        product.register.byte_5 = (byte)(left.register.byte_5 * right.register.byte_5);
-                        product.register.byte_6 = (byte)(left.register.byte_6 * right.register.byte_6);
-                        product.register.byte_7 = (byte)(left.register.byte_7 * right.register.byte_7);
-                        product.register.byte_8 = (byte)(left.register.byte_8 * right.register.byte_8);
-                        product.register.byte_9 = (byte)(left.register.byte_9 * right.register.byte_9);
-                        product.register.byte_10 = (byte)(left.register.byte_10 * right.register.byte_10);
-                        product.register.byte_11 = (byte)(left.register.byte_11 * right.register.byte_11);
-                        product.register.byte_12 = (byte)(left.register.byte_12 * right.register.byte_12);
-                        product.register.byte_13 = (byte)(left.register.byte_13 * right.register.byte_13);
-                        product.register.byte_14 = (byte)(left.register.byte_14 * right.register.byte_14);
-                        product.register.byte_15 = (byte)(left.register.byte_15 * right.register.byte_15);
-                    }
-                    else if (typeof(T) == typeof(sbyte))
-                    {
-                        product.register.sbyte_0 = (sbyte)(left.register.sbyte_0 * right.register.sbyte_0);
-                        product.register.sbyte_1 = (sbyte)(left.register.sbyte_1 * right.register.sbyte_1);
-                        product.register.sbyte_2 = (sbyte)(left.register.sbyte_2 * right.register.sbyte_2);
-                        product.register.sbyte_3 = (sbyte)(left.register.sbyte_3 * right.register.sbyte_3);
-                        product.register.sbyte_4 = (sbyte)(left.register.sbyte_4 * right.register.sbyte_4);
-                        product.register.sbyte_5 = (sbyte)(left.register.sbyte_5 * right.register.sbyte_5);
-                        product.register.sbyte_6 = (sbyte)(left.register.sbyte_6 * right.register.sbyte_6);
-                        product.register.sbyte_7 = (sbyte)(left.register.sbyte_7 * right.register.sbyte_7);
-                        product.register.sbyte_8 = (sbyte)(left.register.sbyte_8 * right.register.sbyte_8);
-                        product.register.sbyte_9 = (sbyte)(left.register.sbyte_9 * right.register.sbyte_9);
-                        product.register.sbyte_10 = (sbyte)(left.register.sbyte_10 * right.register.sbyte_10);
-                        product.register.sbyte_11 = (sbyte)(left.register.sbyte_11 * right.register.sbyte_11);
-                        product.register.sbyte_12 = (sbyte)(left.register.sbyte_12 * right.register.sbyte_12);
-                        product.register.sbyte_13 = (sbyte)(left.register.sbyte_13 * right.register.sbyte_13);
-                        product.register.sbyte_14 = (sbyte)(left.register.sbyte_14 * right.register.sbyte_14);
-                        product.register.sbyte_15 = (sbyte)(left.register.sbyte_15 * right.register.sbyte_15);
-                    }
-                    else if (typeof(T) == typeof(ushort))
-                    {
-                        product.register.uint16_0 = (ushort)(left.register.uint16_0 * right.register.uint16_0);
-                        product.register.uint16_1 = (ushort)(left.register.uint16_1 * right.register.uint16_1);
-                        product.register.uint16_2 = (ushort)(left.register.uint16_2 * right.register.uint16_2);
-                        product.register.uint16_3 = (ushort)(left.register.uint16_3 * right.register.uint16_3);
-                        product.register.uint16_4 = (ushort)(left.register.uint16_4 * right.register.uint16_4);
-                        product.register.uint16_5 = (ushort)(left.register.uint16_5 * right.register.uint16_5);
-                        product.register.uint16_6 = (ushort)(left.register.uint16_6 * right.register.uint16_6);
-                        product.register.uint16_7 = (ushort)(left.register.uint16_7 * right.register.uint16_7);
-                    }
-                    else if (typeof(T) == typeof(short))
-                    {
-                        product.register.int16_0 = (short)(left.register.int16_0 * right.register.int16_0);
-                        product.register.int16_1 = (short)(left.register.int16_1 * right.register.int16_1);
-                        product.register.int16_2 = (short)(left.register.int16_2 * right.register.int16_2);
-                        product.register.int16_3 = (short)(left.register.int16_3 * right.register.int16_3);
-                        product.register.int16_4 = (short)(left.register.int16_4 * right.register.int16_4);
-                        product.register.int16_5 = (short)(left.register.int16_5 * right.register.int16_5);
-                        product.register.int16_6 = (short)(left.register.int16_6 * right.register.int16_6);
-                        product.register.int16_7 = (short)(left.register.int16_7 * right.register.int16_7);
-                    }
-                    else if (typeof(T) == typeof(uint))
-                    {
-                        product.register.uint32_0 = (uint)(left.register.uint32_0 * right.register.uint32_0);
-                        product.register.uint32_1 = (uint)(left.register.uint32_1 * right.register.uint32_1);
-                        product.register.uint32_2 = (uint)(left.register.uint32_2 * right.register.uint32_2);
-                        product.register.uint32_3 = (uint)(left.register.uint32_3 * right.register.uint32_3);
-                    }
-                    else if (typeof(T) == typeof(int))
-                    {
-                        product.register.int32_0 = (int)(left.register.int32_0 * right.register.int32_0);
-                        product.register.int32_1 = (int)(left.register.int32_1 * right.register.int32_1);
-                        product.register.int32_2 = (int)(left.register.int32_2 * right.register.int32_2);
-                        product.register.int32_3 = (int)(left.register.int32_3 * right.register.int32_3);
-                    }
-                    else if (typeof(T) == typeof(ulong))
-                    {
-                        product.register.uint64_0 = (ulong)(left.register.uint64_0 * right.register.uint64_0);
-                        product.register.uint64_1 = (ulong)(left.register.uint64_1 * right.register.uint64_1);
-                    }
-                    else if (typeof(T) == typeof(long))
-                    {
-                        product.register.int64_0 = (long)(left.register.int64_0 * right.register.int64_0);
-                        product.register.int64_1 = (long)(left.register.int64_1 * right.register.int64_1);
-                    }
-                    else if (typeof(T) == typeof(float))
-                    {
-                        product.register.single_0 = (float)(left.register.single_0 * right.register.single_0);
-                        product.register.single_1 = (float)(left.register.single_1 * right.register.single_1);
-                        product.register.single_2 = (float)(left.register.single_2 * right.register.single_2);
-                        product.register.single_3 = (float)(left.register.single_3 * right.register.single_3);
-                    }
-                    else if (typeof(T) == typeof(double))
-                    {
-                        product.register.double_0 = (double)(left.register.double_0 * right.register.double_0);
-                        product.register.double_1 = (double)(left.register.double_1 * right.register.double_1);
-                    }
-                    return product;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Multiplies a vector by the given scalar.
-        /// </summary>
-        /// <param name="value">The source vector.</param>
-        /// <param name="factor">The scalar value.</param>
-        /// <returns>The scaled vector.</returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Vector<T> operator *(Vector<T> value, T factor) => new Vector<T>(factor) * value;
-
-        /// <summary>
-        /// Multiplies a vector by the given scalar.
-        /// </summary>
-        /// <param name="factor">The scalar value.</param>
-        /// <param name="value">The source vector.</param>
-        /// <returns>The scaled vector.</returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Vector<T> operator *(T factor, Vector<T> value) => new Vector<T>(factor) * value;
-
-        // This method is intrinsic only for certain types. It cannot access fields directly unless we are sure the context is unaccelerated.
-        /// <summary>
-        /// Divides the first vector by the second.
-        /// </summary>
-        /// <param name="left">The first source vector.</param>
-        /// <param name="right">The second source vector.</param>
-        /// <returns>The vector resulting from the division.</returns>
-        [Intrinsic]
-        public static unsafe Vector<T> operator /(Vector<T> left, Vector<T> right)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            unchecked
-            {
-                if (Vector.IsHardwareAccelerated)
-                {
-                    if (typeof(T) == typeof(byte))
-                    {
-                        byte* dataPtr = stackalloc byte[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (byte)(object)ScalarDivide(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(sbyte))
-                    {
-                        sbyte* dataPtr = stackalloc sbyte[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (sbyte)(object)ScalarDivide(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(ushort))
-                    {
-                        ushort* dataPtr = stackalloc ushort[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (ushort)(object)ScalarDivide(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(short))
-                    {
-                        short* dataPtr = stackalloc short[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (short)(object)ScalarDivide(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(uint))
-                    {
-                        uint* dataPtr = stackalloc uint[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (uint)(object)ScalarDivide(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(int))
-                    {
-                        int* dataPtr = stackalloc int[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (int)(object)ScalarDivide(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(ulong))
-                    {
-                        ulong* dataPtr = stackalloc ulong[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (ulong)(object)ScalarDivide(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(long))
-                    {
-                        long* dataPtr = stackalloc long[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (long)(object)ScalarDivide(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(float))
-                    {
-                        float* dataPtr = stackalloc float[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (float)(object)ScalarDivide(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else if (typeof(T) == typeof(double))
-                    {
-                        double* dataPtr = stackalloc double[Count];
-                        for (int g = 0; g < Count; g++)
-                        {
-                            dataPtr[g] = (double)(object)ScalarDivide(left[g], right[g]);
-                        }
-                        return new Vector<T>(dataPtr);
-                    }
-                    else
-                    {
-                        throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                    }
-                }
-                else
-                {
-                    Vector<T> quotient = default;
-                    if (typeof(T) == typeof(byte))
-                    {
-                        quotient.register.byte_0 = (byte)(left.register.byte_0 / right.register.byte_0);
-                        quotient.register.byte_1 = (byte)(left.register.byte_1 / right.register.byte_1);
-                        quotient.register.byte_2 = (byte)(left.register.byte_2 / right.register.byte_2);
-                        quotient.register.byte_3 = (byte)(left.register.byte_3 / right.register.byte_3);
-                        quotient.register.byte_4 = (byte)(left.register.byte_4 / right.register.byte_4);
-                        quotient.register.byte_5 = (byte)(left.register.byte_5 / right.register.byte_5);
-                        quotient.register.byte_6 = (byte)(left.register.byte_6 / right.register.byte_6);
-                        quotient.register.byte_7 = (byte)(left.register.byte_7 / right.register.byte_7);
-                        quotient.register.byte_8 = (byte)(left.register.byte_8 / right.register.byte_8);
-                        quotient.register.byte_9 = (byte)(left.register.byte_9 / right.register.byte_9);
-                        quotient.register.byte_10 = (byte)(left.register.byte_10 / right.register.byte_10);
-                        quotient.register.byte_11 = (byte)(left.register.byte_11 / right.register.byte_11);
-                        quotient.register.byte_12 = (byte)(left.register.byte_12 / right.register.byte_12);
-                        quotient.register.byte_13 = (byte)(left.register.byte_13 / right.register.byte_13);
-                        quotient.register.byte_14 = (byte)(left.register.byte_14 / right.register.byte_14);
-                        quotient.register.byte_15 = (byte)(left.register.byte_15 / right.register.byte_15);
-                    }
-                    else if (typeof(T) == typeof(sbyte))
-                    {
-                        quotient.register.sbyte_0 = (sbyte)(left.register.sbyte_0 / right.register.sbyte_0);
-                        quotient.register.sbyte_1 = (sbyte)(left.register.sbyte_1 / right.register.sbyte_1);
-                        quotient.register.sbyte_2 = (sbyte)(left.register.sbyte_2 / right.register.sbyte_2);
-                        quotient.register.sbyte_3 = (sbyte)(left.register.sbyte_3 / right.register.sbyte_3);
-                        quotient.register.sbyte_4 = (sbyte)(left.register.sbyte_4 / right.register.sbyte_4);
-                        quotient.register.sbyte_5 = (sbyte)(left.register.sbyte_5 / right.register.sbyte_5);
-                        quotient.register.sbyte_6 = (sbyte)(left.register.sbyte_6 / right.register.sbyte_6);
-                        quotient.register.sbyte_7 = (sbyte)(left.register.sbyte_7 / right.register.sbyte_7);
-                        quotient.register.sbyte_8 = (sbyte)(left.register.sbyte_8 / right.register.sbyte_8);
-                        quotient.register.sbyte_9 = (sbyte)(left.register.sbyte_9 / right.register.sbyte_9);
-                        quotient.register.sbyte_10 = (sbyte)(left.register.sbyte_10 / right.register.sbyte_10);
-                        quotient.register.sbyte_11 = (sbyte)(left.register.sbyte_11 / right.register.sbyte_11);
-                        quotient.register.sbyte_12 = (sbyte)(left.register.sbyte_12 / right.register.sbyte_12);
-                        quotient.register.sbyte_13 = (sbyte)(left.register.sbyte_13 / right.register.sbyte_13);
-                        quotient.register.sbyte_14 = (sbyte)(left.register.sbyte_14 / right.register.sbyte_14);
-                        quotient.register.sbyte_15 = (sbyte)(left.register.sbyte_15 / right.register.sbyte_15);
-                    }
-                    else if (typeof(T) == typeof(ushort))
-                    {
-                        quotient.register.uint16_0 = (ushort)(left.register.uint16_0 / right.register.uint16_0);
-                        quotient.register.uint16_1 = (ushort)(left.register.uint16_1 / right.register.uint16_1);
-                        quotient.register.uint16_2 = (ushort)(left.register.uint16_2 / right.register.uint16_2);
-                        quotient.register.uint16_3 = (ushort)(left.register.uint16_3 / right.register.uint16_3);
-                        quotient.register.uint16_4 = (ushort)(left.register.uint16_4 / right.register.uint16_4);
-                        quotient.register.uint16_5 = (ushort)(left.register.uint16_5 / right.register.uint16_5);
-                        quotient.register.uint16_6 = (ushort)(left.register.uint16_6 / right.register.uint16_6);
-                        quotient.register.uint16_7 = (ushort)(left.register.uint16_7 / right.register.uint16_7);
-                    }
-                    else if (typeof(T) == typeof(short))
-                    {
-                        quotient.register.int16_0 = (short)(left.register.int16_0 / right.register.int16_0);
-                        quotient.register.int16_1 = (short)(left.register.int16_1 / right.register.int16_1);
-                        quotient.register.int16_2 = (short)(left.register.int16_2 / right.register.int16_2);
-                        quotient.register.int16_3 = (short)(left.register.int16_3 / right.register.int16_3);
-                        quotient.register.int16_4 = (short)(left.register.int16_4 / right.register.int16_4);
-                        quotient.register.int16_5 = (short)(left.register.int16_5 / right.register.int16_5);
-                        quotient.register.int16_6 = (short)(left.register.int16_6 / right.register.int16_6);
-                        quotient.register.int16_7 = (short)(left.register.int16_7 / right.register.int16_7);
-                    }
-                    else if (typeof(T) == typeof(uint))
-                    {
-                        quotient.register.uint32_0 = (uint)(left.register.uint32_0 / right.register.uint32_0);
-                        quotient.register.uint32_1 = (uint)(left.register.uint32_1 / right.register.uint32_1);
-                        quotient.register.uint32_2 = (uint)(left.register.uint32_2 / right.register.uint32_2);
-                        quotient.register.uint32_3 = (uint)(left.register.uint32_3 / right.register.uint32_3);
-                    }
-                    else if (typeof(T) == typeof(int))
-                    {
-                        quotient.register.int32_0 = (int)(left.register.int32_0 / right.register.int32_0);
-                        quotient.register.int32_1 = (int)(left.register.int32_1 / right.register.int32_1);
-                        quotient.register.int32_2 = (int)(left.register.int32_2 / right.register.int32_2);
-                        quotient.register.int32_3 = (int)(left.register.int32_3 / right.register.int32_3);
-                    }
-                    else if (typeof(T) == typeof(ulong))
-                    {
-                        quotient.register.uint64_0 = (ulong)(left.register.uint64_0 / right.register.uint64_0);
-                        quotient.register.uint64_1 = (ulong)(left.register.uint64_1 / right.register.uint64_1);
-                    }
-                    else if (typeof(T) == typeof(long))
-                    {
-                        quotient.register.int64_0 = (long)(left.register.int64_0 / right.register.int64_0);
-                        quotient.register.int64_1 = (long)(left.register.int64_1 / right.register.int64_1);
-                    }
-                    else if (typeof(T) == typeof(float))
-                    {
-                        quotient.register.single_0 = (float)(left.register.single_0 / right.register.single_0);
-                        quotient.register.single_1 = (float)(left.register.single_1 / right.register.single_1);
-                        quotient.register.single_2 = (float)(left.register.single_2 / right.register.single_2);
-                        quotient.register.single_3 = (float)(left.register.single_3 / right.register.single_3);
-                    }
-                    else if (typeof(T) == typeof(double))
-                    {
-                        quotient.register.double_0 = (double)(left.register.double_0 / right.register.double_0);
-                        quotient.register.double_1 = (double)(left.register.double_1 / right.register.double_1);
-                    }
-                    return quotient;
-                }
-            }
-        }
-
-        /// <summary>
-        /// Negates a given vector.
-        /// </summary>
-        /// <param name="value">The source vector.</param>
-        /// <returns>The negated vector.</returns>
-        public static Vector<T> operator -(Vector<T> value) => Zero - value;
-        #endregion Arithmetic Operators
-
-        #region Bitwise Operators
-        /// <summary>
-        /// Returns a new vector by performing a bitwise-and operation on each of the elements in the given vectors.
-        /// </summary>
-        /// <param name="left">The first source vector.</param>
-        /// <param name="right">The second source vector.</param>
-        /// <returns>The resultant vector.</returns>
-        [Intrinsic]
-        public static unsafe Vector<T> operator &(Vector<T> left, Vector<T> right)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            Vector<T> result = default;
-            unchecked
-            {
-                if (Vector.IsHardwareAccelerated)
-                {
-                    long* resultBase = &result.register.int64_0;
-                    long* leftBase = &left.register.int64_0;
-                    long* rightBase = &right.register.int64_0;
-                    for (int g = 0; g < Vector<long>.Count; g++)
-                    {
-                        resultBase[g] = leftBase[g] & rightBase[g];
-                    }
-                }
-                else
-                {
-                    result.register.int64_0 = left.register.int64_0 & right.register.int64_0;
-                    result.register.int64_1 = left.register.int64_1 & right.register.int64_1;
-                }
-            }
-            return result;
-        }
-
-        /// <summary>
-        /// Returns a new vector by performing a bitwise-or operation on each of the elements in the given vectors.
-        /// </summary>
-        /// <param name="left">The first source vector.</param>
-        /// <param name="right">The second source vector.</param>
-        /// <returns>The resultant vector.</returns>
-        [Intrinsic]
-        public static unsafe Vector<T> operator |(Vector<T> left, Vector<T> right)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            Vector<T> result = default;
-            unchecked
-            {
-                if (Vector.IsHardwareAccelerated)
-                {
-                    long* resultBase = &result.register.int64_0;
-                    long* leftBase = &left.register.int64_0;
-                    long* rightBase = &right.register.int64_0;
-                    for (int g = 0; g < Vector<long>.Count; g++)
-                    {
-                        resultBase[g] = leftBase[g] | rightBase[g];
-                    }
-                }
-                else
-                {
-                    result.register.int64_0 = left.register.int64_0 | right.register.int64_0;
-                    result.register.int64_1 = left.register.int64_1 | right.register.int64_1;
-                }
-            }
-            return result;
-        }
-
-        /// <summary>
-        /// Returns a new vector by performing a bitwise-exclusive-or operation on each of the elements in the given vectors.
-        /// </summary>
-        /// <param name="left">The first source vector.</param>
-        /// <param name="right">The second source vector.</param>
-        /// <returns>The resultant vector.</returns>
-        [Intrinsic]
-        public static unsafe Vector<T> operator ^(Vector<T> left, Vector<T> right)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-
-            Vector<T> result = default;
-            unchecked
-            {
-                if (Vector.IsHardwareAccelerated)
-                {
-                    long* resultBase = &result.register.int64_0;
-                    long* leftBase = &left.register.int64_0;
-                    long* rightBase = &right.register.int64_0;
-                    for (int g = 0; g < Vector<long>.Count; g++)
-                    {
-                        resultBase[g] = leftBase[g] ^ rightBase[g];
-                    }
-                }
-                else
-                {
-                    result.register.int64_0 = left.register.int64_0 ^ right.register.int64_0;
-                    result.register.int64_1 = left.register.int64_1 ^ right.register.int64_1;
-                }
-            }
-            return result;
-        }
-
-        /// <summary>
-        /// Returns a new vector whose elements are obtained by taking the one's complement of the given vector's elements.
-        /// </summary>
-        /// <param name="value">The source vector.</param>
-        /// <returns>The one's complement vector.</returns>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static Vector<T> operator ~(Vector<T> value) => AllBitsSet ^ value;
-        #endregion Bitwise Operators
-
-        #region Logical Operators
-        /// <summary>
-        /// Returns a boolean indicating whether each pair of elements in the given vectors are equal.
-        /// </summary>
-        /// <param name="left">The first vector to compare.</param>
-        /// <param name="right">The first vector to compare.</param>
-        /// <returns>True if all elements are equal; False otherwise.</returns>
-        [Intrinsic]
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator ==(Vector<T> left, Vector<T> right)
-        {
-            if (Vector.IsHardwareAccelerated)
-            {
-                for (int g = 0; g < Count; g++)
-                {
-                    if (!ScalarEquals(left[g], right[g]))
-                    {
-                        return false;
-                    }
-                }
-                return true;
-            }
-            else
-            {
-                if (typeof(T) == typeof(byte))
-                {
-                    return
-                        left.register.byte_0 == right.register.byte_0
-                        && left.register.byte_1 == right.register.byte_1
-                        && left.register.byte_2 == right.register.byte_2
-                        && left.register.byte_3 == right.register.byte_3
-                        && left.register.byte_4 == right.register.byte_4
-                        && left.register.byte_5 == right.register.byte_5
-                        && left.register.byte_6 == right.register.byte_6
-                        && left.register.byte_7 == right.register.byte_7
-                        && left.register.byte_8 == right.register.byte_8
-                        && left.register.byte_9 == right.register.byte_9
-                        && left.register.byte_10 == right.register.byte_10
-                        && left.register.byte_11 == right.register.byte_11
-                        && left.register.byte_12 == right.register.byte_12
-                        && left.register.byte_13 == right.register.byte_13
-                        && left.register.byte_14 == right.register.byte_14
-                        && left.register.byte_15 == right.register.byte_15;
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    return
-                        left.register.sbyte_0 == right.register.sbyte_0
-                        && left.register.sbyte_1 == right.register.sbyte_1
-                        && left.register.sbyte_2 == right.register.sbyte_2
-                        && left.register.sbyte_3 == right.register.sbyte_3
-                        && left.register.sbyte_4 == right.register.sbyte_4
-                        && left.register.sbyte_5 == right.register.sbyte_5
-                        && left.register.sbyte_6 == right.register.sbyte_6
-                        && left.register.sbyte_7 == right.register.sbyte_7
-                        && left.register.sbyte_8 == right.register.sbyte_8
-                        && left.register.sbyte_9 == right.register.sbyte_9
-                        && left.register.sbyte_10 == right.register.sbyte_10
-                        && left.register.sbyte_11 == right.register.sbyte_11
-                        && left.register.sbyte_12 == right.register.sbyte_12
-                        && left.register.sbyte_13 == right.register.sbyte_13
-                        && left.register.sbyte_14 == right.register.sbyte_14
-                        && left.register.sbyte_15 == right.register.sbyte_15;
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    return
-                        left.register.uint16_0 == right.register.uint16_0
-                        && left.register.uint16_1 == right.register.uint16_1
-                        && left.register.uint16_2 == right.register.uint16_2
-                        && left.register.uint16_3 == right.register.uint16_3
-                        && left.register.uint16_4 == right.register.uint16_4
-                        && left.register.uint16_5 == right.register.uint16_5
-                        && left.register.uint16_6 == right.register.uint16_6
-                        && left.register.uint16_7 == right.register.uint16_7;
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    return
-                        left.register.int16_0 == right.register.int16_0
-                        && left.register.int16_1 == right.register.int16_1
-                        && left.register.int16_2 == right.register.int16_2
-                        && left.register.int16_3 == right.register.int16_3
-                        && left.register.int16_4 == right.register.int16_4
-                        && left.register.int16_5 == right.register.int16_5
-                        && left.register.int16_6 == right.register.int16_6
-                        && left.register.int16_7 == right.register.int16_7;
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    return
-                        left.register.uint32_0 == right.register.uint32_0
-                        && left.register.uint32_1 == right.register.uint32_1
-                        && left.register.uint32_2 == right.register.uint32_2
-                        && left.register.uint32_3 == right.register.uint32_3;
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    return
-                        left.register.int32_0 == right.register.int32_0
-                        && left.register.int32_1 == right.register.int32_1
-                        && left.register.int32_2 == right.register.int32_2
-                        && left.register.int32_3 == right.register.int32_3;
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    return
-                        left.register.uint64_0 == right.register.uint64_0
-                        && left.register.uint64_1 == right.register.uint64_1;
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    return
-                        left.register.int64_0 == right.register.int64_0
-                        && left.register.int64_1 == right.register.int64_1;
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    return
-                        left.register.single_0 == right.register.single_0
-                        && left.register.single_1 == right.register.single_1
-                        && left.register.single_2 == right.register.single_2
-                        && left.register.single_3 == right.register.single_3;
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    return
-                        left.register.double_0 == right.register.double_0
-                        && left.register.double_1 == right.register.double_1;
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-        }
-
-        /// <summary>
-        /// Returns a boolean indicating whether any single pair of elements in the given vectors are not equal.
-        /// </summary>
-        /// <param name="left">The first vector to compare.</param>
-        /// <param name="right">The second vector to compare.</param>
-        /// <returns>True if left and right are not equal; False otherwise.</returns>
-        [Intrinsic]
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool operator !=(Vector<T> left, Vector<T> right) => !(left == right);
-        #endregion Logical Operators
-
-        #region Conversions
-        /// <summary>
-        /// Reinterprets the bits of the given vector into those of another type.
-        /// </summary>
-        /// <param name="value">The source vector</param>
-        /// <returns>The reinterpreted vector.</returns>
-        [Intrinsic]
-        public static explicit operator Vector<byte>(Vector<T> value)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-            return new Vector<byte>(ref value.register);
-        }
-
-        /// <summary>
-        /// Reinterprets the bits of the given vector into those of another type.
-        /// </summary>
-        /// <param name="value">The source vector</param>
-        /// <returns>The reinterpreted vector.</returns>
-        [CLSCompliant(false)]
-        [Intrinsic]
-        public static explicit operator Vector<sbyte>(Vector<T> value)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-            return new Vector<sbyte>(ref value.register);
-        }
-
-        /// <summary>
-        /// Reinterprets the bits of the given vector into those of another type.
-        /// </summary>
-        /// <param name="value">The source vector</param>
-        /// <returns>The reinterpreted vector.</returns>
-        [CLSCompliant(false)]
-        [Intrinsic]
-        public static explicit operator Vector<ushort>(Vector<T> value)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-            return new Vector<ushort>(ref value.register);
-        }
-
-        /// <summary>
-        /// Reinterprets the bits of the given vector into those of another type.
-        /// </summary>
-        /// <param name="value">The source vector</param>
-        /// <returns>The reinterpreted vector.</returns>
-        [Intrinsic]
-        public static explicit operator Vector<short>(Vector<T> value)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-            return new Vector<short>(ref value.register);
-        }
-
-        /// <summary>
-        /// Reinterprets the bits of the given vector into those of another type.
-        /// </summary>
-        /// <param name="value">The source vector</param>
-        /// <returns>The reinterpreted vector.</returns>
-        [CLSCompliant(false)]
-        [Intrinsic]
-        public static explicit operator Vector<uint>(Vector<T> value)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-            return new Vector<uint>(ref value.register);
-        }
-
-        /// <summary>
-        /// Reinterprets the bits of the given vector into those of another type.
-        /// </summary>
-        /// <param name="value">The source vector</param>
-        /// <returns>The reinterpreted vector.</returns>
-        [Intrinsic]
-        public static explicit operator Vector<int>(Vector<T> value)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-            return new Vector<int>(ref value.register);
-        }
-
-        /// <summary>
-        /// Reinterprets the bits of the given vector into those of another type.
-        /// </summary>
-        /// <param name="value">The source vector</param>
-        /// <returns>The reinterpreted vector.</returns>
-        [CLSCompliant(false)]
-        [Intrinsic]
-        public static explicit operator Vector<ulong>(Vector<T> value)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-            return new Vector<ulong>(ref value.register);
-        }
-
-        /// <summary>
-        /// Reinterprets the bits of the given vector into those of another type.
-        /// </summary>
-        /// <param name="value">The source vector</param>
-        /// <returns>The reinterpreted vector.</returns>
-        [Intrinsic]
-        public static explicit operator Vector<long>(Vector<T> value)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-            return new Vector<long>(ref value.register);
-        }
-
-        /// <summary>
-        /// Reinterprets the bits of the given vector into those of another type.
-        /// </summary>
-        /// <param name="value">The source vector</param>
-        /// <returns>The reinterpreted vector.</returns>
-        [Intrinsic]
-        public static explicit operator Vector<float>(Vector<T> value)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-            return new Vector<float>(ref value.register);
-        }
-
-        /// <summary>
-        /// Reinterprets the bits of the given vector into those of another type.
-        /// </summary>
-        /// <param name="value">The source vector</param>
-        /// <returns>The reinterpreted vector.</returns>
-        [Intrinsic]
-        public static explicit operator Vector<double>(Vector<T> value)
-        {
-            ThrowHelper.ThrowForUnsupportedVectorBaseType<T>();
-            return new Vector<double>(ref value.register);
-        }
-
-        #endregion Conversions
-
-        #region Internal Comparison Methods
-        [Intrinsic]
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static unsafe Vector<T> Equals(Vector<T> left, Vector<T> right)
-        {
-            if (Vector.IsHardwareAccelerated)
-            {
-                if (typeof(T) == typeof(byte))
-                {
-                    byte* dataPtr = stackalloc byte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarEquals(left[g], right[g]) ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    sbyte* dataPtr = stackalloc sbyte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarEquals(left[g], right[g]) ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    ushort* dataPtr = stackalloc ushort[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarEquals(left[g], right[g]) ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    short* dataPtr = stackalloc short[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarEquals(left[g], right[g]) ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    uint* dataPtr = stackalloc uint[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarEquals(left[g], right[g]) ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    int* dataPtr = stackalloc int[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarEquals(left[g], right[g]) ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    ulong* dataPtr = stackalloc ulong[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarEquals(left[g], right[g]) ? ConstantHelper.GetUInt64WithAllBitsSet() : (ulong)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    long* dataPtr = stackalloc long[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarEquals(left[g], right[g]) ? ConstantHelper.GetInt64WithAllBitsSet() : (long)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    float* dataPtr = stackalloc float[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarEquals(left[g], right[g]) ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    double* dataPtr = stackalloc double[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarEquals(left[g], right[g]) ? ConstantHelper.GetDoubleWithAllBitsSet() : (double)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-            else
-            {
-                Register register = default;
-                if (typeof(T) == typeof(byte))
-                {
-                    register.byte_0 = left.register.byte_0 == right.register.byte_0 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_1 = left.register.byte_1 == right.register.byte_1 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_2 = left.register.byte_2 == right.register.byte_2 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_3 = left.register.byte_3 == right.register.byte_3 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_4 = left.register.byte_4 == right.register.byte_4 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_5 = left.register.byte_5 == right.register.byte_5 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_6 = left.register.byte_6 == right.register.byte_6 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_7 = left.register.byte_7 == right.register.byte_7 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_8 = left.register.byte_8 == right.register.byte_8 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_9 = left.register.byte_9 == right.register.byte_9 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_10 = left.register.byte_10 == right.register.byte_10 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_11 = left.register.byte_11 == right.register.byte_11 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_12 = left.register.byte_12 == right.register.byte_12 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_13 = left.register.byte_13 == right.register.byte_13 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_14 = left.register.byte_14 == right.register.byte_14 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_15 = left.register.byte_15 == right.register.byte_15 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    register.sbyte_0 = left.register.sbyte_0 == right.register.sbyte_0 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_1 = left.register.sbyte_1 == right.register.sbyte_1 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_2 = left.register.sbyte_2 == right.register.sbyte_2 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_3 = left.register.sbyte_3 == right.register.sbyte_3 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_4 = left.register.sbyte_4 == right.register.sbyte_4 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_5 = left.register.sbyte_5 == right.register.sbyte_5 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_6 = left.register.sbyte_6 == right.register.sbyte_6 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_7 = left.register.sbyte_7 == right.register.sbyte_7 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_8 = left.register.sbyte_8 == right.register.sbyte_8 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_9 = left.register.sbyte_9 == right.register.sbyte_9 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_10 = left.register.sbyte_10 == right.register.sbyte_10 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_11 = left.register.sbyte_11 == right.register.sbyte_11 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_12 = left.register.sbyte_12 == right.register.sbyte_12 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_13 = left.register.sbyte_13 == right.register.sbyte_13 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_14 = left.register.sbyte_14 == right.register.sbyte_14 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_15 = left.register.sbyte_15 == right.register.sbyte_15 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    register.uint16_0 = left.register.uint16_0 == right.register.uint16_0 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_1 = left.register.uint16_1 == right.register.uint16_1 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_2 = left.register.uint16_2 == right.register.uint16_2 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_3 = left.register.uint16_3 == right.register.uint16_3 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_4 = left.register.uint16_4 == right.register.uint16_4 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_5 = left.register.uint16_5 == right.register.uint16_5 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_6 = left.register.uint16_6 == right.register.uint16_6 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_7 = left.register.uint16_7 == right.register.uint16_7 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    register.int16_0 = left.register.int16_0 == right.register.int16_0 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_1 = left.register.int16_1 == right.register.int16_1 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_2 = left.register.int16_2 == right.register.int16_2 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_3 = left.register.int16_3 == right.register.int16_3 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_4 = left.register.int16_4 == right.register.int16_4 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_5 = left.register.int16_5 == right.register.int16_5 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_6 = left.register.int16_6 == right.register.int16_6 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_7 = left.register.int16_7 == right.register.int16_7 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    register.uint32_0 = left.register.uint32_0 == right.register.uint32_0 ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    register.uint32_1 = left.register.uint32_1 == right.register.uint32_1 ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    register.uint32_2 = left.register.uint32_2 == right.register.uint32_2 ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    register.uint32_3 = left.register.uint32_3 == right.register.uint32_3 ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    register.int32_0 = left.register.int32_0 == right.register.int32_0 ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    register.int32_1 = left.register.int32_1 == right.register.int32_1 ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    register.int32_2 = left.register.int32_2 == right.register.int32_2 ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    register.int32_3 = left.register.int32_3 == right.register.int32_3 ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    register.uint64_0 = left.register.uint64_0 == right.register.uint64_0 ? ConstantHelper.GetUInt64WithAllBitsSet() : (ulong)0;
-                    register.uint64_1 = left.register.uint64_1 == right.register.uint64_1 ? ConstantHelper.GetUInt64WithAllBitsSet() : (ulong)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    register.int64_0 = left.register.int64_0 == right.register.int64_0 ? ConstantHelper.GetInt64WithAllBitsSet() : (long)0;
-                    register.int64_1 = left.register.int64_1 == right.register.int64_1 ? ConstantHelper.GetInt64WithAllBitsSet() : (long)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    register.single_0 = left.register.single_0 == right.register.single_0 ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    register.single_1 = left.register.single_1 == right.register.single_1 ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    register.single_2 = left.register.single_2 == right.register.single_2 ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    register.single_3 = left.register.single_3 == right.register.single_3 ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    register.double_0 = left.register.double_0 == right.register.double_0 ? ConstantHelper.GetDoubleWithAllBitsSet() : (double)0;
-                    register.double_1 = left.register.double_1 == right.register.double_1 ? ConstantHelper.GetDoubleWithAllBitsSet() : (double)0;
-                    return new Vector<T>(ref register);
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-        }
-
-        [Intrinsic]
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static unsafe Vector<T> LessThan(Vector<T> left, Vector<T> right)
-        {
-            if (Vector.IsHardwareAccelerated)
-            {
-                if (typeof(T) == typeof(byte))
-                {
-                    byte* dataPtr = stackalloc byte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    sbyte* dataPtr = stackalloc sbyte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    ushort* dataPtr = stackalloc ushort[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    short* dataPtr = stackalloc short[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    uint* dataPtr = stackalloc uint[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    int* dataPtr = stackalloc int[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    ulong* dataPtr = stackalloc ulong[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? ConstantHelper.GetUInt64WithAllBitsSet() : (ulong)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    long* dataPtr = stackalloc long[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? ConstantHelper.GetInt64WithAllBitsSet() : (long)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    float* dataPtr = stackalloc float[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    double* dataPtr = stackalloc double[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? ConstantHelper.GetDoubleWithAllBitsSet() : (double)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-            else
-            {
-                Register register = default;
-                if (typeof(T) == typeof(byte))
-                {
-                    register.byte_0 = left.register.byte_0 < right.register.byte_0 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_1 = left.register.byte_1 < right.register.byte_1 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_2 = left.register.byte_2 < right.register.byte_2 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_3 = left.register.byte_3 < right.register.byte_3 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_4 = left.register.byte_4 < right.register.byte_4 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_5 = left.register.byte_5 < right.register.byte_5 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_6 = left.register.byte_6 < right.register.byte_6 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_7 = left.register.byte_7 < right.register.byte_7 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_8 = left.register.byte_8 < right.register.byte_8 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_9 = left.register.byte_9 < right.register.byte_9 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_10 = left.register.byte_10 < right.register.byte_10 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_11 = left.register.byte_11 < right.register.byte_11 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_12 = left.register.byte_12 < right.register.byte_12 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_13 = left.register.byte_13 < right.register.byte_13 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_14 = left.register.byte_14 < right.register.byte_14 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_15 = left.register.byte_15 < right.register.byte_15 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    register.sbyte_0 = left.register.sbyte_0 < right.register.sbyte_0 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_1 = left.register.sbyte_1 < right.register.sbyte_1 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_2 = left.register.sbyte_2 < right.register.sbyte_2 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_3 = left.register.sbyte_3 < right.register.sbyte_3 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_4 = left.register.sbyte_4 < right.register.sbyte_4 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_5 = left.register.sbyte_5 < right.register.sbyte_5 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_6 = left.register.sbyte_6 < right.register.sbyte_6 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_7 = left.register.sbyte_7 < right.register.sbyte_7 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_8 = left.register.sbyte_8 < right.register.sbyte_8 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_9 = left.register.sbyte_9 < right.register.sbyte_9 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_10 = left.register.sbyte_10 < right.register.sbyte_10 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_11 = left.register.sbyte_11 < right.register.sbyte_11 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_12 = left.register.sbyte_12 < right.register.sbyte_12 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_13 = left.register.sbyte_13 < right.register.sbyte_13 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_14 = left.register.sbyte_14 < right.register.sbyte_14 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_15 = left.register.sbyte_15 < right.register.sbyte_15 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    register.uint16_0 = left.register.uint16_0 < right.register.uint16_0 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_1 = left.register.uint16_1 < right.register.uint16_1 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_2 = left.register.uint16_2 < right.register.uint16_2 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_3 = left.register.uint16_3 < right.register.uint16_3 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_4 = left.register.uint16_4 < right.register.uint16_4 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_5 = left.register.uint16_5 < right.register.uint16_5 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_6 = left.register.uint16_6 < right.register.uint16_6 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_7 = left.register.uint16_7 < right.register.uint16_7 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    register.int16_0 = left.register.int16_0 < right.register.int16_0 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_1 = left.register.int16_1 < right.register.int16_1 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_2 = left.register.int16_2 < right.register.int16_2 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_3 = left.register.int16_3 < right.register.int16_3 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_4 = left.register.int16_4 < right.register.int16_4 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_5 = left.register.int16_5 < right.register.int16_5 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_6 = left.register.int16_6 < right.register.int16_6 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_7 = left.register.int16_7 < right.register.int16_7 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    register.uint32_0 = left.register.uint32_0 < right.register.uint32_0 ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    register.uint32_1 = left.register.uint32_1 < right.register.uint32_1 ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    register.uint32_2 = left.register.uint32_2 < right.register.uint32_2 ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    register.uint32_3 = left.register.uint32_3 < right.register.uint32_3 ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    register.int32_0 = left.register.int32_0 < right.register.int32_0 ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    register.int32_1 = left.register.int32_1 < right.register.int32_1 ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    register.int32_2 = left.register.int32_2 < right.register.int32_2 ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    register.int32_3 = left.register.int32_3 < right.register.int32_3 ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    register.uint64_0 = left.register.uint64_0 < right.register.uint64_0 ? ConstantHelper.GetUInt64WithAllBitsSet() : (ulong)0;
-                    register.uint64_1 = left.register.uint64_1 < right.register.uint64_1 ? ConstantHelper.GetUInt64WithAllBitsSet() : (ulong)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    register.int64_0 = left.register.int64_0 < right.register.int64_0 ? ConstantHelper.GetInt64WithAllBitsSet() : (long)0;
-                    register.int64_1 = left.register.int64_1 < right.register.int64_1 ? ConstantHelper.GetInt64WithAllBitsSet() : (long)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    register.single_0 = left.register.single_0 < right.register.single_0 ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    register.single_1 = left.register.single_1 < right.register.single_1 ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    register.single_2 = left.register.single_2 < right.register.single_2 ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    register.single_3 = left.register.single_3 < right.register.single_3 ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    register.double_0 = left.register.double_0 < right.register.double_0 ? ConstantHelper.GetDoubleWithAllBitsSet() : (double)0;
-                    register.double_1 = left.register.double_1 < right.register.double_1 ? ConstantHelper.GetDoubleWithAllBitsSet() : (double)0;
-                    return new Vector<T>(ref register);
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-        }
-
-        [Intrinsic]
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static unsafe Vector<T> GreaterThan(Vector<T> left, Vector<T> right)
-        {
-            if (Vector.IsHardwareAccelerated)
-            {
-                if (typeof(T) == typeof(byte))
-                {
-                    byte* dataPtr = stackalloc byte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    sbyte* dataPtr = stackalloc sbyte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    ushort* dataPtr = stackalloc ushort[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    short* dataPtr = stackalloc short[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    uint* dataPtr = stackalloc uint[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    int* dataPtr = stackalloc int[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    ulong* dataPtr = stackalloc ulong[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? ConstantHelper.GetUInt64WithAllBitsSet() : (ulong)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    long* dataPtr = stackalloc long[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? ConstantHelper.GetInt64WithAllBitsSet() : (long)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    float* dataPtr = stackalloc float[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    double* dataPtr = stackalloc double[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? ConstantHelper.GetDoubleWithAllBitsSet() : (double)0;
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-            else
-            {
-                Register register = default;
-                if (typeof(T) == typeof(byte))
-                {
-                    register.byte_0 = left.register.byte_0 > right.register.byte_0 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_1 = left.register.byte_1 > right.register.byte_1 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_2 = left.register.byte_2 > right.register.byte_2 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_3 = left.register.byte_3 > right.register.byte_3 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_4 = left.register.byte_4 > right.register.byte_4 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_5 = left.register.byte_5 > right.register.byte_5 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_6 = left.register.byte_6 > right.register.byte_6 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_7 = left.register.byte_7 > right.register.byte_7 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_8 = left.register.byte_8 > right.register.byte_8 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_9 = left.register.byte_9 > right.register.byte_9 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_10 = left.register.byte_10 > right.register.byte_10 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_11 = left.register.byte_11 > right.register.byte_11 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_12 = left.register.byte_12 > right.register.byte_12 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_13 = left.register.byte_13 > right.register.byte_13 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_14 = left.register.byte_14 > right.register.byte_14 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    register.byte_15 = left.register.byte_15 > right.register.byte_15 ? ConstantHelper.GetByteWithAllBitsSet() : (byte)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    register.sbyte_0 = left.register.sbyte_0 > right.register.sbyte_0 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_1 = left.register.sbyte_1 > right.register.sbyte_1 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_2 = left.register.sbyte_2 > right.register.sbyte_2 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_3 = left.register.sbyte_3 > right.register.sbyte_3 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_4 = left.register.sbyte_4 > right.register.sbyte_4 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_5 = left.register.sbyte_5 > right.register.sbyte_5 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_6 = left.register.sbyte_6 > right.register.sbyte_6 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_7 = left.register.sbyte_7 > right.register.sbyte_7 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_8 = left.register.sbyte_8 > right.register.sbyte_8 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_9 = left.register.sbyte_9 > right.register.sbyte_9 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_10 = left.register.sbyte_10 > right.register.sbyte_10 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_11 = left.register.sbyte_11 > right.register.sbyte_11 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_12 = left.register.sbyte_12 > right.register.sbyte_12 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_13 = left.register.sbyte_13 > right.register.sbyte_13 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_14 = left.register.sbyte_14 > right.register.sbyte_14 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    register.sbyte_15 = left.register.sbyte_15 > right.register.sbyte_15 ? ConstantHelper.GetSByteWithAllBitsSet() : (sbyte)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    register.uint16_0 = left.register.uint16_0 > right.register.uint16_0 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_1 = left.register.uint16_1 > right.register.uint16_1 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_2 = left.register.uint16_2 > right.register.uint16_2 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_3 = left.register.uint16_3 > right.register.uint16_3 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_4 = left.register.uint16_4 > right.register.uint16_4 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_5 = left.register.uint16_5 > right.register.uint16_5 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_6 = left.register.uint16_6 > right.register.uint16_6 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    register.uint16_7 = left.register.uint16_7 > right.register.uint16_7 ? ConstantHelper.GetUInt16WithAllBitsSet() : (ushort)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    register.int16_0 = left.register.int16_0 > right.register.int16_0 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_1 = left.register.int16_1 > right.register.int16_1 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_2 = left.register.int16_2 > right.register.int16_2 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_3 = left.register.int16_3 > right.register.int16_3 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_4 = left.register.int16_4 > right.register.int16_4 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_5 = left.register.int16_5 > right.register.int16_5 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_6 = left.register.int16_6 > right.register.int16_6 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    register.int16_7 = left.register.int16_7 > right.register.int16_7 ? ConstantHelper.GetInt16WithAllBitsSet() : (short)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    register.uint32_0 = left.register.uint32_0 > right.register.uint32_0 ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    register.uint32_1 = left.register.uint32_1 > right.register.uint32_1 ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    register.uint32_2 = left.register.uint32_2 > right.register.uint32_2 ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    register.uint32_3 = left.register.uint32_3 > right.register.uint32_3 ? ConstantHelper.GetUInt32WithAllBitsSet() : (uint)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    register.int32_0 = left.register.int32_0 > right.register.int32_0 ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    register.int32_1 = left.register.int32_1 > right.register.int32_1 ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    register.int32_2 = left.register.int32_2 > right.register.int32_2 ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    register.int32_3 = left.register.int32_3 > right.register.int32_3 ? ConstantHelper.GetInt32WithAllBitsSet() : (int)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    register.uint64_0 = left.register.uint64_0 > right.register.uint64_0 ? ConstantHelper.GetUInt64WithAllBitsSet() : (ulong)0;
-                    register.uint64_1 = left.register.uint64_1 > right.register.uint64_1 ? ConstantHelper.GetUInt64WithAllBitsSet() : (ulong)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    register.int64_0 = left.register.int64_0 > right.register.int64_0 ? ConstantHelper.GetInt64WithAllBitsSet() : (long)0;
-                    register.int64_1 = left.register.int64_1 > right.register.int64_1 ? ConstantHelper.GetInt64WithAllBitsSet() : (long)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    register.single_0 = left.register.single_0 > right.register.single_0 ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    register.single_1 = left.register.single_1 > right.register.single_1 ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    register.single_2 = left.register.single_2 > right.register.single_2 ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    register.single_3 = left.register.single_3 > right.register.single_3 ? ConstantHelper.GetSingleWithAllBitsSet() : (float)0;
-                    return new Vector<T>(ref register);
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    register.double_0 = left.register.double_0 > right.register.double_0 ? ConstantHelper.GetDoubleWithAllBitsSet() : (double)0;
-                    register.double_1 = left.register.double_1 > right.register.double_1 ? ConstantHelper.GetDoubleWithAllBitsSet() : (double)0;
-                    return new Vector<T>(ref register);
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-        }
-
-        [Intrinsic]
-        internal static Vector<T> GreaterThanOrEqual(Vector<T> left, Vector<T> right)
-        {
-            return Equals(left, right) | GreaterThan(left, right);
-        }
-
-        [Intrinsic]
-        internal static Vector<T> LessThanOrEqual(Vector<T> left, Vector<T> right)
-        {
-            return Equals(left, right) | LessThan(left, right);
-        }
-
-        [Intrinsic]
-        internal static Vector<T> ConditionalSelect(Vector<T> condition, Vector<T> left, Vector<T> right)
-        {
-            return (left & condition) | (Vector.AndNot(right, condition));
-        }
-        #endregion Comparison Methods
-
-        #region Internal Math Methods
-        [Intrinsic]
-        internal static unsafe Vector<T> Abs(Vector<T> value)
-        {
-            if (typeof(T) == typeof(byte))
-            {
-                return value;
-            }
-            else if (typeof(T) == typeof(ushort))
-            {
-                return value;
-            }
-            else if (typeof(T) == typeof(uint))
-            {
-                return value;
-            }
-            else if (typeof(T) == typeof(ulong))
-            {
-                return value;
-            }
-            if (Vector.IsHardwareAccelerated)
-            {
-                if (typeof(T) == typeof(sbyte))
-                {
-                    sbyte* dataPtr = stackalloc sbyte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = (sbyte)(object)(Math.Abs((sbyte)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    short* dataPtr = stackalloc short[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = (short)(object)(Math.Abs((short)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    int* dataPtr = stackalloc int[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = (int)(object)(Math.Abs((int)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    long* dataPtr = stackalloc long[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = (long)(object)(Math.Abs((long)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    float* dataPtr = stackalloc float[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = (float)(object)(Math.Abs((float)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    double* dataPtr = stackalloc double[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = (double)(object)(Math.Abs((double)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-            else
-            {
-                if (typeof(T) == typeof(sbyte))
-                {
-                    value.register.sbyte_0 = (sbyte)(Math.Abs(value.register.sbyte_0));
-                    value.register.sbyte_1 = (sbyte)(Math.Abs(value.register.sbyte_1));
-                    value.register.sbyte_2 = (sbyte)(Math.Abs(value.register.sbyte_2));
-                    value.register.sbyte_3 = (sbyte)(Math.Abs(value.register.sbyte_3));
-                    value.register.sbyte_4 = (sbyte)(Math.Abs(value.register.sbyte_4));
-                    value.register.sbyte_5 = (sbyte)(Math.Abs(value.register.sbyte_5));
-                    value.register.sbyte_6 = (sbyte)(Math.Abs(value.register.sbyte_6));
-                    value.register.sbyte_7 = (sbyte)(Math.Abs(value.register.sbyte_7));
-                    value.register.sbyte_8 = (sbyte)(Math.Abs(value.register.sbyte_8));
-                    value.register.sbyte_9 = (sbyte)(Math.Abs(value.register.sbyte_9));
-                    value.register.sbyte_10 = (sbyte)(Math.Abs(value.register.sbyte_10));
-                    value.register.sbyte_11 = (sbyte)(Math.Abs(value.register.sbyte_11));
-                    value.register.sbyte_12 = (sbyte)(Math.Abs(value.register.sbyte_12));
-                    value.register.sbyte_13 = (sbyte)(Math.Abs(value.register.sbyte_13));
-                    value.register.sbyte_14 = (sbyte)(Math.Abs(value.register.sbyte_14));
-                    value.register.sbyte_15 = (sbyte)(Math.Abs(value.register.sbyte_15));
-                    return value;
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    value.register.int16_0 = (short)(Math.Abs(value.register.int16_0));
-                    value.register.int16_1 = (short)(Math.Abs(value.register.int16_1));
-                    value.register.int16_2 = (short)(Math.Abs(value.register.int16_2));
-                    value.register.int16_3 = (short)(Math.Abs(value.register.int16_3));
-                    value.register.int16_4 = (short)(Math.Abs(value.register.int16_4));
-                    value.register.int16_5 = (short)(Math.Abs(value.register.int16_5));
-                    value.register.int16_6 = (short)(Math.Abs(value.register.int16_6));
-                    value.register.int16_7 = (short)(Math.Abs(value.register.int16_7));
-                    return value;
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    value.register.int32_0 = (int)(Math.Abs(value.register.int32_0));
-                    value.register.int32_1 = (int)(Math.Abs(value.register.int32_1));
-                    value.register.int32_2 = (int)(Math.Abs(value.register.int32_2));
-                    value.register.int32_3 = (int)(Math.Abs(value.register.int32_3));
-                    return value;
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    value.register.int64_0 = (long)(Math.Abs(value.register.int64_0));
-                    value.register.int64_1 = (long)(Math.Abs(value.register.int64_1));
-                    return value;
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    value.register.single_0 = (float)(Math.Abs(value.register.single_0));
-                    value.register.single_1 = (float)(Math.Abs(value.register.single_1));
-                    value.register.single_2 = (float)(Math.Abs(value.register.single_2));
-                    value.register.single_3 = (float)(Math.Abs(value.register.single_3));
-                    return value;
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    value.register.double_0 = (double)(Math.Abs(value.register.double_0));
-                    value.register.double_1 = (double)(Math.Abs(value.register.double_1));
-                    return value;
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-        }
-
-        [Intrinsic]
-        internal static unsafe Vector<T> Min(Vector<T> left, Vector<T> right)
-        {
-            if (Vector.IsHardwareAccelerated)
-            {
-                if (typeof(T) == typeof(byte))
-                {
-                    byte* dataPtr = stackalloc byte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? (byte)(object)left[g] : (byte)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    sbyte* dataPtr = stackalloc sbyte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? (sbyte)(object)left[g] : (sbyte)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    ushort* dataPtr = stackalloc ushort[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? (ushort)(object)left[g] : (ushort)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    short* dataPtr = stackalloc short[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? (short)(object)left[g] : (short)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    uint* dataPtr = stackalloc uint[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? (uint)(object)left[g] : (uint)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    int* dataPtr = stackalloc int[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? (int)(object)left[g] : (int)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    ulong* dataPtr = stackalloc ulong[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? (ulong)(object)left[g] : (ulong)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    long* dataPtr = stackalloc long[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? (long)(object)left[g] : (long)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    float* dataPtr = stackalloc float[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? (float)(object)left[g] : (float)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    double* dataPtr = stackalloc double[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarLessThan(left[g], right[g]) ? (double)(object)left[g] : (double)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-            else
-            {
-                Vector<T> vec = default;
-                if (typeof(T) == typeof(byte))
-                {
-                    vec.register.byte_0 = left.register.byte_0 < right.register.byte_0 ? left.register.byte_0 : right.register.byte_0;
-                    vec.register.byte_1 = left.register.byte_1 < right.register.byte_1 ? left.register.byte_1 : right.register.byte_1;
-                    vec.register.byte_2 = left.register.byte_2 < right.register.byte_2 ? left.register.byte_2 : right.register.byte_2;
-                    vec.register.byte_3 = left.register.byte_3 < right.register.byte_3 ? left.register.byte_3 : right.register.byte_3;
-                    vec.register.byte_4 = left.register.byte_4 < right.register.byte_4 ? left.register.byte_4 : right.register.byte_4;
-                    vec.register.byte_5 = left.register.byte_5 < right.register.byte_5 ? left.register.byte_5 : right.register.byte_5;
-                    vec.register.byte_6 = left.register.byte_6 < right.register.byte_6 ? left.register.byte_6 : right.register.byte_6;
-                    vec.register.byte_7 = left.register.byte_7 < right.register.byte_7 ? left.register.byte_7 : right.register.byte_7;
-                    vec.register.byte_8 = left.register.byte_8 < right.register.byte_8 ? left.register.byte_8 : right.register.byte_8;
-                    vec.register.byte_9 = left.register.byte_9 < right.register.byte_9 ? left.register.byte_9 : right.register.byte_9;
-                    vec.register.byte_10 = left.register.byte_10 < right.register.byte_10 ? left.register.byte_10 : right.register.byte_10;
-                    vec.register.byte_11 = left.register.byte_11 < right.register.byte_11 ? left.register.byte_11 : right.register.byte_11;
-                    vec.register.byte_12 = left.register.byte_12 < right.register.byte_12 ? left.register.byte_12 : right.register.byte_12;
-                    vec.register.byte_13 = left.register.byte_13 < right.register.byte_13 ? left.register.byte_13 : right.register.byte_13;
-                    vec.register.byte_14 = left.register.byte_14 < right.register.byte_14 ? left.register.byte_14 : right.register.byte_14;
-                    vec.register.byte_15 = left.register.byte_15 < right.register.byte_15 ? left.register.byte_15 : right.register.byte_15;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    vec.register.sbyte_0 = left.register.sbyte_0 < right.register.sbyte_0 ? left.register.sbyte_0 : right.register.sbyte_0;
-                    vec.register.sbyte_1 = left.register.sbyte_1 < right.register.sbyte_1 ? left.register.sbyte_1 : right.register.sbyte_1;
-                    vec.register.sbyte_2 = left.register.sbyte_2 < right.register.sbyte_2 ? left.register.sbyte_2 : right.register.sbyte_2;
-                    vec.register.sbyte_3 = left.register.sbyte_3 < right.register.sbyte_3 ? left.register.sbyte_3 : right.register.sbyte_3;
-                    vec.register.sbyte_4 = left.register.sbyte_4 < right.register.sbyte_4 ? left.register.sbyte_4 : right.register.sbyte_4;
-                    vec.register.sbyte_5 = left.register.sbyte_5 < right.register.sbyte_5 ? left.register.sbyte_5 : right.register.sbyte_5;
-                    vec.register.sbyte_6 = left.register.sbyte_6 < right.register.sbyte_6 ? left.register.sbyte_6 : right.register.sbyte_6;
-                    vec.register.sbyte_7 = left.register.sbyte_7 < right.register.sbyte_7 ? left.register.sbyte_7 : right.register.sbyte_7;
-                    vec.register.sbyte_8 = left.register.sbyte_8 < right.register.sbyte_8 ? left.register.sbyte_8 : right.register.sbyte_8;
-                    vec.register.sbyte_9 = left.register.sbyte_9 < right.register.sbyte_9 ? left.register.sbyte_9 : right.register.sbyte_9;
-                    vec.register.sbyte_10 = left.register.sbyte_10 < right.register.sbyte_10 ? left.register.sbyte_10 : right.register.sbyte_10;
-                    vec.register.sbyte_11 = left.register.sbyte_11 < right.register.sbyte_11 ? left.register.sbyte_11 : right.register.sbyte_11;
-                    vec.register.sbyte_12 = left.register.sbyte_12 < right.register.sbyte_12 ? left.register.sbyte_12 : right.register.sbyte_12;
-                    vec.register.sbyte_13 = left.register.sbyte_13 < right.register.sbyte_13 ? left.register.sbyte_13 : right.register.sbyte_13;
-                    vec.register.sbyte_14 = left.register.sbyte_14 < right.register.sbyte_14 ? left.register.sbyte_14 : right.register.sbyte_14;
-                    vec.register.sbyte_15 = left.register.sbyte_15 < right.register.sbyte_15 ? left.register.sbyte_15 : right.register.sbyte_15;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    vec.register.uint16_0 = left.register.uint16_0 < right.register.uint16_0 ? left.register.uint16_0 : right.register.uint16_0;
-                    vec.register.uint16_1 = left.register.uint16_1 < right.register.uint16_1 ? left.register.uint16_1 : right.register.uint16_1;
-                    vec.register.uint16_2 = left.register.uint16_2 < right.register.uint16_2 ? left.register.uint16_2 : right.register.uint16_2;
-                    vec.register.uint16_3 = left.register.uint16_3 < right.register.uint16_3 ? left.register.uint16_3 : right.register.uint16_3;
-                    vec.register.uint16_4 = left.register.uint16_4 < right.register.uint16_4 ? left.register.uint16_4 : right.register.uint16_4;
-                    vec.register.uint16_5 = left.register.uint16_5 < right.register.uint16_5 ? left.register.uint16_5 : right.register.uint16_5;
-                    vec.register.uint16_6 = left.register.uint16_6 < right.register.uint16_6 ? left.register.uint16_6 : right.register.uint16_6;
-                    vec.register.uint16_7 = left.register.uint16_7 < right.register.uint16_7 ? left.register.uint16_7 : right.register.uint16_7;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    vec.register.int16_0 = left.register.int16_0 < right.register.int16_0 ? left.register.int16_0 : right.register.int16_0;
-                    vec.register.int16_1 = left.register.int16_1 < right.register.int16_1 ? left.register.int16_1 : right.register.int16_1;
-                    vec.register.int16_2 = left.register.int16_2 < right.register.int16_2 ? left.register.int16_2 : right.register.int16_2;
-                    vec.register.int16_3 = left.register.int16_3 < right.register.int16_3 ? left.register.int16_3 : right.register.int16_3;
-                    vec.register.int16_4 = left.register.int16_4 < right.register.int16_4 ? left.register.int16_4 : right.register.int16_4;
-                    vec.register.int16_5 = left.register.int16_5 < right.register.int16_5 ? left.register.int16_5 : right.register.int16_5;
-                    vec.register.int16_6 = left.register.int16_6 < right.register.int16_6 ? left.register.int16_6 : right.register.int16_6;
-                    vec.register.int16_7 = left.register.int16_7 < right.register.int16_7 ? left.register.int16_7 : right.register.int16_7;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    vec.register.uint32_0 = left.register.uint32_0 < right.register.uint32_0 ? left.register.uint32_0 : right.register.uint32_0;
-                    vec.register.uint32_1 = left.register.uint32_1 < right.register.uint32_1 ? left.register.uint32_1 : right.register.uint32_1;
-                    vec.register.uint32_2 = left.register.uint32_2 < right.register.uint32_2 ? left.register.uint32_2 : right.register.uint32_2;
-                    vec.register.uint32_3 = left.register.uint32_3 < right.register.uint32_3 ? left.register.uint32_3 : right.register.uint32_3;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    vec.register.int32_0 = left.register.int32_0 < right.register.int32_0 ? left.register.int32_0 : right.register.int32_0;
-                    vec.register.int32_1 = left.register.int32_1 < right.register.int32_1 ? left.register.int32_1 : right.register.int32_1;
-                    vec.register.int32_2 = left.register.int32_2 < right.register.int32_2 ? left.register.int32_2 : right.register.int32_2;
-                    vec.register.int32_3 = left.register.int32_3 < right.register.int32_3 ? left.register.int32_3 : right.register.int32_3;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    vec.register.uint64_0 = left.register.uint64_0 < right.register.uint64_0 ? left.register.uint64_0 : right.register.uint64_0;
-                    vec.register.uint64_1 = left.register.uint64_1 < right.register.uint64_1 ? left.register.uint64_1 : right.register.uint64_1;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    vec.register.int64_0 = left.register.int64_0 < right.register.int64_0 ? left.register.int64_0 : right.register.int64_0;
-                    vec.register.int64_1 = left.register.int64_1 < right.register.int64_1 ? left.register.int64_1 : right.register.int64_1;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    vec.register.single_0 = left.register.single_0 < right.register.single_0 ? left.register.single_0 : right.register.single_0;
-                    vec.register.single_1 = left.register.single_1 < right.register.single_1 ? left.register.single_1 : right.register.single_1;
-                    vec.register.single_2 = left.register.single_2 < right.register.single_2 ? left.register.single_2 : right.register.single_2;
-                    vec.register.single_3 = left.register.single_3 < right.register.single_3 ? left.register.single_3 : right.register.single_3;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    vec.register.double_0 = left.register.double_0 < right.register.double_0 ? left.register.double_0 : right.register.double_0;
-                    vec.register.double_1 = left.register.double_1 < right.register.double_1 ? left.register.double_1 : right.register.double_1;
-                    return vec;
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-        }
-
-        [Intrinsic]
-        internal static unsafe Vector<T> Max(Vector<T> left, Vector<T> right)
-        {
-            if (Vector.IsHardwareAccelerated)
-            {
-                if (typeof(T) == typeof(byte))
-                {
-                    byte* dataPtr = stackalloc byte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? (byte)(object)left[g] : (byte)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    sbyte* dataPtr = stackalloc sbyte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? (sbyte)(object)left[g] : (sbyte)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    ushort* dataPtr = stackalloc ushort[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? (ushort)(object)left[g] : (ushort)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    short* dataPtr = stackalloc short[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? (short)(object)left[g] : (short)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    uint* dataPtr = stackalloc uint[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? (uint)(object)left[g] : (uint)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    int* dataPtr = stackalloc int[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? (int)(object)left[g] : (int)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    ulong* dataPtr = stackalloc ulong[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? (ulong)(object)left[g] : (ulong)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    long* dataPtr = stackalloc long[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? (long)(object)left[g] : (long)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    float* dataPtr = stackalloc float[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? (float)(object)left[g] : (float)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    double* dataPtr = stackalloc double[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = ScalarGreaterThan(left[g], right[g]) ? (double)(object)left[g] : (double)(object)right[g];
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-            else
-            {
-                Vector<T> vec = default;
-                if (typeof(T) == typeof(byte))
-                {
-                    vec.register.byte_0 = left.register.byte_0 > right.register.byte_0 ? left.register.byte_0 : right.register.byte_0;
-                    vec.register.byte_1 = left.register.byte_1 > right.register.byte_1 ? left.register.byte_1 : right.register.byte_1;
-                    vec.register.byte_2 = left.register.byte_2 > right.register.byte_2 ? left.register.byte_2 : right.register.byte_2;
-                    vec.register.byte_3 = left.register.byte_3 > right.register.byte_3 ? left.register.byte_3 : right.register.byte_3;
-                    vec.register.byte_4 = left.register.byte_4 > right.register.byte_4 ? left.register.byte_4 : right.register.byte_4;
-                    vec.register.byte_5 = left.register.byte_5 > right.register.byte_5 ? left.register.byte_5 : right.register.byte_5;
-                    vec.register.byte_6 = left.register.byte_6 > right.register.byte_6 ? left.register.byte_6 : right.register.byte_6;
-                    vec.register.byte_7 = left.register.byte_7 > right.register.byte_7 ? left.register.byte_7 : right.register.byte_7;
-                    vec.register.byte_8 = left.register.byte_8 > right.register.byte_8 ? left.register.byte_8 : right.register.byte_8;
-                    vec.register.byte_9 = left.register.byte_9 > right.register.byte_9 ? left.register.byte_9 : right.register.byte_9;
-                    vec.register.byte_10 = left.register.byte_10 > right.register.byte_10 ? left.register.byte_10 : right.register.byte_10;
-                    vec.register.byte_11 = left.register.byte_11 > right.register.byte_11 ? left.register.byte_11 : right.register.byte_11;
-                    vec.register.byte_12 = left.register.byte_12 > right.register.byte_12 ? left.register.byte_12 : right.register.byte_12;
-                    vec.register.byte_13 = left.register.byte_13 > right.register.byte_13 ? left.register.byte_13 : right.register.byte_13;
-                    vec.register.byte_14 = left.register.byte_14 > right.register.byte_14 ? left.register.byte_14 : right.register.byte_14;
-                    vec.register.byte_15 = left.register.byte_15 > right.register.byte_15 ? left.register.byte_15 : right.register.byte_15;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    vec.register.sbyte_0 = left.register.sbyte_0 > right.register.sbyte_0 ? left.register.sbyte_0 : right.register.sbyte_0;
-                    vec.register.sbyte_1 = left.register.sbyte_1 > right.register.sbyte_1 ? left.register.sbyte_1 : right.register.sbyte_1;
-                    vec.register.sbyte_2 = left.register.sbyte_2 > right.register.sbyte_2 ? left.register.sbyte_2 : right.register.sbyte_2;
-                    vec.register.sbyte_3 = left.register.sbyte_3 > right.register.sbyte_3 ? left.register.sbyte_3 : right.register.sbyte_3;
-                    vec.register.sbyte_4 = left.register.sbyte_4 > right.register.sbyte_4 ? left.register.sbyte_4 : right.register.sbyte_4;
-                    vec.register.sbyte_5 = left.register.sbyte_5 > right.register.sbyte_5 ? left.register.sbyte_5 : right.register.sbyte_5;
-                    vec.register.sbyte_6 = left.register.sbyte_6 > right.register.sbyte_6 ? left.register.sbyte_6 : right.register.sbyte_6;
-                    vec.register.sbyte_7 = left.register.sbyte_7 > right.register.sbyte_7 ? left.register.sbyte_7 : right.register.sbyte_7;
-                    vec.register.sbyte_8 = left.register.sbyte_8 > right.register.sbyte_8 ? left.register.sbyte_8 : right.register.sbyte_8;
-                    vec.register.sbyte_9 = left.register.sbyte_9 > right.register.sbyte_9 ? left.register.sbyte_9 : right.register.sbyte_9;
-                    vec.register.sbyte_10 = left.register.sbyte_10 > right.register.sbyte_10 ? left.register.sbyte_10 : right.register.sbyte_10;
-                    vec.register.sbyte_11 = left.register.sbyte_11 > right.register.sbyte_11 ? left.register.sbyte_11 : right.register.sbyte_11;
-                    vec.register.sbyte_12 = left.register.sbyte_12 > right.register.sbyte_12 ? left.register.sbyte_12 : right.register.sbyte_12;
-                    vec.register.sbyte_13 = left.register.sbyte_13 > right.register.sbyte_13 ? left.register.sbyte_13 : right.register.sbyte_13;
-                    vec.register.sbyte_14 = left.register.sbyte_14 > right.register.sbyte_14 ? left.register.sbyte_14 : right.register.sbyte_14;
-                    vec.register.sbyte_15 = left.register.sbyte_15 > right.register.sbyte_15 ? left.register.sbyte_15 : right.register.sbyte_15;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    vec.register.uint16_0 = left.register.uint16_0 > right.register.uint16_0 ? left.register.uint16_0 : right.register.uint16_0;
-                    vec.register.uint16_1 = left.register.uint16_1 > right.register.uint16_1 ? left.register.uint16_1 : right.register.uint16_1;
-                    vec.register.uint16_2 = left.register.uint16_2 > right.register.uint16_2 ? left.register.uint16_2 : right.register.uint16_2;
-                    vec.register.uint16_3 = left.register.uint16_3 > right.register.uint16_3 ? left.register.uint16_3 : right.register.uint16_3;
-                    vec.register.uint16_4 = left.register.uint16_4 > right.register.uint16_4 ? left.register.uint16_4 : right.register.uint16_4;
-                    vec.register.uint16_5 = left.register.uint16_5 > right.register.uint16_5 ? left.register.uint16_5 : right.register.uint16_5;
-                    vec.register.uint16_6 = left.register.uint16_6 > right.register.uint16_6 ? left.register.uint16_6 : right.register.uint16_6;
-                    vec.register.uint16_7 = left.register.uint16_7 > right.register.uint16_7 ? left.register.uint16_7 : right.register.uint16_7;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    vec.register.int16_0 = left.register.int16_0 > right.register.int16_0 ? left.register.int16_0 : right.register.int16_0;
-                    vec.register.int16_1 = left.register.int16_1 > right.register.int16_1 ? left.register.int16_1 : right.register.int16_1;
-                    vec.register.int16_2 = left.register.int16_2 > right.register.int16_2 ? left.register.int16_2 : right.register.int16_2;
-                    vec.register.int16_3 = left.register.int16_3 > right.register.int16_3 ? left.register.int16_3 : right.register.int16_3;
-                    vec.register.int16_4 = left.register.int16_4 > right.register.int16_4 ? left.register.int16_4 : right.register.int16_4;
-                    vec.register.int16_5 = left.register.int16_5 > right.register.int16_5 ? left.register.int16_5 : right.register.int16_5;
-                    vec.register.int16_6 = left.register.int16_6 > right.register.int16_6 ? left.register.int16_6 : right.register.int16_6;
-                    vec.register.int16_7 = left.register.int16_7 > right.register.int16_7 ? left.register.int16_7 : right.register.int16_7;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    vec.register.uint32_0 = left.register.uint32_0 > right.register.uint32_0 ? left.register.uint32_0 : right.register.uint32_0;
-                    vec.register.uint32_1 = left.register.uint32_1 > right.register.uint32_1 ? left.register.uint32_1 : right.register.uint32_1;
-                    vec.register.uint32_2 = left.register.uint32_2 > right.register.uint32_2 ? left.register.uint32_2 : right.register.uint32_2;
-                    vec.register.uint32_3 = left.register.uint32_3 > right.register.uint32_3 ? left.register.uint32_3 : right.register.uint32_3;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    vec.register.int32_0 = left.register.int32_0 > right.register.int32_0 ? left.register.int32_0 : right.register.int32_0;
-                    vec.register.int32_1 = left.register.int32_1 > right.register.int32_1 ? left.register.int32_1 : right.register.int32_1;
-                    vec.register.int32_2 = left.register.int32_2 > right.register.int32_2 ? left.register.int32_2 : right.register.int32_2;
-                    vec.register.int32_3 = left.register.int32_3 > right.register.int32_3 ? left.register.int32_3 : right.register.int32_3;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    vec.register.uint64_0 = left.register.uint64_0 > right.register.uint64_0 ? left.register.uint64_0 : right.register.uint64_0;
-                    vec.register.uint64_1 = left.register.uint64_1 > right.register.uint64_1 ? left.register.uint64_1 : right.register.uint64_1;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    vec.register.int64_0 = left.register.int64_0 > right.register.int64_0 ? left.register.int64_0 : right.register.int64_0;
-                    vec.register.int64_1 = left.register.int64_1 > right.register.int64_1 ? left.register.int64_1 : right.register.int64_1;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    vec.register.single_0 = left.register.single_0 > right.register.single_0 ? left.register.single_0 : right.register.single_0;
-                    vec.register.single_1 = left.register.single_1 > right.register.single_1 ? left.register.single_1 : right.register.single_1;
-                    vec.register.single_2 = left.register.single_2 > right.register.single_2 ? left.register.single_2 : right.register.single_2;
-                    vec.register.single_3 = left.register.single_3 > right.register.single_3 ? left.register.single_3 : right.register.single_3;
-                    return vec;
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    vec.register.double_0 = left.register.double_0 > right.register.double_0 ? left.register.double_0 : right.register.double_0;
-                    vec.register.double_1 = left.register.double_1 > right.register.double_1 ? left.register.double_1 : right.register.double_1;
-                    return vec;
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-        }
-
-        [Intrinsic]
-        internal static T Dot(Vector<T> left, Vector<T> right)
-        {
-            if (Vector.IsHardwareAccelerated)
-            {
-                T product = default;
-                for (int g = 0; g < Count; g++)
-                {
-                    product = ScalarAdd(product, ScalarMultiply(left[g], right[g]));
-                }
-                return product;
-            }
-            else
-            {
-                if (typeof(T) == typeof(byte))
-                {
-                    byte product = 0;
-                    product += (byte)(left.register.byte_0 * right.register.byte_0);
-                    product += (byte)(left.register.byte_1 * right.register.byte_1);
-                    product += (byte)(left.register.byte_2 * right.register.byte_2);
-                    product += (byte)(left.register.byte_3 * right.register.byte_3);
-                    product += (byte)(left.register.byte_4 * right.register.byte_4);
-                    product += (byte)(left.register.byte_5 * right.register.byte_5);
-                    product += (byte)(left.register.byte_6 * right.register.byte_6);
-                    product += (byte)(left.register.byte_7 * right.register.byte_7);
-                    product += (byte)(left.register.byte_8 * right.register.byte_8);
-                    product += (byte)(left.register.byte_9 * right.register.byte_9);
-                    product += (byte)(left.register.byte_10 * right.register.byte_10);
-                    product += (byte)(left.register.byte_11 * right.register.byte_11);
-                    product += (byte)(left.register.byte_12 * right.register.byte_12);
-                    product += (byte)(left.register.byte_13 * right.register.byte_13);
-                    product += (byte)(left.register.byte_14 * right.register.byte_14);
-                    product += (byte)(left.register.byte_15 * right.register.byte_15);
-                    return (T)(object)product;
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    sbyte product = 0;
-                    product += (sbyte)(left.register.sbyte_0 * right.register.sbyte_0);
-                    product += (sbyte)(left.register.sbyte_1 * right.register.sbyte_1);
-                    product += (sbyte)(left.register.sbyte_2 * right.register.sbyte_2);
-                    product += (sbyte)(left.register.sbyte_3 * right.register.sbyte_3);
-                    product += (sbyte)(left.register.sbyte_4 * right.register.sbyte_4);
-                    product += (sbyte)(left.register.sbyte_5 * right.register.sbyte_5);
-                    product += (sbyte)(left.register.sbyte_6 * right.register.sbyte_6);
-                    product += (sbyte)(left.register.sbyte_7 * right.register.sbyte_7);
-                    product += (sbyte)(left.register.sbyte_8 * right.register.sbyte_8);
-                    product += (sbyte)(left.register.sbyte_9 * right.register.sbyte_9);
-                    product += (sbyte)(left.register.sbyte_10 * right.register.sbyte_10);
-                    product += (sbyte)(left.register.sbyte_11 * right.register.sbyte_11);
-                    product += (sbyte)(left.register.sbyte_12 * right.register.sbyte_12);
-                    product += (sbyte)(left.register.sbyte_13 * right.register.sbyte_13);
-                    product += (sbyte)(left.register.sbyte_14 * right.register.sbyte_14);
-                    product += (sbyte)(left.register.sbyte_15 * right.register.sbyte_15);
-                    return (T)(object)product;
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    ushort product = 0;
-                    product += (ushort)(left.register.uint16_0 * right.register.uint16_0);
-                    product += (ushort)(left.register.uint16_1 * right.register.uint16_1);
-                    product += (ushort)(left.register.uint16_2 * right.register.uint16_2);
-                    product += (ushort)(left.register.uint16_3 * right.register.uint16_3);
-                    product += (ushort)(left.register.uint16_4 * right.register.uint16_4);
-                    product += (ushort)(left.register.uint16_5 * right.register.uint16_5);
-                    product += (ushort)(left.register.uint16_6 * right.register.uint16_6);
-                    product += (ushort)(left.register.uint16_7 * right.register.uint16_7);
-                    return (T)(object)product;
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    short product = 0;
-                    product += (short)(left.register.int16_0 * right.register.int16_0);
-                    product += (short)(left.register.int16_1 * right.register.int16_1);
-                    product += (short)(left.register.int16_2 * right.register.int16_2);
-                    product += (short)(left.register.int16_3 * right.register.int16_3);
-                    product += (short)(left.register.int16_4 * right.register.int16_4);
-                    product += (short)(left.register.int16_5 * right.register.int16_5);
-                    product += (short)(left.register.int16_6 * right.register.int16_6);
-                    product += (short)(left.register.int16_7 * right.register.int16_7);
-                    return (T)(object)product;
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    uint product = 0;
-                    product += (uint)(left.register.uint32_0 * right.register.uint32_0);
-                    product += (uint)(left.register.uint32_1 * right.register.uint32_1);
-                    product += (uint)(left.register.uint32_2 * right.register.uint32_2);
-                    product += (uint)(left.register.uint32_3 * right.register.uint32_3);
-                    return (T)(object)product;
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    int product = 0;
-                    product += (int)(left.register.int32_0 * right.register.int32_0);
-                    product += (int)(left.register.int32_1 * right.register.int32_1);
-                    product += (int)(left.register.int32_2 * right.register.int32_2);
-                    product += (int)(left.register.int32_3 * right.register.int32_3);
-                    return (T)(object)product;
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    ulong product = 0;
-                    product += (ulong)(left.register.uint64_0 * right.register.uint64_0);
-                    product += (ulong)(left.register.uint64_1 * right.register.uint64_1);
-                    return (T)(object)product;
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    long product = 0;
-                    product += (long)(left.register.int64_0 * right.register.int64_0);
-                    product += (long)(left.register.int64_1 * right.register.int64_1);
-                    return (T)(object)product;
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    float product = 0;
-                    product += (float)(left.register.single_0 * right.register.single_0);
-                    product += (float)(left.register.single_1 * right.register.single_1);
-                    product += (float)(left.register.single_2 * right.register.single_2);
-                    product += (float)(left.register.single_3 * right.register.single_3);
-                    return (T)(object)product;
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    double product = 0;
-                    product += (double)(left.register.double_0 * right.register.double_0);
-                    product += (double)(left.register.double_1 * right.register.double_1);
-                    return (T)(object)product;
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-        }
-
-        [Intrinsic]
-        internal static unsafe Vector<T> SquareRoot(Vector<T> value)
-        {
-            if (Vector.IsHardwareAccelerated)
-            {
-                if (typeof(T) == typeof(byte))
-                {
-                    byte* dataPtr = stackalloc byte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = unchecked((byte)Math.Sqrt((byte)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    sbyte* dataPtr = stackalloc sbyte[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = unchecked((sbyte)Math.Sqrt((sbyte)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    ushort* dataPtr = stackalloc ushort[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = unchecked((ushort)Math.Sqrt((ushort)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    short* dataPtr = stackalloc short[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = unchecked((short)Math.Sqrt((short)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    uint* dataPtr = stackalloc uint[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = unchecked((uint)Math.Sqrt((uint)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    int* dataPtr = stackalloc int[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = unchecked((int)Math.Sqrt((int)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    ulong* dataPtr = stackalloc ulong[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = unchecked((ulong)Math.Sqrt((ulong)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    long* dataPtr = stackalloc long[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = unchecked((long)Math.Sqrt((long)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    float* dataPtr = stackalloc float[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = unchecked((float)Math.Sqrt((float)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    double* dataPtr = stackalloc double[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = unchecked((double)Math.Sqrt((double)(object)value[g]));
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-            else
-            {
-                if (typeof(T) == typeof(byte))
-                {
-                    value.register.byte_0 = (byte)Math.Sqrt(value.register.byte_0);
-                    value.register.byte_1 = (byte)Math.Sqrt(value.register.byte_1);
-                    value.register.byte_2 = (byte)Math.Sqrt(value.register.byte_2);
-                    value.register.byte_3 = (byte)Math.Sqrt(value.register.byte_3);
-                    value.register.byte_4 = (byte)Math.Sqrt(value.register.byte_4);
-                    value.register.byte_5 = (byte)Math.Sqrt(value.register.byte_5);
-                    value.register.byte_6 = (byte)Math.Sqrt(value.register.byte_6);
-                    value.register.byte_7 = (byte)Math.Sqrt(value.register.byte_7);
-                    value.register.byte_8 = (byte)Math.Sqrt(value.register.byte_8);
-                    value.register.byte_9 = (byte)Math.Sqrt(value.register.byte_9);
-                    value.register.byte_10 = (byte)Math.Sqrt(value.register.byte_10);
-                    value.register.byte_11 = (byte)Math.Sqrt(value.register.byte_11);
-                    value.register.byte_12 = (byte)Math.Sqrt(value.register.byte_12);
-                    value.register.byte_13 = (byte)Math.Sqrt(value.register.byte_13);
-                    value.register.byte_14 = (byte)Math.Sqrt(value.register.byte_14);
-                    value.register.byte_15 = (byte)Math.Sqrt(value.register.byte_15);
-                    return value;
-                }
-                else if (typeof(T) == typeof(sbyte))
-                {
-                    value.register.sbyte_0 = (sbyte)Math.Sqrt(value.register.sbyte_0);
-                    value.register.sbyte_1 = (sbyte)Math.Sqrt(value.register.sbyte_1);
-                    value.register.sbyte_2 = (sbyte)Math.Sqrt(value.register.sbyte_2);
-                    value.register.sbyte_3 = (sbyte)Math.Sqrt(value.register.sbyte_3);
-                    value.register.sbyte_4 = (sbyte)Math.Sqrt(value.register.sbyte_4);
-                    value.register.sbyte_5 = (sbyte)Math.Sqrt(value.register.sbyte_5);
-                    value.register.sbyte_6 = (sbyte)Math.Sqrt(value.register.sbyte_6);
-                    value.register.sbyte_7 = (sbyte)Math.Sqrt(value.register.sbyte_7);
-                    value.register.sbyte_8 = (sbyte)Math.Sqrt(value.register.sbyte_8);
-                    value.register.sbyte_9 = (sbyte)Math.Sqrt(value.register.sbyte_9);
-                    value.register.sbyte_10 = (sbyte)Math.Sqrt(value.register.sbyte_10);
-                    value.register.sbyte_11 = (sbyte)Math.Sqrt(value.register.sbyte_11);
-                    value.register.sbyte_12 = (sbyte)Math.Sqrt(value.register.sbyte_12);
-                    value.register.sbyte_13 = (sbyte)Math.Sqrt(value.register.sbyte_13);
-                    value.register.sbyte_14 = (sbyte)Math.Sqrt(value.register.sbyte_14);
-                    value.register.sbyte_15 = (sbyte)Math.Sqrt(value.register.sbyte_15);
-                    return value;
-                }
-                else if (typeof(T) == typeof(ushort))
-                {
-                    value.register.uint16_0 = (ushort)Math.Sqrt(value.register.uint16_0);
-                    value.register.uint16_1 = (ushort)Math.Sqrt(value.register.uint16_1);
-                    value.register.uint16_2 = (ushort)Math.Sqrt(value.register.uint16_2);
-                    value.register.uint16_3 = (ushort)Math.Sqrt(value.register.uint16_3);
-                    value.register.uint16_4 = (ushort)Math.Sqrt(value.register.uint16_4);
-                    value.register.uint16_5 = (ushort)Math.Sqrt(value.register.uint16_5);
-                    value.register.uint16_6 = (ushort)Math.Sqrt(value.register.uint16_6);
-                    value.register.uint16_7 = (ushort)Math.Sqrt(value.register.uint16_7);
-                    return value;
-                }
-                else if (typeof(T) == typeof(short))
-                {
-                    value.register.int16_0 = (short)Math.Sqrt(value.register.int16_0);
-                    value.register.int16_1 = (short)Math.Sqrt(value.register.int16_1);
-                    value.register.int16_2 = (short)Math.Sqrt(value.register.int16_2);
-                    value.register.int16_3 = (short)Math.Sqrt(value.register.int16_3);
-                    value.register.int16_4 = (short)Math.Sqrt(value.register.int16_4);
-                    value.register.int16_5 = (short)Math.Sqrt(value.register.int16_5);
-                    value.register.int16_6 = (short)Math.Sqrt(value.register.int16_6);
-                    value.register.int16_7 = (short)Math.Sqrt(value.register.int16_7);
-                    return value;
-                }
-                else if (typeof(T) == typeof(uint))
-                {
-                    value.register.uint32_0 = (uint)Math.Sqrt(value.register.uint32_0);
-                    value.register.uint32_1 = (uint)Math.Sqrt(value.register.uint32_1);
-                    value.register.uint32_2 = (uint)Math.Sqrt(value.register.uint32_2);
-                    value.register.uint32_3 = (uint)Math.Sqrt(value.register.uint32_3);
-                    return value;
-                }
-                else if (typeof(T) == typeof(int))
-                {
-                    value.register.int32_0 = (int)Math.Sqrt(value.register.int32_0);
-                    value.register.int32_1 = (int)Math.Sqrt(value.register.int32_1);
-                    value.register.int32_2 = (int)Math.Sqrt(value.register.int32_2);
-                    value.register.int32_3 = (int)Math.Sqrt(value.register.int32_3);
-                    return value;
-                }
-                else if (typeof(T) == typeof(ulong))
-                {
-                    value.register.uint64_0 = (ulong)Math.Sqrt(value.register.uint64_0);
-                    value.register.uint64_1 = (ulong)Math.Sqrt(value.register.uint64_1);
-                    return value;
-                }
-                else if (typeof(T) == typeof(long))
-                {
-                    value.register.int64_0 = (long)Math.Sqrt(value.register.int64_0);
-                    value.register.int64_1 = (long)Math.Sqrt(value.register.int64_1);
-                    return value;
-                }
-                else if (typeof(T) == typeof(float))
-                {
-                    value.register.single_0 = (float)Math.Sqrt(value.register.single_0);
-                    value.register.single_1 = (float)Math.Sqrt(value.register.single_1);
-                    value.register.single_2 = (float)Math.Sqrt(value.register.single_2);
-                    value.register.single_3 = (float)Math.Sqrt(value.register.single_3);
-                    return value;
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    value.register.double_0 = (double)Math.Sqrt(value.register.double_0);
-                    value.register.double_1 = (double)Math.Sqrt(value.register.double_1);
-                    return value;
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-        }
-
-        [Intrinsic]
-        internal static unsafe Vector<T> Ceiling(Vector<T> value)
-        {
-            if (Vector.IsHardwareAccelerated)
-            {
-                if (typeof(T) == typeof(float))
-                {
-                    float* dataPtr = stackalloc float[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = MathF.Ceiling((float)(object)value[g]);
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    double* dataPtr = stackalloc double[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = Math.Ceiling((double)(object)value[g]);
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-            else
-            {
-                if (typeof(T) == typeof(float))
-                {
-                    value.register.single_0 = MathF.Ceiling(value.register.single_0);
-                    value.register.single_1 = MathF.Ceiling(value.register.single_1);
-                    value.register.single_2 = MathF.Ceiling(value.register.single_2);
-                    value.register.single_3 = MathF.Ceiling(value.register.single_3);
-                    return value;
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    value.register.double_0 = Math.Ceiling(value.register.double_0);
-                    value.register.double_1 = Math.Ceiling(value.register.double_1);
-                    return value;
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-        }
-
-        [Intrinsic]
-        internal static unsafe Vector<T> Floor(Vector<T> value)
-        {
-            if (Vector.IsHardwareAccelerated)
-            {
-                if (typeof(T) == typeof(float))
-                {
-                    float* dataPtr = stackalloc float[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = MathF.Floor((float)(object)value[g]);
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    double* dataPtr = stackalloc double[Count];
-                    for (int g = 0; g < Count; g++)
-                    {
-                        dataPtr[g] = Math.Floor((double)(object)value[g]);
-                    }
-                    return new Vector<T>(dataPtr);
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-            else
-            {
-                if (typeof(T) == typeof(float))
-                {
-                    value.register.single_0 = MathF.Floor(value.register.single_0);
-                    value.register.single_1 = MathF.Floor(value.register.single_1);
-                    value.register.single_2 = MathF.Floor(value.register.single_2);
-                    value.register.single_3 = MathF.Floor(value.register.single_3);
-                    return value;
-                }
-                else if (typeof(T) == typeof(double))
-                {
-                    value.register.double_0 = Math.Floor(value.register.double_0);
-                    value.register.double_1 = Math.Floor(value.register.double_1);
-                    return value;
-                }
-                else
-                {
-                    throw new NotSupportedException(SR.Arg_TypeNotSupported);
-                }
-            }
-        }
-        #endregion Internal Math Methods
-
-        #region Helper Methods
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool ScalarEquals(T left, T right)
-        {
-            if (typeof(T) == typeof(byte))
-            {
-                return (byte)(object)left == (byte)(object)right;
-            }
-            else if (typeof(T) == typeof(sbyte))
-            {
-                return (sbyte)(object)left == (sbyte)(object)right;
-            }
-            else if (typeof(T) == typeof(ushort))
-            {
-                return (ushort)(object)left == (ushort)(object)right;
-            }
-            else if (typeof(T) == typeof(short))
-            {
-                return (short)(object)left == (short)(object)right;
-            }
-            else if (typeof(T) == typeof(uint))
-            {
-                return (uint)(object)left == (uint)(object)right;
-            }
-            else if (typeof(T) == typeof(int))
-            {
-                return (int)(object)left == (int)(object)right;
-            }
-            else if (typeof(T) == typeof(ulong))
-            {
-                return (ulong)(object)left == (ulong)(object)right;
-            }
-            else if (typeof(T) == typeof(long))
-            {
-                return (long)(object)left == (long)(object)right;
-            }
-            else if (typeof(T) == typeof(float))
-            {
-                return (float)(object)left == (float)(object)right;
-            }
-            else if (typeof(T) == typeof(double))
-            {
-                return (double)(object)left == (double)(object)right;
-            }
-            else
-            {
-                throw new NotSupportedException(SR.Arg_TypeNotSupported);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool ScalarLessThan(T left, T right)
-        {
-            if (typeof(T) == typeof(byte))
-            {
-                return (byte)(object)left < (byte)(object)right;
-            }
-            else if (typeof(T) == typeof(sbyte))
-            {
-                return (sbyte)(object)left < (sbyte)(object)right;
-            }
-            else if (typeof(T) == typeof(ushort))
-            {
-                return (ushort)(object)left < (ushort)(object)right;
-            }
-            else if (typeof(T) == typeof(short))
-            {
-                return (short)(object)left < (short)(object)right;
-            }
-            else if (typeof(T) == typeof(uint))
-            {
-                return (uint)(object)left < (uint)(object)right;
-            }
-            else if (typeof(T) == typeof(int))
-            {
-                return (int)(object)left < (int)(object)right;
-            }
-            else if (typeof(T) == typeof(ulong))
-            {
-                return (ulong)(object)left < (ulong)(object)right;
-            }
-            else if (typeof(T) == typeof(long))
-            {
-                return (long)(object)left < (long)(object)right;
-            }
-            else if (typeof(T) == typeof(float))
-            {
-                return (float)(object)left < (float)(object)right;
-            }
-            else if (typeof(T) == typeof(double))
-            {
-                return (double)(object)left < (double)(object)right;
-            }
-            else
-            {
-                throw new NotSupportedException(SR.Arg_TypeNotSupported);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool ScalarGreaterThan(T left, T right)
-        {
-            if (typeof(T) == typeof(byte))
-            {
-                return (byte)(object)left > (byte)(object)right;
-            }
-            else if (typeof(T) == typeof(sbyte))
-            {
-                return (sbyte)(object)left > (sbyte)(object)right;
-            }
-            else if (typeof(T) == typeof(ushort))
-            {
-                return (ushort)(object)left > (ushort)(object)right;
-            }
-            else if (typeof(T) == typeof(short))
-            {
-                return (short)(object)left > (short)(object)right;
-            }
-            else if (typeof(T) == typeof(uint))
-            {
-                return (uint)(object)left > (uint)(object)right;
-            }
-            else if (typeof(T) == typeof(int))
-            {
-                return (int)(object)left > (int)(object)right;
-            }
-            else if (typeof(T) == typeof(ulong))
-            {
-                return (ulong)(object)left > (ulong)(object)right;
-            }
-            else if (typeof(T) == typeof(long))
-            {
-                return (long)(object)left > (long)(object)right;
-            }
-            else if (typeof(T) == typeof(float))
-            {
-                return (float)(object)left > (float)(object)right;
-            }
-            else if (typeof(T) == typeof(double))
-            {
-                return (double)(object)left > (double)(object)right;
-            }
-            else
-            {
-                throw new NotSupportedException(SR.Arg_TypeNotSupported);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static T ScalarAdd(T left, T right)
-        {
-            if (typeof(T) == typeof(byte))
-            {
-                return (T)(object)unchecked((byte)((byte)(object)left + (byte)(object)right));
-            }
-            else if (typeof(T) == typeof(sbyte))
-            {
-                return (T)(object)unchecked((sbyte)((sbyte)(object)left + (sbyte)(object)right));
-            }
-            else if (typeof(T) == typeof(ushort))
-            {
-                return (T)(object)unchecked((ushort)((ushort)(object)left + (ushort)(object)right));
-            }
-            else if (typeof(T) == typeof(short))
-            {
-                return (T)(object)unchecked((short)((short)(object)left + (short)(object)right));
-            }
-            else if (typeof(T) == typeof(uint))
-            {
-                return (T)(object)unchecked((uint)((uint)(object)left + (uint)(object)right));
-            }
-            else if (typeof(T) == typeof(int))
-            {
-                return (T)(object)unchecked((int)((int)(object)left + (int)(object)right));
-            }
-            else if (typeof(T) == typeof(ulong))
-            {
-                return (T)(object)unchecked((ulong)((ulong)(object)left + (ulong)(object)right));
-            }
-            else if (typeof(T) == typeof(long))
-            {
-                return (T)(object)unchecked((long)((long)(object)left + (long)(object)right));
-            }
-            else if (typeof(T) == typeof(float))
-            {
-                return (T)(object)unchecked((float)((float)(object)left + (float)(object)right));
-            }
-            else if (typeof(T) == typeof(double))
-            {
-                return (T)(object)unchecked((double)((double)(object)left + (double)(object)right));
-            }
-            else
-            {
-                throw new NotSupportedException(SR.Arg_TypeNotSupported);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static T ScalarSubtract(T left, T right)
-        {
-            if (typeof(T) == typeof(byte))
-            {
-                return (T)(object)(byte)((byte)(object)left - (byte)(object)right);
-            }
-            else if (typeof(T) == typeof(sbyte))
-            {
-                return (T)(object)(sbyte)((sbyte)(object)left - (sbyte)(object)right);
-            }
-            else if (typeof(T) == typeof(ushort))
-            {
-                return (T)(object)(ushort)((ushort)(object)left - (ushort)(object)right);
-            }
-            else if (typeof(T) == typeof(short))
-            {
-                return (T)(object)(short)((short)(object)left - (short)(object)right);
-            }
-            else if (typeof(T) == typeof(uint))
-            {
-                return (T)(object)(uint)((uint)(object)left - (uint)(object)right);
-            }
-            else if (typeof(T) == typeof(int))
-            {
-                return (T)(object)(int)((int)(object)left - (int)(object)right);
-            }
-            else if (typeof(T) == typeof(ulong))
-            {
-                return (T)(object)(ulong)((ulong)(object)left - (ulong)(object)right);
-            }
-            else if (typeof(T) == typeof(long))
-            {
-                return (T)(object)(long)((long)(object)left - (long)(object)right);
-            }
-            else if (typeof(T) == typeof(float))
-            {
-                return (T)(object)(float)((float)(object)left - (float)(object)right);
-            }
-            else if (typeof(T) == typeof(double))
-            {
-                return (T)(object)(double)((double)(object)left - (double)(object)right);
-            }
-            else
-            {
-                throw new NotSupportedException(SR.Arg_TypeNotSupported);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static T ScalarMultiply(T left, T right)
-        {
-            if (typeof(T) == typeof(byte))
-            {
-                return (T)(object)unchecked((byte)((byte)(object)left * (byte)(object)right));
-            }
-            else if (typeof(T) == typeof(sbyte))
-            {
-                return (T)(object)unchecked((sbyte)((sbyte)(object)left * (sbyte)(object)right));
-            }
-            else if (typeof(T) == typeof(ushort))
-            {
-                return (T)(object)unchecked((ushort)((ushort)(object)left * (ushort)(object)right));
-            }
-            else if (typeof(T) == typeof(short))
-            {
-                return (T)(object)unchecked((short)((short)(object)left * (short)(object)right));
-            }
-            else if (typeof(T) == typeof(uint))
-            {
-                return (T)(object)unchecked((uint)((uint)(object)left * (uint)(object)right));
-            }
-            else if (typeof(T) == typeof(int))
-            {
-                return (T)(object)unchecked((int)((int)(object)left * (int)(object)right));
-            }
-            else if (typeof(T) == typeof(ulong))
-            {
-                return (T)(object)unchecked((ulong)((ulong)(object)left * (ulong)(object)right));
-            }
-            else if (typeof(T) == typeof(long))
-            {
-                return (T)(object)unchecked((long)((long)(object)left * (long)(object)right));
-            }
-            else if (typeof(T) == typeof(float))
-            {
-                return (T)(object)unchecked((float)((float)(object)left * (float)(object)right));
-            }
-            else if (typeof(T) == typeof(double))
-            {
-                return (T)(object)unchecked((double)((double)(object)left * (double)(object)right));
-            }
-            else
-            {
-                throw new NotSupportedException(SR.Arg_TypeNotSupported);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static T ScalarDivide(T left, T right)
-        {
-            if (typeof(T) == typeof(byte))
-            {
-                return (T)(object)(byte)((byte)(object)left / (byte)(object)right);
-            }
-            else if (typeof(T) == typeof(sbyte))
-            {
-                return (T)(object)(sbyte)((sbyte)(object)left / (sbyte)(object)right);
-            }
-            else if (typeof(T) == typeof(ushort))
-            {
-                return (T)(object)(ushort)((ushort)(object)left / (ushort)(object)right);
-            }
-            else if (typeof(T) == typeof(short))
-            {
-                return (T)(object)(short)((short)(object)left / (short)(object)right);
-            }
-            else if (typeof(T) == typeof(uint))
-            {
-                return (T)(object)(uint)((uint)(object)left / (uint)(object)right);
-            }
-            else if (typeof(T) == typeof(int))
-            {
-                return (T)(object)(int)((int)(object)left / (int)(object)right);
-            }
-            else if (typeof(T) == typeof(ulong))
-            {
-                return (T)(object)(ulong)((ulong)(object)left / (ulong)(object)right);
-            }
-            else if (typeof(T) == typeof(long))
-            {
-                return (T)(object)(long)((long)(object)left / (long)(object)right);
-            }
-            else if (typeof(T) == typeof(float))
-            {
-                return (T)(object)(float)((float)(object)left / (float)(object)right);
-            }
-            else if (typeof(T) == typeof(double))
-            {
-                return (T)(object)(double)((double)(object)left / (double)(object)right);
-            }
-            else
-            {
-                throw new NotSupportedException(SR.Arg_TypeNotSupported);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static T GetOneValue()
-        {
-            if (typeof(T) == typeof(byte))
-            {
-                byte value = 1;
-                return (T)(object)value;
-            }
-            else if (typeof(T) == typeof(sbyte))
-            {
-                sbyte value = 1;
-                return (T)(object)value;
-            }
-            else if (typeof(T) == typeof(ushort))
-            {
-                ushort value = 1;
-                return (T)(object)value;
-            }
-            else if (typeof(T) == typeof(short))
-            {
-                short value = 1;
-                return (T)(object)value;
-            }
-            else if (typeof(T) == typeof(uint))
-            {
-                uint value = 1;
-                return (T)(object)value;
-            }
-            else if (typeof(T) == typeof(int))
-            {
-                int value = 1;
-                return (T)(object)value;
-            }
-            else if (typeof(T) == typeof(ulong))
-            {
-                ulong value = 1;
-                return (T)(object)value;
-            }
-            else if (typeof(T) == typeof(long))
-            {
-                long value = 1;
-                return (T)(object)value;
-            }
-            else if (typeof(T) == typeof(float))
-            {
-                float value = 1;
-                return (T)(object)value;
-            }
-            else if (typeof(T) == typeof(double))
-            {
-                double value = 1;
-                return (T)(object)value;
-            }
-            else
-            {
-                throw new NotSupportedException(SR.Arg_TypeNotSupported);
-            }
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static T GetAllBitsSetValue()
-        {
-            if (typeof(T) == typeof(byte))
-            {
-                return (T)(object)ConstantHelper.GetByteWithAllBitsSet();
-            }
-            else if (typeof(T) == typeof(sbyte))
-            {
-                return (T)(object)ConstantHelper.GetSByteWithAllBitsSet();
-            }
-            else if (typeof(T) == typeof(ushort))
-            {
-                return (T)(object)ConstantHelper.GetUInt16WithAllBitsSet();
-            }
-            else if (typeof(T) == typeof(short))
-            {
-                return (T)(object)ConstantHelper.GetInt16WithAllBitsSet();
-            }
-            else if (typeof(T) == typeof(uint))
-            {
-                return (T)(object)ConstantHelper.GetUInt32WithAllBitsSet();
-            }
-            else if (typeof(T) == typeof(int))
-            {
-                return (T)(object)ConstantHelper.GetInt32WithAllBitsSet();
-            }
-            else if (typeof(T) == typeof(ulong))
-            {
-                return (T)(object)ConstantHelper.GetUInt64WithAllBitsSet();
-            }
-            else if (typeof(T) == typeof(long))
-            {
-                return (T)(object)ConstantHelper.GetInt64WithAllBitsSet();
-            }
-            else if (typeof(T) == typeof(float))
-            {
-                return (T)(object)ConstantHelper.GetSingleWithAllBitsSet();
-            }
-            else if (typeof(T) == typeof(double))
-            {
-                return (T)(object)ConstantHelper.GetDoubleWithAllBitsSet();
-            }
-            else
-            {
-                throw new NotSupportedException(SR.Arg_TypeNotSupported);
-            }
-        }
-        #endregion
-    }
-
+    /// <summary>Provides a collection of static methods for creating, manipulating, and otherwise operating on generic vectors.</summary>
     [Intrinsic]
     public static partial class Vector
     {
-        #region Widen/Narrow
-        /// <summary>
-        /// Widens a Vector{Byte} into two Vector{UInt16}'s.
-        /// <param name="source">The source vector whose elements are widened into the outputs.</param>
-        /// <param name="low">The first output vector, whose elements will contain the widened elements from lower indices in the source vector.</param>
-        /// <param name="high">The second output vector, whose elements will contain the widened elements from higher indices in the source vector.</param>
-        /// </summary>
+        internal static int Alignment => Vector<byte>.Count;
+
+        /// <summary>Gets a value that indicates whether vector operations are subject to hardware acceleration through JIT intrinsic support.</summary>
+        /// <value><see langword="true" /> if vector operations are subject to hardware acceleration; otherwise, <see langword="false" />.</value>
+        /// <remarks>Vector operations are subject to hardware acceleration on systems that support single instruction, multiple data (SIMD) instructions and when the RyuJIT just-in-time compiler is used to compile managed code.</remarks>
+        public static bool IsHardwareAccelerated
+        {
+            [Intrinsic]
+            get => IsHardwareAccelerated;
+        }
+
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        extension<T>(Vector<T>)
+            where T : IFloatingPointConstants<T>
+        {
+            /// <inheritdoc cref="Vector128.get_E{T}" />
+            public static Vector<T> E
+            {
+                [Intrinsic]
+                get => Create(T.E);
+            }
+
+            /// <inheritdoc cref="Vector128.get_Pi{T}" />
+            public static Vector<T> Pi
+            {
+                [Intrinsic]
+                get => Create(T.Pi);
+            }
+
+            /// <inheritdoc cref="Vector128.get_Tau{T}" />
+            public static Vector<T> Tau
+            {
+                [Intrinsic]
+                get => Create(T.Tau);
+            }
+        }
+
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        extension<T>(Vector<T>)
+            where T : IFloatingPointIeee754<T>
+        {
+            /// <inheritdoc cref="Vector128.get_Epsilon{T}" />
+            public static Vector<T> Epsilon
+            {
+                [Intrinsic]
+                get => Create(T.Epsilon);
+            }
+
+            /// <inheritdoc cref="Vector128.get_NaN{T}" />
+            public static Vector<T> NaN
+            {
+                [Intrinsic]
+                get => Create(T.NaN);
+            }
+
+            /// <inheritdoc cref="Vector128.get_NegativeInfinity{T}" />
+            public static Vector<T> NegativeInfinity
+            {
+                [Intrinsic]
+                get => Create(T.NegativeInfinity);
+            }
+
+            /// <inheritdoc cref="Vector128.get_NegativeZero{T}" />
+            public static Vector<T> NegativeZero
+            {
+                [Intrinsic]
+                get => Create(T.NegativeZero);
+            }
+
+            /// <inheritdoc cref="Vector128.get_PositiveInfinity{T}" />
+            public static Vector<T> PositiveInfinity
+            {
+                [Intrinsic]
+                get => Create(T.PositiveInfinity);
+            }
+        }
+
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        extension<T>(Vector<T>)
+            where T : ISignedNumber<T>
+        {
+            /// <inheritdoc cref="Vector128.get_NegativeOne{T}" />
+            public static Vector<T> NegativeOne
+            {
+                [Intrinsic]
+                get => Create(T.NegativeOne);
+            }
+
+            /// <inheritdoc cref="Vector128.get_SignSequence{T}" />
+            public static Vector<T> SignSequence
+            {
+                [Intrinsic]
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get => CreateAlternatingSequence(T.One, T.NegativeOne);
+            }
+        }
+
+        /// <summary>Computes the absolute value of each element in a vector.</summary>
+        /// <param name="value">The vector that will have its absolute value computed.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>A vector whose elements are the absolute value of the elements in <paramref name="value" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> Abs<T>(Vector<T> value)
+        {
+            if (Scalar<T>.IsUnsigned)
+            {
+                return value;
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T element = Scalar<T>.Abs(value.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, element);
+                }
+
+                return result;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.Add{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        public static Vector<T> Add<T>(Vector<T> left, Vector<T> right) => left + right;
+
+        /// <inheritdoc cref="Vector128.AddSaturate{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> AddSaturate<T>(Vector<T> left, Vector<T> right)
+        {
+            if ((typeof(T) == typeof(float)) || (typeof(T) == typeof(double)))
+            {
+                return left + right;
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.AddSaturate(left.GetElementUnsafe(index), right.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.All{T}(Vector128{T}, T)" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool All<T>(Vector<T> vector, T value) => vector == Create(value);
+
+        /// <inheritdoc cref="Vector128.AllWhereAllBitsSet{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool AllWhereAllBitsSet<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return All(vector.As<T, int>(), -1);
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return All(vector.As<T, long>(), -1);
+            }
+            else
+            {
+                return All(vector, Scalar<T>.AllBitsSet);
+            }
+        }
+
+        /// <summary>Computes the bitwise-and of a given vector and the ones complement of another vector.</summary>
+        /// <param name="left">The vector to bitwise-and with <paramref name="right" />.</param>
+        /// <param name="right">The vector to that is ones-complemented before being bitwise-and with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>The bitwise-and of <paramref name="left" /> and the ones-complement of <paramref name="right" />.</returns>
+        [Intrinsic]
+        public static Vector<T> AndNot<T>(Vector<T> left, Vector<T> right) => left & ~right;
+
+        /// <inheritdoc cref="Vector128.Any{T}(Vector128{T}, T)" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool Any<T>(Vector<T> vector, T value) => EqualsAny(vector, Create(value));
+
+        /// <inheritdoc cref="Vector128.AnyWhereAllBitsSet{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool AnyWhereAllBitsSet<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return Any(vector.As<T, int>(), -1);
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return Any(vector.As<T, long>(), -1);
+            }
+            else
+            {
+                return Any(vector, Scalar<T>.AllBitsSet);
+            }
+        }
+
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see cref="Vector{U}" />.</summary>
+        /// <typeparam name="TFrom">The type of the input vector.</typeparam>
+        /// <typeparam name="TTo">The type of the vector <paramref name="vector" /> should be reinterpreted as.</typeparam>
+        /// <param name="vector">The vector to reinterpret.</param>
+        /// <returns><paramref name="vector" /> reinterpreted as a new <see cref="Vector{U}" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="vector" /> (<typeparamref name="TFrom" />) or the type of the target (<typeparamref name="TTo" />) is not supported.</exception>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<TTo> As<TFrom, TTo>(this Vector<TFrom> vector)
+        {
+            ThrowHelper.ThrowForUnsupportedNumericsVectorBaseType<TFrom>();
+            ThrowHelper.ThrowForUnsupportedNumericsVectorBaseType<TTo>();
+
+            return Unsafe.BitCast<Vector<TFrom>, Vector<TTo>>(vector);
+        }
+
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see langword="Vector&lt;Byte&gt;" />.</summary>
+        /// <typeparam name="T">The type of the input vector.</typeparam>
+        /// <param name="value">The vector to reinterpret.</param>
+        /// <returns><paramref name="value" /> reinterpreted as a new <see langword="Vector&lt;Byte&gt;" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        public static Vector<byte> AsVectorByte<T>(Vector<T> value) => value.As<T, byte>();
+
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see langword="Vector&lt;Double&gt;" />.</summary>
+        /// <typeparam name="T">The type of the input vector.</typeparam>
+        /// <param name="value">The vector to reinterpret.</param>
+        /// <returns><paramref name="value" /> reinterpreted as a new <see langword="Vector&lt;Double&gt;" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        public static Vector<double> AsVectorDouble<T>(Vector<T> value) => value.As<T, double>();
+
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see langword="Vector&lt;Int16&gt;" />.</summary>
+        /// <typeparam name="T">The type of the input vector.</typeparam>
+        /// <param name="value">The vector to reinterpret.</param>
+        /// <returns><paramref name="value" /> reinterpreted as a new <see langword="Vector&lt;Int16&gt;" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        public static Vector<short> AsVectorInt16<T>(Vector<T> value) => value.As<T, short>();
+
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see langword="Vector&lt;Int32&gt;" />.</summary>
+        /// <typeparam name="T">The type of the input vector.</typeparam>
+        /// <param name="value">The vector to reinterpret.</param>
+        /// <returns><paramref name="value" /> reinterpreted as a new <see langword="Vector&lt;Int32&gt;" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        public static Vector<int> AsVectorInt32<T>(Vector<T> value) => value.As<T, int>();
+
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see langword="Vector&lt;Int64&gt;" />.</summary>
+        /// <typeparam name="T">The type of the input vector.</typeparam>
+        /// <param name="value">The vector to reinterpret.</param>
+        /// <returns><paramref name="value" /> reinterpreted as a new <see langword="Vector&lt;Int64&gt;" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        public static Vector<long> AsVectorInt64<T>(Vector<T> value) => value.As<T, long>();
+
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see langword="Vector&lt;IntPtr&gt;" />.</summary>
+        /// <typeparam name="T">The type of the input vector.</typeparam>
+        /// <param name="value">The vector to reinterpret.</param>
+        /// <returns><paramref name="value" /> reinterpreted as a new <see langword="Vector&lt;IntPtr&gt;" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        public static Vector<nint> AsVectorNInt<T>(Vector<T> value) => value.As<T, nint>();
+
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see langword="Vector&lt;UIntPtr&gt;" />.</summary>
+        /// <typeparam name="T">The type of the input vector.</typeparam>
+        /// <param name="value">The vector to reinterpret.</param>
+        /// <returns><paramref name="value" /> reinterpreted as a new <see langword="Vector&lt;UIntPtr&gt;" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
         [CLSCompliant(false)]
+        public static Vector<nuint> AsVectorNUInt<T>(Vector<T> value) => value.As<T, nuint>();
+
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see langword="Vector&lt;SByte&gt;" />.</summary>
+        /// <typeparam name="T">The type of the input vector.</typeparam>
+        /// <param name="value">The vector to reinterpret.</param>
+        /// <returns><paramref name="value" /> reinterpreted as a new <see langword="Vector&lt;SByte&gt;" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
         [Intrinsic]
-        public static unsafe void Widen(Vector<byte> source, out Vector<ushort> low, out Vector<ushort> high)
-        {
-            int elements = Vector<byte>.Count;
-            ushort* lowPtr = stackalloc ushort[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                lowPtr[i] = (ushort)source[i];
-            }
-            ushort* highPtr = stackalloc ushort[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                highPtr[i] = (ushort)source[i + (elements / 2)];
-            }
-
-            low = new Vector<ushort>(lowPtr);
-            high = new Vector<ushort>(highPtr);
-        }
-
-        /// <summary>
-        /// Widens a Vector{UInt16} into two Vector{UInt32}'s.
-        /// <param name="source">The source vector whose elements are widened into the outputs.</param>
-        /// <param name="low">The first output vector, whose elements will contain the widened elements from lower indices in the source vector.</param>
-        /// <param name="high">The second output vector, whose elements will contain the widened elements from higher indices in the source vector.</param>
-        /// </summary>
         [CLSCompliant(false)]
+        public static Vector<sbyte> AsVectorSByte<T>(Vector<T> value) => value.As<T, sbyte>();
+
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see langword="Vector&lt;Single&gt;" />.</summary>
+        /// <typeparam name="T">The type of the input vector.</typeparam>
+        /// <param name="value">The vector to reinterpret.</param>
+        /// <returns><paramref name="value" /> reinterpreted as a new <see langword="Vector&lt;Single&gt;" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
         [Intrinsic]
-        public static unsafe void Widen(Vector<ushort> source, out Vector<uint> low, out Vector<uint> high)
-        {
-            int elements = Vector<ushort>.Count;
-            uint* lowPtr = stackalloc uint[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                lowPtr[i] = (uint)source[i];
-            }
-            uint* highPtr = stackalloc uint[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                highPtr[i] = (uint)source[i + (elements / 2)];
-            }
+        public static Vector<float> AsVectorSingle<T>(Vector<T> value) => value.As<T, float>();
 
-            low = new Vector<uint>(lowPtr);
-            high = new Vector<uint>(highPtr);
-        }
-
-        /// <summary>
-        /// Widens a Vector{UInt32} into two Vector{UInt64}'s.
-        /// <param name="source">The source vector whose elements are widened into the outputs.</param>
-        /// <param name="low">The first output vector, whose elements will contain the widened elements from lower indices in the source vector.</param>
-        /// <param name="high">The second output vector, whose elements will contain the widened elements from higher indices in the source vector.</param>
-        /// </summary>
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see langword="Vector&lt;UInt16&gt;" />.</summary>
+        /// <typeparam name="T">The type of the input vector.</typeparam>
+        /// <param name="value">The vector to reinterpret.</param>
+        /// <returns><paramref name="value" /> reinterpreted as a new <see langword="Vector&lt;UInt16&gt;" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
         [CLSCompliant(false)]
+        public static Vector<ushort> AsVectorUInt16<T>(Vector<T> value) => value.As<T, ushort>();
+
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see langword="Vector&lt;UInt32&gt;" />.</summary>
+        /// <typeparam name="T">The type of the input vector.</typeparam>
+        /// <param name="value">The vector to reinterpret.</param>
+        /// <returns><paramref name="value" /> reinterpreted as a new <see langword="Vector&lt;UInt32&gt;" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
         [Intrinsic]
-        public static unsafe void Widen(Vector<uint> source, out Vector<ulong> low, out Vector<ulong> high)
-        {
-            int elements = Vector<uint>.Count;
-            ulong* lowPtr = stackalloc ulong[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                lowPtr[i] = (ulong)source[i];
-            }
-            ulong* highPtr = stackalloc ulong[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                highPtr[i] = (ulong)source[i + (elements / 2)];
-            }
-
-            low = new Vector<ulong>(lowPtr);
-            high = new Vector<ulong>(highPtr);
-        }
-
-        /// <summary>
-        /// Widens a Vector{SByte} into two Vector{Int16}'s.
-        /// <param name="source">The source vector whose elements are widened into the outputs.</param>
-        /// <param name="low">The first output vector, whose elements will contain the widened elements from lower indices in the source vector.</param>
-        /// <param name="high">The second output vector, whose elements will contain the widened elements from higher indices in the source vector.</param>
-        /// </summary>
         [CLSCompliant(false)]
+        public static Vector<uint> AsVectorUInt32<T>(Vector<T> value) => value.As<T, uint>();
+
+        /// <summary>Reinterprets a <see cref="Vector{T}" /> as a new <see langword="Vector&lt;UInt64&gt;" />.</summary>
+        /// <typeparam name="T">The type of the input vector.</typeparam>
+        /// <param name="value">The vector to reinterpret.</param>
+        /// <returns><paramref name="value" /> reinterpreted as a new <see langword="Vector&lt;UInt64&gt;" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
         [Intrinsic]
-        public static unsafe void Widen(Vector<sbyte> source, out Vector<short> low, out Vector<short> high)
-        {
-            int elements = Vector<sbyte>.Count;
-            short* lowPtr = stackalloc short[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                lowPtr[i] = (short)source[i];
-            }
-            short* highPtr = stackalloc short[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                highPtr[i] = (short)source[i + (elements / 2)];
-            }
-
-            low = new Vector<short>(lowPtr);
-            high = new Vector<short>(highPtr);
-        }
-
-        /// <summary>
-        /// Widens a Vector{Int16} into two Vector{Int32}'s.
-        /// <param name="source">The source vector whose elements are widened into the outputs.</param>
-        /// <param name="low">The first output vector, whose elements will contain the widened elements from lower indices in the source vector.</param>
-        /// <param name="high">The second output vector, whose elements will contain the widened elements from higher indices in the source vector.</param>
-        /// </summary>
-        [Intrinsic]
-        public static unsafe void Widen(Vector<short> source, out Vector<int> low, out Vector<int> high)
-        {
-            int elements = Vector<short>.Count;
-            int* lowPtr = stackalloc int[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                lowPtr[i] = (int)source[i];
-            }
-            int* highPtr = stackalloc int[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                highPtr[i] = (int)source[i + (elements / 2)];
-            }
-
-            low = new Vector<int>(lowPtr);
-            high = new Vector<int>(highPtr);
-        }
-
-        /// <summary>
-        /// Widens a Vector{Int32} into two Vector{Int64}'s.
-        /// <param name="source">The source vector whose elements are widened into the outputs.</param>
-        /// <param name="low">The first output vector, whose elements will contain the widened elements from lower indices in the source vector.</param>
-        /// <param name="high">The second output vector, whose elements will contain the widened elements from higher indices in the source vector.</param>
-        /// </summary>
-        [Intrinsic]
-        public static unsafe void Widen(Vector<int> source, out Vector<long> low, out Vector<long> high)
-        {
-            int elements = Vector<int>.Count;
-            long* lowPtr = stackalloc long[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                lowPtr[i] = (long)source[i];
-            }
-            long* highPtr = stackalloc long[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                highPtr[i] = (long)source[i + (elements / 2)];
-            }
-
-            low = new Vector<long>(lowPtr);
-            high = new Vector<long>(highPtr);
-        }
-
-        /// <summary>
-        /// Widens a Vector{Single} into two Vector{Double}'s.
-        /// <param name="source">The source vector whose elements are widened into the outputs.</param>
-        /// <param name="low">The first output vector, whose elements will contain the widened elements from lower indices in the source vector.</param>
-        /// <param name="high">The second output vector, whose elements will contain the widened elements from higher indices in the source vector.</param>
-        /// </summary>
-        [Intrinsic]
-        public static unsafe void Widen(Vector<float> source, out Vector<double> low, out Vector<double> high)
-        {
-            int elements = Vector<float>.Count;
-            double* lowPtr = stackalloc double[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                lowPtr[i] = (double)source[i];
-            }
-            double* highPtr = stackalloc double[elements / 2];
-            for (int i = 0; i < elements / 2; i++)
-            {
-                highPtr[i] = (double)source[i + (elements / 2)];
-            }
-
-            low = new Vector<double>(lowPtr);
-            high = new Vector<double>(highPtr);
-        }
-
-        /// <summary>
-        /// Narrows two Vector{UInt16}'s into one Vector{Byte}.
-        /// <param name="low">The first source vector, whose elements become the lower-index elements of the return value.</param>
-        /// <param name="high">The second source vector, whose elements become the higher-index elements of the return value.</param>
-        /// <returns>A Vector{Byte} containing elements narrowed from the source vectors.</returns>
-        /// </summary>
         [CLSCompliant(false)]
+        public static Vector<ulong> AsVectorUInt64<T>(Vector<T> value) => value.As<T, ulong>();
+
+        /// <summary>Computes the bitwise-and of two vectors.</summary>
+        /// <param name="left">The vector to bitwise-and with <paramref name="right" />.</param>
+        /// <param name="right">The vector to bitwise-and with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>The bitwise-and of <paramref name="left" /> and <paramref name="right" />.</returns>
         [Intrinsic]
-        public static unsafe Vector<byte> Narrow(Vector<ushort> low, Vector<ushort> high)
+        public static Vector<T> BitwiseAnd<T>(Vector<T> left, Vector<T> right) => left & right;
+
+        /// <summary>Computes the bitwise-or of two vectors.</summary>
+        /// <param name="left">The vector to bitwise-or with <paramref name="right" />.</param>
+        /// <param name="right">The vector to bitwise-or with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>The bitwise-or of <paramref name="left" /> and <paramref name="right" />.</returns>
+        [Intrinsic]
+        public static Vector<T> BitwiseOr<T>(Vector<T> left, Vector<T> right) => left | right;
+
+        /// <summary>Computes the ceiling of each element in a vector.</summary>
+        /// <param name="vector">The vector that will have its ceiling computed.</param>
+        /// <returns>A vector whose elements are the ceiling of the elements in <paramref name="vector" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static Vector<T> Ceiling<T>(Vector<T> vector)
         {
-            unchecked
+            if (Scalar<T>.IsFloatingPoint)
             {
-                int elements = Vector<byte>.Count;
-                byte* retPtr = stackalloc byte[elements];
-                for (int i = 0; i < elements / 2; i++)
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
                 {
-                    retPtr[i] = (byte)low[i];
-                }
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i + (elements / 2)] = (byte)high[i];
+                    T value = Scalar<T>.Ceiling(vector.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
                 }
 
-                return new Vector<byte>(retPtr);
+                return result;
+            }
+            else
+            {
+                return vector;
             }
         }
 
-        /// <summary>
-        /// Narrows two Vector{UInt32}'s into one Vector{UInt16}.
-        /// <param name="low">The first source vector, whose elements become the lower-index elements of the return value.</param>
-        /// <param name="high">The second source vector, whose elements become the higher-index elements of the return value.</param>
-        /// <returns>A Vector{UInt16} containing elements narrowed from the source vectors.</returns>
-        /// </summary>
-        [CLSCompliant(false)]
+        /// <summary>Computes the ceiling of each element in a vector.</summary>
+        /// <param name="value">The vector that will have its ceiling computed.</param>
+        /// <returns>A vector whose elements are the ceiling of the elements in <paramref name="value" />.</returns>
+        /// <seealso cref="double.Ceiling(double)" />
         [Intrinsic]
-        public static unsafe Vector<ushort> Narrow(Vector<uint> low, Vector<uint> high)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> Ceiling(Vector<double> value)
         {
-            unchecked
-            {
-                int elements = Vector<ushort>.Count;
-                ushort* retPtr = stackalloc ushort[elements];
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i] = (ushort)low[i];
-                }
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i + (elements / 2)] = (ushort)high[i];
-                }
+            Unsafe.SkipInit(out Vector<double> result);
 
-                return new Vector<ushort>(retPtr);
+            for (int index = 0; index < Vector<double>.Count; index++)
+            {
+                double element = Scalar<double>.Ceiling(value.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, element);
             }
+
+            return result;
         }
 
-        /// <summary>
-        /// Narrows two Vector{UInt64}'s into one Vector{UInt32}.
-        /// <param name="low">The first source vector, whose elements become the lower-index elements of the return value.</param>
-        /// <param name="high">The second source vector, whose elements become the higher-index elements of the return value.</param>
-        /// <returns>A Vector{UInt32} containing elements narrowed from the source vectors.</returns>
-        /// </summary>
-        [CLSCompliant(false)]
+        /// <summary>Computes the ceiling of each element in a vector.</summary>
+        /// <param name="value">The vector that will have its ceiling computed.</param>
+        /// <returns>A vector whose elements are the ceiling of the elements in <paramref name="value" />.</returns>
+        /// <seealso cref="float.Ceiling(float)" />
         [Intrinsic]
-        public static unsafe Vector<uint> Narrow(Vector<ulong> low, Vector<ulong> high)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> Ceiling(Vector<float> value)
         {
-            unchecked
-            {
-                int elements = Vector<uint>.Count;
-                uint* retPtr = stackalloc uint[elements];
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i] = (uint)low[i];
-                }
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i + (elements / 2)] = (uint)high[i];
-                }
+            Unsafe.SkipInit(out Vector<float> result);
 
-                return new Vector<uint>(retPtr);
+            for (int index = 0; index < Vector<float>.Count; index++)
+            {
+                float element = Scalar<float>.Ceiling(value.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, element);
             }
+
+            return result;
         }
 
-        /// <summary>
-        /// Narrows two Vector{Int16}'s into one Vector{SByte}.
-        /// <param name="low">The first source vector, whose elements become the lower-index elements of the return value.</param>
-        /// <param name="high">The second source vector, whose elements become the higher-index elements of the return value.</param>
-        /// <returns>A Vector{SByte} containing elements narrowed from the source vectors.</returns>
-        /// </summary>
-        [CLSCompliant(false)]
+        /// <inheritdoc cref="Vector128.Clamp{T}(Vector128{T}, Vector128{T}, Vector128{T})" />
         [Intrinsic]
-        public static unsafe Vector<sbyte> Narrow(Vector<short> low, Vector<short> high)
+        public static Vector<T> Clamp<T>(Vector<T> value, Vector<T> min, Vector<T> max)
         {
-            unchecked
-            {
-                int elements = Vector<sbyte>.Count;
-                sbyte* retPtr = stackalloc sbyte[elements];
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i] = (sbyte)low[i];
-                }
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i + (elements / 2)] = (sbyte)high[i];
-                }
-
-                return new Vector<sbyte>(retPtr);
-            }
+            // We must follow HLSL behavior in the case user specified min value is bigger than max value.
+            return Min(Max(value, min), max);
         }
 
-        /// <summary>
-        /// Narrows two Vector{Int32}'s into one Vector{Int16}.
-        /// <param name="low">The first source vector, whose elements become the lower-index elements of the return value.</param>
-        /// <param name="high">The second source vector, whose elements become the higher-index elements of the return value.</param>
-        /// <returns>A Vector{Int16} containing elements narrowed from the source vectors.</returns>
-        /// </summary>
+        /// <inheritdoc cref="Vector128.ClampNative{T}(Vector128{T}, Vector128{T}, Vector128{T})" />
         [Intrinsic]
-        public static unsafe Vector<short> Narrow(Vector<int> low, Vector<int> high)
+        public static Vector<T> ClampNative<T>(Vector<T> value, Vector<T> min, Vector<T> max)
         {
-            unchecked
-            {
-                int elements = Vector<short>.Count;
-                short* retPtr = stackalloc short[elements];
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i] = (short)low[i];
-                }
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i + (elements / 2)] = (short)high[i];
-                }
-
-                return new Vector<short>(retPtr);
-            }
+            // We must follow HLSL behavior in the case user specified min value is bigger than max value.
+            return MinNative(MaxNative(value, min), max);
         }
 
-        /// <summary>
-        /// Narrows two Vector{Int64}'s into one Vector{Int32}.
-        /// <param name="low">The first source vector, whose elements become the lower-index elements of the return value.</param>
-        /// <param name="high">The second source vector, whose elements become the higher-index elements of the return value.</param>
-        /// <returns>A Vector{Int32} containing elements narrowed from the source vectors.</returns>
-        /// </summary>
+        /// <summary>Conditionally selects a value from two vectors on a bitwise basis.</summary>
+        /// <param name="condition">The mask that is used to select a value from <paramref name="left" /> or <paramref name="right" />.</param>
+        /// <param name="left">The vector that is selected when the corresponding bit in <paramref name="condition" /> is one.</param>
+        /// <param name="right">The vector that is selected when the corresponding bit in <paramref name="condition" /> is zero.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>A vector whose bits come from <paramref name="left" /> or <paramref name="right" /> based on the value of <paramref name="condition" />.</returns>
+        /// <remarks>The returned vector is equivalent to <paramref name="condition" /> <c>?</c> <paramref name="left" /> <c>:</c> <paramref name="right" /> on a per-bit basis.</remarks>
         [Intrinsic]
-        public static unsafe Vector<int> Narrow(Vector<long> low, Vector<long> high)
-        {
-            unchecked
-            {
-                int elements = Vector<int>.Count;
-                int* retPtr = stackalloc int[elements];
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i] = (int)low[i];
-                }
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i + (elements / 2)] = (int)high[i];
-                }
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> ConditionalSelect<T>(Vector<T> condition, Vector<T> left, Vector<T> right) => (left & condition) | AndNot(right, condition);
 
-                return new Vector<int>(retPtr);
-            }
-        }
-
-        /// <summary>
-        /// Narrows two Vector{Double}'s into one Vector{Single}.
-        /// <param name="low">The first source vector, whose elements become the lower-index elements of the return value.</param>
-        /// <param name="high">The second source vector, whose elements become the higher-index elements of the return value.</param>
-        /// <returns>A Vector{Single} containing elements narrowed from the source vectors.</returns>
-        /// </summary>
+        /// <summary>Conditionally selects a value from two vectors on a bitwise basis.</summary>
+        /// <param name="condition">The mask that is used to select a value from <paramref name="left" /> or <paramref name="right" />.</param>
+        /// <param name="left">The vector that is selected when the corresponding bit in <paramref name="condition" /> is one.</param>
+        /// <param name="right">The vector that is selected when the corresponding bit in <paramref name="condition" /> is zero.</param>
+        /// <returns>A vector whose bits come from <paramref name="left" /> or <paramref name="right" /> based on the value of <paramref name="condition" />.</returns>
+        /// <remarks>The returned vector is equivalent to <paramref name="condition" /> <c>?</c> <paramref name="left" /> <c>:</c> <paramref name="right" /> on a per-bit basis.</remarks>
         [Intrinsic]
-        public static unsafe Vector<float> Narrow(Vector<double> low, Vector<double> high)
-        {
-            unchecked
-            {
-                int elements = Vector<float>.Count;
-                float* retPtr = stackalloc float[elements];
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i] = (float)low[i];
-                }
-                for (int i = 0; i < elements / 2; i++)
-                {
-                    retPtr[i + (elements / 2)] = (float)high[i];
-                }
+        public static Vector<float> ConditionalSelect(Vector<int> condition, Vector<float> left, Vector<float> right) => ConditionalSelect(condition.As<int, float>(), left, right);
 
-                return new Vector<float>(retPtr);
-            }
-        }
+        /// <summary>Conditionally selects a value from two vectors on a bitwise basis.</summary>
+        /// <param name="condition">The mask that is used to select a value from <paramref name="left" /> or <paramref name="right" />.</param>
+        /// <param name="left">The vector that is selected when the corresponding bit in <paramref name="condition" /> is one.</param>
+        /// <param name="right">The vector that is selected when the corresponding bit in <paramref name="condition" /> is zero.</param>
+        /// <returns>A vector whose bits come from <paramref name="left" /> or <paramref name="right" /> based on the value of <paramref name="condition" />.</returns>
+        /// <remarks>The returned vector is equivalent to <paramref name="condition" /> <c>?</c> <paramref name="left" /> <c>:</c> <paramref name="right" /> on a per-bit basis.</remarks>
+        [Intrinsic]
+        public static Vector<double> ConditionalSelect(Vector<long> condition, Vector<double> left, Vector<double> right) => ConditionalSelect(condition.As<long, double>(), left, right);
 
-        #endregion Widen/Narrow
-
-        #region Same-Size Conversion
-        /// <summary>
-        /// Converts a Vector{Int32} to a Vector{Single}.
-        /// </summary>
-        /// <param name="value">The source vector.</param>
+        /// <summary>Converts a <see langword="Vector&lt;Int64&gt;" /> to a <see langword="Vector&lt;Double&gt;" />.</summary>
+        /// <param name="value">The vector to convert.</param>
         /// <returns>The converted vector.</returns>
         [Intrinsic]
-        public static unsafe Vector<float> ConvertToSingle(Vector<int> value)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> ConvertToDouble(Vector<long> value)
         {
-            unchecked
+            if (Vector<double>.Count == Vector512<double>.Count)
             {
-                int elements = Vector<float>.Count;
-                float* retPtr = stackalloc float[elements];
-                for (int i = 0; i < elements; i++)
-                {
-                    retPtr[i] = (float)value[i];
-                }
-
-                return new Vector<float>(retPtr);
+                return Vector512.ConvertToDouble(value.AsVector512()).AsVector();
+            }
+            else if (Vector<double>.Count == Vector256<double>.Count)
+            {
+                return Vector256.ConvertToDouble(value.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<double>.Count == Vector128<double>.Count);
+                return Vector128.ConvertToDouble(value.AsVector128()).AsVector();
             }
         }
 
-        /// <summary>
-        /// Converts a Vector{UInt32} to a Vector{Single}.
-        /// </summary>
-        /// <param name="value">The source vector.</param>
+        /// <summary>Converts a <see langword="Vector&lt;UInt64&gt;" /> to a <see langword="Vector&lt;Double&gt;" />.</summary>
+        /// <param name="value">The vector to convert.</param>
         /// <returns>The converted vector.</returns>
+        [Intrinsic]
         [CLSCompliant(false)]
-        [Intrinsic]
-        public static unsafe Vector<float> ConvertToSingle(Vector<uint> value)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> ConvertToDouble(Vector<ulong> value)
         {
-            unchecked
+            if (Vector<double>.Count == Vector512<double>.Count)
             {
-                int elements = Vector<float>.Count;
-                float* retPtr = stackalloc float[elements];
-                for (int i = 0; i < elements; i++)
-                {
-                    retPtr[i] = (float)value[i];
-                }
-
-                return new Vector<float>(retPtr);
+                return Vector512.ConvertToDouble(value.AsVector512()).AsVector();
+            }
+            else if (Vector<double>.Count == Vector256<double>.Count)
+            {
+                return Vector256.ConvertToDouble(value.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<double>.Count == Vector128<double>.Count);
+                return Vector128.ConvertToDouble(value.AsVector128()).AsVector();
             }
         }
 
-        /// <summary>
-        /// Converts a Vector{Int64} to a Vector{Double}.
-        /// </summary>
-        /// <param name="value">The source vector.</param>
+        /// <summary>Converts a <see langword="Vector&lt;Single&gt;" /> to a <see langword="Vector&lt;Int32&gt;" /> using saturation on overflow.</summary>
+        /// <param name="value">The vector to convert.</param>
         /// <returns>The converted vector.</returns>
         [Intrinsic]
-        public static unsafe Vector<double> ConvertToDouble(Vector<long> value)
+        public static Vector<int> ConvertToInt32(Vector<float> value)
         {
-            unchecked
-            {
-                int elements = Vector<double>.Count;
-                double* retPtr = stackalloc double[elements];
-                for (int i = 0; i < elements; i++)
-                {
-                    retPtr[i] = (double)value[i];
-                }
+            Unsafe.SkipInit(out Vector<int> result);
 
-                return new Vector<double>(retPtr);
+            for (int i = 0; i < Vector<int>.Count; i++)
+            {
+                int element = float.ConvertToInteger<int>(value.GetElementUnsafe(i));
+                result.SetElementUnsafe(i, element);
             }
+
+            return result;
         }
 
-        /// <summary>
-        /// Converts a Vector{UInt64} to a Vector{Double}.
-        /// </summary>
-        /// <param name="value">The source vector.</param>
+        /// <summary>Converts a <see langword="Vector&lt;Single&gt;" /> to a <see langword="Vector&lt;Int32&gt;" /> using platform specific behavior on overflow.</summary>
+        /// <param name="value">The vector to convert.</param>
         /// <returns>The converted vector.</returns>
+        [Intrinsic]
+        public static Vector<int> ConvertToInt32Native(Vector<float> value)
+        {
+            Unsafe.SkipInit(out Vector<int> result);
+
+            for (int i = 0; i < Vector<int>.Count; i++)
+            {
+                int element = float.ConvertToIntegerNative<int>(value.GetElementUnsafe(i));
+                result.SetElementUnsafe(i, element);
+            }
+
+            return result;
+        }
+
+        /// <summary>Converts a <see langword="Vector&lt;Double&gt;" /> to a <see langword="Vector&lt;Int64&gt;" /> using saturation on overflow.</summary>
+        /// <param name="value">The vector to convert.</param>
+        /// <returns>The converted vector.</returns>
+        [Intrinsic]
+        public static Vector<long> ConvertToInt64(Vector<double> value)
+        {
+            Unsafe.SkipInit(out Vector<long> result);
+
+            for (int i = 0; i < Vector<long>.Count; i++)
+            {
+                long element = double.ConvertToInteger<long>(value.GetElementUnsafe(i));
+                result.SetElementUnsafe(i, element);
+            }
+
+            return result;
+        }
+
+        /// <summary>Converts a <see langword="Vector&lt;Double&gt;" /> to a <see langword="Vector&lt;Int64&gt;" /> using platform specific behavior on overflow.</summary>
+        /// <param name="value">The vector to convert.</param>
+        /// <returns>The converted vector.</returns>
+        [Intrinsic]
+        public static Vector<long> ConvertToInt64Native(Vector<double> value)
+        {
+            Unsafe.SkipInit(out Vector<long> result);
+
+            for (int i = 0; i < Vector<long>.Count; i++)
+            {
+                long element = double.ConvertToIntegerNative<long>(value.GetElementUnsafe(i));
+                result.SetElementUnsafe(i, element);
+            }
+
+            return result;
+        }
+
+        /// <summary>Converts a <see langword="Vector&lt;Int32&gt;" /> to a <see langword="Vector&lt;Single&gt;" />.</summary>
+        /// <param name="value">The vector to convert.</param>
+        /// <returns>The converted vector.</returns>
+        [Intrinsic]
+        public static Vector<float> ConvertToSingle(Vector<int> value)
+        {
+            Unsafe.SkipInit(out Vector<float> result);
+
+            for (int i = 0; i < Vector<float>.Count; i++)
+            {
+                float element = value.GetElementUnsafe(i);
+                result.SetElementUnsafe(i, element);
+            }
+
+            return result;
+        }
+
+        /// <summary>Converts a <see langword="Vector&lt;UInt32&gt;" /> to a <see langword="Vector&lt;Single&gt;" />.</summary>
+        /// <param name="value">The vector to convert.</param>
+        /// <returns>The converted vector.</returns>
+        [Intrinsic]
         [CLSCompliant(false)]
-        [Intrinsic]
-        public static unsafe Vector<double> ConvertToDouble(Vector<ulong> value)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> ConvertToSingle(Vector<uint> value)
         {
-            unchecked
+            if (Vector<float>.Count == Vector512<float>.Count)
             {
-                int elements = Vector<double>.Count;
-                double* retPtr = stackalloc double[elements];
-                for (int i = 0; i < elements; i++)
-                {
-                    retPtr[i] = (double)value[i];
-                }
-
-                return new Vector<double>(retPtr);
+                return Vector512.ConvertToSingle(value.AsVector512()).AsVector();
+            }
+            else if (Vector<float>.Count == Vector256<float>.Count)
+            {
+                return Vector256.ConvertToSingle(value.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<float>.Count == Vector128<float>.Count);
+                return Vector128.ConvertToSingle(value.AsVector128()).AsVector();
             }
         }
 
-        /// <summary>
-        /// Converts a Vector{Single} to a Vector{Int32}.
-        /// </summary>
-        /// <param name="value">The source vector.</param>
+        /// <summary>Converts a <see langword="Vector&lt;Single&gt;" /> to a <see langword="Vector&lt;UInt32&gt;" /> using saturation on overflow.</summary>
+        /// <param name="value">The vector to convert.</param>
         /// <returns>The converted vector.</returns>
         [Intrinsic]
-        public static unsafe Vector<int> ConvertToInt32(Vector<float> value)
-        {
-            unchecked
-            {
-                int elements = Vector<int>.Count;
-                int* retPtr = stackalloc int[elements];
-                for (int i = 0; i < elements; i++)
-                {
-                    retPtr[i] = (int)value[i];
-                }
-
-                return new Vector<int>(retPtr);
-            }
-        }
-
-        /// <summary>
-        /// Converts a Vector{Single} to a Vector{UInt32}.
-        /// </summary>
-        /// <param name="value">The source vector.</param>
-        /// <returns>The converted vector.</returns>
         [CLSCompliant(false)]
-        [Intrinsic]
-        public static unsafe Vector<uint> ConvertToUInt32(Vector<float> value)
+        public static Vector<uint> ConvertToUInt32(Vector<float> value)
         {
-            unchecked
-            {
-                int elements = Vector<uint>.Count;
-                uint* retPtr = stackalloc uint[elements];
-                for (int i = 0; i < elements; i++)
-                {
-                    retPtr[i] = (uint)value[i];
-                }
+            Unsafe.SkipInit(out Vector<uint> result);
 
-                return new Vector<uint>(retPtr);
+            for (int i = 0; i < Vector<uint>.Count; i++)
+            {
+                uint element = float.ConvertToInteger<uint>(value.GetElementUnsafe(i));
+                result.SetElementUnsafe(i, element);
             }
+
+            return result;
         }
 
-        /// <summary>
-        /// Converts a Vector{Double} to a Vector{Int64}.
-        /// </summary>
-        /// <param name="value">The source vector.</param>
+        /// <summary>Converts a <see langword="Vector&lt;Single&gt;" /> to a <see langword="Vector&lt;UInt32&gt;" /> using platform specific behavior on overflow.</summary>
+        /// <param name="value">The vector to convert.</param>
         /// <returns>The converted vector.</returns>
         [Intrinsic]
-        public static unsafe Vector<long> ConvertToInt64(Vector<double> value)
-        {
-            unchecked
-            {
-                int elements = Vector<long>.Count;
-                long* retPtr = stackalloc long[elements];
-                for (int i = 0; i < elements; i++)
-                {
-                    retPtr[i] = (long)value[i];
-                }
-
-                return new Vector<long>(retPtr);
-            }
-        }
-
-        /// <summary>
-        /// Converts a Vector{Double} to a Vector{UInt64}.
-        /// </summary>
-        /// <param name="value">The source vector.</param>
-        /// <returns>The converted vector.</returns>
         [CLSCompliant(false)]
-        [Intrinsic]
-        public static unsafe Vector<ulong> ConvertToUInt64(Vector<double> value)
+        public static Vector<uint> ConvertToUInt32Native(Vector<float> value)
         {
-            unchecked
-            {
-                int elements = Vector<ulong>.Count;
-                ulong* retPtr = stackalloc ulong[elements];
-                for (int i = 0; i < elements; i++)
-                {
-                    retPtr[i] = (ulong)value[i];
-                }
+            Unsafe.SkipInit(out Vector<uint> result);
 
-                return new Vector<ulong>(retPtr);
+            for (int i = 0; i < Vector<uint>.Count; i++)
+            {
+                uint element = float.ConvertToIntegerNative<uint>(value.GetElementUnsafe(i));
+                result.SetElementUnsafe(i, element);
+            }
+
+            return result;
+        }
+
+        /// <summary>Converts a <see langword="Vector&lt;Double&gt;" /> to a <see langword="Vector&lt;UInt64&gt;" /> using saturation on overflow.</summary>
+        /// <param name="value">The vector to convert.</param>
+        /// <returns>The converted vector.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<ulong> ConvertToUInt64(Vector<double> value)
+        {
+            Unsafe.SkipInit(out Vector<ulong> result);
+
+            for (int i = 0; i < Vector<ulong>.Count; i++)
+            {
+                ulong element = double.ConvertToInteger<ulong>(value.GetElementUnsafe(i));
+                result.SetElementUnsafe(i, element);
+            }
+
+            return result;
+        }
+
+        /// <summary>Converts a <see langword="Vector&lt;Double&gt;" /> to a <see langword="Vector&lt;UInt64&gt;" /> using platform specific behavior on overflow.</summary>
+        /// <param name="value">The vector to convert.</param>
+        /// <returns>The converted vector.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<ulong> ConvertToUInt64Native(Vector<double> value)
+        {
+            Unsafe.SkipInit(out Vector<ulong> result);
+
+            for (int i = 0; i < Vector<ulong>.Count; i++)
+            {
+                ulong element = double.ConvertToIntegerNative<ulong>(value.GetElementUnsafe(i));
+                result.SetElementUnsafe(i, element);
+            }
+
+            return result;
+        }
+
+        internal static Vector<T> Cos<T>(Vector<T> vector)
+            where T : ITrigonometricFunctions<T>
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = T.Cos(vector.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="Vector128.Cos(Vector128{double})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> Cos(Vector<double> vector)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.CosDouble<Vector<double>, Vector<long>>(vector);
+            }
+            else
+            {
+                return Cos<double>(vector);
             }
         }
 
-        #endregion Same-Size Conversion
-
-        #region Throw Helpers
-        [DoesNotReturn]
-        internal static void ThrowInsufficientNumberOfElementsException(int requiredElementCount)
+        /// <inheritdoc cref="Vector128.Cos(Vector128{float})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> Cos(Vector<float> vector)
         {
-            throw new IndexOutOfRangeException(SR.Format(SR.Arg_InsufficientNumberOfElements, requiredElementCount, "values"));
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.CosSingle<Vector<float>, Vector<int>, Vector<double>, Vector<long>>(vector);
+            }
+            else
+            {
+                return Cos<float>(vector);
+            }
         }
-        #endregion
+
+        /// <inheritdoc cref="Vector128.CopySign{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> CopySign<T>(Vector<T> value, Vector<T> sign)
+        {
+            if (Scalar<T>.IsUnsigned)
+            {
+                return value;
+            }
+            else if (IsHardwareAccelerated)
+            {
+                return VectorMath.CopySign<Vector<T>, T>(value, sign);
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T element = Scalar<T>.CopySign(value.GetElementUnsafe(index), sign.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, element);
+                }
+
+                return result;
+            }
+        }
+
+
+
+        /// <inheritdoc cref="Vector128.Count{T}(Vector128{T}, T)" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int Count<T>(Vector<T> vector, T value)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.Count(vector.AsVector512(), value);
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.Count(vector.AsVector256(), value);
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.Count(vector.AsVector128(), value);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.CountWhereAllBitsSet{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int CountWhereAllBitsSet<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return Count(vector.As<T, int>(), -1);
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return Count(vector.As<T, long>(), -1);
+            }
+            else
+            {
+                return Count(vector, Scalar<T>.AllBitsSet);
+            }
+        }
+
+        /// <summary>Creates a new <see cref="Vector{T}" /> instance with all elements initialized to the specified value.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="value">The value that all elements will be initialized to.</param>
+        /// <returns>A new <see cref="Vector{T}" /> with all elements initialized to <paramref name="value" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        public static Vector<T> Create<T>(T value)
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <summary>Creates a new <see cref="Vector{T}" /> from a given readonly span.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="values">The readonly span from which the vector is created.</param>
+        /// <returns>A new <see cref="Vector{T}" /> with its elements set to the first <see cref="Vector{T}.Count" /> elements from <paramref name="values" />.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">The length of <paramref name="values" /> is less than <see cref="Vector128{T}.Count" />.</exception>
+        /// <exception cref="NotSupportedException">The type of <paramref name="values" /> (<typeparamref name="T" />) is not supported.</exception>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> Create<T>(ReadOnlySpan<T> values)
+        {
+            if (values.Length < Vector<T>.Count)
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.values);
+            }
+            return Unsafe.ReadUnaligned<Vector<T>>(ref Unsafe.As<T, byte>(ref MemoryMarshal.GetReference(values)));
+        }
+
+        /// <summary>Creates a new <see cref="Vector{T}" /> instance with the first element initialized to the specified value and the remaining elements initialized to zero.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="value">The value that element 0 will be initialized to.</param>
+        /// <returns>A new <see cref="Vector{T}" /> instance with the first element initialized to <paramref name="value" /> and the remaining elements initialized to zero.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        public static Vector<T> CreateScalar<T>(T value)
+        {
+            Vector<T> result = Vector<T>.Zero;
+            result.SetElementUnsafe(0, value);
+            return result;
+        }
+
+        /// <summary>Creates a new <see cref="Vector{T}" /> instance with the first element initialized to the specified value and the remaining elements left uninitialized.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="value">The value that element 0 will be initialized to.</param>
+        /// <returns>A new <see cref="Vector{T}" /> instance with the first element initialized to <paramref name="value" /> and the remaining elements left uninitialized.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> CreateScalarUnsafe<T>(T value)
+        {
+            // This relies on us stripping the "init" flag from the ".locals"
+            // declaration to let the upper bits be uninitialized.
+
+            ThrowHelper.ThrowForUnsupportedNumericsVectorBaseType<T>();
+            Unsafe.SkipInit(out Vector<T> result);
+
+            result.SetElementUnsafe(0, value);
+            return result;
+        }
+
+        /// <summary>Creates a new <see cref="Vector{T}" /> instance where the elements begin at a specified value and which are spaced apart according to another specified value.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="start">The value that element 0 will be initialized to.</param>
+        /// <param name="step">The value that indicates how far apart each element should be from the previous.</param>
+        /// <returns>A new <see cref="Vector{T}" /> instance with the first element initialized to <paramref name="start" /> and each subsequent element initialized to the value of the previous element plus <paramref name="step" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> CreateSequence<T>(T start, T step) => (Vector<T>.Indices * step) + Create(start);
+
+        /// <summary>Creates a new <see cref="Vector{T}" /> instance where the elements begin at a specified value and are multiplied by another specified value.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="initial">The value that element 0 will be initialized to.</param>
+        /// <param name="multiplier">The value that indicates how each element should be scaled from the previous.</param>
+        /// <returns>A new <see cref="Vector{T}" /> instance with each element initialized to <paramref name="initial" /> multiplied by <paramref name="multiplier" /> raised to the element index.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="initial"/> and <paramref name="multiplier"/> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> CreateGeometricSequence<T>(T initial, [ConstantExpected] T multiplier)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.CreateGeometricSequence(initial, multiplier).AsVector();
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.CreateGeometricSequence(initial, multiplier).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.CreateGeometricSequence(initial, multiplier).AsVector();
+            }
+        }
+
+        /// <summary>Creates a new <see cref="Vector{T}" /> instance whose elements alternate between two specified values.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="even">The value assigned to even-indexed elements.</param>
+        /// <param name="odd">The value assigned to odd-indexed elements.</param>
+        /// <returns>A new <see cref="Vector{T}" /> instance whose even-indexed elements are initialized to <paramref name="even" /> and odd-indexed elements are initialized to <paramref name="odd" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="even"/> and <paramref name="odd"/> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> CreateAlternatingSequence<T>(T even, T odd)
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 1; index < Vector<T>.Count; index += 2)
+            {
+                result.SetElementUnsafe(index - 1, even);
+                result.SetElementUnsafe(index, odd);
+            }
+
+            return result;
+        }
+
+        /// <summary>Creates a new <see cref="Vector{T}" /> instance whose elements are the reciprocal of an arithmetic sequence.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="start">The value that element 0 of the arithmetic sequence will be initialized to.</param>
+        /// <param name="step">The value that indicates how far apart each element of the arithmetic sequence should be from the previous.</param>
+        /// <returns>A new <see cref="Vector{T}" /> instance whose elements are initialized to one divided by the corresponding element of the arithmetic sequence.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="start"/> and <paramref name="step"/> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> CreateHarmonicSequence<T>(T start, T step) => Vector<T>.One / CreateSequence(start, step);
+
+        /// <summary>Creates a new vector by concatenating the lower halves of two vectors.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="left">The vector that provides the lower half of the result.</param>
+        /// <param name="right">The vector that provides the upper half of the result.</param>
+        /// <returns>A new vector whose lower half comes from the lower half of <paramref name="left" /> and whose upper half comes from the lower half of <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> ConcatLowerLower<T>(Vector<T> left, Vector<T> right)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.ConcatLowerLower(left.AsVector512(), right.AsVector512()).AsVector();
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.ConcatLowerLower(left.AsVector256(), right.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.ConcatLowerLower(left.AsVector128(), right.AsVector128()).AsVector();
+            }
+        }
+
+        /// <summary>Creates a new vector by concatenating the upper half of one vector and the lower half of another vector.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="left">The vector that provides the lower half of the result.</param>
+        /// <param name="right">The vector that provides the upper half of the result.</param>
+        /// <returns>A new vector whose lower half comes from the upper half of <paramref name="left" /> and whose upper half comes from the lower half of <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> ConcatUpperLower<T>(Vector<T> left, Vector<T> right)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.ConcatUpperLower(left.AsVector512(), right.AsVector512()).AsVector();
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.ConcatUpperLower(left.AsVector256(), right.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.ConcatUpperLower(left.AsVector128(), right.AsVector128()).AsVector();
+            }
+        }
+
+        /// <summary>Creates a new vector by concatenating the upper halves of two vectors.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="left">The vector that provides the lower half of the result.</param>
+        /// <param name="right">The vector that provides the upper half of the result.</param>
+        /// <returns>A new vector whose lower half comes from the upper half of <paramref name="left" /> and whose upper half comes from the upper half of <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> ConcatUpperUpper<T>(Vector<T> left, Vector<T> right)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.ConcatUpperUpper(left.AsVector512(), right.AsVector512()).AsVector();
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.ConcatUpperUpper(left.AsVector256(), right.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.ConcatUpperUpper(left.AsVector128(), right.AsVector128()).AsVector();
+            }
+        }
+
+        /// <summary>Creates a new vector by concatenating the lower half of one vector and the upper half of another vector.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="left">The vector that provides the lower half of the result.</param>
+        /// <param name="right">The vector that provides the upper half of the result.</param>
+        /// <returns>A new vector whose lower half comes from the lower half of <paramref name="left" /> and whose upper half comes from the upper half of <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> ConcatLowerUpper<T>(Vector<T> left, Vector<T> right)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.ConcatLowerUpper(left.AsVector512(), right.AsVector512()).AsVector();
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.ConcatLowerUpper(left.AsVector256(), right.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.ConcatLowerUpper(left.AsVector128(), right.AsVector128()).AsVector();
+            }
+        }
+
+        /// <summary>Interleaves the lower halves of two vectors.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="left">The vector that provides the even-indexed elements.</param>
+        /// <param name="right">The vector that provides the odd-indexed elements.</param>
+        /// <returns>A new vector containing interleaved elements from the lower halves of <paramref name="left" /> and <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> ZipLower<T>(Vector<T> left, Vector<T> right)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.ZipLower(left.AsVector512(), right.AsVector512()).AsVector();
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.ZipLower(left.AsVector256(), right.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.ZipLower(left.AsVector128(), right.AsVector128()).AsVector();
+            }
+        }
+
+        /// <summary>Interleaves the upper halves of two vectors.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="left">The vector that provides the even-indexed elements.</param>
+        /// <param name="right">The vector that provides the odd-indexed elements.</param>
+        /// <returns>A new vector containing interleaved elements from the upper halves of <paramref name="left" /> and <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> ZipUpper<T>(Vector<T> left, Vector<T> right)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.ZipUpper(left.AsVector512(), right.AsVector512()).AsVector();
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.ZipUpper(left.AsVector256(), right.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.ZipUpper(left.AsVector128(), right.AsVector128()).AsVector();
+            }
+        }
+
+        /// <summary>Interleaves two vectors into their lower and upper halves.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="left">The vector that provides the even-indexed elements.</param>
+        /// <param name="right">The vector that provides the odd-indexed elements.</param>
+        /// <returns>A pair of vectors containing interleaved elements from the lower and upper halves of <paramref name="left" /> and <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static (Vector<T> Lower, Vector<T> Upper) Zip<T>(Vector<T> left, Vector<T> right) => (ZipLower(left, right), ZipUpper(left, right));
+
+        /// <summary>De-interleaves the even-indexed elements from two vectors.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="left">The vector that provides the lower half of the result.</param>
+        /// <param name="right">The vector that provides the upper half of the result.</param>
+        /// <returns>A new vector containing the even-indexed elements from <paramref name="left" /> followed by the even-indexed elements from <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> UnzipEven<T>(Vector<T> left, Vector<T> right)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.UnzipEven(left.AsVector512(), right.AsVector512()).AsVector();
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.UnzipEven(left.AsVector256(), right.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.UnzipEven(left.AsVector128(), right.AsVector128()).AsVector();
+            }
+        }
+
+        /// <summary>De-interleaves the odd-indexed elements from two vectors.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="left">The vector that provides the lower half of the result.</param>
+        /// <param name="right">The vector that provides the upper half of the result.</param>
+        /// <returns>A new vector containing the odd-indexed elements from <paramref name="left" /> followed by the odd-indexed elements from <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> UnzipOdd<T>(Vector<T> left, Vector<T> right)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.UnzipOdd(left.AsVector512(), right.AsVector512()).AsVector();
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.UnzipOdd(left.AsVector256(), right.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.UnzipOdd(left.AsVector128(), right.AsVector128()).AsVector();
+            }
+        }
+
+        /// <summary>De-interleaves two vectors into their even-indexed and odd-indexed elements.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="left">The vector that provides the lower half of each result.</param>
+        /// <param name="right">The vector that provides the upper half of each result.</param>
+        /// <returns>A pair of vectors containing the even-indexed and odd-indexed elements from <paramref name="left" /> and <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static (Vector<T> Even, Vector<T> Odd) Unzip<T>(Vector<T> left, Vector<T> right) => (UnzipEven(left, right), UnzipOdd(left, right));
+
+        /// <summary>Creates a new vector with the elements of a specified vector in reverse order.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="vector">The vector whose elements will be reversed.</param>
+        /// <returns>A new vector containing the elements of <paramref name="vector" /> in reverse order.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> Reverse<T>(Vector<T> vector)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.Reverse(vector.AsVector512()).AsVector();
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.Reverse(vector.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.Reverse(vector.AsVector128()).AsVector();
+            }
+        }
+
+        internal static Vector<T> DegreesToRadians<T>(Vector<T> degrees)
+            where T : ITrigonometricFunctions<T>
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = T.DegreesToRadians(degrees.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="Vector128.DegreesToRadians(Vector128{double})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> DegreesToRadians(Vector<double> degrees)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.DegreesToRadiansDouble<Vector<double>, Vector<ulong>>(degrees);
+            }
+            else
+            {
+                return DegreesToRadians<double>(degrees);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.DegreesToRadians(Vector128{float})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> DegreesToRadians(Vector<float> degrees)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.DegreesToRadiansSingle<Vector<float>, Vector<double>>(degrees);
+            }
+            else
+            {
+                return DegreesToRadians<float>(degrees);
+            }
+        }
+
+        /// <summary>Divides two vectors to compute their quotient.</summary>
+        /// <param name="left">The vector that will be divided by <paramref name="right" />.</param>
+        /// <param name="right">The vector that will divide <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>The quotient of <paramref name="left" /> divided by <paramref name="right" />.</returns>
+        [Intrinsic]
+        public static Vector<T> Divide<T>(Vector<T> left, Vector<T> right) => left / right;
+
+        /// <summary>Divides a vector by a scalar to compute the per-element quotient.</summary>
+        /// <param name="left">The vector that will be divided by <paramref name="right" />.</param>
+        /// <param name="right">The scalar that will divide <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>The quotient of <paramref name="left" /> divided by <paramref name="right" />.</returns>
+        [Intrinsic]
+        public static Vector<T> Divide<T>(Vector<T> left, T right) => left / right;
+
+        /// <summary>Computes the dot product of two vectors.</summary>
+        /// <param name="left">The vector that will be dotted with <paramref name="right" />.</param>
+        /// <param name="right">The vector that will be dotted with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>The dot product of <paramref name="left" /> and <paramref name="right" />.</returns>
+        [Intrinsic]
+        public static T Dot<T>(Vector<T> left, Vector<T> right) => Sum(left * right);
+
+        /// <summary>Compares two vectors to determine if they are equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were equal.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> Equals<T>(Vector<T> left, Vector<T> right)
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = Scalar<T>.Equals(left.GetElementUnsafe(index), right.GetElementUnsafe(index)) ? Scalar<T>.AllBitsSet : default!;
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <summary>Compares two vectors to determine if they are equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were equal.</returns>
+        [Intrinsic]
+        public static Vector<long> Equals(Vector<double> left, Vector<double> right) => Equals<double>(left, right).As<double, long>();
+
+        /// <summary>Compares two vectors to determine if they are equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were equal.</returns>
+        [Intrinsic]
+        public static Vector<int> Equals(Vector<int> left, Vector<int> right) => Equals<int>(left, right);
+
+        /// <summary>Compares two vectors to determine if they are equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were equal.</returns>
+        [Intrinsic]
+        public static Vector<long> Equals(Vector<long> left, Vector<long> right) => Equals<long>(left, right);
+
+        /// <summary>Compares two vectors to determine if they are equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were equal.</returns>
+        [Intrinsic]
+        public static Vector<int> Equals(Vector<float> left, Vector<float> right) => Equals<float>(left, right).As<float, int>();
+
+        /// <summary>Compares two vectors to determine if all elements are equal.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns><c>true</c> if all elements in <paramref name="left" /> were equal to the corresponding element in <paramref name="right" />.</returns>
+        [Intrinsic]
+        public static bool EqualsAll<T>(Vector<T> left, Vector<T> right) => left == right;
+
+        /// <summary>Compares two vectors to determine if any elements are equal.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns><c>true</c> if any elements in <paramref name="left" /> was equal to the corresponding element in <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool EqualsAny<T>(Vector<T> left, Vector<T> right)
+        {
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                if (Scalar<T>.Equals(left.GetElementUnsafe(index), right.GetElementUnsafe(index)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal static Vector<T> Exp<T>(Vector<T> vector)
+            where T : IExponentialFunctions<T>
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = T.Exp(vector.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="Vector128.Exp(Vector128{double})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> Exp(Vector<double> vector)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.ExpDouble<Vector<double>, Vector<ulong>>(vector);
+            }
+            else
+            {
+                return Exp<double>(vector);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.Exp(Vector128{float})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> Exp(Vector<float> vector)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.ExpSingle<Vector<float>, Vector<uint>, Vector<double>, Vector<ulong>>(vector);
+            }
+            else
+            {
+                return Exp<float>(vector);
+            }
+        }
+
+        /// <summary>Computes the floor of each element in a vector.</summary>
+        /// <param name="vector">The vector that will have its floor computed.</param>
+        /// <returns>A vector whose elements are the floor of the elements in <paramref name="vector" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static Vector<T> Floor<T>(Vector<T> vector)
+        {
+            if (Scalar<T>.IsFloatingPoint)
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.Floor(vector.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+            else
+            {
+                return vector;
+            }
+        }
+
+        /// <summary>Computes the floor of each element in a vector.</summary>
+        /// <param name="value">The vector that will have its floor computed.</param>
+        /// <returns>A vector whose elements are the floor of the elements in <paramref name="value" />.</returns>
+        /// <seealso cref="double.Floor(double)" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> Floor(Vector<double> value)
+        {
+            Unsafe.SkipInit(out Vector<double> result);
+
+            for (int index = 0; index < Vector<double>.Count; index++)
+            {
+                double element = Scalar<double>.Floor(value.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, element);
+            }
+
+            return result;
+        }
+
+        /// <summary>Computes the floor of each element in a vector.</summary>
+        /// <param name="value">The vector that will have its floor computed.</param>
+        /// <returns>A vector whose elements are the floor of the elements in <paramref name="value" />.</returns>
+        /// <seealso cref="float.Floor(float)" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> Floor(Vector<float> value)
+        {
+            Unsafe.SkipInit(out Vector<float> result);
+
+            for (int index = 0; index < Vector<float>.Count; index++)
+            {
+                float element = Scalar<float>.Floor(value.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, element);
+            }
+
+            return result;
+        }
+
+        /// <summary>Computes (<paramref name="left" /> * <paramref name="right" />) + <paramref name="addend" />, rounded as one ternary operation.</summary>
+        /// <param name="left">The vector to be multiplied with <paramref name="right" />.</param>
+        /// <param name="right">The vector to be multiplied with <paramref name="left" />.</param>
+        /// <param name="addend">The vector to be added to the result of <paramref name="left" /> multiplied by <paramref name="right" />.</param>
+        /// <returns>(<paramref name="left" /> * <paramref name="right" />) + <paramref name="addend" />, rounded as one ternary operation.</returns>
+        /// <remarks>
+        ///   <para>This computes (<paramref name="left" /> * <paramref name="right" />) as if to infinite precision, adds <paramref name="addend" /> to that result as if to infinite precision, and finally rounds to the nearest representable value.</para>
+        ///   <para>This differs from the non-fused sequence which would compute (<paramref name="left" /> * <paramref name="right" />) as if to infinite precision, round the result to the nearest representable value, add <paramref name="addend" /> to the rounded result as if to infinite precision, and finally round to the nearest representable value.</para>
+        /// </remarks>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> FusedMultiplyAdd(Vector<double> left, Vector<double> right, Vector<double> addend)
+        {
+            Unsafe.SkipInit(out Vector<double> result);
+
+            for (int index = 0; index < Vector<double>.Count; index++)
+            {
+                double value = double.FusedMultiplyAdd(left.GetElementUnsafe(index), right.GetElementUnsafe(index), addend.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <summary>Computes (<paramref name="left" /> * <paramref name="right" />) + <paramref name="addend" />, rounded as one ternary operation.</summary>
+        /// <param name="left">The vector to be multiplied with <paramref name="right" />.</param>
+        /// <param name="right">The vector to be multiplied with <paramref name="left" />.</param>
+        /// <param name="addend">The vector to be added to the result of <paramref name="left" /> multiplied by <paramref name="right" />.</param>
+        /// <returns>(<paramref name="left" /> * <paramref name="right" />) + <paramref name="addend" />, rounded as one ternary operation.</returns>
+        /// <remarks>
+        ///   <para>This computes (<paramref name="left" /> * <paramref name="right" />) as if to infinite precision, adds <paramref name="addend" /> to that result as if to infinite precision, and finally rounds to the nearest representable value.</para>
+        ///   <para>This differs from the non-fused sequence which would compute (<paramref name="left" /> * <paramref name="right" />) as if to infinite precision, round the result to the nearest representable value, add <paramref name="addend" /> to the rounded result as if to infinite precision, and finally round to the nearest representable value.</para>
+        /// </remarks>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> FusedMultiplyAdd(Vector<float> left, Vector<float> right, Vector<float> addend)
+        {
+            Unsafe.SkipInit(out Vector<float> result);
+
+            for (int index = 0; index < Vector<float>.Count; index++)
+            {
+                float value = float.FusedMultiplyAdd(left.GetElementUnsafe(index), right.GetElementUnsafe(index), addend.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <summary>Gets the element at the specified index.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="vector">The vector to get the element from.</param>
+        /// <param name="index">The index of the element to get.</param>
+        /// <returns>The value of the element at <paramref name="index" />.</returns>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="index" /> was less than zero or greater than the number of elements.</exception>
+        /// <exception cref="NotSupportedException">The type of <paramref name="vector" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static T GetElement<T>(this Vector<T> vector, int index)
+        {
+            if ((uint)(index) >= (uint)(Vector<T>.Count))
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.index);
+            }
+
+            return vector.GetElementUnsafe(index);
+        }
+
+        /// <summary>Compares two vectors to determine which is greater on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were greater.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> GreaterThan<T>(Vector<T> left, Vector<T> right)
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = Scalar<T>.GreaterThan(left.GetElementUnsafe(index), right.GetElementUnsafe(index)) ? Scalar<T>.AllBitsSet : default!;
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <summary>Compares two vectors to determine which is greater on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were greater.</returns>
+        [Intrinsic]
+        public static Vector<long> GreaterThan(Vector<double> left, Vector<double> right) => GreaterThan<double>(left, right).As<double, long>();
+
+        /// <summary>Compares two vectors to determine which is greater on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were greater.</returns>
+        [Intrinsic]
+        public static Vector<int> GreaterThan(Vector<int> left, Vector<int> right) => GreaterThan<int>(left, right);
+
+        /// <summary>Compares two vectors to determine which is greater on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were greater.</returns>
+        [Intrinsic]
+        public static Vector<long> GreaterThan(Vector<long> left, Vector<long> right) => GreaterThan<long>(left, right);
+
+        /// <summary>Compares two vectors to determine which is greater on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were greater.</returns>
+        [Intrinsic]
+        public static Vector<int> GreaterThan(Vector<float> left, Vector<float> right) => GreaterThan<float>(left, right).As<float, int>();
+
+        /// <summary>Compares two vectors to determine if all elements are greater.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns><c>true</c> if all elements in <paramref name="left" /> were greater than the corresponding element in <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool GreaterThanAll<T>(Vector<T> left, Vector<T> right)
+        {
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                if (!Scalar<T>.GreaterThan(left.GetElementUnsafe(index), right.GetElementUnsafe(index)))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>Compares two vectors to determine if any elements are greater.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns><c>true</c> if any elements in <paramref name="left" /> was greater than the corresponding element in <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool GreaterThanAny<T>(Vector<T> left, Vector<T> right)
+        {
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                if (Scalar<T>.GreaterThan(left.GetElementUnsafe(index), right.GetElementUnsafe(index)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>Compares two vectors to determine which is greater or equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were greater or equal.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> GreaterThanOrEqual<T>(Vector<T> left, Vector<T> right)
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = Scalar<T>.GreaterThanOrEqual(left.GetElementUnsafe(index), right.GetElementUnsafe(index)) ? Scalar<T>.AllBitsSet : default!;
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <summary>Compares two vectors to determine which is greater or equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were greater or equal.</returns>
+        [Intrinsic]
+        public static Vector<long> GreaterThanOrEqual(Vector<double> left, Vector<double> right) => GreaterThanOrEqual<double>(left, right).As<double, long>();
+
+        /// <summary>Compares two vectors to determine which is greater or equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were greater or equal.</returns>
+        [Intrinsic]
+        public static Vector<int> GreaterThanOrEqual(Vector<int> left, Vector<int> right) => GreaterThanOrEqual<int>(left, right);
+
+        /// <summary>Compares two vectors to determine which is greater or equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were greater or equal.</returns>
+        [Intrinsic]
+        public static Vector<long> GreaterThanOrEqual(Vector<long> left, Vector<long> right) => GreaterThanOrEqual<long>(left, right);
+
+        /// <summary>Compares two vectors to determine which is greater or equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were greater or equal.</returns>
+        [Intrinsic]
+        public static Vector<int> GreaterThanOrEqual(Vector<float> left, Vector<float> right) => GreaterThanOrEqual<float>(left, right).As<float, int>();
+
+        /// <summary>Compares two vectors to determine if all elements are greater or equal.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns><c>true</c> if all elements in <paramref name="left" /> were greater than or equal to the corresponding element in <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool GreaterThanOrEqualAll<T>(Vector<T> left, Vector<T> right)
+        {
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                if (!Scalar<T>.GreaterThanOrEqual(left.GetElementUnsafe(index), right.GetElementUnsafe(index)))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>Compares two vectors to determine if any elements are greater or equal.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns><c>true</c> if any elements in <paramref name="left" /> was greater than or equal to the corresponding element in <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool GreaterThanOrEqualAny<T>(Vector<T> left, Vector<T> right)
+        {
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                if (Scalar<T>.GreaterThanOrEqual(left.GetElementUnsafe(index), right.GetElementUnsafe(index)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal static Vector<T> Hypot<T>(Vector<T> x, Vector<T> y)
+            where T : IRootFunctions<T>
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = T.Hypot(x.GetElementUnsafe(index), y.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="Vector128.Hypot(Vector128{double}, Vector128{double})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> Hypot(Vector<double> x, Vector<double> y)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.HypotDouble<Vector<double>, Vector<ulong>>(x, y);
+            }
+            else
+            {
+                return Hypot<double>(x, y);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.Hypot(Vector128{float}, Vector128{float})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> Hypot(Vector<float> x, Vector<float> y)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.HypotSingle<Vector<float>, Vector<double>>(x, y);
+            }
+            else
+            {
+                return Hypot<float>(x, y);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.IndexOf{T}(Vector128{T}, T)" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int IndexOf<T>(Vector<T> vector, T value)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.IndexOf(vector.AsVector512(), value);
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.IndexOf(vector.AsVector256(), value);
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.IndexOf(vector.AsVector128(), value);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.IndexOfWhereAllBitsSet{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int IndexOfWhereAllBitsSet<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return IndexOf(vector.As<T, int>(), -1);
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return IndexOf(vector.As<T, long>(), -1);
+            }
+            else
+            {
+                return IndexOf(vector, Scalar<T>.AllBitsSet);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.IsEvenInteger{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsEvenInteger<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return VectorMath.IsEvenInteger<Vector<float>, float>(vector.As<T, float>()).As<float, T>();
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return VectorMath.IsEvenInteger<Vector<double>, double>(vector.As<T, double>()).As<double, T>();
+            }
+            return IsZero(vector & Vector<T>.One);
+        }
+
+        /// <inheritdoc cref="Vector128.IsFinite{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsFinite<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return ~IsZero(AndNot(Vector<float>.PositiveInfinity.As<float, uint>(), vector.As<T, uint>())).As<uint, T>();
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return ~IsZero(AndNot(Vector<double>.PositiveInfinity.As<double, ulong>(), vector.As<T, ulong>())).As<ulong, T>();
+            }
+            return Vector<T>.AllBitsSet;
+        }
+
+        /// <inheritdoc cref="Vector128.IsInfinity{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsInfinity<T>(Vector<T> vector)
+        {
+            if ((typeof(T) == typeof(float)) || (typeof(T) == typeof(double)))
+            {
+                return IsPositiveInfinity(Abs(vector));
+            }
+            return Vector<T>.Zero;
+        }
+
+        /// <inheritdoc cref="Vector128.IsInteger{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsInteger<T>(Vector<T> vector)
+        {
+            if ((typeof(T) == typeof(float)) || (typeof(T) == typeof(double)))
+            {
+                return IsZero(vector - Truncate(vector));
+            }
+            return Vector<T>.AllBitsSet;
+        }
+
+        /// <inheritdoc cref="Vector128.IsNaN{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsNaN<T>(Vector<T> vector)
+        {
+            if ((typeof(T) == typeof(float)) || (typeof(T) == typeof(double)))
+            {
+                return ~Equals(vector, vector);
+            }
+            return Vector<T>.Zero;
+        }
+
+        /// <inheritdoc cref="Vector128.IsNegative{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsNegative<T>(Vector<T> vector)
+        {
+            if (Scalar<T>.IsUnsigned)
+            {
+                return Vector<T>.Zero;
+            }
+            else if (typeof(T) == typeof(float))
+            {
+                return LessThan(vector.As<T, int>(), Vector<int>.Zero).As<int, T>();
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return LessThan(vector.As<T, long>(), Vector<long>.Zero).As<long, T>();
+            }
+            else
+            {
+                return LessThan(vector, Vector<T>.Zero);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.IsNegativeInfinity{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsNegativeInfinity<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return Equals(vector, Vector<float>.NegativeInfinity.As<float, T>());
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return Equals(vector, Vector<double>.NegativeInfinity.As<double, T>());
+            }
+            return Vector<T>.Zero;
+        }
+
+        /// <inheritdoc cref="Vector128.IsNormal{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsNormal<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return LessThan(Abs(vector).As<T, uint>() - Create<uint>(float.SmallestNormalBits), Create<uint>(float.PositiveInfinityBits - float.SmallestNormalBits)).As<uint, T>();
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return LessThan(Abs(vector).As<T, ulong>() - Create<ulong>(double.SmallestNormalBits), Create<ulong>(double.PositiveInfinityBits - double.SmallestNormalBits)).As<ulong, T>();
+            }
+            return ~IsZero(vector);
+        }
+
+        /// <inheritdoc cref="Vector128.IsOddInteger{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsOddInteger<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return VectorMath.IsOddInteger<Vector<float>, float>(vector.As<T, float>()).As<float, T>();
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return VectorMath.IsOddInteger<Vector<double>, double>(vector.As<T, double>()).As<double, T>();
+            }
+            return ~IsZero(vector & Vector<T>.One);
+        }
+
+        /// <inheritdoc cref="Vector128.IsPositive{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsPositive<T>(Vector<T> vector)
+        {
+            if (Scalar<T>.IsUnsigned)
+            {
+                return Vector<T>.AllBitsSet;
+            }
+            else if (typeof(T) == typeof(float))
+            {
+                return GreaterThanOrEqual(vector.As<T, int>(), Vector<int>.Zero).As<int, T>();
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return GreaterThanOrEqual(vector.As<T, long>(), Vector<long>.Zero).As<long, T>();
+            }
+            else
+            {
+                return GreaterThanOrEqual(vector, Vector<T>.Zero);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.IsPositiveInfinity{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsPositiveInfinity<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return Equals(vector, Vector<float>.PositiveInfinity.As<float, T>());
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return Equals(vector, Vector<double>.PositiveInfinity.As<double, T>());
+            }
+            return Vector<T>.Zero;
+        }
+
+        /// <inheritdoc cref="Vector128.IsSubnormal{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsSubnormal<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return LessThan(Abs(vector).As<T, uint>() - Vector<uint>.One, Create<uint>(float.MaxTrailingSignificand)).As<uint, T>();
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return LessThan(Abs(vector).As<T, ulong>() - Vector<ulong>.One, Create<ulong>(double.MaxTrailingSignificand)).As<ulong, T>();
+            }
+            return Vector<T>.Zero;
+        }
+
+        /// <inheritdoc cref="Vector128.IsZero{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> IsZero<T>(Vector<T> vector) => Equals(vector, Vector<T>.Zero);
+
+        /// <inheritdoc cref="Vector128.LastIndexOf{T}(Vector128{T}, T)" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int LastIndexOf<T>(Vector<T> vector, T value)
+        {
+            if (Vector<T>.Count == Vector512<T>.Count)
+            {
+                return Vector512.LastIndexOf(vector.AsVector512(), value);
+            }
+            else if (Vector<T>.Count == Vector256<T>.Count)
+            {
+                return Vector256.LastIndexOf(vector.AsVector256(), value);
+            }
+            else
+            {
+                Debug.Assert(Vector<T>.Count == Vector128<T>.Count);
+                return Vector128.LastIndexOf(vector.AsVector128(), value);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.LastIndexOfWhereAllBitsSet{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static int LastIndexOfWhereAllBitsSet<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return LastIndexOf(vector.As<T, int>(), -1);
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return LastIndexOf(vector.As<T, long>(), -1);
+            }
+            else
+            {
+                return LastIndexOf(vector, Scalar<T>.AllBitsSet);
+            }
+        }
+
+        internal static Vector<T> Lerp<T>(Vector<T> x, Vector<T> y, Vector<T> amount)
+            where T : IFloatingPointIeee754<T>
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = T.Lerp(x.GetElementUnsafe(index), y.GetElementUnsafe(index), amount.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <summary>Performs a linear interpolation between two vectors based on the given weighting.</summary>
+        /// <param name="x">The first vector.</param>
+        /// <param name="y">The second vector.</param>
+        /// <param name="amount">A value between 0 and 1 that indicates the weight of <paramref name="y" />.</param>
+        /// <returns>The interpolated vector.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> Lerp(Vector<double> x, Vector<double> y, Vector<double> amount)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.Lerp<Vector<double>, double>(x, y, amount);
+            }
+            else
+            {
+                return Lerp<double>(x, y, amount);
+            }
+        }
+
+        /// <summary>Performs a linear interpolation between two vectors based on the given weighting.</summary>
+        /// <param name="x">The first vector.</param>
+        /// <param name="y">The second vector.</param>
+        /// <param name="amount">A value between 0 and 1 that indicates the weight of <paramref name="y" />.</param>
+        /// <returns>The interpolated vector.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> Lerp(Vector<float> x, Vector<float> y, Vector<float> amount)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.Lerp<Vector<float>, float>(x, y, amount);
+            }
+            else
+            {
+                return Lerp<float>(x, y, amount);
+            }
+        }
+
+        /// <summary>Compares two vectors to determine which is less on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were less.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> LessThan<T>(Vector<T> left, Vector<T> right)
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = Scalar<T>.LessThan(left.GetElementUnsafe(index), right.GetElementUnsafe(index)) ? Scalar<T>.AllBitsSet : default!;
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <summary>Compares two vectors to determine which is less on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were less.</returns>
+        [Intrinsic]
+        public static Vector<long> LessThan(Vector<double> left, Vector<double> right) => LessThan<double>(left, right).As<double, long>();
+
+        /// <summary>Compares two vectors to determine which is less on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were less.</returns>
+        [Intrinsic]
+        public static Vector<int> LessThan(Vector<int> left, Vector<int> right) => LessThan<int>(left, right);
+
+        /// <summary>Compares two vectors to determine which is less on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were less.</returns>
+        [Intrinsic]
+        public static Vector<long> LessThan(Vector<long> left, Vector<long> right) => LessThan<long>(left, right);
+
+        /// <summary>Compares two vectors to determine which is less on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were less.</returns>
+        [Intrinsic]
+        public static Vector<int> LessThan(Vector<float> left, Vector<float> right) => LessThan<float>(left, right).As<float, int>();
+
+        /// <summary>Compares two vectors to determine if all elements are less.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns><c>true</c> if all elements in <paramref name="left" /> were less than the corresponding element in <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool LessThanAll<T>(Vector<T> left, Vector<T> right)
+        {
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                if (!Scalar<T>.LessThan(left.GetElementUnsafe(index), right.GetElementUnsafe(index)))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>Compares two vectors to determine if any elements are less.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns><c>true</c> if any elements in <paramref name="left" /> was less than the corresponding element in <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool LessThanAny<T>(Vector<T> left, Vector<T> right)
+        {
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                if (Scalar<T>.LessThan(left.GetElementUnsafe(index), right.GetElementUnsafe(index)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>Compares two vectors to determine which is less or equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were less or equal.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> LessThanOrEqual<T>(Vector<T> left, Vector<T> right)
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = Scalar<T>.LessThanOrEqual(left.GetElementUnsafe(index), right.GetElementUnsafe(index)) ? Scalar<T>.AllBitsSet : default!;
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <summary>Compares two vectors to determine which is less or equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were less or equal.</returns>
+        [Intrinsic]
+        public static Vector<long> LessThanOrEqual(Vector<double> left, Vector<double> right) => LessThanOrEqual<double>(left, right).As<double, long>();
+
+        /// <summary>Compares two vectors to determine which is less or equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were less or equal.</returns>
+        [Intrinsic]
+        public static Vector<int> LessThanOrEqual(Vector<int> left, Vector<int> right) => LessThanOrEqual<int>(left, right);
+
+        /// <summary>Compares two vectors to determine which is less or equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were less or equal.</returns>
+        [Intrinsic]
+        public static Vector<long> LessThanOrEqual(Vector<long> left, Vector<long> right) => LessThanOrEqual<long>(left, right);
+
+        /// <summary>Compares two vectors to determine which is less or equal on a per-element basis.</summary>
+        /// <param name="left">The vector to compare with <paramref name="left" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="right" />.</param>
+        /// <returns>A vector whose elements are all-bits-set or zero, depending on if which of the corresponding elements in <paramref name="left" /> and <paramref name="right" /> were less or equal.</returns>
+        [Intrinsic]
+        public static Vector<int> LessThanOrEqual(Vector<float> left, Vector<float> right) => LessThanOrEqual<float>(left, right).As<float, int>();
+
+        /// <summary>Compares two vectors to determine if all elements are less or equal.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns><c>true</c> if all elements in <paramref name="left" /> were less than or equal to the corresponding element in <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool LessThanOrEqualAll<T>(Vector<T> left, Vector<T> right)
+        {
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                if (!Scalar<T>.LessThanOrEqual(left.GetElementUnsafe(index), right.GetElementUnsafe(index)))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        /// <summary>Compares two vectors to determine if any elements are less or equal.</summary>
+        /// <param name="left">The vector to compare with <paramref name="right" />.</param>
+        /// <param name="right">The vector to compare with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns><c>true</c> if any elements in <paramref name="left" /> was less than or equal to the corresponding element in <paramref name="right" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool LessThanOrEqualAny<T>(Vector<T> left, Vector<T> right)
+        {
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                if (Scalar<T>.LessThanOrEqual(left.GetElementUnsafe(index), right.GetElementUnsafe(index)))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>Loads a vector from the given source.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="source">The source from which the vector will be loaded.</param>
+        /// <returns>The vector loaded from <paramref name="source" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="source" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static unsafe Vector<T> Load<T>(T* source) => LoadUnsafe(ref *source);
+
+        /// <summary>Loads a vector from the given aligned source.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="source">The aligned source from which the vector will be loaded.</param>
+        /// <returns>The vector loaded from <paramref name="source" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="source" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static unsafe Vector<T> LoadAligned<T>(T* source)
+        {
+            ThrowHelper.ThrowForUnsupportedNumericsVectorBaseType<T>();
+
+            if (((nuint)(source) % (uint)(Alignment)) != 0)
+            {
+                ThrowHelper.ThrowAccessViolationException();
+            }
+
+            return *(Vector<T>*)source;
+        }
+
+        /// <summary>Loads a vector from the given aligned source.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="source">The aligned source from which the vector will be loaded.</param>
+        /// <returns>The vector loaded from <paramref name="source" />.</returns>
+        /// <remarks>This method may bypass the cache on certain platforms.</remarks>
+        /// <exception cref="NotSupportedException">The type of <paramref name="source" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static unsafe Vector<T> LoadAlignedNonTemporal<T>(T* source) => LoadAligned(source);
+
+        /// <summary>Loads a vector from the given source.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="source">The source from which the vector will be loaded.</param>
+        /// <returns>The vector loaded from <paramref name="source" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="source" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> LoadUnsafe<T>(ref readonly T source)
+        {
+            ThrowHelper.ThrowForUnsupportedNumericsVectorBaseType<T>();
+            ref readonly byte address = ref Unsafe.As<T, byte>(ref Unsafe.AsRef(in source));
+            return Unsafe.ReadUnaligned<Vector<T>>(in address);
+        }
+
+        /// <summary>Loads a vector from the given source and element offset.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="source">The source to which <paramref name="elementOffset" /> will be added before loading the vector.</param>
+        /// <param name="elementOffset">The element offset from <paramref name="source" /> from which the vector will be loaded.</param>
+        /// <returns>The vector loaded from <paramref name="source" /> plus <paramref name="elementOffset" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="source" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> LoadUnsafe<T>(ref readonly T source, nuint elementOffset)
+        {
+            ThrowHelper.ThrowForUnsupportedNumericsVectorBaseType<T>();
+            ref readonly byte address = ref Unsafe.As<T, byte>(ref Unsafe.Add(ref Unsafe.AsRef(in source), (nint)elementOffset));
+            return Unsafe.ReadUnaligned<Vector<T>>(in address);
+        }
+
+        internal static Vector<T> Log<T>(Vector<T> vector)
+            where T : ILogarithmicFunctions<T>
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = T.Log(vector.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="Vector128.Log(Vector128{double})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> Log(Vector<double> vector)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.LogDouble<Vector<double>, Vector<long>, Vector<ulong>>(vector);
+            }
+            else
+            {
+                return Log<double>(vector);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.Log(Vector128{float})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> Log(Vector<float> vector)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.LogSingle<Vector<float>, Vector<int>, Vector<uint>>(vector);
+            }
+            else
+            {
+                return Log<float>(vector);
+            }
+        }
+
+        internal static Vector<T> Log2<T>(Vector<T> vector)
+            where T : ILogarithmicFunctions<T>
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = T.Log2(vector.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="Vector128.Log2(Vector128{double})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> Log2(Vector<double> vector)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.Log2Double<Vector<double>, Vector<long>, Vector<ulong>>(vector);
+            }
+            else
+            {
+                return Log2<double>(vector);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.Log2(Vector128{float})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> Log2(Vector<float> vector)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.Log2Single<Vector<float>, Vector<int>, Vector<uint>>(vector);
+            }
+            else
+            {
+                return Log2<float>(vector);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.Max{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> Max<T>(Vector<T> left, Vector<T> right)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.Max<Vector<T>, T>(left, right);
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.Max(left.GetElementUnsafe(index), right.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.MaxMagnitude{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> MaxMagnitude<T>(Vector<T> left, Vector<T> right)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.MaxMagnitude<Vector<T>, T>(left, right);
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.MaxMagnitude(left.GetElementUnsafe(index), right.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.MaxMagnitudeNumber{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> MaxMagnitudeNumber<T>(Vector<T> left, Vector<T> right)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.MaxMagnitudeNumber<Vector<T>, T>(left, right);
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.MaxMagnitudeNumber(left.GetElementUnsafe(index), right.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.MaxNative{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> MaxNative<T>(Vector<T> left, Vector<T> right)
+        {
+            if (IsHardwareAccelerated)
+            {
+#if !MONO
+                if (typeof(T) == typeof(float))
+                {
+                    return MaxNative(left.As<T, float>(), right.As<T, float>()).As<float, T>();
+                }
+                if (typeof(T) == typeof(double))
+                {
+                    return MaxNative(left.As<T, double>(), right.As<T, double>()).As<double, T>();
+                }
+#endif
+                return ConditionalSelect(GreaterThan(left, right), left, right);
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.GreaterThan(left.GetElementUnsafe(index), right.GetElementUnsafe(index)) ? left.GetElementUnsafe(index) : right.GetElementUnsafe(index);
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.MaxNumber{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> MaxNumber<T>(Vector<T> left, Vector<T> right)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.MaxNumber<Vector<T>, T>(left, right);
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.MaxNumber(left.GetElementUnsafe(index), right.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.Min{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> Min<T>(Vector<T> left, Vector<T> right)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.Min<Vector<T>, T>(left, right);
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.Min(left.GetElementUnsafe(index), right.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.MinMagnitude{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> MinMagnitude<T>(Vector<T> left, Vector<T> right)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.MinMagnitude<Vector<T>, T>(left, right);
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.MinMagnitude(left.GetElementUnsafe(index), right.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.MinMagnitudeNumber{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> MinMagnitudeNumber<T>(Vector<T> left, Vector<T> right)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.MinMagnitudeNumber<Vector<T>, T>(left, right);
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.MinMagnitudeNumber(left.GetElementUnsafe(index), right.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.MinNative{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> MinNative<T>(Vector<T> left, Vector<T> right)
+        {
+            if (IsHardwareAccelerated)
+            {
+#if !MONO
+                if (typeof(T) == typeof(float))
+                {
+                    return MinNative(left.As<T, float>(), right.As<T, float>()).As<float, T>();
+                }
+                if (typeof(T) == typeof(double))
+                {
+                    return MinNative(left.As<T, double>(), right.As<T, double>()).As<double, T>();
+                }
+#endif
+                return ConditionalSelect(LessThan(left, right), left, right);
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.LessThan(left.GetElementUnsafe(index), right.GetElementUnsafe(index)) ? left.GetElementUnsafe(index) : right.GetElementUnsafe(index);
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.MinNumber{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> MinNumber<T>(Vector<T> left, Vector<T> right)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.MinNumber<Vector<T>, T>(left, right);
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.MinNumber(left.GetElementUnsafe(index), right.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+        }
+
+        /// <summary>Multiplies two vectors to compute their element-wise product.</summary>
+        /// <param name="left">The vector to multiply with <paramref name="right" />.</param>
+        /// <param name="right">The vector to multiply with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>The element-wise product of <paramref name="left" /> and <paramref name="right" />.</returns>
+        [Intrinsic]
+        public static Vector<T> Multiply<T>(Vector<T> left, Vector<T> right) => left * right;
+
+        /// <summary>Multiplies a vector by a scalar to compute their product.</summary>
+        /// <param name="left">The vector to multiply with <paramref name="right" />.</param>
+        /// <param name="right">The scalar to multiply with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>The product of <paramref name="left" /> and <paramref name="right" />.</returns>
+        [Intrinsic]
+        public static Vector<T> Multiply<T>(Vector<T> left, T right) => left * right;
+
+        /// <summary>Multiplies a vector by a scalar to compute their product.</summary>
+        /// <param name="left">The scalar to multiply with <paramref name="right" />.</param>
+        /// <param name="right">The vector to multiply with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>The product of <paramref name="left" /> and <paramref name="right" />.</returns>
+        [Intrinsic]
+        public static Vector<T> Multiply<T>(T left, Vector<T> right) => right * left;
+
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static Vector<T> MultiplyAddEstimate<T>(Vector<T> left, Vector<T> right, Vector<T> addend)
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = Scalar<T>.MultiplyAddEstimate(left.GetElementUnsafe(index), right.GetElementUnsafe(index), addend.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="Vector128.MultiplyAddEstimate(Vector128{double}, Vector128{double}, Vector128{double})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> MultiplyAddEstimate(Vector<double> left, Vector<double> right, Vector<double> addend)
+        {
+            Unsafe.SkipInit(out Vector<double> result);
+
+            for (int index = 0; index < Vector<double>.Count; index++)
+            {
+                double element = double.MultiplyAddEstimate(left.GetElementUnsafe(index), right.GetElementUnsafe(index), addend.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, element);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="Vector128.MultiplyAddEstimate(Vector128{float}, Vector128{float}, Vector128{float})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> MultiplyAddEstimate(Vector<float> left, Vector<float> right, Vector<float> addend)
+        {
+            Unsafe.SkipInit(out Vector<float> result);
+
+            for (int index = 0; index < Vector<float>.Count; index++)
+            {
+                float element = float.MultiplyAddEstimate(left.GetElementUnsafe(index), right.GetElementUnsafe(index), addend.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, element);
+            }
+
+            return result;
+        }
+
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static Vector<TResult> Narrow<TSource, TResult>(Vector<TSource> low, Vector<TSource> high)
+            where TSource : INumber<TSource>
+            where TResult : INumber<TResult>
+        {
+            Unsafe.SkipInit(out Vector<TResult> result);
+
+            for (int i = 0; i < Vector<TSource>.Count; i++)
+            {
+                TResult value = TResult.CreateTruncating(low.GetElementUnsafe(i));
+                result.SetElementUnsafe(i, value);
+            }
+
+            for (int i = Vector<TSource>.Count; i < Vector<TResult>.Count; i++)
+            {
+                TResult value = TResult.CreateTruncating(high.GetElementUnsafe(i - Vector<TSource>.Count));
+                result.SetElementUnsafe(i, value);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="Vector128.Narrow(Vector128{double}, Vector128{double})"/>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> Narrow(Vector<double> low, Vector<double> high)
+            => Narrow<double, float>(low, high);
+
+        /// <inheritdoc cref="Vector128.Narrow(Vector128{short}, Vector128{short})"/>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<sbyte> Narrow(Vector<short> low, Vector<short> high)
+            => Narrow<short, sbyte>(low, high);
+
+        /// <inheritdoc cref="Vector128.Narrow(Vector128{int}, Vector128{int})"/>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<short> Narrow(Vector<int> low, Vector<int> high)
+            => Narrow<int, short>(low, high);
+
+        /// <inheritdoc cref="Vector128.Narrow(Vector128{long}, Vector128{long})"/>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<int> Narrow(Vector<long> low, Vector<long> high)
+            => Narrow<long, int>(low, high);
+
+        /// <inheritdoc cref="Vector128.Narrow(Vector128{ushort}, Vector128{ushort})"/>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<byte> Narrow(Vector<ushort> low, Vector<ushort> high)
+            => Narrow<ushort, byte>(low, high);
+
+        /// <inheritdoc cref="Vector128.Narrow(Vector128{uint}, Vector128{uint})"/>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<ushort> Narrow(Vector<uint> low, Vector<uint> high)
+            => Narrow<uint, ushort>(low, high);
+
+        /// <inheritdoc cref="Vector128.Narrow(Vector128{ulong}, Vector128{ulong})"/>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<uint> Narrow(Vector<ulong> low, Vector<ulong> high)
+            => Narrow<ulong, uint>(low, high);
+
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static Vector<TResult> NarrowWithSaturation<TSource, TResult>(Vector<TSource> low, Vector<TSource> high)
+            where TSource : INumber<TSource>
+            where TResult : INumber<TResult>
+        {
+            Unsafe.SkipInit(out Vector<TResult> result);
+
+            for (int i = 0; i < Vector<TSource>.Count; i++)
+            {
+                TResult value = TResult.CreateSaturating(low.GetElementUnsafe(i));
+                result.SetElementUnsafe(i, value);
+            }
+
+            for (int i = Vector<TSource>.Count; i < Vector<TResult>.Count; i++)
+            {
+                TResult value = TResult.CreateSaturating(high.GetElementUnsafe(i - Vector<TSource>.Count));
+                result.SetElementUnsafe(i, value);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="Vector128.NarrowWithSaturation(Vector128{double}, Vector128{double})"/>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> NarrowWithSaturation(Vector<double> low, Vector<double> high)
+            => NarrowWithSaturation<double, float>(low, high);
+
+        /// <inheritdoc cref="Vector128.NarrowWithSaturation(Vector128{short}, Vector128{short})"/>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<sbyte> NarrowWithSaturation(Vector<short> low, Vector<short> high)
+            => NarrowWithSaturation<short, sbyte>(low, high);
+
+        /// <inheritdoc cref="Vector128.NarrowWithSaturation(Vector128{int}, Vector128{int})"/>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<short> NarrowWithSaturation(Vector<int> low, Vector<int> high)
+            => NarrowWithSaturation<int, short>(low, high);
+
+        /// <inheritdoc cref="Vector128.NarrowWithSaturation(Vector128{long}, Vector128{long})"/>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<int> NarrowWithSaturation(Vector<long> low, Vector<long> high)
+            => NarrowWithSaturation<long, int>(low, high);
+
+        /// <inheritdoc cref="Vector128.NarrowWithSaturation(Vector128{ushort}, Vector128{ushort})"/>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<byte> NarrowWithSaturation(Vector<ushort> low, Vector<ushort> high)
+            => NarrowWithSaturation<ushort, byte>(low, high);
+
+        /// <inheritdoc cref="Vector128.NarrowWithSaturation(Vector128{uint}, Vector128{uint})"/>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<ushort> NarrowWithSaturation(Vector<uint> low, Vector<uint> high)
+            => NarrowWithSaturation<uint, ushort>(low, high);
+
+        /// <inheritdoc cref="Vector128.NarrowWithSaturation(Vector128{ulong}, Vector128{ulong})"/>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<uint> NarrowWithSaturation(Vector<ulong> low, Vector<ulong> high)
+            => NarrowWithSaturation<ulong, uint>(low, high);
+
+        /// <summary>Computes the unary negation of a vector.</summary>
+        /// <param name="value">The vector to negate.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>A vector whose elements are the unary negation of the corresponding elements in <paramref name="value" />.</returns>
+        [Intrinsic]
+        public static Vector<T> Negate<T>(Vector<T> value) => -value;
+
+        /// <inheritdoc cref="Vector128.None{T}(Vector128{T}, T)" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool None<T>(Vector<T> vector, T value) => !EqualsAny(vector, Create(value));
+
+        /// <inheritdoc cref="Vector128.NoneWhereAllBitsSet{T}(Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static bool NoneWhereAllBitsSet<T>(Vector<T> vector)
+        {
+            if (typeof(T) == typeof(float))
+            {
+                return None(vector.As<T, int>(), -1);
+            }
+            else if (typeof(T) == typeof(double))
+            {
+                return None(vector.As<T, long>(), -1);
+            }
+            else
+            {
+                return None(vector, Scalar<T>.AllBitsSet);
+            }
+        }
+
+        /// <summary>Computes the ones-complement of a vector.</summary>
+        /// <param name="value">The vector whose ones-complement is to be computed.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>A vector whose elements are the ones-complement of the corresponding elements in <paramref name="value" />.</returns>
+        [Intrinsic]
+        public static Vector<T> OnesComplement<T>(Vector<T> value) => ~value;
+
+        internal static Vector<T> RadiansToDegrees<T>(Vector<T> radians)
+            where T : ITrigonometricFunctions<T>
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = T.RadiansToDegrees(radians.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="Vector128.RadiansToDegrees(Vector128{double})" />
+        [Intrinsic]
+        public static Vector<double> RadiansToDegrees(Vector<double> radians)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.RadiansToDegreesDouble<Vector<double>, Vector<ulong>>(radians);
+            }
+            else
+            {
+                return RadiansToDegrees<double>(radians);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.RadiansToDegrees(Vector128{float})" />
+        [Intrinsic]
+        public static Vector<float> RadiansToDegrees(Vector<float> radians)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.RadiansToDegreesSingle<Vector<float>, Vector<double>>(radians);
+            }
+            else
+            {
+                return RadiansToDegrees<float>(radians);
+            }
+        }
+
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static Vector<T> Round<T>(Vector<T> vector)
+        {
+            if (Scalar<T>.IsFloatingPoint)
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.Round(vector.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+            else
+            {
+                return vector;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.Round(Vector128{double})" />
+        [Intrinsic]
+        public static Vector<double> Round(Vector<double> vector) => Round<double>(vector);
+
+        /// <inheritdoc cref="Vector128.Round(Vector128{float})" />
+        [Intrinsic]
+        public static Vector<float> Round(Vector<float> vector) => Round<float>(vector);
+
+        /// <inheritdoc cref="Vector128.Round(Vector128{double}, MidpointRounding)" />
+        [Intrinsic]
+        public static Vector<double> Round(Vector<double> vector, MidpointRounding mode) => VectorMath.RoundDouble(vector, mode);
+
+        /// <inheritdoc cref="Vector128.Round(Vector128{float}, MidpointRounding)" />
+        [Intrinsic]
+        public static Vector<float> Round(Vector<float> vector, MidpointRounding mode) => VectorMath.RoundSingle(vector, mode);
+
+        /// <summary>Shifts each element of a vector left by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted left by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<byte> ShiftLeft(Vector<byte> value, int shiftCount) => value << shiftCount;
+
+        /// <summary>Shifts each element of a vector left by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted left by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<short> ShiftLeft(Vector<short> value, int shiftCount) => value << shiftCount;
+
+        /// <summary>Shifts each element of a vector left by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted left by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<int> ShiftLeft(Vector<int> value, int shiftCount) => value << shiftCount;
+
+        /// <summary>Shifts each element of a vector left by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted left by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<long> ShiftLeft(Vector<long> value, int shiftCount) => value << shiftCount;
+
+        /// <summary>Shifts each element of a vector left by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted left by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<nint> ShiftLeft(Vector<nint> value, int shiftCount) => value << shiftCount;
+
+        /// <summary>Shifts each element of a vector left by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted left by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<nuint> ShiftLeft(Vector<nuint> value, int shiftCount) => value << shiftCount;
+
+        /// <summary>Shifts each element of a vector left by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted left by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<sbyte> ShiftLeft(Vector<sbyte> value, int shiftCount) => value << shiftCount;
+
+        /// <summary>Shifts each element of a vector left by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted left by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<ushort> ShiftLeft(Vector<ushort> value, int shiftCount) => value << shiftCount;
+
+        /// <summary>Shifts each element of a vector left by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted left by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<uint> ShiftLeft(Vector<uint> value, int shiftCount) => value << shiftCount;
+
+        [Intrinsic]
+        internal static Vector<uint> ShiftLeft(Vector<uint> vector, Vector<uint> shiftCount)
+        {
+            if (Vector<uint>.Count == Vector512<uint>.Count)
+            {
+                return Vector512.ShiftLeft(vector.AsVector512(), shiftCount.AsVector512()).AsVector();
+            }
+            else if (Vector<uint>.Count == Vector256<uint>.Count)
+            {
+                return Vector256.ShiftLeft(vector.AsVector256(), shiftCount.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<uint>.Count == Vector128<uint>.Count);
+                return Vector128.ShiftLeft(vector.AsVector128(), shiftCount.AsVector128()).AsVector();
+            }
+        }
+
+        /// <summary>Shifts each element of a vector left by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted left by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<ulong> ShiftLeft(Vector<ulong> value, int shiftCount) => value << shiftCount;
+
+        [Intrinsic]
+        internal static Vector<ulong> ShiftLeft(Vector<ulong> vector, Vector<ulong> shiftCount)
+        {
+            if (Vector<ulong>.Count == Vector512<ulong>.Count)
+            {
+                return Vector512.ShiftLeft(vector.AsVector512(), shiftCount.AsVector512()).AsVector();
+            }
+            else if (Vector<ulong>.Count == Vector256<ulong>.Count)
+            {
+                return Vector256.ShiftLeft(vector.AsVector256(), shiftCount.AsVector256()).AsVector();
+            }
+            else
+            {
+                Debug.Assert(Vector<ulong>.Count == Vector128<ulong>.Count);
+                return Vector128.ShiftLeft(vector.AsVector128(), shiftCount.AsVector128()).AsVector();
+            }
+        }
+
+        /// <summary>Shifts (signed) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<short> ShiftRightArithmetic(Vector<short> value, int shiftCount) => value >> shiftCount;
+
+        /// <summary>Shifts (signed) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<int> ShiftRightArithmetic(Vector<int> value, int shiftCount) => value >> shiftCount;
+
+        /// <summary>Shifts (signed) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<long> ShiftRightArithmetic(Vector<long> value, int shiftCount) => value >> shiftCount;
+
+        /// <summary>Shifts (signed) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<nint> ShiftRightArithmetic(Vector<nint> value, int shiftCount) => value >> shiftCount;
+
+        /// <summary>Shifts (signed) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<sbyte> ShiftRightArithmetic(Vector<sbyte> value, int shiftCount) => value >> shiftCount;
+
+        /// <summary>Shifts (unsigned) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<byte> ShiftRightLogical(Vector<byte> value, int shiftCount) => value >>> shiftCount;
+
+        /// <summary>Shifts (unsigned) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<short> ShiftRightLogical(Vector<short> value, int shiftCount) => value >>> shiftCount;
+
+        /// <summary>Shifts (unsigned) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<int> ShiftRightLogical(Vector<int> value, int shiftCount) => value >>> shiftCount;
+
+        /// <summary>Shifts (unsigned) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<long> ShiftRightLogical(Vector<long> value, int shiftCount) => value >>> shiftCount;
+
+        /// <summary>Shifts (unsigned) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        public static Vector<nint> ShiftRightLogical(Vector<nint> value, int shiftCount) => value >>> shiftCount;
+
+        /// <summary>Shifts (unsigned) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<nuint> ShiftRightLogical(Vector<nuint> value, int shiftCount) => value >>> shiftCount;
+
+        /// <summary>Shifts (unsigned) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<sbyte> ShiftRightLogical(Vector<sbyte> value, int shiftCount) => value >>> shiftCount;
+
+        /// <summary>Shifts (unsigned) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<ushort> ShiftRightLogical(Vector<ushort> value, int shiftCount) => value >>> shiftCount;
+
+        /// <summary>Shifts (unsigned) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<uint> ShiftRightLogical(Vector<uint> value, int shiftCount) => value >>> shiftCount;
+
+        /// <summary>Shifts (unsigned) each element of a vector right by the specified amount.</summary>
+        /// <param name="value">The vector whose elements are to be shifted.</param>
+        /// <param name="shiftCount">The number of bits by which to shift each element.</param>
+        /// <returns>A vector whose elements where shifted right by <paramref name="shiftCount" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static Vector<ulong> ShiftRightLogical(Vector<ulong> value, int shiftCount) => value >>> shiftCount;
+
+        internal static Vector<T> Sin<T>(Vector<T> vector)
+            where T : ITrigonometricFunctions<T>
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T value = T.Sin(vector.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, value);
+            }
+
+            return result;
+        }
+
+        /// <inheritdoc cref="Vector128.Sin(Vector128{double})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> Sin(Vector<double> vector)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.SinDouble<Vector<double>, Vector<long>>(vector);
+            }
+            else
+            {
+                return Sin<double>(vector);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.Sin(Vector128{float})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<float> Sin(Vector<float> vector)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.SinSingle<Vector<float>, Vector<int>, Vector<double>, Vector<long>>(vector);
+            }
+            else
+            {
+                return Sin<float>(vector);
+            }
+        }
+
+        internal static (Vector<T> Sin, Vector<T> Cos) SinCos<T>(Vector<T> vector)
+            where T : ITrigonometricFunctions<T>
+        {
+            Unsafe.SkipInit(out Vector<T> sinResult);
+            Unsafe.SkipInit(out Vector<T> cosResult);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                (T sinValue, T cosValue) = T.SinCos(vector.GetElementUnsafe(index));
+                sinResult.SetElementUnsafe(index, sinValue);
+                cosResult.SetElementUnsafe(index, cosValue);
+            }
+
+            return (sinResult, cosResult);
+        }
+
+        /// <inheritdoc cref="Vector128.SinCos(Vector128{double})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static (Vector<double> Sin, Vector<double> Cos) SinCos(Vector<double> vector)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.SinCosDouble<Vector<double>, Vector<long>>(vector);
+            }
+            else
+            {
+                return SinCos<double>(vector);
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.SinCos(Vector128{float})" />
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static (Vector<float> Sin, Vector<float> Cos) SinCos(Vector<float> vector)
+        {
+            if (IsHardwareAccelerated)
+            {
+                return VectorMath.SinCosSingle<Vector<float>, Vector<int>, Vector<double>, Vector<long>>(vector);
+            }
+            else
+            {
+                return SinCos<float>(vector);
+            }
+        }
+
+        /// <summary>Computes the square root of a vector on a per-element basis.</summary>
+        /// <param name="value">The vector whose square root is to be computed.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>A vector whose elements are the square root of the corresponding elements in <paramref name="value" />.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="value"/> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> SquareRoot<T>(Vector<T> value)
+        {
+            Unsafe.SkipInit(out Vector<T> result);
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                T element = Scalar<T>.Sqrt(value.GetElementUnsafe(index));
+                result.SetElementUnsafe(index, element);
+            }
+
+            return result;
+        }
+
+        /// <summary>Stores a vector at the given destination.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="source">The vector that will be stored.</param>
+        /// <param name="destination">The destination at which <paramref name="source" /> will be stored.</param>
+        /// <exception cref="NotSupportedException">The type of <paramref name="source" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static unsafe void Store<T>(this Vector<T> source, T* destination) => source.StoreUnsafe(ref *destination);
+
+        /// <summary>Stores a vector at the given aligned destination.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="source">The vector that will be stored.</param>
+        /// <param name="destination">The aligned destination at which <paramref name="source" /> will be stored.</param>
+        /// <exception cref="NotSupportedException">The type of <paramref name="source" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static unsafe void StoreAligned<T>(this Vector<T> source, T* destination)
+        {
+            ThrowHelper.ThrowForUnsupportedNumericsVectorBaseType<T>();
+
+            if (((nuint)destination % (uint)(Alignment)) != 0)
+            {
+                ThrowHelper.ThrowAccessViolationException();
+            }
+
+            *(Vector<T>*)destination = source;
+        }
+
+        /// <summary>Stores a vector at the given aligned destination.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="source">The vector that will be stored.</param>
+        /// <param name="destination">The aligned destination at which <paramref name="source" /> will be stored.</param>
+        /// <remarks>This method may bypass the cache on certain platforms.</remarks>
+        /// <exception cref="NotSupportedException">The type of <paramref name="source" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        public static unsafe void StoreAlignedNonTemporal<T>(this Vector<T> source, T* destination) => source.StoreAligned(destination);
+
+        /// <summary>Stores a vector at the given destination.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="source">The vector that will be stored.</param>
+        /// <param name="destination">The destination at which <paramref name="source" /> will be stored.</param>
+        /// <exception cref="NotSupportedException">The type of <paramref name="source" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void StoreUnsafe<T>(this Vector<T> source, ref T destination)
+        {
+            ThrowHelper.ThrowForUnsupportedNumericsVectorBaseType<T>();
+            ref byte address = ref Unsafe.As<T, byte>(ref destination);
+            Unsafe.WriteUnaligned(ref address, source);
+        }
+
+        /// <summary>Stores a vector at the given destination.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="source">The vector that will be stored.</param>
+        /// <param name="destination">The destination to which <paramref name="elementOffset" /> will be added before the vector will be stored.</param>
+        /// <param name="elementOffset">The element offset from <paramref name="destination" /> from which the vector will be stored.</param>
+        /// <exception cref="NotSupportedException">The type of <paramref name="source" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void StoreUnsafe<T>(this Vector<T> source, ref T destination, nuint elementOffset)
+        {
+            ThrowHelper.ThrowForUnsupportedNumericsVectorBaseType<T>();
+            destination = ref Unsafe.Add(ref destination, (nint)elementOffset);
+            Unsafe.WriteUnaligned(ref Unsafe.As<T, byte>(ref destination), source);
+        }
+
+        /// <inheritdoc cref="Vector128.Subtract{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        public static Vector<T> Subtract<T>(Vector<T> left, Vector<T> right) => left - right;
+
+        /// <inheritdoc cref="Vector128.SubtractSaturate{T}(Vector128{T}, Vector128{T})" />
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> SubtractSaturate<T>(Vector<T> left, Vector<T> right)
+        {
+            if ((typeof(T) == typeof(float)) || (typeof(T) == typeof(double)))
+            {
+                return left - right;
+            }
+            else
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.SubtractSaturate(left.GetElementUnsafe(index), right.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+        }
+
+        /// <summary>
+        /// Returns the sum of all elements inside the vector.
+        /// </summary>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static T Sum<T>(Vector<T> value)
+        {
+            T sum = default!;
+
+            for (int index = 0; index < Vector<T>.Count; index++)
+            {
+                sum = Scalar<T>.Add(sum, value.GetElementUnsafe(index));
+            }
+
+            return sum;
+        }
+
+        /// <summary>Converts the given vector to a scalar containing the value of the first element.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="vector">The vector to get the first element from.</param>
+        /// <returns>A scalar <typeparamref name="T" /> containing the value of the first element.</returns>
+        /// <exception cref="NotSupportedException">The type of <paramref name="vector" /> (<typeparamref name="T" />) is not supported.</exception>
+        [Intrinsic]
+        public static T ToScalar<T>(this Vector<T> vector)
+        {
+            ThrowHelper.ThrowForUnsupportedNumericsVectorBaseType<T>();
+            return vector.GetElementUnsafe(0);
+        }
+
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static Vector<T> Truncate<T>(Vector<T> vector)
+        {
+            if (Scalar<T>.IsFloatingPoint)
+            {
+                Unsafe.SkipInit(out Vector<T> result);
+
+                for (int index = 0; index < Vector<T>.Count; index++)
+                {
+                    T value = Scalar<T>.Truncate(vector.GetElementUnsafe(index));
+                    result.SetElementUnsafe(index, value);
+                }
+
+                return result;
+            }
+            else
+            {
+                return vector;
+            }
+        }
+
+        /// <inheritdoc cref="Vector128.Truncate(Vector128{double})" />
+        [Intrinsic]
+        public static Vector<double> Truncate(Vector<double> vector) => Truncate<double>(vector);
+
+        /// <inheritdoc cref="Vector128.Truncate(Vector128{float})" />
+        [Intrinsic]
+        public static Vector<float> Truncate(Vector<float> vector) => Truncate<float>(vector);
+
+        /// <summary>Widens a <see langword="Vector&lt;Byte&gt;" /> into two <see cref="Vector{UInt16} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A pair of vectors that contain the widened lower and upper halves of <paramref name="source" />.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static (Vector<ushort> Lower, Vector<ushort> Upper) Widen(Vector<byte> source) => (WidenLower(source), WidenUpper(source));
+
+        /// <summary>Widens a <see langword="Vector&lt;Int16&gt;" /> into two <see cref="Vector{Int32} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A pair of vectors that contain the widened lower and upper halves of <paramref name="source" />.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static (Vector<int> Lower, Vector<int> Upper) Widen(Vector<short> source) => (WidenLower(source), WidenUpper(source));
+
+        /// <summary>Widens a <see langword="Vector&lt;Int32&gt;" /> into two <see cref="Vector{Int64} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A pair of vectors that contain the widened lower and upper halves of <paramref name="source" />.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static (Vector<long> Lower, Vector<long> Upper) Widen(Vector<int> source) => (WidenLower(source), WidenUpper(source));
+
+        /// <summary>Widens a <see langword="Vector&lt;SByte&gt;" /> into two <see cref="Vector{Int16} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A pair of vectors that contain the widened lower and upper halves of <paramref name="source" />.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static (Vector<short> Lower, Vector<short> Upper) Widen(Vector<sbyte> source) => (WidenLower(source), WidenUpper(source));
+
+        /// <summary>Widens a <see langword="Vector&lt;Single&gt;" /> into two <see cref="Vector{Double} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A pair of vectors that contain the widened lower and upper halves of <paramref name="source" />.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static (Vector<double> Lower, Vector<double> Upper) Widen(Vector<float> source) => (WidenLower(source), WidenUpper(source));
+
+        /// <summary>Widens a <see langword="Vector&lt;UInt16&gt;" /> into two <see cref="Vector{UInt32} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A pair of vectors that contain the widened lower and upper halves of <paramref name="source" />.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static (Vector<uint> Lower, Vector<uint> Upper) Widen(Vector<ushort> source) => (WidenLower(source), WidenUpper(source));
+
+        /// <summary>Widens a <see langword="Vector&lt;UInt32&gt;" /> into two <see cref="Vector{UInt64} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A pair of vectors that contain the widened lower and upper halves of <paramref name="source" />.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static (Vector<ulong> Lower, Vector<ulong> Upper) Widen(Vector<uint> source) => (WidenLower(source), WidenUpper(source));
+
+        /// <summary>Widens a <see langword="Vector&lt;Byte&gt;" /> into two <see cref="Vector{UInt16} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <param name="low">A vector that will contain the widened result of the lower half of <paramref name="source" />.</param>
+        /// <param name="high">A vector that will contain the widened result of the upper half of <paramref name="source" />.</param>
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void Widen(Vector<byte> source, out Vector<ushort> low, out Vector<ushort> high)
+        {
+            low = WidenLower(source);
+            high = WidenUpper(source);
+        }
+
+        /// <summary>Widens a <see langword="Vector&lt;Int16&gt;" /> into two <see cref="Vector{Int32} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <param name="low">A vector that will contain the widened result of the lower half of <paramref name="source" />.</param>
+        /// <param name="high">A vector that will contain the widened result of the upper half of <paramref name="source" />.</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void Widen(Vector<short> source, out Vector<int> low, out Vector<int> high)
+        {
+            low = WidenLower(source);
+            high = WidenUpper(source);
+        }
+
+        /// <summary>Widens a <see langword="Vector&lt;Int32&gt;" /> into two <see cref="Vector{Int64} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <param name="low">A vector that will contain the widened result of the lower half of <paramref name="source" />.</param>
+        /// <param name="high">A vector that will contain the widened result of the upper half of <paramref name="source" />.</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void Widen(Vector<int> source, out Vector<long> low, out Vector<long> high)
+        {
+            low = WidenLower(source);
+            high = WidenUpper(source);
+        }
+
+        /// <summary>Widens a <see langword="Vector&lt;SByte&gt;" /> into two <see cref="Vector{Int16} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <param name="low">A vector that will contain the widened result of the lower half of <paramref name="source" />.</param>
+        /// <param name="high">A vector that will contain the widened result of the upper half of <paramref name="source" />.</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [CLSCompliant(false)]
+        public static void Widen(Vector<sbyte> source, out Vector<short> low, out Vector<short> high)
+        {
+            low = WidenLower(source);
+            high = WidenUpper(source);
+        }
+
+        /// <summary>Widens a <see langword="Vector&lt;Single&gt;" /> into two <see cref="Vector{Double} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <param name="low">A vector that will contain the widened result of the lower half of <paramref name="source" />.</param>
+        /// <param name="high">A vector that will contain the widened result of the upper half of <paramref name="source" />.</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void Widen(Vector<float> source, out Vector<double> low, out Vector<double> high)
+        {
+            low = WidenLower(source);
+            high = WidenUpper(source);
+        }
+
+        /// <summary>Widens a <see langword="Vector&lt;UInt16&gt;" /> into two <see cref="Vector{UInt32} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <param name="low">A vector that will contain the widened result of the lower half of <paramref name="source" />.</param>
+        /// <param name="high">A vector that will contain the widened result of the upper half of <paramref name="source" />.</param>
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void Widen(Vector<ushort> source, out Vector<uint> low, out Vector<uint> high)
+        {
+            low = WidenLower(source);
+            high = WidenUpper(source);
+        }
+
+        /// <summary>Widens a <see langword="Vector&lt;UInt32&gt;" /> into two <see cref="Vector{UInt64} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <param name="low">A vector that will contain the widened result of the lower half of <paramref name="source" />.</param>
+        /// <param name="high">A vector that will contain the widened result of the upper half of <paramref name="source" />.</param>
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void Widen(Vector<uint> source, out Vector<ulong> low, out Vector<ulong> high)
+        {
+            low = WidenLower(source);
+            high = WidenUpper(source);
+        }
+
+        /// <summary>Widens the lower half of a <see langword="Vector&lt;Byte&gt;" /> into a <see cref="Vector{UInt16} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened lower half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<ushort> WidenLower(Vector<byte> source)
+        {
+            Unsafe.SkipInit(out Vector<ushort> lower);
+
+            for (int i = 0; i < Vector<ushort>.Count; i++)
+            {
+                ushort value = source.GetElementUnsafe(i);
+                lower.SetElementUnsafe(i, value);
+            }
+
+            return lower;
+        }
+
+        /// <summary>Widens the lower half of a <see langword="Vector&lt;Int16&gt;" /> into a <see cref="Vector{Int32} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened lower half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<int> WidenLower(Vector<short> source)
+        {
+            Unsafe.SkipInit(out Vector<int> lower);
+
+            for (int i = 0; i < Vector<int>.Count; i++)
+            {
+                int value = source.GetElementUnsafe(i);
+                lower.SetElementUnsafe(i, value);
+            }
+
+            return lower;
+        }
+
+        /// <summary>Widens the lower half of a <see langword="Vector&lt;Int32&gt;" /> into a <see cref="Vector{Int64} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened lower half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<long> WidenLower(Vector<int> source)
+        {
+            Unsafe.SkipInit(out Vector<long> lower);
+
+            for (int i = 0; i < Vector<long>.Count; i++)
+            {
+                long value = source.GetElementUnsafe(i);
+                lower.SetElementUnsafe(i, value);
+            }
+
+            return lower;
+        }
+
+        /// <summary>Widens the lower half of a <see langword="Vector&lt;SByte&gt;" /> into a <see cref="Vector{Int16} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened lower half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<short> WidenLower(Vector<sbyte> source)
+        {
+            Unsafe.SkipInit(out Vector<short> lower);
+
+            for (int i = 0; i < Vector<short>.Count; i++)
+            {
+                short value = source.GetElementUnsafe(i);
+                lower.SetElementUnsafe(i, value);
+            }
+
+            return lower;
+        }
+
+        /// <summary>Widens the lower half of a <see langword="Vector&lt;Single&gt;" /> into a <see cref="Vector{Double} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened lower half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> WidenLower(Vector<float> source)
+        {
+            Unsafe.SkipInit(out Vector<double> lower);
+
+            for (int i = 0; i < Vector<double>.Count; i++)
+            {
+                double value = source.GetElementUnsafe(i);
+                lower.SetElementUnsafe(i, value);
+            }
+
+            return lower;
+        }
+
+        /// <summary>Widens the lower half of a <see langword="Vector&lt;UInt16&gt;" /> into a <see cref="Vector{UInt32} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened lower half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<uint> WidenLower(Vector<ushort> source)
+        {
+            Unsafe.SkipInit(out Vector<uint> lower);
+
+            for (int i = 0; i < Vector<uint>.Count; i++)
+            {
+                uint value = source.GetElementUnsafe(i);
+                lower.SetElementUnsafe(i, value);
+            }
+
+            return lower;
+        }
+
+        /// <summary>Widens the lower half of a <see langword="Vector&lt;UInt32&gt;" /> into a <see cref="Vector{UInt64} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened lower half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<ulong> WidenLower(Vector<uint> source)
+        {
+            Unsafe.SkipInit(out Vector<ulong> lower);
+
+            for (int i = 0; i < Vector<ulong>.Count; i++)
+            {
+                ulong value = source.GetElementUnsafe(i);
+                lower.SetElementUnsafe(i, value);
+            }
+
+            return lower;
+        }
+
+        /// <summary>Widens the upper half of a <see langword="Vector&lt;Byte&gt;" /> into a <see cref="Vector{UInt16} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened upper half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<ushort> WidenUpper(Vector<byte> source)
+        {
+            Unsafe.SkipInit(out Vector<ushort> upper);
+
+            for (int i = Vector<ushort>.Count; i < Vector<byte>.Count; i++)
+            {
+                ushort value = source.GetElementUnsafe(i);
+                upper.SetElementUnsafe(i - Vector<ushort>.Count, value);
+            }
+
+            return upper;
+        }
+
+        /// <summary>Widens the upper half of a <see langword="Vector&lt;Int16&gt;" /> into a <see cref="Vector{Int32} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened upper half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<int> WidenUpper(Vector<short> source)
+        {
+            Unsafe.SkipInit(out Vector<int> upper);
+
+            for (int i = Vector<int>.Count; i < Vector<short>.Count; i++)
+            {
+                int value = source.GetElementUnsafe(i);
+                upper.SetElementUnsafe(i - Vector<int>.Count, value);
+            }
+
+            return upper;
+        }
+
+        /// <summary>Widens the upper half of a <see langword="Vector&lt;Int32&gt;" /> into a <see cref="Vector{Int64} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened upper half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<long> WidenUpper(Vector<int> source)
+        {
+            Unsafe.SkipInit(out Vector<long> upper);
+
+            for (int i = Vector<long>.Count; i < Vector<int>.Count; i++)
+            {
+                long value = source.GetElementUnsafe(i);
+                upper.SetElementUnsafe(i - Vector<long>.Count, value);
+            }
+
+            return upper;
+        }
+
+        /// <summary>Widens the upper half of a <see langword="Vector&lt;SByte&gt;" /> into a <see cref="Vector{Int16} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened upper half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<short> WidenUpper(Vector<sbyte> source)
+        {
+            Unsafe.SkipInit(out Vector<short> upper);
+
+            for (int i = Vector<short>.Count; i < Vector<sbyte>.Count; i++)
+            {
+                short value = source.GetElementUnsafe(i);
+                upper.SetElementUnsafe(i - Vector<short>.Count, value);
+            }
+
+            return upper;
+        }
+
+        /// <summary>Widens the upper half of a <see langword="Vector&lt;Single&gt;" /> into a <see cref="Vector{Double} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened upper half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<double> WidenUpper(Vector<float> source)
+        {
+            Unsafe.SkipInit(out Vector<double> upper);
+
+            for (int i = Vector<double>.Count; i < Vector<float>.Count; i++)
+            {
+                double value = source.GetElementUnsafe(i);
+                upper.SetElementUnsafe(i - Vector<double>.Count, value);
+            }
+
+            return upper;
+        }
+
+        /// <summary>Widens the upper half of a <see langword="Vector&lt;UInt16&gt;" /> into a <see cref="Vector{UInt32} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened upper half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<uint> WidenUpper(Vector<ushort> source)
+        {
+            Unsafe.SkipInit(out Vector<uint> upper);
+
+            for (int i = Vector<uint>.Count; i < Vector<ushort>.Count; i++)
+            {
+                uint value = source.GetElementUnsafe(i);
+                upper.SetElementUnsafe(i - Vector<uint>.Count, value);
+            }
+
+            return upper;
+        }
+
+        /// <summary>Widens the upper half of a <see langword="Vector&lt;UInt32&gt;" /> into a <see cref="Vector{UInt64} " />.</summary>
+        /// <param name="source">The vector whose elements are to be widened.</param>
+        /// <returns>A vector that contain the widened upper half of <paramref name="source" />.</returns>
+        [Intrinsic]
+        [CLSCompliant(false)]
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<ulong> WidenUpper(Vector<uint> source)
+        {
+            Unsafe.SkipInit(out Vector<ulong> upper);
+
+            for (int i = Vector<ulong>.Count; i < Vector<uint>.Count; i++)
+            {
+                ulong value = source.GetElementUnsafe(i);
+                upper.SetElementUnsafe(i - Vector<ulong>.Count, value);
+            }
+
+            return upper;
+        }
+
+        /// <summary>Creates a new <see cref="Vector{T}" /> with the element at the specified index set to the specified value and the remaining elements set to the same value as that in the given vector.</summary>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <param name="vector">The vector to get the remaining elements from.</param>
+        /// <param name="index">The index of the element to set.</param>
+        /// <param name="value">The value to set the element to.</param>
+        /// <returns>A <see cref="Vector{T}" /> with the value of the element at <paramref name="index" /> set to <paramref name="value" /> and the remaining elements set to the same value as that in <paramref name="vector" />.</returns>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="index" /> was less than zero or greater than the number of elements.</exception>
+        /// <exception cref="NotSupportedException">The type of <paramref name="vector" /> (<typeparamref name="T" />) is not supported.</exception>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Vector<T> WithElement<T>(this Vector<T> vector, int index, T value)
+        {
+            if ((uint)(index) >= (uint)(Vector<T>.Count))
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.index);
+            }
+
+            Vector<T> result = vector;
+            result.SetElementUnsafe(index, value);
+            return result;
+        }
+
+        /// <summary>Computes the exclusive-or of two vectors.</summary>
+        /// <param name="left">The vector to exclusive-or with <paramref name="right" />.</param>
+        /// <param name="right">The vector to exclusive-or with <paramref name="left" />.</param>
+        /// <typeparam name="T">The type of the elements in the vector.</typeparam>
+        /// <returns>The exclusive-or of <paramref name="left" /> and <paramref name="right" />.</returns>
+        [Intrinsic]
+        public static Vector<T> Xor<T>(Vector<T> left, Vector<T> right) => left ^ right;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static T GetElementUnsafe<T>(in this Vector<T> vector, int index)
+        {
+            Debug.Assert((index >= 0) && (index < Vector<T>.Count));
+            ref T address = ref Unsafe.As<Vector<T>, T>(ref Unsafe.AsRef(in vector));
+            return Unsafe.Add(ref address, index);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static void SetElementUnsafe<T>(in this Vector<T> vector, int index, T value)
+        {
+            Debug.Assert((index >= 0) && (index < Vector<T>.Count));
+            ref T address = ref Unsafe.As<Vector<T>, T>(ref Unsafe.AsRef(in vector));
+            Unsafe.Add(ref address, index) = value;
+        }
     }
 }

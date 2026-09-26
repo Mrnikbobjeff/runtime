@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Configuration;
 using Xunit;
@@ -40,6 +41,91 @@ namespace System.ConfigurationTests
                 }
             }
         }
+
+        public class SettingsWithProvider : ApplicationSettingsBase
+        {
+            [Setting]
+            [SettingsProvider(typeof(CustomProvider))]
+            public string StringPropertyWithProvider
+            {
+                get
+                {
+                    return (string)this[nameof(StringPropertyWithProvider)];
+                }
+                set
+                {
+                    this[nameof(StringPropertyWithProvider)] = value;
+                }
+            }
+
+            [UserScopedSetting]
+            public string StringProperty
+            {
+                get
+                {
+                    return (string)this[nameof(StringProperty)];
+                }
+                set
+                {
+                    this[nameof(StringProperty)] = value;
+                }
+            }
+
+            public class CustomProvider : SettingsProvider
+            {
+                public const string DefaultStringPropertyValue = "stringPropertySet";
+                public override string ApplicationName { get; set; }
+
+                public override SettingsPropertyValueCollection GetPropertyValues(SettingsContext context, SettingsPropertyCollection collection)
+                {
+                    SettingsPropertyValueCollection result = new SettingsPropertyValueCollection();
+                    SettingsProperty property = new SettingsProperty("StringPropertyWithProvider", typeof(string), this, false, DefaultStringPropertyValue, SettingsSerializeAs.String, new SettingsAttributeDictionary(), false, false);
+                    result.Add(new SettingsPropertyValue(new SettingsProperty(property)));
+                    return result;
+                }
+
+                public override void SetPropertyValues(SettingsContext context, SettingsPropertyValueCollection collection)
+                {
+                }
+
+                public override void Initialize(string name, NameValueCollection config)
+                {
+                    base.Initialize(name ?? "CustomProvider", config ?? new NameValueCollection());
+                }
+            }
+
+        }
+
+#nullable enable
+        public class SettingsWithNullableAttribute : ApplicationSettingsBase
+        {
+            [ApplicationScopedSetting]
+            public string StringProperty
+            {
+                get
+                {
+                    return (string)this[nameof(StringProperty)];
+                }
+                set
+                {
+                    this[nameof(StringProperty)] = value;
+                }
+            }
+
+            [UserScopedSetting]
+            public string? NullableStringProperty
+            {
+                get
+                {
+                    return (string)this[nameof(NullableStringProperty)];
+                }
+                set
+                {
+                    this[nameof(NullableStringProperty)] = value;
+                }
+            }
+        }
+#nullable disable
 
         private class PersistedSimpleSettings : SimpleSettings
         {
@@ -158,7 +244,9 @@ namespace System.ConfigurationTests
         [ReadOnly(false)]
         [SettingsGroupName("TestGroup")]
         [SettingsProvider(typeof(TestProvider))]
+#pragma warning disable CS0618 // Type or member is obsolete
         [SettingsSerializeAs(SettingsSerializeAs.Binary)]
+#pragma warning restore CS0618 // Type or member is obsolete
         private class SettingsWithAttributes : ApplicationSettingsBase
         {
             [ApplicationScopedSetting]
@@ -188,7 +276,9 @@ namespace System.ConfigurationTests
             Assert.Equal(1, settings.Properties.Count);
             SettingsProperty property = settings.Properties["StringProperty"];
             Assert.Equal(typeof(TestProvider), property.Provider.GetType());
+#pragma warning disable CS0618 // Type or member is obsolete
             Assert.Equal(SettingsSerializeAs.Binary, property.SerializeAs);
+#pragma warning restore CS0618 // Type or member is obsolete
         }
 
         [Fact]
@@ -236,6 +326,47 @@ namespace System.ConfigurationTests
 
             Assert.True(changingFired);
             Assert.Equal(oldValue, settings.IntProperty);
+        }
+
+        [Fact]
+        public void OnSettingsLoaded_QueryProperty()
+        {
+            SettingsWithProvider settings = new SettingsWithProvider();
+            bool loadedFired = false;
+            string newStringPropertyValue = nameof(SettingsWithProvider.StringProperty);
+            settings.SettingsLoaded += (object s, SettingsLoadedEventArgs e)
+                =>
+            {
+                loadedFired = true;
+                Assert.Equal(SettingsWithProvider.CustomProvider.DefaultStringPropertyValue, settings.StringPropertyWithProvider);
+                if (string.IsNullOrEmpty(settings.StringProperty))
+                    settings.StringProperty = newStringPropertyValue;
+            };
+
+            Assert.Equal(newStringPropertyValue, settings.StringProperty);
+            Assert.True(loadedFired);
+        }
+
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "Not fixed on NetFX")]
+        [Fact]
+        public void SettingsProperty_SettingsWithNullableAttributes_Ok()
+        {
+            SettingsWithNullableAttribute settings = new SettingsWithNullableAttribute();
+
+            Assert.Null(settings.NullableStringProperty);
+
+            string newValue = null;
+
+            settings.SettingChanging += (object sender, SettingChangingEventArgs e)
+                =>
+            {
+                newValue = (string)e.NewValue;
+            };
+
+            settings.NullableStringProperty = "test";
+
+            Assert.Equal("test", newValue);
+            Assert.Equal(newValue, settings.NullableStringProperty);
         }
     }
 }

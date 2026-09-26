@@ -1,7 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <TargetFrameworks>$(NetCoreAppCurrent);$(NetFrameworkCurrent)</TargetFrameworks>
     <IncludeRemoteExecutor>true</IncludeRemoteExecutor>
-    <TargetFrameworks>$(NetCoreAppCurrent);net461</TargetFrameworks>
+    <!-- https://github.com/dotnet/runtime/issues/126862 -->
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <EnableAotAnalyzer>false</EnableAotAnalyzer>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="System\CodeDom\CodeAttributeDeclarationCollectionTests.cs" />
@@ -29,6 +32,7 @@
     <Compile Include="System\CodeDom\Compiler\CompilerInfoTests.cs" />
     <Compile Include="System\CodeDom\Compiler\CompilerParametersTests.cs" />
     <Compile Include="System\CodeDom\Compiler\CompilerResultsTests.cs" />
+    <Compile Include="System\CodeDom\Compiler\CSharpCodeGeneratorTests.cs" />
     <Compile Include="System\CodeDom\TempFileCollectionTests.cs" />
     <Compile Include="System\CodeDom\CodeObjectCreateExpressionTests.cs" />
     <Compile Include="System\CodeDom\CodeParameterDeclarationExpressionTests.cs" />
@@ -110,7 +114,7 @@
     <Compile Include="$(CommonTestPath)System\Runtime\Serialization\Formatters\BinaryFormatterHelpers.cs"
              Link="Common\System\Runtime\Serialization\Formatters\BinaryFormatterHelpers.cs" />
   </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == '$(NetCoreAppCurrent)'">
+  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETCoreApp'">
     <ProjectReference Include="..\src\System.CodeDom.csproj" />
   </ItemGroup>
 </Project>

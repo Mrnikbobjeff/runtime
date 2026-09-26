@@ -4,19 +4,45 @@
 using System;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 namespace Tests
 {
     public class Test
     {
-        public static int Main(string[] args)
+        [OuterLoop]
+        [Fact]
+        // This needs a CoreCLR TypeLoadException emulator
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/69919", typeof(TestLibrary.Utilities), nameof(TestLibrary.Utilities.IsNativeAot))]
+        public static int TestEntryPoint()
         {
-#if _65536
+            if ((TestManyFields() == 100)
+                && (TestManyFieldsPlusTwo() == 100))
+            {
+                return 100;
+            }
+            return 1;
+        }
+
+        public static int TestManyFields()
+        {
             try
             {
-#endif
-                TestLd();
-#if _65536
+                TestLdManyFields();
+            }
+            catch (Exception)
+            {
+                Console.WriteLine("Failed TestManyFields");
+                return 1;
+            }
+            return 100;
+        }
+
+        public static int TestManyFieldsPlusTwo()
+        {
+            try
+            {
+                TestLdManyFieldsPlusTwo();
             }
             catch (TargetInvocationException)
             {
@@ -26,18 +52,26 @@ namespace Tests
             {
                 return 100;
             }
-            return 0;
-#else
-return 100;
-#endif
+            catch
+            {
+            }
+            return 1;
         }
+
         [MethodImpl(MethodImplOptions.NoInlining)]
-        public static void TestLd()
+        internal static void TestLdManyFields()
         {
-            object o = Activator.CreateInstance(typeof(ThousandMoreField));
+            object o = Activator.CreateInstance(typeof(ManyFields));
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        internal static void TestLdManyFieldsPlusTwo()
+        {
+            object o = Activator.CreateInstance(typeof(ManyFieldsPlusTwo));
         }
     }
-    public class ThousandMoreField
+
+    public class ManyFields
     {
         public int m1 = 1;
         public int m2 = 2;
@@ -65569,23 +65603,15 @@ return 100;
         public int m65528 = 65528;
         public int m65529 = 65529;
         public int m65530 = 65530;
-#if _65531 || _65532 || _65533 || _65534 || _65535 || _65536
         public int m65531 = 65531;
-#if _65532 || _65533 || _65534 || _65535 || _65536
         public int m65532 = 65532;
-#if _65533 || _65534 || _65535 || _65536
         public int m65533 = 65533;
-#if _65534 || _65535 || _65536
         public int m65534 = 65534;
-#if _65535 || _65536
+    }
+
+    public class ManyFieldsPlusTwo : ManyFields
+    {
         public int m65535 = 65535;
-#if _65536
         public int m65536 = 65536;
-#endif
-#endif
-#endif
-#endif
-#endif
-#endif
     }
 }

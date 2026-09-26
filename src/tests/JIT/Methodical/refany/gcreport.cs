@@ -2,8 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using TestLibrary;
+using Xunit;
 
-namespace JitTest
+namespace JitTest_gcreport_cs
 {
     internal class StressTest2
     {
@@ -11,11 +13,11 @@ namespace JitTest
         public StressTest m_parent = null;
     }
 
-    internal class StressTest
+    public class StressTest
     {
         private StressTest2 _m_internal;
 
-        private StressTest()
+        public StressTest()
         {
             _m_internal = new StressTest2();
             _m_internal.m_parent = this;
@@ -47,7 +49,9 @@ namespace JitTest
             return __refvalue(R, StressTest2).m_parent._m_internal == __refvalue(R, StressTest2);
         }
 
-        private static int Main()
+        [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/91923", typeof(PlatformDetection), nameof(PlatformDetection.IsAppleMobile))]
+        public static int TestEntryPoint()
         {
             if (!Scenario1())
             {

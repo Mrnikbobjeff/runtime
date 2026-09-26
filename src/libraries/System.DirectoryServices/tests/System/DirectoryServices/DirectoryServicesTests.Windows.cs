@@ -11,7 +11,7 @@ namespace System.DirectoryServices.Tests
 {
     public partial class DirectoryServicesTests
     {
-        [ConditionalFact(nameof(IsActiveDirectoryServer))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsActiveDirectoryServer))]
         public void TestComInterfaces()
         {
             using (DirectoryEntry de = CreateRootEntry())
@@ -31,11 +31,11 @@ namespace System.DirectoryServices.Tests
                         IADs iads = (IADs) rootOU.NativeObject;
                         Assert.Equal("ou=dateRoot", iads.Name);
                         Assert.Equal("Class", iads.Class);
-                        Assert.True(iads.ADsPath.IndexOf(LdapConfiguration.Configuration.ServerName, StringComparison.OrdinalIgnoreCase) >= 0);
+                        Assert.Contains(LdapConfiguration.Configuration.ServerName, iads.ADsPath, StringComparison.OrdinalIgnoreCase);
 
                         IADsSecurityDescriptor iadsSD = (IADsSecurityDescriptor) de.Properties["ntSecurityDescriptor"].Value;
-                        Assert.True(LdapConfiguration.Configuration.Domain.IndexOf(iadsSD.Owner.Split('\\')[0], StringComparison.OrdinalIgnoreCase) >= 0);
-                        Assert.True(LdapConfiguration.Configuration.Domain.IndexOf(iadsSD.Group.Split('\\')[0], StringComparison.OrdinalIgnoreCase) >= 0);
+                        Assert.Contains(iadsSD.Owner.Split('\\')[0], LdapConfiguration.Configuration.SearchDn, StringComparison.OrdinalIgnoreCase);
+                        Assert.Contains(iadsSD.Group.Split('\\')[0], LdapConfiguration.Configuration.SearchDn, StringComparison.OrdinalIgnoreCase);
                     }
                 }
                 finally

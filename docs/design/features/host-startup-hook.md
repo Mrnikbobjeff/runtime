@@ -221,7 +221,7 @@ Each startup hook will run on the same managed thread as the `Main`
 method, so thread state will persist between startup hooks. The
 threading apartment state will be set based on any attributes present
 in the `Main` method of the app, before startup hooks execute. As a
-result, attemps to explicitly set the thread apartment state in a
+result, attempts to explicitly set the thread apartment state in a
 startup hook will fail if the requested state is incompatible with the
 app's threading state.
 
@@ -253,3 +253,10 @@ be defined either in the app or within the first hook that uses it:
 The type should be made `internal` to prevent exposing it as API
 surface to any managed code that happens to have access to the startup
 hook dll. However, the feature will also work if the type is `public`.
+
+### Incompatible with trimming
+
+Startup hooks are disabled by default on trimmed apps. The usage of
+startup hooks on a trimmed app is potentially dangerous since these
+could make use of assemblies, types or members that were removed by
+trimming, causing the app to crash.

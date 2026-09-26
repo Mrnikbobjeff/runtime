@@ -3,7 +3,7 @@
 
 using Xunit;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlDocumentTests
 {
     public class NameTableTests
     {
@@ -31,7 +31,7 @@ namespace System.Xml.Tests
         public static void RespectTypesDerivedFromNameTable()
         {
             var customNameTable = new CustomNameTable();
-            var xmlDocument = new XmlDocument(customNameTable);
+            new XmlDocument(customNameTable);
             Assert.True(customNameTable.NumberOfCallsToAddStringMethod > 0);
         }
 

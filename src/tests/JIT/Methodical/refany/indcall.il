@@ -8,15 +8,17 @@
 .assembly extern mscorlib
 {
 }
-.assembly 'bug'
+.assembly ASSEMBLY_NAME
 {
 
   
 }
-.module 'bug.exe'
-.namespace JitTest
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
+.namespace JitTest_indcall_refany_il
 {
-  .class private auto ansi Test extends ['mscorlib']System.Object
+  .class public auto ansi Test extends ['mscorlib']System.Object
   {
     .method private hidebysig instance int32 DoStuff(method instance int32 *(refany)) il managed
     {
@@ -54,14 +56,18 @@
 			ret
     } // end of method 'Test::DoStuff'
 
-    .method private hidebysig static int32 Main() il managed
+    .method public hidebysig static int32 Main() il managed
     {
+			.custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+			    01 00 00 00
+			)
+			.custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, class [mscorlib]System.Type, string[]) = {string('https://github.com/dotnet/runtime/issues/82859') type([TestLibrary]TestLibrary.PlatformDetection) string[2] ('IsMonoMiniJIT' 'IsArm64Process') }
 			.entrypoint
 			.maxstack  6
 			.locals (int32 V_0, int32)
-			newobj		instance void JitTest.Test::.ctor()
-			ldftn 		instance int32 JitTest.Test::DummyMethod(refany)
-			ldftn		instance int32 JitTest.Test::DoStuff(method instance int32 *(refany))
+			newobj		instance void JitTest_indcall_refany_il.Test::.ctor()
+			ldftn 		instance int32 JitTest_indcall_refany_il.Test::DummyMethod(refany)
+			ldftn		instance int32 JitTest_indcall_refany_il.Test::DoStuff(method instance int32 *(refany))
 			tail. calli		instance int32 (method instance int32 *(refany))
 			ret
     } // end of method 'Test::Main'
@@ -76,4 +82,4 @@
 
   } // end of class 'Test'
 
-} // end of namespace 'JitTest'
+} // end of namespace 'JitTest_indcall_refany_il'

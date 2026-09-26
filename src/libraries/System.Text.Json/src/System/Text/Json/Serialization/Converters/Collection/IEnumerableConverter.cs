@@ -3,6 +3,7 @@
 
 using System.Collections;
 using System.Collections.Generic;
+using System.Text.Json.Serialization.Metadata;
 
 namespace System.Text.Json.Serialization.Converters
 {
@@ -11,19 +12,22 @@ namespace System.Text.Json.Serialization.Converters
     /// </summary>
     /// <typeparam name="TCollection"></typeparam>
     internal sealed class IEnumerableConverter<TCollection>
-        : IEnumerableDefaultConverter<TCollection, object?>
+        : JsonCollectionConverter<TCollection, object?>
         where TCollection : IEnumerable
     {
+        private readonly bool _isDeserializable = typeof(TCollection).IsAssignableFrom(typeof(List<object?>));
+
         protected override void Add(in object? value, ref ReadStack state)
         {
             ((List<object?>)state.Current.ReturnValue!).Add(value);
         }
 
-        protected override void CreateCollection(ref Utf8JsonReader reader, ref ReadStack state, JsonSerializerOptions options)
+        internal override bool SupportsCreateObjectDelegate => false;
+        protected override void CreateCollection(ref Utf8JsonReader reader, scoped ref ReadStack state, JsonSerializerOptions options)
         {
-            if (!TypeToConvert.IsAssignableFrom(RuntimeType))
+            if (!_isDeserializable)
             {
-                ThrowHelper.ThrowNotSupportedException_CannotPopulateCollection(TypeToConvert, ref reader, ref state);
+                ThrowHelper.ThrowNotSupportedException_CannotPopulateCollection(Type, ref reader, ref state);
             }
 
             state.Current.ReturnValue = new List<object?>();
@@ -39,9 +43,10 @@ namespace System.Text.Json.Serialization.Converters
             ref WriteStack state)
         {
             IEnumerator enumerator;
-            if (state.Current.CollectionEnumerator == null)
+            if (state.Current.CollectionEnumerator is null)
             {
                 enumerator = value.GetEnumerator();
+                state.Current.CollectionEnumerator = enumerator;
                 if (!enumerator.MoveNext())
                 {
                     return true;
@@ -55,23 +60,21 @@ namespace System.Text.Json.Serialization.Converters
             JsonConverter<object?> converter = GetElementConverter(ref state);
             do
             {
-                if (ShouldFlush(writer, ref state))
+                if (ShouldFlush(ref state, writer))
                 {
-                    state.Current.CollectionEnumerator = enumerator;
                     return false;
                 }
 
                 object? element = enumerator.Current;
                 if (!converter.TryWrite(writer, element, options, ref state))
                 {
-                    state.Current.CollectionEnumerator = enumerator;
                     return false;
                 }
+
+                state.Current.EndCollectionElement();
             } while (enumerator.MoveNext());
 
             return true;
         }
-
-        internal override Type RuntimeType => typeof(List<object?>);
     }
 }

@@ -4,7 +4,6 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
-using System.DirectoryServices.Interop;
 
 namespace System.DirectoryServices
 {
@@ -14,15 +13,19 @@ namespace System.DirectoryServices
     {
         public DirectoryServicesCOMException() { }
 
-        public DirectoryServicesCOMException(string message) : base(message) { }
+        public DirectoryServicesCOMException(string? message) : base(message) { }
 
-        public DirectoryServicesCOMException(string message, Exception inner) : base(message, inner) { }
+        public DirectoryServicesCOMException(string? message, Exception? inner) : base(message, inner) { }
 
+#if NET
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+#endif
         protected DirectoryServicesCOMException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
         }
 
-        internal DirectoryServicesCOMException(string extendedMessage, int extendedError, COMException e) : base(e.Message, e.ErrorCode)
+        internal DirectoryServicesCOMException(string? extendedMessage, int extendedError, COMException e) : base(e.Message, e.ErrorCode)
         {
             ExtendedError = extendedError;
             ExtendedErrorMessage = extendedMessage;
@@ -30,15 +33,19 @@ namespace System.DirectoryServices
 
         public int ExtendedError { get; }
 
-        public string ExtendedErrorMessage { get; }
+        public string? ExtendedErrorMessage { get; }
 
+#if NET
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+#endif
         public override void GetObjectData(SerializationInfo serializationInfo, StreamingContext streamingContext)
         {
             base.GetObjectData(serializationInfo, streamingContext);
         }
     }
 
-    internal class COMExceptionHelper
+    internal static class COMExceptionHelper
     {
         internal static Exception CreateFormattedComException(int hr)
         {
@@ -46,14 +53,14 @@ namespace System.DirectoryServices
             return CreateFormattedComException(new COMException(errorMsg, hr));
         }
 
-        internal static unsafe Exception CreateFormattedComException(COMException e)
+        internal static Exception CreateFormattedComException(COMException e)
         {
             // get extended error information
-            const int ErrorBufferLength = 256;
-            char* errorBuffer = stackalloc char[ErrorBufferLength];
-            char nameBuffer = '\0';
+            char[] errorBuffer = new char[256];
+            char[] nameBuffer = Array.Empty<char>();
             int error = 0;
-            SafeNativeMethods.ADsGetLastError(out error, errorBuffer, ErrorBufferLength, &nameBuffer, 0);
+
+            Interop.Activeds.ADsGetLastError(out error, errorBuffer, errorBuffer.Length, nameBuffer, nameBuffer.Length);
 
             if (error != 0)
                 return new DirectoryServicesCOMException(new string(errorBuffer), error, e);

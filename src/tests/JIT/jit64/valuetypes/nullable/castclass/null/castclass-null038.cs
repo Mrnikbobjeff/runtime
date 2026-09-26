@@ -4,8 +4,10 @@
 
 using System.Runtime.InteropServices;
 using System;
+using Xunit;
 
-internal class NullableTest
+namespace castclass_null038;
+public class NullableTest
 {
     private static bool BoxUnboxToNQGen<T>(T o)
     {
@@ -27,7 +29,9 @@ internal class NullableTest
         return ((ImplementOneInterface?)(ValueType)o) == null;
     }
 
-    private static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         ImplementOneInterface? s = null;
 

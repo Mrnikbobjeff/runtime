@@ -2,8 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
 
-namespace Test
+namespace dev11_132534
 {
     public struct BasicStruct
     {
@@ -157,9 +158,11 @@ namespace Test
     }
 
 
-    internal static class App
+    public static class App
     {
-        private static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             int iret = 100;
             Console.WriteLine("Starting JMP tests...\r\n");

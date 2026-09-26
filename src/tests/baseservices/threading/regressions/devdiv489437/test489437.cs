@@ -4,6 +4,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Xunit;
+using TestLibrary;
 
 /*
  * Issue description:
@@ -19,9 +21,10 @@ Change description:
   cancel the associated Task.
 */
 
-class Test
+public class Test
 {
-    static int Main(string[] args)
+    [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+    public static int TestEntryPoint()
     {
         SemaphoreSlim s = new SemaphoreSlim(initialCount: 1);
 

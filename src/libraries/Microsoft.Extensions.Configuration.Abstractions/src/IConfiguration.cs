@@ -16,7 +16,7 @@ namespace Microsoft.Extensions.Configuration
         /// </summary>
         /// <param name="key">The configuration key.</param>
         /// <returns>The configuration value.</returns>
-        string this[string key] { get; set; }
+        string? this[string key] { get; set; }
 
         /// <summary>
         /// Gets a configuration sub-section with the specified key.
@@ -38,7 +38,7 @@ namespace Microsoft.Extensions.Configuration
         /// <summary>
         /// Returns a <see cref="IChangeToken"/> that can be used to observe when this configuration is reloaded.
         /// </summary>
-        /// <returns>A <see cref="IChangeToken"/>.</returns>
+        /// <returns>An <see cref="IChangeToken"/> token if this provider supports change tracking; otherwise, <see langword="null" />.</returns>
         IChangeToken GetReloadToken();
     }
 }

@@ -2,8 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.ObjectModel;
-using System.Xml;
 using System.Globalization;
+using System.Xml;
 
 namespace System.ServiceModel.Syndication
 {
@@ -14,7 +14,7 @@ namespace System.ServiceModel.Syndication
             IXmlLineInfo lineInfo = reader as IXmlLineInfo;
             if (lineInfo != null && lineInfo.HasLineInfo())
             {
-                error = string.Format(CultureInfo.InvariantCulture, "{0} {1}", SR.Format(SR.ErrorInLine, lineInfo.LineNumber, lineInfo.LinePosition), SR.Format(error));
+                error = $"{SR.Format(SR.ErrorInLine, lineInfo.LineNumber, lineInfo.LinePosition)} {error}";
             }
             return error;
         }

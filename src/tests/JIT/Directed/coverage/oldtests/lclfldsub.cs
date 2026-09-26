@@ -3,9 +3,12 @@
 
 //Testing simple math on local vars and fields - sub
 
+namespace JitTest_Directed_coverage_oldtests_lclfldsub;
+
 #pragma warning disable 0414
 using System;
-internal class lclfldsub
+using Xunit;
+public class lclfldsub
 {
     //user-defined class that overloads operator -
     public class numHolder
@@ -248,7 +251,9 @@ internal class lclfldsub
         public numHolder nHldr_vt_op2;
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         bool passed = true;
         //initialize class

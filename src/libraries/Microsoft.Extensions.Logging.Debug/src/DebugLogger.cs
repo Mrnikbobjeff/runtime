@@ -9,7 +9,7 @@ namespace Microsoft.Extensions.Logging.Debug
     /// <summary>
     /// A logger that writes messages in the debug output window only when a debugger is attached.
     /// </summary>
-    internal partial class DebugLogger : ILogger
+    internal sealed partial class DebugLogger : ILogger
     {
         private readonly string _name;
 
@@ -23,7 +23,7 @@ namespace Microsoft.Extensions.Logging.Debug
         }
 
         /// <inheritdoc />
-        public IDisposable BeginScope<TState>(TState state)
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull
         {
             return NullScope.Instance;
         }
@@ -31,36 +31,41 @@ namespace Microsoft.Extensions.Logging.Debug
         /// <inheritdoc />
         public bool IsEnabled(LogLevel logLevel)
         {
-            // If the filter is null, everything is enabled
-            // unless the debugger is not attached
+            // Everything is enabled unless the debugger is not attached
             return Debugger.IsAttached && logLevel != LogLevel.None;
         }
 
         /// <inheritdoc />
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             if (!IsEnabled(logLevel))
             {
                 return;
             }
 
-            if (formatter == null)
-            {
-                throw new ArgumentNullException(nameof(formatter));
-            }
+            ArgumentNullException.ThrowIfNull(formatter);
 
-            string message = formatter(state, exception);
+            string formatted = formatter(state, exception);
 
-            if (string.IsNullOrEmpty(message))
+            if (string.IsNullOrEmpty(formatted) && exception == null)
             {
+                // With no formatted message or exception, there's nothing to print.
                 return;
             }
 
-            message = $"{ logLevel }: {message}";
-
-            if (exception != null)
+            string message;
+            if (string.IsNullOrEmpty(formatted))
             {
-                message += Environment.NewLine + Environment.NewLine + exception;
+                System.Diagnostics.Debug.Assert(exception != null);
+                message = $"{logLevel}: {exception}";
+            }
+            else if (exception == null)
+            {
+                message = $"{logLevel}: {formatted}";
+            }
+            else
+            {
+                message = $"{logLevel}: {formatted}{Environment.NewLine}{Environment.NewLine}{exception}";
             }
 
             DebugWriteLine(message, _name);

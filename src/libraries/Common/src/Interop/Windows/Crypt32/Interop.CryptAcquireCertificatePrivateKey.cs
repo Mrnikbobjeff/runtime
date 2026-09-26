@@ -9,13 +9,15 @@ internal static partial class Interop
 {
     internal static partial class Crypt32
     {
-        [DllImport(Libraries.Crypt32, CharSet = CharSet.Unicode, SetLastError = true)]
-        internal static extern bool CryptAcquireCertificatePrivateKey(
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [LibraryImport(Libraries.Crypt32, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static partial bool CryptAcquireCertificatePrivateKey(
             SafeCertContextHandle pCert,
             CryptAcquireCertificatePrivateKeyFlags dwFlags,
             IntPtr pvParameters,
             out IntPtr phCryptProvOrNCryptKey,
             out CryptKeySpec pdwKeySpec,
-            out bool pfCallerFreeProvOrNCryptKey);
+            [MarshalAs(UnmanagedType.Bool)] out bool pfCallerFreeProvOrNCryptKey);
     }
 }

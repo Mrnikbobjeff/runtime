@@ -2,9 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b26496;
+
 using System;
 using System.Collections;
 using System.Runtime.InteropServices;
+using Xunit;
 
 public enum TestEnum
 {
@@ -230,7 +234,8 @@ public class AA
 [StructLayout(LayoutKind.Sequential)]
 public class App
 {
-    static int Main()
+    [Fact]
+    public static void TestEntryPoint()
     {
         try
         {
@@ -310,7 +315,6 @@ public class App
             Console.WriteLine("Exception handled: " + x.ToString());
         }
         Console.WriteLine("Passed.");
-        return 100;
     }
     public static short m_shFwd1;
     public static bool m_bFwd2;

@@ -55,12 +55,112 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
             Assert.Null(handler.DefaultProxyCredentials);
             Assert.Null(handler.Proxy);
             Assert.Equal(int.MaxValue, handler.MaxConnectionsPerServer);
+
             Assert.Equal(TimeSpan.FromSeconds(30), handler.SendTimeout);
             Assert.Equal(TimeSpan.FromSeconds(30), handler.ReceiveHeadersTimeout);
             Assert.Equal(TimeSpan.FromSeconds(30), handler.ReceiveDataTimeout);
+
+            Assert.False(handler.TcpKeepAliveEnabled);
+            Assert.Equal(TimeSpan.FromHours(2), handler.TcpKeepAliveTime);
+            Assert.Equal(TimeSpan.FromSeconds(1), handler.TcpKeepAliveInterval);
+
             Assert.Equal(64, handler.MaxResponseHeadersLength);
-            Assert.Equal(64 * 1024, handler.MaxResponseDrainSize);
+            Assert.Equal(1024 * 1024, handler.MaxResponseDrainSize);
             Assert.NotNull(handler.Properties);
+        }
+
+        [Fact]
+        public void SetInvalidTimeouts_ThrowsArgumentOutOfRangeException()
+        {
+            TimeSpan[] invalidIntervals =
+            {
+                TimeSpan.FromSeconds(-1),
+                TimeSpan.FromSeconds(0),
+                TimeSpan.FromSeconds(int.MaxValue)
+            };
+
+            var setters = new Action<WinHttpHandler, TimeSpan>[]
+            {
+                (h, t) => h.SendTimeout = t,
+                (h, t) => h.ReceiveHeadersTimeout = t,
+                (h, t) => h.ReceiveDataTimeout = t,
+                (h, t) => h.TcpKeepAliveInterval = t,
+                (h, t) => h.TcpKeepAliveTime = t,
+            };
+
+            using var handler = new WinHttpHandler();
+
+            foreach (Action<WinHttpHandler, TimeSpan> setter in setters)
+            {
+                foreach (TimeSpan invalid in invalidIntervals)
+                {
+                    Assert.Throws<ArgumentOutOfRangeException>(() => setter(handler, invalid));
+                }
+            }
+        }
+
+        [Fact]
+        public void TcpKeepAliveOptions_Roundtrip()
+        {
+            using var handler = new WinHttpHandler()
+            {
+                TcpKeepAliveEnabled = true,
+                TcpKeepAliveTime = TimeSpan.FromMinutes(42),
+                TcpKeepAliveInterval = TimeSpan.FromSeconds(13)
+            };
+
+            Assert.True(handler.TcpKeepAliveEnabled);
+            Assert.Equal(TimeSpan.FromMinutes(42), handler.TcpKeepAliveTime);
+            Assert.Equal(TimeSpan.FromSeconds(13), handler.TcpKeepAliveInterval);
+        }
+
+        [Fact]
+        public void TcpKeepalive_WhenDisabled_DoesntSetOptions()
+        {
+            using var handler = new WinHttpHandler();
+
+            SendRequestHelper.Send(
+                handler,
+                () => handler.TcpKeepAliveEnabled = false);
+            Assert.Null(APICallHistory.WinHttpOptionTcpKeepAlive);
+        }
+
+        [Fact]
+        public void TcpKeepalive_WhenEnabled_ForwardsCorrectNativeOptions()
+        {
+            using var handler = new WinHttpHandler();
+
+            SendRequestHelper.Send(handler, () =>
+            {
+                handler.TcpKeepAliveEnabled = true;
+                handler.TcpKeepAliveTime = TimeSpan.FromMinutes(13);
+                handler.TcpKeepAliveInterval = TimeSpan.FromSeconds(42);
+            });
+
+            (uint onOff, uint keepAliveTime, uint keepAliveInterval) = APICallHistory.WinHttpOptionTcpKeepAlive.Value;
+
+            Assert.True(onOff != 0);
+            Assert.Equal(13_000u * 60u, keepAliveTime);
+            Assert.Equal(42_000u, keepAliveInterval);
+        }
+
+        [Fact]
+        public void TcpKeepalive_InfiniteTimeSpan_TranslatesToUInt32MaxValue()
+        {
+            using var handler = new WinHttpHandler();
+
+            SendRequestHelper.Send(handler, () =>
+            {
+                handler.TcpKeepAliveEnabled = true;
+                handler.TcpKeepAliveTime = Timeout.InfiniteTimeSpan;
+                handler.TcpKeepAliveInterval = Timeout.InfiniteTimeSpan;
+            });
+
+            (uint onOff, uint keepAliveTime, uint keepAliveInterval) = APICallHistory.WinHttpOptionTcpKeepAlive.Value;
+
+            Assert.True(onOff != 0);
+            Assert.Equal(uint.MaxValue, keepAliveTime);
+            Assert.Equal(uint.MaxValue, keepAliveInterval);
         }
 
         [Fact]
@@ -214,7 +314,8 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
 
             SendRequestHelper.Send(
                 handler,
-                delegate {
+                delegate
+                {
                     handler.CookieUsePolicy = CookieUsePolicy.UseSpecifiedCookieContainer;
                     handler.CookieContainer = new CookieContainer();
                 });
@@ -366,6 +467,16 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         }
 
         [Fact]
+        public void ReceiveDataTimeout_SetValidValue_ForwardsCorrectNativeOptionToWinHttp()
+        {
+            var handler = new WinHttpHandler();
+
+            SendRequestHelper.Send(handler, () => handler.ReceiveDataTimeout = TimeSpan.FromSeconds(13));
+
+            Assert.Equal(13_000u, APICallHistory.WinHttpOptionReceiveTimeout.Value);
+        }
+
+        [Fact]
         public void ReceiveDataTimeout_SetNegativeValue_ThrowsArgumentOutOfRangeException()
         {
             var handler = new WinHttpHandler();
@@ -392,11 +503,13 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         }
 
         [Fact]
-        public void ReceiveDataTimeout_SetInfiniteValue_NoExceptionThrown()
+        public void ReceiveDataTimeout_SetInfiniteTimeSpan_TranslatesToUInt32MaxValue()
         {
             var handler = new WinHttpHandler();
 
-            handler.ReceiveDataTimeout = Timeout.InfiniteTimeSpan;
+            SendRequestHelper.Send(handler, () => handler.ReceiveDataTimeout = Timeout.InfiniteTimeSpan);
+
+            Assert.Equal(uint.MaxValue, APICallHistory.WinHttpOptionReceiveTimeout.Value);
         }
 
         [Fact]
@@ -452,7 +565,9 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
 
         [Theory]
         [InlineData(
+#pragma warning disable SYSLIB0039 // TLS 1.0 and 1.1 are obsolete
             SslProtocols.Tls | SslProtocols.Tls11 | SslProtocols.Tls12,
+#pragma warning restore SYSLIB0039
             Interop.WinHttp.WINHTTP_FLAG_SECURE_PROTOCOL_TLS1 |
             Interop.WinHttp.WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_1 |
             Interop.WinHttp.WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2)]
@@ -576,103 +691,8 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         }
 
         [Fact]
-        public async Task SendAsync_NoWinHttpDecompressionSupportAndResponseBodyIsDeflateCompressed_ExpectedResponse()
-        {
-            TestControl.WinHttpDecompressionSupport = false;
-            var handler = new WinHttpHandler();
-
-            using (HttpResponseMessage response = SendRequestHelper.Send(
-                handler,
-                delegate
-                {
-                    handler.AutomaticDecompression = DecompressionMethods.Deflate | DecompressionMethods.GZip;
-                    TestServer.SetResponse(DecompressionMethods.Deflate, TestServer.ExpectedResponseBody);
-                }))
-            {
-                await VerifyResponseContent(
-                    TestServer.ExpectedResponseBodyBytes,
-                    response.Content,
-                    responseContentWasOriginallyCompressed: true,
-                    responseContentWasAutoDecompressed: true);
-            }
-        }
-
-        [Fact]
-        public async Task SendAsync_NoWinHttpDecompressionSupportAndResponseBodyIsGZipCompressed_ExpectedResponse()
-        {
-            TestControl.WinHttpDecompressionSupport = false;
-            var handler = new WinHttpHandler();
-
-            using (HttpResponseMessage response = SendRequestHelper.Send(
-                handler,
-                delegate
-                {
-                    handler.AutomaticDecompression = DecompressionMethods.Deflate | DecompressionMethods.GZip;
-                    TestServer.SetResponse(DecompressionMethods.GZip, TestServer.ExpectedResponseBody);
-                }))
-            {
-                await VerifyResponseContent(
-                    TestServer.ExpectedResponseBodyBytes,
-                    response.Content,
-                    responseContentWasOriginallyCompressed: true,
-                    responseContentWasAutoDecompressed: true);
-            }
-        }
-
-        [Fact]
-        public async Task SendAsync_NoWinHttpDecompressionSupportAndResponseBodyIsNotCompressed_ExpectedResponse()
-        {
-            TestControl.WinHttpDecompressionSupport = false;
-            var handler = new WinHttpHandler();
-
-            using (HttpResponseMessage response = SendRequestHelper.Send(
-                handler,
-                delegate
-                {
-                    handler.WindowsProxyUsePolicy = WindowsProxyUsePolicy.UseWinInetProxy;
-                }))
-            {
-                await VerifyResponseContent(
-                    TestServer.ExpectedResponseBodyBytes,
-                    response.Content,
-                    responseContentWasOriginallyCompressed: false,
-                    responseContentWasAutoDecompressed: false);
-
-            }
-        }
-
-        [Theory]
-        [InlineData(false)]
-        [InlineData(true)]
-        public async Task SendAsync_NoWinHttpDecompressionSupport_AutoDecompressionSettingDiffers_ResponseIsNotDecompressed(bool responseIsGZip)
-        {
-            DecompressionMethods decompressionMethods = responseIsGZip ? DecompressionMethods.Deflate : DecompressionMethods.GZip;
-            _output.WriteLine("DecompressionMethods = {0}", decompressionMethods.ToString());
-
-            TestControl.WinHttpDecompressionSupport = false;
-            var handler = new WinHttpHandler();
-
-            using (HttpResponseMessage response = SendRequestHelper.Send(
-                handler,
-                delegate
-                {
-                    handler.AutomaticDecompression = decompressionMethods;
-                    TestServer.SetResponse(responseIsGZip ? DecompressionMethods.GZip : DecompressionMethods.Deflate, TestServer.ExpectedResponseBody);
-                }))
-            {
-                await VerifyResponseContent(
-                    TestServer.CompressBytes(TestServer.ExpectedResponseBodyBytes, useGZip: responseIsGZip),
-                    response.Content,
-                    responseContentWasOriginallyCompressed: true,
-                    responseContentWasAutoDecompressed: false);
-
-            }
-        }
-
-        [Fact]
         public void SendAsync_AutomaticProxySupportAndUseWinInetSettings_ExpectedWinHttpSessionProxySettings()
         {
-            TestControl.WinHttpAutomaticProxySupport = true;
             var handler = new WinHttpHandler();
 
             SendRequestHelper.Send(
@@ -683,120 +703,6 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
                 });
 
             Assert.Equal(Interop.WinHttp.WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, APICallHistory.SessionProxySettings.AccessType);
-        }
-
-        [Fact]
-        public void SendAsync_NoAutomaticProxySupportAndUseWinInetSettingsWithAutoDetectSetting_ExpectedWinHttpProxySettings()
-        {
-            TestControl.WinHttpAutomaticProxySupport = false;
-            FakeRegistry.WinInetProxySettings.AutoDetect = true;
-            var handler = new WinHttpHandler();
-
-            SendRequestHelper.Send(
-                handler,
-                delegate
-                {
-                    handler.WindowsProxyUsePolicy = WindowsProxyUsePolicy.UseWinInetProxy;
-                });
-
-            Assert.Equal(Interop.WinHttp.WINHTTP_ACCESS_TYPE_NO_PROXY, APICallHistory.SessionProxySettings.AccessType);
-            Assert.Equal(Interop.WinHttp.WINHTTP_ACCESS_TYPE_NAMED_PROXY, APICallHistory.RequestProxySettings.AccessType);
-        }
-
-        [Fact]
-        public void SendAsync_NoAutomaticProxySupportAndUseWinInetSettingsWithEmptySettings_ExpectedWinHttpProxySettings()
-        {
-            TestControl.WinHttpAutomaticProxySupport = false;
-            var handler = new WinHttpHandler();
-
-            SendRequestHelper.Send(
-                handler,
-                delegate
-                {
-                    handler.WindowsProxyUsePolicy = WindowsProxyUsePolicy.UseWinInetProxy;
-                });
-
-            Assert.Equal(Interop.WinHttp.WINHTTP_ACCESS_TYPE_NO_PROXY, APICallHistory.SessionProxySettings.AccessType);
-            Assert.False(APICallHistory.RequestProxySettings.AccessType.HasValue);
-        }
-
-        [Fact]
-        public void SendAsync_NoAutomaticProxySupportAndUseWinInetSettingsWithManualSettingsOnly_ExpectedWinHttpProxySettings()
-        {
-            TestControl.WinHttpAutomaticProxySupport = false;
-            FakeRegistry.WinInetProxySettings.Proxy = FakeProxy;
-            var handler = new WinHttpHandler();
-
-            SendRequestHelper.Send(
-                handler,
-                delegate
-                {
-                    handler.WindowsProxyUsePolicy = WindowsProxyUsePolicy.UseWinInetProxy;
-                });
-
-            Assert.Equal(Interop.WinHttp.WINHTTP_ACCESS_TYPE_NAMED_PROXY, APICallHistory.SessionProxySettings.AccessType);
-            Assert.False(APICallHistory.RequestProxySettings.AccessType.HasValue);
-        }
-
-        [Fact]
-        public void SendAsync_NoAutomaticProxySupportAndUseWinInetSettingsWithMissingRegistrySettings_ExpectedWinHttpProxySettings()
-        {
-            TestControl.WinHttpAutomaticProxySupport = false;
-            FakeRegistry.WinInetProxySettings.RegistryKeyMissing = true;
-            var handler = new WinHttpHandler();
-
-            SendRequestHelper.Send(
-                handler,
-                delegate
-                {
-                    handler.WindowsProxyUsePolicy = WindowsProxyUsePolicy.UseWinInetProxy;
-                });
-
-            Assert.Equal(Interop.WinHttp.WINHTTP_ACCESS_TYPE_NO_PROXY, APICallHistory.SessionProxySettings.AccessType);
-            Assert.False(APICallHistory.RequestProxySettings.AccessType.HasValue);
-        }
-
-        [Fact]
-        public void SendAsync_NoAutomaticProxySupportAndUseWinInetSettingsWithAutoDetectButPACFileNotDetectedOnNetwork_ExpectedWinHttpProxySettings()
-        {
-            TestControl.WinHttpAutomaticProxySupport = false;
-            TestControl.PACFileNotDetectedOnNetwork = true;
-            FakeRegistry.WinInetProxySettings.AutoDetect = true;
-            var handler = new WinHttpHandler();
-
-            SendRequestHelper.Send(
-                handler,
-                delegate
-                {
-                    handler.WindowsProxyUsePolicy = WindowsProxyUsePolicy.UseWinInetProxy;
-                });
-
-            Assert.Equal(Interop.WinHttp.WINHTTP_ACCESS_TYPE_NO_PROXY, APICallHistory.SessionProxySettings.AccessType);
-            Assert.Null(APICallHistory.RequestProxySettings.AccessType);
-        }
-
-        [Fact]
-        public void SendAsync_NoAutomaticProxySupportAndUseWinInetSettingsWithAutoDetectSettingAndManualSettingButPACFileNotFoundOnNetwork_ExpectedWinHttpProxySettings()
-        {
-            const string manualProxy = FakeProxy;
-            TestControl.WinHttpAutomaticProxySupport = false;
-            FakeRegistry.WinInetProxySettings.AutoDetect = true;
-            FakeRegistry.WinInetProxySettings.Proxy = manualProxy;
-            TestControl.PACFileNotDetectedOnNetwork = true;
-            var handler = new WinHttpHandler();
-
-            SendRequestHelper.Send(
-                handler,
-                delegate
-                {
-                    handler.WindowsProxyUsePolicy = WindowsProxyUsePolicy.UseWinInetProxy;
-                });
-
-            // Both AutoDetect and manual proxy are specified.  If AutoDetect fails to find
-            // the PAC file on the network, then we should fall back to manual setting.
-            Assert.Equal(Interop.WinHttp.WINHTTP_ACCESS_TYPE_NO_PROXY, APICallHistory.SessionProxySettings.AccessType);
-            Assert.Equal(Interop.WinHttp.WINHTTP_ACCESS_TYPE_NAMED_PROXY, APICallHistory.RequestProxySettings.AccessType);
-            Assert.Equal(manualProxy, APICallHistory.RequestProxySettings.Proxy);
         }
 
         [Fact]
@@ -849,7 +755,6 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         [Fact]
         public void SendAsync_AutomaticProxySupportAndUseDefaultWebProxy_ExpectedWinHttpSessionProxySettings()
         {
-            TestControl.WinHttpAutomaticProxySupport = true;
             var handler = new WinHttpHandler();
 
             SendRequestHelper.Send(
@@ -933,40 +838,6 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
                 {
                 }
             }
-        }
-
-        private async Task VerifyResponseContent(
-            byte[] expectedResponseBodyBytes,
-            HttpContent responseContent,
-            bool responseContentWasOriginallyCompressed,
-            bool responseContentWasAutoDecompressed)
-        {
-            Nullable<long> contentLength = responseContent.Headers.ContentLength;
-            ICollection<string> contentEncoding = responseContent.Headers.ContentEncoding;
-
-            _output.WriteLine("Response Content.Headers.ContentLength = {0}", contentLength.HasValue ? contentLength.Value.ToString() : "(null)");
-            _output.WriteLine("Response Content.Headers.ContentEncoding = {0}", contentEncoding.Count > 0 ? contentEncoding.ToString() : "(null)");
-            byte[] responseBodyBytes = await responseContent.ReadAsByteArrayAsync();
-            _output.WriteLine($"Response Body          = {BitConverter.ToString(responseBodyBytes)}");
-            _output.WriteLine($"Expected Response Body = {BitConverter.ToString(expectedResponseBodyBytes)}");
-
-            if (!responseContentWasOriginallyCompressed)
-            {
-                Assert.True(contentLength > 0);
-            }
-            else if (responseContentWasAutoDecompressed)
-            {
-
-                Assert.Null(contentLength);
-                Assert.Equal(0, contentEncoding.Count);
-            }
-            else
-            {
-                Assert.True(contentLength > 0);
-                Assert.True(contentEncoding.Count > 0);
-            }
-
-            Assert.Equal<byte>(expectedResponseBodyBytes, responseBodyBytes);
         }
 
         // Commented out as the test relies on finalizer for cleanup and only has value as written

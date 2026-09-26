@@ -15,33 +15,45 @@ namespace System.Diagnostics
             return Interop.Process.ListAllPids();
         }
 
-        internal static string? GetProcPath(int processId)
+        internal static string GetProcPath(int processId)
         {
             return Interop.Process.GetProcPath(processId);
         }
 
-        private static ProcessInfo CreateProcessInfo(int pid)
+        internal static string? GetProcessName(int processId, string _ /* machineName */, bool __ /* isRemoteMachine */, ref ProcessInfo? processInfo)
         {
-            // Negative PIDs aren't valid
-            if (pid < 0)
+            if (processInfo is not null)
             {
-                throw new ArgumentOutOfRangeException(nameof(pid));
+                return processInfo.ProcessName;
             }
 
-            ProcessInfo procInfo = new ProcessInfo()
-            {
-                ProcessId = pid
-            };
+            processInfo = CreateProcessInfo(processId);
+            return processInfo?.ProcessName;
+        }
+
+        internal static ProcessInfo? CreateProcessInfo(int pid, string? processNameFilter = null)
+        {
+            // Negative PIDs aren't valid
+            ArgumentOutOfRangeException.ThrowIfNegative(pid);
 
             // Try to get the task info. This can fail if the user permissions don't permit
             // this user context to query the specified process
             ProcessInfo iinfo = Interop.Process.GetProcessInfoById(pid);
+            if (processNameFilter != null && !processNameFilter.Equals(iinfo.ProcessName, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
 
-            procInfo.ProcessName = iinfo.ProcessName;
-            procInfo.BasePriority = iinfo.BasePriority;
-            procInfo.VirtualBytes = iinfo.VirtualBytes;
-            procInfo.WorkingSet = iinfo.WorkingSet;
-            procInfo.SessionId = iinfo.SessionId;
+            ProcessInfo procInfo = new ProcessInfo()
+            {
+                ProcessId = pid,
+                ProcessName = iinfo.ProcessName,
+                BasePriority = iinfo.BasePriority,
+                VirtualBytes = iinfo.VirtualBytes,
+                WorkingSet = iinfo.WorkingSet,
+                SessionId = iinfo.SessionId,
+            };
+
             foreach (ThreadInfo ti in iinfo._threadInfoList)
             {
                 procInfo._threadInfoList.Add(ti);

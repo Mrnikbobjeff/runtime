@@ -2,20 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Diagnostics;
 using System.Collections;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Runtime.InteropServices;
-using System.Net;
-using System.Security.Principal;
-
+using System.Diagnostics;
 using System.DirectoryServices;
+using System.Globalization;
+using System.Net;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
 using System.Text;
 
 namespace System.DirectoryServices.AccountManagement
 {
-    internal partial class ADAMStoreCtx : ADStoreCtx
+    internal sealed partial class ADAMStoreCtx : ADStoreCtx
     {
         private const int mappingIndex = 1;
         private List<string> _cachedBindableObjectList;
@@ -37,8 +36,7 @@ namespace System.DirectoryServices.AccountManagement
             LoadFilterMappingTable(mappingIndex, s_filterPropertiesTableRaw);
             LoadPropertyMappingTable(mappingIndex, s_propertyMappingTableRaw);
 
-            if (NonPresentAttrDefaultStateMapping == null)
-                NonPresentAttrDefaultStateMapping = new Dictionary<string, bool>();
+            NonPresentAttrDefaultStateMapping ??= new Dictionary<string, bool>();
 
             for (int i = 0; i < s_presenceStateTable.GetLength(0); i++)
             {
@@ -63,7 +61,7 @@ namespace System.DirectoryServices.AccountManagement
 
         protected override void SetAuthPrincipalEnableStatus(AuthenticablePrincipal ap, bool enable)
         {
-            Debug.Assert(ap.fakePrincipal == false);
+            Debug.Assert(!ap.fakePrincipal);
 
             bool acctDisabled;
             DirectoryEntry de = (DirectoryEntry)ap.UnderlyingObject;
@@ -163,7 +161,7 @@ namespace System.DirectoryServices.AccountManagement
         internal override ResultSet GetGroupsMemberOfAZ(Principal p)
         {
             // Enforced by the methods that call us
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
             Debug.Assert(p is UserPrincipal);
 
             Debug.Assert(p.UnderlyingObject != null);
@@ -212,7 +210,7 @@ namespace System.DirectoryServices.AccountManagement
 
         internal override void SetPassword(AuthenticablePrincipal p, string newPassword)
         {
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
             Debug.Assert(p != null);
             Debug.Assert(newPassword != null);  // but it could be an empty string
@@ -233,10 +231,10 @@ namespace System.DirectoryServices.AccountManagement
         /// <param name="newPassword">New password</param>
         internal override void ChangePassword(AuthenticablePrincipal p, string oldPassword, string newPassword)
         {
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
             // Shouldn't be being called if this is the case
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
 
             Debug.Assert(p != null);
             Debug.Assert(newPassword != null);  // but it could be an empty string
@@ -251,7 +249,7 @@ namespace System.DirectoryServices.AccountManagement
         }
 
         //------------------------------------------------------------------------------------
-        // Taking a server target and Auxillary class name return
+        // Taking a server target and Auxiliary class name return
         // a list of all possible objectClasses that include that auxClass.  A search for object that have a specific
         // aux class cannot be done directly on the objects because static auxClasses to not appear in the
         // actual object.  This is done by
@@ -266,7 +264,7 @@ namespace System.DirectoryServices.AccountManagement
 
             try
             {
-                using (DirectoryEntry deRoot = new DirectoryEntry("LDAP://" + userSuppliedServerName + "/rootDSE", credentials == null ? null : credentials.UserName, credentials == null ? null : credentials.Password, authTypes))
+                using (DirectoryEntry deRoot = new DirectoryEntry("LDAP://" + userSuppliedServerName + "/rootDSE", credentials?.UserName, credentials?.Password, authTypes))
                 {
                     if (deRoot.Properties["schemaNamingContext"].Count == 0)
                     {
@@ -277,11 +275,11 @@ namespace System.DirectoryServices.AccountManagement
                     SchemaNamingContext = (string)deRoot.Properties["schemaNamingContext"].Value;
                 }
 
-                using (DirectoryEntry deSCN = new DirectoryEntry("LDAP://" + userSuppliedServerName + "/" + SchemaNamingContext, credentials == null ? null : credentials.UserName, credentials == null ? null : credentials.Password, authTypes))
+                using (DirectoryEntry deSCN = new DirectoryEntry("LDAP://" + userSuppliedServerName + "/" + SchemaNamingContext, credentials?.UserName, credentials?.Password, authTypes))
                 {
                     using (DirectorySearcher dirSearcher = new DirectorySearcher(deSCN))
                     {
-                        dirSearcher.Filter = "(&(objectClass=classSchema)(systemAuxiliaryClass=" + auxClassName + "))";
+                        dirSearcher.Filter = "(&(objectClass=classSchema)(systemAuxiliaryClass=" + ADUtils.EscapeRFC2254SpecialChars(auxClassName) + "))";
                         dirSearcher.PropertiesToLoad.Add("ldapDisplayName");
 
                         List<string> objectClasses = new List<string>();
@@ -333,7 +331,7 @@ namespace System.DirectoryServices.AccountManagement
                         foreach (string objectClass in _cachedBindableObjectList)
                         {
                             filter.Append("(objectClass=");
-                            filter.Append(objectClass);
+                            filter.Append(ADUtils.EscapeRFC2254SpecialChars(objectClass));
                             filter.Append(')');
                         }
 

@@ -2,14 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b02051
 {
     using System;
-    class JITcrash
+    public class JITcrash
     {
-        public
-        static
-        int Main(String[] args)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             UInt32 x = (0xFFFFFFFF);
             Int64 y = x;
@@ -20,7 +21,6 @@ namespace DefaultNamespace
             Console.WriteLine("x = " + x + ".");
             Console.WriteLine("x = " + x + " y = " + y + ".");
             Console.WriteLine("Test passed.");
-            return 100;
         }
     }
 }

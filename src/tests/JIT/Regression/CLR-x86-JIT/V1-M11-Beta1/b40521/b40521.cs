@@ -2,11 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b40521
 {
     using System;
 
-    class AA
+    public class AA
     {
         static void Method1()
         {
@@ -26,14 +27,14 @@ namespace Test
                 catch (Exception) { }
             }
         }
-        public static int Main()
+        [Fact]
+        public static void TestEntryPoint()
         {
             try
             {
                 Method1();
             }
             catch (Exception) { }
-            return 100;
         }
     }
 }

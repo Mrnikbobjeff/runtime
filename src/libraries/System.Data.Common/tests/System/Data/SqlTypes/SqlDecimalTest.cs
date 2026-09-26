@@ -58,7 +58,7 @@ namespace System.Data.Tests.SqlTypes
         {
             // SqlDecimal (decimal)
             SqlDecimal test = new SqlDecimal(30.3098m);
-            Assert.Equal((decimal)30.3098, test.Value);
+            Assert.Equal(30.3098m, test.Value);
 
             // SqlDecimal (double)
             test = new SqlDecimal(1E11d);
@@ -225,8 +225,10 @@ namespace System.Data.Tests.SqlTypes
         public void EqualsMethods()
         {
             Assert.False(_test1.Equals(_test2));
+            Assert.False(_test1.Equals((object)_test2));
             Assert.False(_test2.Equals(new SqlString("TEST")));
             Assert.True(_test2.Equals(_test3));
+            Assert.True(_test2.Equals((object)_test3));
 
             // Static Equals()-method
             Assert.True(SqlDecimal.Equals(_test2, _test2).Value);
@@ -310,7 +312,7 @@ namespace System.Data.Tests.SqlTypes
             Assert.Equal(6464, _test1.ToSqlInt64().Value);
 
             // ToSqlMoney ()
-            Assert.Equal((decimal)6464.6464, _test1.ToSqlMoney().Value);
+            Assert.Equal(6464.6464m, _test1.ToSqlMoney().Value);
 
             Assert.Throws<OverflowException>(() => SqlDecimal.MaxValue.ToSqlMoney().Value);
 
@@ -564,8 +566,10 @@ namespace System.Data.Tests.SqlTypes
         //[Category ("MobileNotWorking")]
         public void ReadWriteXmlTest()
         {
-            string xml1 = "<?xml version=\"1.0\" encoding=\"utf-16\"?><decimal>4556.89756</decimal>";
-            string xml2 = "<?xml version=\"1.0\" encoding=\"utf-16\"?><decimal>-6445.9999</decimal>";
+            // These reflect the exact decimal representation of the double values below. Converting a
+            // double to decimal is correctly rounded, so it preserves the full value rather than truncating.
+            string xml1 = "<?xml version=\"1.0\" encoding=\"utf-16\"?><decimal>4556.8975600000003396417014301</decimal>";
+            string xml2 = "<?xml version=\"1.0\" encoding=\"utf-16\"?><decimal>-6445.9998999999997977283783257</decimal>";
             string xml3 = "<?xml version=\"1.0\" encoding=\"utf-16\"?><decimal>0x455687AB3E4D56F</decimal>";
             decimal test1 = new decimal(4556.89756);
             // This one fails because of a possible conversion bug
@@ -579,6 +583,27 @@ namespace System.Data.Tests.SqlTypes
             InvalidOperationException ex =
                 Assert.Throws<InvalidOperationException>(() => ReadWriteXmlTestInternal(xml3, test3, "BA03"));
             Assert.Equal(typeof(FormatException), ex.InnerException.GetType());
+        }
+
+        [Fact]
+        public void WriteTdsValue()
+        {
+            uint[] array = new uint[5];
+            Span<uint> span = array;
+            Array.Clear(array, 0, array.Length);
+
+            int count = SqlDecimal.MaxValue.WriteTdsValue(span);
+            Assert.Equal(4, count);
+            Assert.Equal(0xFFFFFFFFu, array[0]);
+            Assert.Equal(0x098a223fu, array[1]);
+            Assert.Equal(0x5a86c47au, array[2]);
+            Assert.Equal(0x4b3b4ca8u, array[3]);
+
+            Assert.Equal(0u, array[4]);
+
+            array = new uint[3];
+            Assert.Throws<ArgumentOutOfRangeException>( () => { _ = SqlDecimal.MaxValue.WriteTdsValue(array); } );
+
         }
     }
 }

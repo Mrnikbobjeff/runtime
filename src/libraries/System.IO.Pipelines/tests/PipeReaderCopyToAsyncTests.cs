@@ -17,41 +17,46 @@ namespace System.IO.Pipelines.Tests
     {
         private static readonly PipeOptions s_testOptions = new PipeOptions(readerScheduler: PipeScheduler.Inline, useSynchronizationContext: false);
 
+        protected Pipe Pipe { get; set; }
+        protected virtual PipeReader PipeReader => Pipe.Reader;
+
+        public CopyToAsyncTests()
+        {
+            Pipe = new Pipe(s_testOptions);
+        }
+
         [Fact]
         public async Task CopyToAsyncThrowsArgumentNullExceptionForNullDestination()
         {
-            var pipe = new Pipe(s_testOptions);
-            await AssertExtensions.ThrowsAsync<ArgumentNullException>("destination", () => pipe.Reader.CopyToAsync((Stream)null));
-            await AssertExtensions.ThrowsAsync<ArgumentNullException>("destination", () => pipe.Reader.CopyToAsync((PipeWriter)null));
+            await AssertExtensions.ThrowsAsync<ArgumentNullException>("destination", () => PipeReader.CopyToAsync((Stream)null));
+            await AssertExtensions.ThrowsAsync<ArgumentNullException>("destination", () => PipeReader.CopyToAsync((PipeWriter)null));
         }
 
         [Fact]
         public async Task CopyToAsyncThrowsTaskCanceledExceptionForAlreadyCancelledToken()
         {
-            var pipe = new Pipe(s_testOptions);
-            await Assert.ThrowsAsync<TaskCanceledException>(() => pipe.Reader.CopyToAsync(new MemoryStream(), new CancellationToken(true)));
+            await Assert.ThrowsAsync<TaskCanceledException>(() => PipeReader.CopyToAsync(new MemoryStream(), new CancellationToken(true)));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task CopyToAsyncStreamWorks()
         {
             var messages = new List<byte[]>()
             {
-                Encoding.UTF8.GetBytes("Hello World1"),
-                Encoding.UTF8.GetBytes("Hello World2"),
-                Encoding.UTF8.GetBytes("Hello World3"),
+                "Hello World1"u8.ToArray(),
+                "Hello World2"u8.ToArray(),
+                "Hello World3"u8.ToArray(),
             };
 
-            var pipe = new Pipe(s_testOptions);
             var stream = new WriteCheckMemoryStream();
 
-            Task task = pipe.Reader.CopyToAsync(stream);
+            Task task = PipeReader.CopyToAsync(stream);
             foreach (var msg in messages)
             {
-                await pipe.Writer.WriteAsync(msg);
+                await Pipe.Writer.WriteAsync(msg);
                 await stream.WaitForBytesWrittenAsync(msg.Length);
             }
-            pipe.Writer.Complete();
+            Pipe.Writer.Complete();
             await task;
 
             Assert.Equal(messages.SelectMany(msg => msg).ToArray(), stream.ToArray());
@@ -62,20 +67,19 @@ namespace System.IO.Pipelines.Tests
         {
             var messages = new List<byte[]>()
             {
-                Encoding.UTF8.GetBytes("Hello World1"),
-                Encoding.UTF8.GetBytes("Hello World2"),
-                Encoding.UTF8.GetBytes("Hello World3"),
+                "Hello World1"u8.ToArray(),
+                "Hello World2"u8.ToArray(),
+                "Hello World3"u8.ToArray(),
             };
 
-            var pipe = new Pipe(s_testOptions);
             var targetPipe = new Pipe(s_testOptions);
 
-            Task task = pipe.Reader.CopyToAsync(targetPipe.Writer);
+            Task task = PipeReader.CopyToAsync(targetPipe.Writer);
             foreach (var msg in messages)
             {
-                await pipe.Writer.WriteAsync(msg);
+                await Pipe.Writer.WriteAsync(msg);
             }
-            pipe.Writer.Complete();
+            Pipe.Writer.Complete();
             await task;
 
             ReadResult readResult = await targetPipe.Reader.ReadAsync();
@@ -91,16 +95,16 @@ namespace System.IO.Pipelines.Tests
         {
             using (var pool = new TestMemoryPool())
             {
-                var pipe = new Pipe(new PipeOptions(pool: pool, readerScheduler: PipeScheduler.Inline));
-                pipe.Writer.WriteEmpty(4096);
-                pipe.Writer.WriteEmpty(4096);
-                pipe.Writer.WriteEmpty(4096);
-                await pipe.Writer.FlushAsync();
-                pipe.Writer.Complete();
+                Pipe = new Pipe(new PipeOptions(pool: pool, readerScheduler: PipeScheduler.Inline));
+                Pipe.Writer.WriteEmpty(4096);
+                Pipe.Writer.WriteEmpty(4096);
+                Pipe.Writer.WriteEmpty(4096);
+                await Pipe.Writer.FlushAsync();
+                Pipe.Writer.Complete();
 
                 var stream = new MemoryStream();
-                await pipe.Reader.CopyToAsync(stream);
-                pipe.Reader.Complete();
+                await PipeReader.CopyToAsync(stream);
+                PipeReader.Complete();
 
                 Assert.Equal(4096 * 3, stream.Length);
             }
@@ -111,20 +115,20 @@ namespace System.IO.Pipelines.Tests
         {
             using (var pool = new DisposeTrackingBufferPool())
             {
-                var pipe = new Pipe(new PipeOptions(pool, readerScheduler: PipeScheduler.Inline, useSynchronizationContext: false));
-                pipe.Writer.WriteEmpty(4096);
-                pipe.Writer.WriteEmpty(4096);
-                pipe.Writer.WriteEmpty(4096);
-                await pipe.Writer.FlushAsync();
-                pipe.Writer.Complete();
+                Pipe = new Pipe(new PipeOptions(pool, readerScheduler: PipeScheduler.Inline, useSynchronizationContext: false));
+                Pipe.Writer.WriteEmpty(4096);
+                Pipe.Writer.WriteEmpty(4096);
+                Pipe.Writer.WriteEmpty(4096);
+                await Pipe.Writer.FlushAsync();
+                Pipe.Writer.Complete();
 
                 Assert.Equal(3, pool.CurrentlyRentedBlocks);
 
                 var stream = new ThrowAfterNWritesStream(2);
                 try
                 {
-                    await pipe.Reader.CopyToAsync(stream);
-                    Assert.True(false, $"CopyToAsync should have failed, wrote {stream.Writes} times.");
+                    await PipeReader.CopyToAsync(stream);
+                    Assert.Fail($"CopyToAsync should have failed, wrote {stream.Writes} times.");
                 }
                 catch (InvalidOperationException)
                 {
@@ -136,9 +140,9 @@ namespace System.IO.Pipelines.Tests
                 Assert.Equal(1, pool.CurrentlyRentedBlocks);
                 Assert.Equal(2, pool.DisposedBlocks);
 
-                ReadResult result = await pipe.Reader.ReadAsync();
+                ReadResult result = await PipeReader.ReadAsync();
                 Assert.Equal(4096, result.Buffer.Length);
-                pipe.Reader.Complete();
+                PipeReader.Complete();
 
                 Assert.Equal(0, pool.CurrentlyRentedBlocks);
                 Assert.Equal(3, pool.DisposedBlocks);
@@ -148,91 +152,84 @@ namespace System.IO.Pipelines.Tests
         [Fact]
         public async Task EmptyBufferNotWrittenToStream()
         {
-            var pipe = new Pipe(s_testOptions);
-            pipe.Writer.Complete();
+            Pipe.Writer.Complete();
 
             var stream = new ThrowingStream();
-            await pipe.Reader.CopyToAsync(stream);
-            pipe.Reader.Complete();
+            await PipeReader.CopyToAsync(stream);
+            PipeReader.Complete();
         }
 
         [Fact]
         public async Task CancelingThePendingReadThrowsOperationCancelledException()
         {
-            var pipe = new Pipe(s_testOptions);
             var stream = new MemoryStream();
-            Task task = pipe.Reader.CopyToAsync(stream);
+            Task task = PipeReader.CopyToAsync(stream);
 
-            pipe.Reader.CancelPendingRead();
+            PipeReader.CancelPendingRead();
 
             await Assert.ThrowsAsync<OperationCanceledException>(() => task);
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task CancelingBetweenReadsThrowsOperationCancelledException()
         {
-            var pipe = new Pipe(s_testOptions);
             var stream = new WriteCheckMemoryStream { MidWriteCancellation = new CancellationTokenSource() };
-            Task task = pipe.Reader.CopyToAsync(stream, stream.MidWriteCancellation.Token);
-            pipe.Writer.WriteEmpty(10);
-            await pipe.Writer.FlushAsync();
+            Task task = PipeReader.CopyToAsync(stream, stream.MidWriteCancellation.Token);
+            Pipe.Writer.WriteEmpty(10);
+            await Pipe.Writer.FlushAsync();
 
-            await Assert.ThrowsAsync<OperationCanceledException>(() => task);
+            await Assert.ThrowsAsync<TaskCanceledException>(() => task);
         }
 
         [Fact]
         public async Task CancelingViaCancellationTokenThrowsOperationCancelledException()
         {
-            var pipe = new Pipe(s_testOptions);
             var stream = new MemoryStream();
             var cts = new CancellationTokenSource();
-            Task task = pipe.Reader.CopyToAsync(stream, cts.Token);
+            Task task = PipeReader.CopyToAsync(stream, cts.Token);
 
             cts.Cancel();
 
             await Assert.ThrowsAsync<OperationCanceledException>(() => task);
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task CancelingPipeWriterViaCancellationTokenThrowsOperationCancelledException()
         {
-            var pipe = new Pipe(s_testOptions);
             // This should make the write call pause
             var targetPipe = new Pipe(new PipeOptions(pauseWriterThreshold: 1, resumeWriterThreshold: 1));
             var cts = new CancellationTokenSource();
-            await pipe.Writer.WriteAsync(Encoding.ASCII.GetBytes("Gello World"));
-            Task task = pipe.Reader.CopyToAsync(targetPipe.Writer, cts.Token);
+            await Pipe.Writer.WriteAsync("Gello World"u8.ToArray());
+            Task task = PipeReader.CopyToAsync(targetPipe.Writer, cts.Token);
 
             cts.Cancel();
 
             await Assert.ThrowsAsync<OperationCanceledException>(() => task);
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task CancelingPipeWriterViaPendingFlushThrowsOperationCancelledException()
         {
-            var pipe = new Pipe(s_testOptions);
             // This should make the write call pause
             var targetPipe = new Pipe(new PipeOptions(pauseWriterThreshold: 1, resumeWriterThreshold: 1));
-            await pipe.Writer.WriteAsync(Encoding.ASCII.GetBytes("Gello World"));
-            Task task = pipe.Reader.CopyToAsync(targetPipe.Writer);
+            await Pipe.Writer.WriteAsync("Gello World"u8.ToArray());
+            Task task = PipeReader.CopyToAsync(targetPipe.Writer);
 
             targetPipe.Writer.CancelPendingFlush();
 
             await Assert.ThrowsAsync<OperationCanceledException>(() => task);
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task CancelingStreamViaCancellationTokenThrowsOperationCancelledException()
         {
-            var pipe = new Pipe(s_testOptions);
             var stream = new CancelledWritesStream();
             var cts = new CancellationTokenSource();
-            Task task = pipe.Reader.CopyToAsync(stream, cts.Token);
+            Task task = PipeReader.CopyToAsync(stream, cts.Token);
 
             // Call write async inline, this will yield when it hits the tcs
-            pipe.Writer.WriteEmpty(10);
-            await pipe.Writer.FlushAsync();
+            Pipe.Writer.WriteEmpty(10);
+            await Pipe.Writer.FlushAsync();
 
             // Then cancel
             cts.Cancel();
@@ -246,42 +243,40 @@ namespace System.IO.Pipelines.Tests
         [Fact]
         public async Task ThrowingFromStreamDoesNotLeavePipeReaderInBrokenState()
         {
-            var pipe = new Pipe(s_testOptions);
             var stream = new ThrowingStream();
-            Task task = pipe.Reader.CopyToAsync(stream);
+            Task task = PipeReader.CopyToAsync(stream);
 
-            pipe.Writer.WriteEmpty(10);
-            await pipe.Writer.FlushAsync();
+            Pipe.Writer.WriteEmpty(10);
+            await Pipe.Writer.FlushAsync();
 
             await Assert.ThrowsAsync<InvalidOperationException>(() => task);
 
-            pipe.Writer.WriteEmpty(10);
-            await pipe.Writer.FlushAsync();
-            pipe.Writer.Complete();
+            Pipe.Writer.WriteEmpty(10);
+            await Pipe.Writer.FlushAsync();
+            Pipe.Writer.Complete();
 
-            ReadResult result = await pipe.Reader.ReadAsync();
-            Assert.True(result.IsCompleted);
-            Assert.Equal(20, result.Buffer.Length);
-            pipe.Reader.Complete();
+            var stream2 = new MemoryStream();
+            await PipeReader.CopyToAsync(stream2);
+            Assert.Equal(20, stream2.Length);
+            PipeReader.Complete();
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(0)]
         [InlineData(1)]
         public async Task ThrowingFromStreamCallsAdvanceToWithStartOfLastReadResult(int throwAfterNWrites)
         {
-            var pipe = new Pipe(s_testOptions);
-            var wrappedPipeReader = new TestPipeReader(pipe.Reader);
+            var wrappedPipeReader = new TestPipeReader(PipeReader);
 
             var stream = new ThrowAfterNWritesStream(throwAfterNWrites);
             Task task = wrappedPipeReader.CopyToAsync(stream);
 
-            pipe.Writer.WriteEmpty(10);
-            await pipe.Writer.FlushAsync();
+            Pipe.Writer.WriteEmpty(10);
+            await Pipe.Writer.FlushAsync();
 
             // Write twice for the test case where the stream throws on the second write.
-            pipe.Writer.WriteEmpty(10);
-            await pipe.Writer.FlushAsync();
+            Pipe.Writer.WriteEmpty(10);
+            await Pipe.Writer.FlushAsync();
 
             await Assert.ThrowsAsync<InvalidOperationException>(() => task);
 
@@ -292,66 +287,148 @@ namespace System.IO.Pipelines.Tests
             Assert.True(startPosition.Equals(wrappedPipeReader.LastExamined));
         }
 
-        private class ThrowingStream : ThrowAfterNWritesStream
+        [Fact]
+        public async Task CopyToAsyncStreamCopiesRemainderAfterReadingSome()
         {
-            public ThrowingStream() : base(0)
-            {
-            }
+            byte[] buffer = "Hello World"u8.ToArray();
+            await Pipe.Writer.WriteAsync(buffer);
+            Pipe.Writer.Complete();
+
+            var result = await PipeReader.ReadAsync();
+            Assert.Equal(result.Buffer.ToArray(), buffer);
+            // Consume Hello
+            PipeReader.AdvanceTo(result.Buffer.GetPosition(5));
+
+            var ms = new MemoryStream();
+            await PipeReader.CopyToAsync(ms);
+
+            Assert.Equal(buffer.AsMemory(5).ToArray(), ms.ToArray());
         }
 
-        private class TestPipeReader : PipeReader
+        [Fact]
+        public async Task CopyToAsyncPipeWriterCopiesRemainderAfterReadingSome()
         {
-            private readonly PipeReader _inner;
+            byte[] buffer = "Hello World"u8.ToArray();
+            await Pipe.Writer.WriteAsync(buffer);
+            Pipe.Writer.Complete();
 
+            var result = await PipeReader.ReadAsync();
+            Assert.Equal(result.Buffer.ToArray(), buffer);
+            // Consume Hello
+            PipeReader.AdvanceTo(result.Buffer.GetPosition(5));
 
-            public TestPipeReader(PipeReader inner)
+            var ms = new MemoryStream();
+            await PipeReader.CopyToAsync(PipeWriter.Create(ms));
+
+            Assert.Equal(buffer.AsMemory(5).ToArray(), ms.ToArray());
+        }
+
+        [Fact]
+        public async Task CopyToAsyncStreamDoesNotDoZeroLengthWrite()
+        {
+            using var ms = new LengthCheckStream();
+            var incompleteCopy = Task.Run(() => PipeReader.CopyToAsync(ms));
+            Pipe.Writer.Write(Array.Empty<byte>());
+            await Pipe.Writer.FlushAsync();
+            Pipe.Writer.Complete(null);
+            await incompleteCopy;
+            Assert.False(ms.ZeroLengthWriteDetected);
+        }
+
+        [Fact]
+        public async Task CopyToAsyncPipeWriterAdvancesBufferedData()
+        {
+            byte[] buffer = "Hello World"u8.ToArray();
+            await Pipe.Writer.WriteAsync(buffer);
+            Pipe.Writer.Complete();
+
+            // Buffer some data via ReadAsync
+            ReadResult readResult = await PipeReader.ReadAsync();
+            PipeReader.AdvanceTo(readResult.Buffer.Start, readResult.Buffer.End);
+
+            // CopyToAsync should advance past the buffered data
+            var pipe = new Pipe();
+            await PipeReader.CopyToAsync(pipe.Writer);
+            await pipe.Writer.CompleteAsync();
+
+            ReadResult pipeResult = await pipe.Reader.ReadAsync();
+            Assert.Equal(buffer.Length, pipeResult.Buffer.Length);
+            Assert.Equal("Hello World", Encoding.ASCII.GetString(pipeResult.Buffer.ToArray()));
+            pipe.Reader.AdvanceTo(pipeResult.Buffer.End);
+            pipe.Reader.Complete();
+
+            // Verify the reader state is clean - no buffered data should remain
+            readResult = await PipeReader.ReadAsync();
+            Assert.True(readResult.IsCompleted);
+            Assert.Equal(0, readResult.Buffer.Length);
+            PipeReader.AdvanceTo(readResult.Buffer.End);
+        }
+
+        [Fact]
+        public async Task CopyToAsyncStreamAdvancesBufferedData()
+        {
+            byte[] buffer = "Hello World"u8.ToArray();
+            await Pipe.Writer.WriteAsync(buffer);
+            Pipe.Writer.Complete();
+
+            // Buffer some data via ReadAsync
+            ReadResult readResult = await PipeReader.ReadAsync();
+            PipeReader.AdvanceTo(readResult.Buffer.Start, readResult.Buffer.End);
+
+            // CopyToAsync should advance past the buffered data
+            var destination = new MemoryStream();
+            await PipeReader.CopyToAsync(destination);
+
+            Assert.Equal(buffer.Length, destination.Length);
+            Assert.Equal("Hello World", Encoding.ASCII.GetString(destination.ToArray()));
+
+            // Verify the reader state is clean - no buffered data should remain
+            readResult = await PipeReader.ReadAsync();
+            Assert.True(readResult.IsCompleted);
+            Assert.Equal(0, readResult.Buffer.Length);
+            PipeReader.AdvanceTo(readResult.Buffer.End);
+        }
+
+        class LengthCheckStream : MemoryStream
+        {
+            public bool ZeroLengthWriteDetected { get; private set; }
+
+            private void Check(int count)
             {
-                _inner = inner;
+                if (count == 0) ZeroLengthWriteDetected = true;
             }
 
-            public ReadResult LastReadResult { get; private set; }
-            public SequencePosition LastConsumed { get; private set; }
-            public SequencePosition LastExamined { get; private set; }
-
-            public override void AdvanceTo(SequencePosition consumed)
+            public override void Write(byte[] buffer, int offset, int count)
             {
-                LastConsumed = consumed;
-                LastExamined = consumed;
-                _inner.AdvanceTo(consumed);
+                Check(count);
+                base.Write(buffer, offset, count);
             }
-
-            public override void AdvanceTo(SequencePosition consumed, SequencePosition examined)
+#if NET
+            public override void Write(ReadOnlySpan<byte> buffer)
             {
-                LastConsumed = consumed;
-                LastExamined = examined;
-                _inner.AdvanceTo(consumed);
+                Check(buffer.Length);
+                base.Write(buffer);
             }
-
-            public override void CancelPendingRead()
+            public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
             {
-                _inner.CancelPendingRead();
+                Check(buffer.Length);
+                return base.WriteAsync(buffer, cancellationToken);
             }
-
-            public override void Complete(Exception exception = null)
+#endif
+            public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
             {
-                _inner.Complete(exception);
+                Check(count);
+                return base.WriteAsync(buffer, offset, count, cancellationToken);
             }
-
-            public override async ValueTask<ReadResult> ReadAsync(CancellationToken cancellationToken = default)
+            public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state)
             {
-                LastReadResult = await _inner.ReadAsync(cancellationToken);
-                return LastReadResult;
+                Check(count);
+                return base.BeginWrite(buffer, offset, count, callback, state);
             }
-
-            public override bool TryRead(out ReadResult result)
+            public override void WriteByte(byte value)
             {
-                if (_inner.TryRead(out result))
-                {
-                    LastReadResult = result;
-                    return true;
-                }
-
-                return false;
+                Check(1);
+                base.WriteByte(value);
             }
         }
     }

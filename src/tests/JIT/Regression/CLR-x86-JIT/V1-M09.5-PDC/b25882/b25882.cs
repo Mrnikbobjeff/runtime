@@ -2,11 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 
+
+namespace b25882;
+
 using System.Text;
 
 
 
 using System;
+using Xunit;
 
 public class Co1245GetBytes_double
 {
@@ -389,7 +393,8 @@ public class Co1245GetBytes_double
 
 
 
-    public static int Main(String[] args)
+    [Fact]
+    public static int TestEntryPoint()
     {
         bool bResult = false; // Assume FAiL
         StringBuilder sblMsg = new StringBuilder(99);

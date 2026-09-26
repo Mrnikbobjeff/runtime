@@ -8,12 +8,12 @@ namespace System.Net.Mail
 {
     public partial class AlternateView : System.Net.Mail.AttachmentBase
     {
-        public AlternateView(System.IO.Stream contentStream) : base (default(System.IO.Stream)) { }
-        public AlternateView(System.IO.Stream contentStream, System.Net.Mime.ContentType? contentType) : base (default(System.IO.Stream)) { }
-        public AlternateView(System.IO.Stream contentStream, string? mediaType) : base (default(System.IO.Stream)) { }
-        public AlternateView(string fileName) : base (default(System.IO.Stream)) { }
-        public AlternateView(string fileName, System.Net.Mime.ContentType? contentType) : base (default(System.IO.Stream)) { }
-        public AlternateView(string fileName, string? mediaType) : base (default(System.IO.Stream)) { }
+        public AlternateView(System.IO.Stream contentStream) : base (default(string)) { }
+        public AlternateView(System.IO.Stream contentStream, System.Net.Mime.ContentType? contentType) : base (default(string)) { }
+        public AlternateView(System.IO.Stream contentStream, string? mediaType) : base (default(string)) { }
+        public AlternateView(string fileName) : base (default(string)) { }
+        public AlternateView(string fileName, System.Net.Mime.ContentType? contentType) : base (default(string)) { }
+        public AlternateView(string fileName, string? mediaType) : base (default(string)) { }
         public System.Uri? BaseUri { get { throw null; } set { } }
         public System.Net.Mail.LinkedResourceCollection LinkedResources { get { throw null; } }
         public static System.Net.Mail.AlternateView CreateAlternateViewFromString(string content) { throw null; }
@@ -32,18 +32,18 @@ namespace System.Net.Mail
     }
     public partial class Attachment : System.Net.Mail.AttachmentBase
     {
-        public Attachment(System.IO.Stream contentStream, System.Net.Mime.ContentType contentType) : base (default(System.IO.Stream)) { }
-        public Attachment(System.IO.Stream contentStream, string? name) : base (default(System.IO.Stream)) { }
-        public Attachment(System.IO.Stream contentStream, string? name, string? mediaType) : base (default(System.IO.Stream)) { }
-        public Attachment(string fileName) : base (default(System.IO.Stream)) { }
-        public Attachment(string fileName, System.Net.Mime.ContentType contentType) : base (default(System.IO.Stream)) { }
-        public Attachment(string fileName, string? mediaType) : base (default(System.IO.Stream)) { }
+        public Attachment(System.IO.Stream contentStream, System.Net.Mime.ContentType contentType) : base (default(string)) { }
+        public Attachment(System.IO.Stream contentStream, string? name) : base (default(string)) { }
+        public Attachment(System.IO.Stream contentStream, string? name, string? mediaType) : base (default(string)) { }
+        public Attachment(string fileName) : base (default(string)) { }
+        public Attachment(string fileName, System.Net.Mime.ContentType contentType) : base (default(string)) { }
+        public Attachment(string fileName, string? mediaType) : base (default(string)) { }
         public System.Net.Mime.ContentDisposition? ContentDisposition { get { throw null; } }
         public string? Name { get { throw null; } set { } }
         public System.Text.Encoding? NameEncoding { get { throw null; } set { } }
         public static System.Net.Mail.Attachment CreateAttachmentFromString(string content, System.Net.Mime.ContentType contentType) { throw null; }
         public static System.Net.Mail.Attachment CreateAttachmentFromString(string content, string? name) { throw null; }
-        public static System.Net.Mail.Attachment CreateAttachmentFromString(string content, string? name, System.Text.Encoding? contentEncoding, string mediaType) { throw null; }
+        public static System.Net.Mail.Attachment CreateAttachmentFromString(string content, string? name, System.Text.Encoding? contentEncoding, string? mediaType) { throw null; }
     }
     public abstract partial class AttachmentBase : System.IDisposable
     {
@@ -81,12 +81,12 @@ namespace System.Net.Mail
     }
     public partial class LinkedResource : System.Net.Mail.AttachmentBase
     {
-        public LinkedResource(System.IO.Stream contentStream) : base (default(System.IO.Stream)) { }
-        public LinkedResource(System.IO.Stream contentStream, System.Net.Mime.ContentType? contentType) : base (default(System.IO.Stream)) { }
-        public LinkedResource(System.IO.Stream contentStream, string? mediaType) : base (default(System.IO.Stream)) { }
-        public LinkedResource(string fileName) : base (default(System.IO.Stream)) { }
-        public LinkedResource(string fileName, System.Net.Mime.ContentType? contentType) : base (default(System.IO.Stream)) { }
-        public LinkedResource(string fileName, string? mediaType) : base (default(System.IO.Stream)) { }
+        public LinkedResource(System.IO.Stream contentStream) : base (default(string)) { }
+        public LinkedResource(System.IO.Stream contentStream, System.Net.Mime.ContentType? contentType) : base (default(string)) { }
+        public LinkedResource(System.IO.Stream contentStream, string? mediaType) : base (default(string)) { }
+        public LinkedResource(string fileName) : base (default(string)) { }
+        public LinkedResource(string fileName, System.Net.Mime.ContentType? contentType) : base (default(string)) { }
+        public LinkedResource(string fileName, string? mediaType) : base (default(string)) { }
         public System.Uri? ContentLink { get { throw null; } set { } }
         public static System.Net.Mail.LinkedResource CreateLinkedResourceFromString(string content) { throw null; }
         public static System.Net.Mail.LinkedResource CreateLinkedResourceFromString(string content, System.Net.Mime.ContentType? contentType) { throw null; }
@@ -110,12 +110,12 @@ namespace System.Net.Mail
         public string DisplayName { get { throw null; } }
         public string Host { get { throw null; } }
         public string User { get { throw null; } }
-        public override bool Equals(object? value) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? value) { throw null; }
         public override int GetHashCode() { throw null; }
-        public static bool TryCreate(string address, [System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] out MailAddress? result) { throw null; }
-        public static bool TryCreate(string address, string? displayName, [System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] out MailAddress? result) { throw null; }
-        public static bool TryCreate(string address, string? displayName, System.Text.Encoding displayNameEncoding, [System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] out MailAddress? result) { throw null; }
         public override string ToString() { throw null; }
+        public static bool TryCreate([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] string? address, [System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] out System.Net.Mail.MailAddress? result) { throw null; }
+        public static bool TryCreate([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] string? address, string? displayName, [System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] out System.Net.Mail.MailAddress? result) { throw null; }
+        public static bool TryCreate([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] string? address, string? displayName, System.Text.Encoding? displayNameEncoding, [System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] out System.Net.Mail.MailAddress? result) { throw null; }
     }
     public partial class MailAddressCollection : System.Collections.ObjectModel.Collection<System.Net.Mail.MailAddress>
     {
@@ -146,7 +146,7 @@ namespace System.Net.Mail
         public System.Text.Encoding? HeadersEncoding { get { throw null; } set { } }
         public bool IsBodyHtml { get { throw null; } set { } }
         public System.Net.Mail.MailPriority Priority { get { throw null; } set { } }
-        [System.ObsoleteAttribute("ReplyTo is obsoleted for this type.  Please use ReplyToList instead which can accept multiple addresses. https://go.microsoft.com/fwlink/?linkid=14202")]
+        [System.ObsoleteAttribute("ReplyTo has been deprecated. Use ReplyToList instead, which can accept multiple addresses.")]
         public System.Net.Mail.MailAddress? ReplyTo { get { throw null; } set { } }
         public System.Net.Mail.MailAddressCollection ReplyToList { get { throw null; } }
         [System.Diagnostics.CodeAnalysis.DisallowNullAttribute]
@@ -165,6 +165,7 @@ namespace System.Net.Mail
         High = 2,
     }
     public delegate void SendCompletedEventHandler(object sender, System.ComponentModel.AsyncCompletedEventArgs e);
+    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
     public partial class SmtpClient : System.IDisposable
     {
         public SmtpClient() { }
@@ -193,8 +194,8 @@ namespace System.Net.Mail
         public void SendAsync(string from, string recipients, string? subject, string? body, object? userToken) { }
         public void SendAsyncCancel() { }
         public System.Threading.Tasks.Task SendMailAsync(System.Net.Mail.MailMessage message) { throw null; }
-        public System.Threading.Tasks.Task SendMailAsync(string from, string recipients, string? subject, string? body) { throw null; }
         public System.Threading.Tasks.Task SendMailAsync(System.Net.Mail.MailMessage message, System.Threading.CancellationToken cancellationToken) { throw null; }
+        public System.Threading.Tasks.Task SendMailAsync(string from, string recipients, string? subject, string? body) { throw null; }
         public System.Threading.Tasks.Task SendMailAsync(string from, string recipients, string? subject, string? body, System.Threading.CancellationToken cancellationToken) { throw null; }
     }
     public enum SmtpDeliveryFormat
@@ -208,41 +209,50 @@ namespace System.Net.Mail
         SpecifiedPickupDirectory = 1,
         PickupDirectoryFromIis = 2,
     }
-    public partial class SmtpException : System.Exception, System.Runtime.Serialization.ISerializable
+    public partial class SmtpException : System.Exception
     {
         public SmtpException() { }
         public SmtpException(System.Net.Mail.SmtpStatusCode statusCode) { }
         public SmtpException(System.Net.Mail.SmtpStatusCode statusCode, string? message) { }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId="SYSLIB0051", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         protected SmtpException(System.Runtime.Serialization.SerializationInfo serializationInfo, System.Runtime.Serialization.StreamingContext streamingContext) { }
         public SmtpException(string? message) { }
         public SmtpException(string? message, System.Exception? innerException) { }
         public System.Net.Mail.SmtpStatusCode StatusCode { get { throw null; } set { } }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId="SYSLIB0051", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public override void GetObjectData(System.Runtime.Serialization.SerializationInfo serializationInfo, System.Runtime.Serialization.StreamingContext streamingContext) { }
-        void System.Runtime.Serialization.ISerializable.GetObjectData(System.Runtime.Serialization.SerializationInfo serializationInfo, System.Runtime.Serialization.StreamingContext streamingContext) { }
     }
-    public partial class SmtpFailedRecipientException : System.Net.Mail.SmtpException, System.Runtime.Serialization.ISerializable
+    public partial class SmtpFailedRecipientException : System.Net.Mail.SmtpException
     {
         public SmtpFailedRecipientException() { }
         public SmtpFailedRecipientException(System.Net.Mail.SmtpStatusCode statusCode, string? failedRecipient) { }
         public SmtpFailedRecipientException(System.Net.Mail.SmtpStatusCode statusCode, string? failedRecipient, string? serverResponse) { }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId="SYSLIB0051", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         protected SmtpFailedRecipientException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public SmtpFailedRecipientException(string? message) { }
         public SmtpFailedRecipientException(string? message, System.Exception? innerException) { }
         public SmtpFailedRecipientException(string? message, string? failedRecipient, System.Exception? innerException) { }
         public string? FailedRecipient { get { throw null; } }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId="SYSLIB0051", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public override void GetObjectData(System.Runtime.Serialization.SerializationInfo serializationInfo, System.Runtime.Serialization.StreamingContext streamingContext) { }
-        void System.Runtime.Serialization.ISerializable.GetObjectData(System.Runtime.Serialization.SerializationInfo serializationInfo, System.Runtime.Serialization.StreamingContext streamingContext) { }
     }
-    public partial class SmtpFailedRecipientsException : System.Net.Mail.SmtpFailedRecipientException, System.Runtime.Serialization.ISerializable
+    public partial class SmtpFailedRecipientsException : System.Net.Mail.SmtpFailedRecipientException
     {
         public SmtpFailedRecipientsException() { }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId="SYSLIB0051", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         protected SmtpFailedRecipientsException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public SmtpFailedRecipientsException(string? message) { }
         public SmtpFailedRecipientsException(string? message, System.Exception? innerException) { }
         public SmtpFailedRecipientsException(string? message, System.Net.Mail.SmtpFailedRecipientException[] innerExceptions) { }
         public System.Net.Mail.SmtpFailedRecipientException[] InnerExceptions { get { throw null; } }
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId="SYSLIB0051", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
         public override void GetObjectData(System.Runtime.Serialization.SerializationInfo serializationInfo, System.Runtime.Serialization.StreamingContext streamingContext) { }
-        void System.Runtime.Serialization.ISerializable.GetObjectData(System.Runtime.Serialization.SerializationInfo serializationInfo, System.Runtime.Serialization.StreamingContext streamingContext) { }
     }
     public enum SmtpStatusCode
     {
@@ -287,7 +297,7 @@ namespace System.Net.Mime
         public System.Collections.Specialized.StringDictionary Parameters { get { throw null; } }
         public System.DateTime ReadDate { get { throw null; } set { } }
         public long Size { get { throw null; } set { } }
-        public override bool Equals(object? rparam) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? rparam) { throw null; }
         public override int GetHashCode() { throw null; }
         public override string ToString() { throw null; }
     }
@@ -301,7 +311,7 @@ namespace System.Net.Mime
         [System.Diagnostics.CodeAnalysis.AllowNullAttribute]
         public string Name { get { throw null; } set { } }
         public System.Collections.Specialized.StringDictionary Parameters { get { throw null; } }
-        public override bool Equals(object? rparam) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? rparam) { throw null; }
         public override int GetHashCode() { throw null; }
         public override string ToString() { throw null; }
     }
@@ -314,27 +324,81 @@ namespace System.Net.Mime
     {
         public static partial class Application
         {
+            public const string FormUrlEncoded = "application/x-www-form-urlencoded";
+            public const string GZip = "application/gzip";
             public const string Json = "application/json";
+            public const string JsonPatch = "application/json-patch+json";
+            public const string JsonSequence = "application/json-seq";
+            public const string Manifest = "application/manifest+json";
             public const string Octet = "application/octet-stream";
             public const string Pdf = "application/pdf";
+            public const string ProblemJson = "application/problem+json";
+            public const string ProblemXml = "application/problem+xml";
             public const string Rtf = "application/rtf";
             public const string Soap = "application/soap+xml";
+            public const string Wasm = "application/wasm";
             public const string Xml = "application/xml";
+            public const string XmlDtd = "application/xml-dtd";
+            public const string XmlPatch = "application/xml-patch+xml";
+            public const string Yaml = "application/yaml";
             public const string Zip = "application/zip";
+        }
+        public static partial class Font
+        {
+            public const string Collection = "font/collection";
+            public const string Otf = "font/otf";
+            public const string Sfnt = "font/sfnt";
+            public const string Ttf = "font/ttf";
+            public const string Woff = "font/woff";
+            public const string Woff2 = "font/woff2";
         }
         public static partial class Image
         {
+            public const string Avif = "image/avif";
+            public const string Bmp = "image/bmp";
             public const string Gif = "image/gif";
+            public const string Icon = "image/x-icon";
             public const string Jpeg = "image/jpeg";
+            public const string Png = "image/png";
+            public const string Svg = "image/svg+xml";
             public const string Tiff = "image/tiff";
+            public const string Webp = "image/webp";
+        }
+        public static partial class Multipart
+        {
+            public const string ByteRanges = "multipart/byteranges";
+            public const string FormData = "multipart/form-data";
+            public const string Mixed = "multipart/mixed";
+            public const string Related = "multipart/related";
         }
         public static partial class Text
         {
+            public const string Css = "text/css";
+            public const string Csv = "text/csv";
+            public const string EventStream = "text/event-stream";
             public const string Html = "text/html";
+            public const string JavaScript = "text/javascript";
+            public const string Markdown = "text/markdown";
             public const string Plain = "text/plain";
             public const string RichText = "text/richtext";
+            public const string Rtf = "text/rtf";
             public const string Xml = "text/xml";
         }
+        public static partial class Video
+        {
+            public const string Mp4 = "video/mp4";
+            public const string Mpeg = "video/mpeg";
+            public const string Ogg = "video/ogg";
+            public const string QuickTime = "video/quicktime";
+            public const string WebM = "video/webm";
+        }
+    }
+    public static partial class MediaTypeMap
+    {
+        public static string? GetExtension(System.ReadOnlySpan<char> mediaType) { throw null; }
+        public static string? GetExtension(string mediaType) { throw null; }
+        public static string? GetMediaType(System.ReadOnlySpan<char> pathOrExtension) { throw null; }
+        public static string? GetMediaType(string pathOrExtension) { throw null; }
     }
     public enum TransferEncoding
     {

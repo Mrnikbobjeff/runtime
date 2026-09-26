@@ -13,8 +13,10 @@
 
 using System.Runtime.InteropServices;
 using System;
+using Xunit;
 
-internal class NullableTest
+namespace castclass_null019;
+public class NullableTest
 {
     private static bool BoxUnboxToNQGen<T>(T o)
     {
@@ -36,7 +38,9 @@ internal class NullableTest
         return ((IntE?)(ValueType)o) == null;
     }
 
-    private static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         IntE? s = null;
 

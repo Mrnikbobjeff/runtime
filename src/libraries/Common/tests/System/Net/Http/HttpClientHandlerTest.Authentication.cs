@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net.Sockets;
 using System.Net.Test.Common;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 using Microsoft.DotNet.XUnitExtensions;
@@ -33,7 +34,6 @@ namespace System.Net.Http.Functional.Tests
         private async Task CreateAndValidateRequest(HttpClientHandler handler, Uri url, HttpStatusCode expectedStatusCode, ICredentials credentials)
         {
             handler.Credentials = credentials;
-
             using (HttpClient client = CreateHttpClient(handler))
             using (HttpResponseMessage response = await client.GetAsync(url))
             {
@@ -45,6 +45,7 @@ namespace System.Net.Http.Functional.Tests
 
         [Theory]
         [MemberData(nameof(Authentication_SocketsHttpHandler_TestData))]
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI HttpHandler does not support authentication")]
         public async Task SocketsHttpHandler_Authentication_Succeeds(string authenticateHeader, bool result)
         {
             await HttpClientHandler_Authentication_Succeeds(authenticateHeader, result);
@@ -94,10 +95,19 @@ namespace System.Net.Http.Functional.Tests
                 yield return new object[] { $"Digest realm=\"testrealm\", algorithm=sha-256, nonce=\"testnonce\"", true };
                 yield return new object[] { $"Digest realm=\"testrealm\", algorithm=sha-256-SESS, nonce=\"testnonce\", qop=\"auth\"", true };
             }
+
+            // Add tests cases for empty values that are not mandatory
+            if (!IsWinHttpHandler)
+            {
+                yield return new object[] { "Digest realm=\"testrealm\",nonce=\"6afd170437eb5144258b308f7c491d96\",opaque=\"\",stale=FALSE,algorithm=MD5,qop=\"auth\"", true };
+                yield return new object[] { "Digest realm=\"testrealm\", domain=\"\", nonce=\"NA42+vpOFQd1GwCyVRZuhhy+jDn4BMRl\", algorithm=MD5, qop=\"auth\", stale=false", true };
+                yield return new object[] { "Digest realm=\"\", nonce=\"NA42+vpOFQd1GwCyVRZuhhy+jDn4BMRl\", algorithm=MD5, qop=\"auth\", stale=false", true };
+            }
         }
 
         [Theory]
         [MemberData(nameof(Authentication_TestData))]
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI HttpHandler does not support authentication")]
         public async Task HttpClientHandler_Authentication_Succeeds(string authenticateHeader, bool result)
         {
             if (PlatformDetection.IsWindowsNanoServer)
@@ -124,6 +134,7 @@ namespace System.Net.Http.Functional.Tests
         [InlineData("WWW-Authenticate: Basic realm=\"hello\"\r\nWWW-Authenticate: Basic realm=\"hello\"\r\n")]
         [InlineData("WWW-Authenticate: Digest realm=\"hello\", nonce=\"hello\", algorithm=MD5\r\nWWW-Authenticate: Digest realm=\"hello\", nonce=\"hello\", algorithm=MD5\r\n")]
         [InlineData("WWW-Authenticate: Digest realm=\"hello1\", nonce=\"hello\", algorithm=MD5\r\nWWW-Authenticate: Digest realm=\"hello\", nonce=\"hello\", algorithm=MD5\r\n")]
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI HttpHandler does not support authentication")]
         public async Task HttpClientHandler_MultipleAuthenticateHeaders_WithSameAuth_Succeeds(string authenticateHeader)
         {
             if (IsWinHttpHandler)
@@ -137,6 +148,7 @@ namespace System.Net.Http.Functional.Tests
         [Theory]
         [InlineData("WWW-Authenticate: Basic realm=\"hello\"\r\nWWW-Authenticate: Digest realm=\"hello\", nonce=\"hello\", algorithm=MD5\r\n")]
         [InlineData("WWW-Authenticate: Digest realm=\"hello\", nonce=\"hello\", algorithm=MD5\r\nWWW-Authenticate: Basic realm=\"hello\"\r\n")]
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI HttpHandler does not support authentication")]
         public async Task HttpClientHandler_MultipleAuthenticateHeaders_Succeeds(string authenticateHeader)
         {
             if (PlatformDetection.IsWindowsNanoServer)
@@ -156,6 +168,7 @@ namespace System.Net.Http.Functional.Tests
         [Theory]
         [InlineData("WWW-Authenticate: Basic realm=\"hello\"\r\nWWW-Authenticate: NTLM\r\n", "Basic", "Negotiate")]
         [InlineData("WWW-Authenticate: Basic realm=\"hello\"\r\nWWW-Authenticate: Digest realm=\"hello\", nonce=\"hello\", algorithm=MD5\r\nWWW-Authenticate: NTLM\r\n", "Digest", "Negotiate")]
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI HttpHandler does not support authentication")]
         public async Task HttpClientHandler_MultipleAuthenticateHeaders_PicksSupported(string authenticateHeader, string supportedAuth, string unsupportedAuth)
         {
             if (PlatformDetection.IsWindowsNanoServer)
@@ -181,6 +194,7 @@ namespace System.Net.Http.Functional.Tests
         [Theory]
         [InlineData("WWW-Authenticate: Basic realm=\"hello\"\r\n")]
         [InlineData("WWW-Authenticate: Digest realm=\"hello\", nonce=\"testnonce\"\r\n")]
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI HttpHandler does not support authentication")]
         public async Task HttpClientHandler_IncorrectCredentials_Fails(string authenticateHeader)
         {
             var options = new LoopbackServer.Options { Domain = Domain, Username = Username, Password = Password };
@@ -196,7 +210,7 @@ namespace System.Net.Http.Functional.Tests
         {
             yield return new object[] { "Basic realm=\"testrealm\"", true };
             yield return new object[] { "Basic ", true };
-            yield return new object[] { "Basic realm=withoutquotes", true };
+            yield return new object[] { "Basic realm=PLACEHOLDERwithoutquotes", true };
             yield return new object[] { "basic ", true };
             yield return new object[] { "bAsiC ", true };
             yield return new object[] { "basic", true };
@@ -218,7 +232,8 @@ namespace System.Net.Http.Functional.Tests
         [InlineData("NTLM")]
         [InlineData("Kerberos")]
         [InlineData("Negotiate")]
-        public async Task PreAuthenticate_NoPreviousAuthenticatedRequests_NoCredentialsSent(string credCacheScheme)
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI HttpHandler does not support PreAuthenticate")]
+        public async Task PreAuthenticate_NoPreviousAuthenticatedRequests_NoCredentialsSent(string? credCacheScheme)
         {
             const int NumRequests = 3;
             await LoopbackServer.CreateClientAndServerAsync(async uri =>
@@ -260,7 +275,8 @@ namespace System.Net.Http.Functional.Tests
         [Theory]
         [InlineData(null, "WWW-Authenticate: Basic realm=\"hello\"\r\n")]
         [InlineData("Basic", "WWW-Authenticate: Basic realm=\"hello\"\r\n")]
-        public async Task PreAuthenticate_FirstRequestNoHeaderAndAuthenticates_SecondRequestPreauthenticates(string credCacheScheme, string authResponse)
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI HttpHandler does not support PreAuthenticate")]
+        public async Task PreAuthenticate_FirstRequestNoHeaderAndAuthenticates_SecondRequestPreauthenticates(string? credCacheScheme, string authResponse)
         {
             await LoopbackServer.CreateClientAndServerAsync(async uri =>
             {
@@ -352,6 +368,7 @@ namespace System.Net.Http.Functional.Tests
         [InlineData((HttpStatusCode)508)] // LoopDetected
         [InlineData((HttpStatusCode)510)] // NotExtended
         [InlineData((HttpStatusCode)511)] // NetworkAuthenticationRequired
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI HttpHandler does not support PreAuthenticate")]
         public async Task PreAuthenticate_FirstRequestNoHeader_SecondRequestVariousStatusCodes_ThirdRequestPreauthenticates(HttpStatusCode statusCode)
         {
             const string AuthResponse = "WWW-Authenticate: Basic realm=\"hello\"\r\n";
@@ -395,6 +412,7 @@ namespace System.Net.Http.Functional.Tests
         [InlineData("/something/hello.html", "/world.html", false)]
         [InlineData("/something/hello.html", "/another/", false)]
         [InlineData("/something/hello.html", "/another/hello.html", false)]
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI HttpHandler does not support PreAuthenticate")]
         public async Task PreAuthenticate_AuthenticatedUrl_ThenTryDifferentUrl_SendsAuthHeaderOnlyIfPrefixMatches(
             string originalRelativeUri, string secondRelativeUri, bool expectedAuthHeader)
         {
@@ -434,6 +452,7 @@ namespace System.Net.Http.Functional.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI HttpHandler does not support PreAuthenticate")]
         public async Task PreAuthenticate_SuccessfulBasicButThenFails_DoesntLoopInfinitely()
         {
             await LoopbackServer.CreateClientAndServerAsync(async uri =>
@@ -472,6 +491,7 @@ namespace System.Net.Http.Functional.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.Wasi, "WASI HttpHandler does not support PreAuthenticate")]
         public async Task PreAuthenticate_SuccessfulBasic_ThenDigestChallenged()
         {
             if (IsWinHttpHandler)
@@ -538,14 +558,14 @@ namespace System.Net.Http.Functional.Tests
 
         public static IEnumerable<object[]> EchoServersData()
         {
-            foreach (Uri serverUri in Configuration.Http.EchoServerList)
+            foreach (Uri serverUri in Configuration.Http.GetEchoServerList())
             {
                 yield return new object[] { serverUri };
             }
         }
 
         [MemberData(nameof(EchoServersData))]
-        [ConditionalTheory(nameof(IsDomainJoinedServerAvailable))]
+        [ConditionalTheory(typeof(HttpClientHandler_Authentication_Test), nameof(IsDomainJoinedServerAvailable))]
         public async Task Proxy_DomainJoinedProxyServerUsesKerberos_Success(Uri server)
         {
             // We skip the test unless it is running on a Windows client machine. That is because only Windows
@@ -585,7 +605,7 @@ namespace System.Net.Http.Functional.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsDomainJoinedServerAvailable))]
+        [ConditionalFact(typeof(HttpClientHandler_Authentication_Test), nameof(IsDomainJoinedServerAvailable))]
         public async Task Credentials_DomainJoinedServerUsesKerberos_Success()
         {
             using (HttpClientHandler handler = CreateHttpClientHandler())
@@ -603,7 +623,7 @@ namespace System.Net.Http.Functional.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsDomainJoinedServerAvailable))]
+        [ConditionalFact(typeof(HttpClientHandler_Authentication_Test), nameof(IsDomainJoinedServerAvailable))]
         public async Task Credentials_DomainJoinedServerUsesKerberos_UseIpAddressAndHostHeader_Success()
         {
             using (HttpClientHandler handler = CreateHttpClientHandler())
@@ -629,7 +649,7 @@ namespace System.Net.Http.Functional.Tests
             }
         }
 
-        [ConditionalTheory(nameof(IsNtlmInstalled), nameof(IsWindowsServerAvailable))]
+        [ConditionalTheory(typeof(HttpClientHandler_Authentication_Test), nameof(IsNtlmInstalled), nameof(IsWindowsServerAvailable))]
         [MemberData(nameof(ServerUsesWindowsAuthentication_MemberData))]
         public async Task Credentials_ServerUsesWindowsAuthentication_Success(string server)
         {
@@ -649,7 +669,7 @@ namespace System.Net.Http.Functional.Tests
             }
         }
 
-        [ConditionalTheory(nameof(IsNtlmInstalled))]
+        [ConditionalTheory(typeof(HttpClientHandler_Authentication_Test), nameof(IsNtlmInstalled))]
         [InlineData("NTLM")]
         [InlineData("Negotiate")]
         public async Task Credentials_ServerChallengesWithWindowsAuth_ClientSendsWindowsAuthHeader(string authScheme)
@@ -681,6 +701,65 @@ namespace System.Net.Http.Functional.Tests
                     Assert.Contains(authScheme, authHeaderValue);
                     _output.WriteLine(authHeaderValue);
                });
+        }
+
+        [ConditionalFact(typeof(HttpClientHandler_Authentication_Test), nameof(IsNtlmInstalled))]
+        public async Task Credentials_BrokenNtlmFromServer()
+        {
+            if (IsWinHttpHandler && UseVersion >= HttpVersion20.Value)
+            {
+                return;
+            }
+
+            await LoopbackServer.CreateClientAndServerAsync(
+                async uri =>
+                {
+                    using (HttpClientHandler handler = CreateHttpClientHandler())
+                    using (HttpClient client = CreateHttpClient(handler))
+                    {
+                        handler.Credentials = new NetworkCredential("username", "password");
+                        var response = await client.GetAsync(uri);
+                        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+                    }
+                },
+                async server =>
+                {
+                    var responseHeader = new HttpHeaderData[] { new HttpHeaderData("WWW-Authenticate", "NTLM") };
+                    HttpRequestData requestData = await server.HandleRequestAsync(HttpStatusCode.Unauthorized, responseHeader);
+                    Assert.Equal(0, requestData.GetHeaderValueCount("Authorization"));
+
+                    // Establish a session connection
+                    await using LoopbackServer.Connection connection = await server.EstablishConnectionAsync();
+                    requestData = await connection.ReadRequestDataAsync();
+                    string authHeaderValue = requestData.GetSingleHeaderValue("Authorization");
+                    Assert.Contains("NTLM", authHeaderValue);
+                    _output.WriteLine(authHeaderValue);
+
+                    // Incorrect NTLMv1 challenge from server (generated by Cyrus HTTP)
+                    responseHeader = new HttpHeaderData[] {
+                        new HttpHeaderData("WWW-Authenticate", "NTLM TlRMTVNTUAACAAAAHAAcADAAAACV/wIAUwCrhitz1vsAAAAAAAAAAAAAAAAAAAAASgAuAEUATQBDAEwASQBFAE4AVAAuAEMATwBNAA=="),
+                        new HttpHeaderData("Connection", "keep-alive")
+                    };
+                    await connection.SendResponseAsync(HttpStatusCode.Unauthorized, responseHeader);
+                    connection.CompleteRequestProcessing();
+
+                    // Wait for the client to close the connection
+                    try
+                    {
+                        CancellationTokenSource cancellationTokenSource = new CancellationTokenSource(1000);
+                        await connection.WaitForCloseAsync(cancellationTokenSource.Token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        // On Linux the GSSAPI NTLM provider may try to continue with the authentication, so go along with it
+                        requestData = await connection.ReadRequestDataAsync();
+                        authHeaderValue = requestData.GetSingleHeaderValue("Authorization");
+                        Assert.Contains("NTLM", authHeaderValue);
+                        _output.WriteLine(authHeaderValue);
+                        await connection.SendResponseAsync(HttpStatusCode.Unauthorized);
+                        connection.CompleteRequestProcessing();
+                    }
+                });
         }
     }
 }

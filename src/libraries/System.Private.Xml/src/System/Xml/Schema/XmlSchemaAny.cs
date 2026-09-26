@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
+using System.Text;
+using System.Xml.Serialization;
+
 namespace System.Xml.Schema
 {
-    using System.ComponentModel;
-    using System.Xml.Serialization;
-    using System.Text;
-
     public class XmlSchemaAny : XmlSchemaParticle
     {
         private string? _ns;
@@ -38,7 +38,7 @@ namespace System.Xml.Schema
         {
             get
             {
-                if (_ns == null || _ns.Length == 0)
+                if (string.IsNullOrEmpty(_ns))
                 {
                     return "##any";
                 }
@@ -69,7 +69,7 @@ namespace System.Xml.Schema
                         int i = 1;
                         foreach (string wildcardNS in _namespaceList.Enumerate)
                         {
-                            sb.Append(wildcardNS + ":*");
+                            sb.Append($"{wildcardNS}:*");
                             if (i < _namespaceList.Enumerate.Count)
                             {
                                 sb.Append(' ');

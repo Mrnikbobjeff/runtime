@@ -8,6 +8,8 @@
 //results in a call to Foo1's method A instead of Foo2's method A.
 
 using System;
+using Xunit;
+using TestLibrary;
 
 class Foo3 : Foo2, IFoo
 {
@@ -17,9 +19,11 @@ class Bar3<T> : Bar2<T>, IBar<T>
 {
 }
 
-class MainClass
+public class MainClass
 {
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		bool ok = true;
         int result;

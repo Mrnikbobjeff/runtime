@@ -2,11 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b100336;
+
 using System;
+using Xunit;
 public class a
 {
 
-    public static int Main(string[] args)
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         try
         {
@@ -14,6 +20,5 @@ public class a
         finally
         {
         }
-        return 100;
     }
 }

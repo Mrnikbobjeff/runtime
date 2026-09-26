@@ -2,11 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Threading;
 
 namespace System.Text
 {
     public abstract class EncodingProvider
     {
+        private static EncodingProvider[]? s_providers;
+
         public EncodingProvider() { }
         public abstract Encoding? GetEncoding(string name);
         public abstract Encoding? GetEncoding(int codepage);
@@ -38,30 +41,39 @@ namespace System.Text
             return enc;
         }
 
-        public virtual IEnumerable<EncodingInfo> GetEncodings() => Array.Empty<EncodingInfo>();
+        public virtual IEnumerable<EncodingInfo> GetEncodings() => [];
 
         internal static void AddProvider(EncodingProvider provider)
         {
-            if (provider == null)
-                throw new ArgumentNullException(nameof(provider));
+            ArgumentNullException.ThrowIfNull(provider);
 
-            lock (s_InternalSyncObject)
+            // Few providers are added in a typical app (typically just CodePagesEncodingProvider.Instance), and when they are,
+            // they're generally not added concurrently.  So use an optimistic concurrency scheme rather than paying for a lock
+            // object allocation on the startup path.
+
+            if (s_providers is null &&
+                Interlocked.CompareExchange(ref s_providers, [provider], null) is null)
             {
-                if (s_providers == null)
+                return;
+            }
+
+            while (true)
+            {
+                EncodingProvider[] providers = s_providers;
+
+                if (Array.IndexOf(providers, provider) >= 0)
                 {
-                    s_providers = new EncodingProvider[1] { provider };
                     return;
                 }
 
-                if (Array.IndexOf(s_providers, provider) >= 0)
+                var newProviders = new EncodingProvider[providers.Length + 1];
+                Array.Copy(providers, newProviders, providers.Length);
+                newProviders[^1] = provider;
+
+                if (Interlocked.CompareExchange(ref s_providers, newProviders, providers) == providers)
                 {
                     return;
                 }
-
-                EncodingProvider[] providers = new EncodingProvider[s_providers.Length + 1];
-                Array.Copy(s_providers, providers, s_providers.Length);
-                providers[^1] = provider;
-                s_providers = providers;
             }
         }
 
@@ -106,10 +118,10 @@ namespace System.Text
 
         internal static Encoding? GetEncodingFromProvider(string encodingName)
         {
-            if (s_providers == null)
+            EncodingProvider[]? providers = s_providers;
+            if (providers == null)
                 return null;
 
-            EncodingProvider[] providers = s_providers;
             foreach (EncodingProvider provider in providers)
             {
                 Encoding? enc = provider.GetEncoding(encodingName);
@@ -122,10 +134,10 @@ namespace System.Text
 
         internal static Encoding? GetEncodingFromProvider(int codepage, EncoderFallback enc, DecoderFallback dec)
         {
-            if (s_providers == null)
+            EncodingProvider[]? providers = s_providers;
+            if (providers == null)
                 return null;
 
-            EncodingProvider[] providers = s_providers;
             foreach (EncodingProvider provider in providers)
             {
                 Encoding? encoding = provider.GetEncoding(codepage, enc, dec);
@@ -138,10 +150,10 @@ namespace System.Text
 
         internal static Encoding? GetEncodingFromProvider(string encodingName, EncoderFallback enc, DecoderFallback dec)
         {
-            if (s_providers == null)
+            EncodingProvider[]? providers = s_providers;
+            if (providers == null)
                 return null;
 
-            EncodingProvider[] providers = s_providers;
             foreach (EncodingProvider provider in providers)
             {
                 Encoding? encoding = provider.GetEncoding(encodingName, enc, dec);
@@ -151,8 +163,5 @@ namespace System.Text
 
             return null;
         }
-
-        private static readonly object s_InternalSyncObject = new object();
-        private static volatile EncodingProvider[]? s_providers;
     }
 }

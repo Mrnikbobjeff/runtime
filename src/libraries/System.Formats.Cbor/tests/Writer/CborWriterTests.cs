@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using System.Security.Cryptography;
 using Test.Cryptography;
 using Xunit;
@@ -11,6 +12,8 @@ namespace System.Formats.Cbor.Tests
 {
     public partial class CborWriterTests
     {
+        private const string MaxDepthMessageSentinel = "maximum allowed depth";
+
         [Fact]
         public static void IsWriteCompleted_OnWrittenPrimitive_ShouldBeTrue()
         {
@@ -120,6 +123,33 @@ namespace System.Formats.Cbor.Tests
 
             writer.WriteInt32(42);
             Assert.Equal(new byte[] { 0x18, 0x2a }, writer.Encode());
+        }
+
+        [Fact]
+        public static void Reset_PreservesMultipleRootLevels()
+        {
+            var writer = new CborWriter(allowMultipleRootLevelValues: false);
+            writer.WriteBoolean(true);
+            writer.Reset();
+            writer.WriteInt32(6);
+            Assert.Throws<InvalidOperationException>(() => writer.WriteInt32(7));
+        }
+
+        [Fact]
+        public static void Reset_ClearsIndefiniteLengthRanges()
+        {
+            var writer = new CborWriter(convertIndefiniteLengthEncodings: true);
+
+            writer.WriteStartIndefiniteLengthByteString();
+            writer.WriteByteString([1, 2, 3]);
+            writer.Reset();
+
+            writer.WriteStartIndefiniteLengthByteString();
+            writer.WriteByteString([1, 2, 3]);
+            writer.WriteEndIndefiniteLengthByteString();
+            ReadOnlySpan<byte> encoded = writer.Encode();
+            ReadOnlySpan<byte> expected = [0x43, 0x01, 0x02, 0x03];
+            AssertExtensions.SequenceEqual(expected, encoded);
         }
 
         [Fact]
@@ -332,14 +362,50 @@ namespace System.Formats.Cbor.Tests
         [InlineData((CborConformanceMode)(-1))]
         public static void InvalidConformanceMode_ShouldThrowArgumentOutOfRangeException(CborConformanceMode mode)
         {
-            Assert.Throws<ArgumentOutOfRangeException>(() => new CborWriter(conformanceMode: mode));
+            Assert.Throws<ArgumentOutOfRangeException>("conformanceMode", () => new CborWriter(conformanceMode: mode));
+        }
+
+        [Theory]
+        [InlineData(-2)]
+        [InlineData(int.MinValue)]
+        public static void InvalidInitialCapacity_ShouldThrowArgumentOutOfRangeException(int capacity)
+        {
+            Assert.Throws<ArgumentOutOfRangeException>("initialCapacity", () => new CborWriter(initialCapacity: capacity));
+        }
+
+        [Theory]
+        [InlineData(-1, 0)]
+        [InlineData(0, 0)]
+        [InlineData(1, 1)]
+        [InlineData(1023, 1023)]
+        public static void InitialCapacity_ShouldSetInitialBuffer(int capacity, int expectedBufferLength)
+        {
+            CborWriter writer = new CborWriter(initialCapacity: capacity);
+            byte[]? buffer = (byte[]?)typeof(CborWriter).GetField("_buffer", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(writer);
+
+            Assert.NotNull(buffer);
+            Assert.Equal(expectedBufferLength, buffer.Length);
+        }
+
+        [Theory]
+        [InlineData(0)]
+        [InlineData(-1)]
+        [InlineData(1)]
+        public static void Encode_InitialCapacity_Grows(int capacity)
+        {
+            CborWriter writer = new CborWriter(initialCapacity: capacity);
+            writer.WriteByteString((ReadOnlySpan<byte>)new byte[] { 1, 2, 3, 4, 5, 6 });
+            byte[] encoded = writer.Encode();
+
+            ReadOnlySpan<byte> expected = new byte[] { (2 << 5) | 6, 1, 2, 3, 4, 5, 6 };
+            AssertExtensions.SequenceEqual(expected, encoded);
         }
 
         public static IEnumerable<object[]> EncodedValueInputs => CborReaderTests.SampleCborValues.Select(x => new [] { x });
         public static IEnumerable<object[]> EncodedValueBadInputs => CborReaderTests.InvalidCborValues.Select(x => new[] { x });
 
         [Theory]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/37669", TestPlatforms.Browser)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/37669", TestPlatforms.Browser | TestPlatforms.Wasi)]
         [InlineData("a501020326200121582065eda5a12577c2bae829437fe338701a10aaa375e1bb5b5de108de439c08551d2258201e52ed75701163f7f9e40ddf9f341b3dc9ba860af7e0ca7ca7e9eecd0084d19c",
                     "65eda5a12577c2bae829437fe338701a10aaa375e1bb5b5de108de439c08551d",
                     "1e52ed75701163f7f9e40ddf9f341b3dc9ba860af7e0ca7ca7e9eecd0084d19c",
@@ -370,6 +436,399 @@ namespace System.Formats.Cbor.Tests
 
             byte[] coseKeyEncoding = CborCoseKeyHelpers.ExportECDsaPublicKey(ecDsa, hashAlgName);
             AssertHelper.HexEqual(expectedEncoding, coseKeyEncoding);
+        }
+
+        [Fact]
+        public static void CborWriterOptions_DefaultValues()
+        {
+            var options = new CborWriterOptions();
+            Assert.Equal(CborConformanceMode.Strict, options.ConformanceMode);
+            Assert.False(options.ConvertIndefiniteLengthEncodings);
+            Assert.False(options.AllowMultipleRootLevelValues);
+            Assert.Equal(-1, options.MaxDepth);
+            Assert.Equal(-1, options.InitialCapacity);
+        }
+
+        [Fact]
+        public static void CborWriter_NullOptions_DefaultValues()
+        {
+            var writer = new CborWriter((CborWriterOptions)null!);
+            Assert.Equal(CborConformanceMode.Strict, writer.ConformanceMode);
+            Assert.False(writer.ConvertIndefiniteLengthEncodings);
+            Assert.False(writer.AllowMultipleRootLevelValues);
+            Assert.Equal(1000, writer.MaxDepth);
+
+            // Capacity (default 0)
+            byte[]? buffer = (byte[]?)typeof(CborWriter).GetField("_buffer", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(writer);
+
+            Assert.NotNull(buffer);
+            Assert.Equal(0, buffer.Length);
+        }
+
+        [Theory]
+        [InlineData(CborConformanceMode.Ctap2Canonical)]
+        [InlineData(CborConformanceMode.Canonical)]
+        [InlineData(CborConformanceMode.Lax)]
+        [InlineData(CborConformanceMode.Strict)]
+        public static void CborWriterOptions_SetConformanceMode(CborConformanceMode mode)
+        {
+            var options = new CborWriterOptions { ConformanceMode = mode };
+            Assert.Equal(mode, options.ConformanceMode);
+        }
+
+        [Fact]
+        public static void CborWriterOptions_InvalidConformanceMode_Throws()
+        {
+            var options = new CborWriterOptions();
+            Assert.Throws<ArgumentOutOfRangeException>(() => options.ConformanceMode = (CborConformanceMode)(-1));
+        }
+
+        [Fact]
+        public static void CborWriterOptions_SetConvertIndefiniteLengthEncodings()
+        {
+            var options = new CborWriterOptions { ConvertIndefiniteLengthEncodings = true };
+            Assert.True(options.ConvertIndefiniteLengthEncodings);
+        }
+
+        [Fact]
+        public static void CborWriterOptions_SetAllowMultipleRootLevelValues()
+        {
+            var options = new CborWriterOptions { AllowMultipleRootLevelValues = true };
+            Assert.True(options.AllowMultipleRootLevelValues);
+        }
+
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(0)]
+        [InlineData(1)]
+        [InlineData(64)]
+        [InlineData(1000)]
+        public static void CborWriterOptions_SetMaxDepth(int maxDepth)
+        {
+            var options = new CborWriterOptions { MaxDepth = maxDepth };
+            Assert.Equal(maxDepth, options.MaxDepth);
+        }
+
+        [Theory]
+        [InlineData(-2)]
+        [InlineData(-100)]
+        public static void CborWriterOptions_SetMaxDepth_TooNegative_Throws(int maxDepth)
+        {
+            var options = new CborWriterOptions();
+            Assert.Throws<ArgumentOutOfRangeException>(() => options.MaxDepth = maxDepth);
+        }
+
+        [Fact]
+        public static void Constructor_DefaultOptions_HasCorrectDefaults()
+        {
+            var writer = new CborWriter(new CborWriterOptions());
+            Assert.Equal(CborConformanceMode.Strict, writer.ConformanceMode);
+            Assert.False(writer.ConvertIndefiniteLengthEncodings);
+            Assert.False(writer.AllowMultipleRootLevelValues);
+            Assert.Equal(1000, writer.MaxDepth);
+        }
+
+        [Fact]
+        public static void Constructor_CustomOptions_SetsProperties()
+        {
+            var options = new CborWriterOptions
+            {
+                ConformanceMode = CborConformanceMode.Canonical,
+                ConvertIndefiniteLengthEncodings = true,
+                AllowMultipleRootLevelValues = true,
+                MaxDepth = 42,
+            };
+
+            var writer = new CborWriter(options);
+            Assert.Equal(CborConformanceMode.Canonical, writer.ConformanceMode);
+            Assert.True(writer.ConvertIndefiniteLengthEncodings);
+            Assert.True(writer.AllowMultipleRootLevelValues);
+            Assert.Equal(42, writer.MaxDepth);
+        }
+
+        [Fact]
+        public static void Constructor_NoArgs_HasCorrectDefaults()
+        {
+            var writer = new CborWriter();
+            Assert.Equal(CborConformanceMode.Strict, writer.ConformanceMode);
+            Assert.False(writer.ConvertIndefiniteLengthEncodings);
+            Assert.False(writer.AllowMultipleRootLevelValues);
+            Assert.Equal(1000, writer.MaxDepth);
+        }
+
+        [Fact]
+        public static void Constructor_MaxDepthZero_ResolvesToZero()
+        {
+            var writer = new CborWriter(new CborWriterOptions { MaxDepth = 0 });
+            Assert.Equal(0, writer.MaxDepth);
+        }
+
+        [Fact]
+        public static void Constructor_MaxDepthNegativeOneSentinel_ResolvesToDefault()
+        {
+            var writer = new CborWriter(new CborWriterOptions { MaxDepth = -1 });
+            Assert.Equal(1000, writer.MaxDepth);
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(64)]
+        [InlineData(1000)]
+        public static void Constructor_MaxDepthExplicit_SetsProperty(int maxDepth)
+        {
+            var writer = new CborWriter(new CborWriterOptions { MaxDepth = maxDepth });
+            Assert.Equal(maxDepth, writer.MaxDepth);
+        }
+
+        [Theory]
+        [InlineData(1, false)]
+        [InlineData(2, false)]
+        [InlineData(10, false)]
+        [InlineData(1, true)]
+        [InlineData(2, true)]
+        [InlineData(10, true)]
+        public static void MaxDepth_GuardsNestedArrays(int maxDepth, bool useIndefiniteLength)
+        {
+            var writer = new CborWriter(new CborWriterOptions { MaxDepth = maxDepth });
+
+            for (int i = 0; i < maxDepth; i++)
+            {
+                writer.WriteStartArray(useIndefiniteLength ? null : 1);
+            }
+
+            int bytesWritten = writer.BytesWritten;
+
+            AssertExtensions.ThrowsContains<InvalidOperationException>(
+                () => writer.WriteStartArray(useIndefiniteLength ? null : 1),
+                MaxDepthMessageSentinel);
+
+            Assert.Equal(bytesWritten, writer.BytesWritten);
+        }
+
+        [Theory]
+        [InlineData(1, false)]
+        [InlineData(2, false)]
+        [InlineData(10, false)]
+        [InlineData(1, true)]
+        [InlineData(2, true)]
+        [InlineData(10, true)]
+        public static void MaxDepth_GuardsNestedMaps(int maxDepth, bool useIndefiniteLength)
+        {
+            var writer = new CborWriter(new CborWriterOptions { MaxDepth = maxDepth });
+
+            for (int i = 0; i < maxDepth; i++)
+            {
+                writer.WriteStartMap(useIndefiniteLength ? null : 1);
+                writer.WriteInt32(i); // key
+            }
+
+            int bytesWritten = writer.BytesWritten;
+
+            AssertExtensions.ThrowsContains<InvalidOperationException>(
+                () => writer.WriteStartMap(useIndefiniteLength ? null : 1),
+                MaxDepthMessageSentinel);
+
+            Assert.Equal(bytesWritten, writer.BytesWritten);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public static void MaxDepth_GuardsMixedArrayAndMapNesting(bool useIndefiniteLength)
+        {
+            var writer = new CborWriter(new CborWriterOptions { MaxDepth = 2 });
+
+            writer.WriteStartArray(useIndefiniteLength ? null : 1);
+            writer.WriteStartMap(useIndefiniteLength ? null : 1);
+            writer.WriteInt32(0); // key
+
+            int bytesWritten = writer.BytesWritten;
+
+            AssertExtensions.ThrowsContains<InvalidOperationException>(
+                () => writer.WriteStartArray(useIndefiniteLength ? null : 1),
+                MaxDepthMessageSentinel);
+
+            Assert.Equal(bytesWritten, writer.BytesWritten);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public static void MaxDepth_GuardsIndefiniteByteString_FromArray(bool useIndefiniteLength)
+        {
+            var writer = new CborWriter(new CborWriterOptions
+            {
+                ConformanceMode = CborConformanceMode.Lax,
+                MaxDepth = 1,
+            });
+
+            writer.WriteStartArray(useIndefiniteLength ? null : 1);
+
+            int bytesWritten = writer.BytesWritten;
+
+            AssertExtensions.ThrowsContains<InvalidOperationException>(
+                () => writer.WriteStartIndefiniteLengthByteString(),
+                MaxDepthMessageSentinel);
+
+            Assert.Equal(bytesWritten, writer.BytesWritten);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public static void MaxDepth_GuardsIndefiniteByteString_FromMap(bool useIndefiniteLength)
+        {
+            var writer = new CborWriter(new CborWriterOptions
+            {
+                ConformanceMode = CborConformanceMode.Lax,
+                MaxDepth = 1,
+            });
+
+            writer.WriteStartMap(useIndefiniteLength ? null : 1);
+            writer.WriteInt32(0); // key
+
+            int bytesWritten = writer.BytesWritten;
+
+            AssertExtensions.ThrowsContains<InvalidOperationException>(
+                () => writer.WriteStartIndefiniteLengthByteString(),
+                MaxDepthMessageSentinel);
+
+            Assert.Equal(bytesWritten, writer.BytesWritten);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public static void MaxDepth_GuardsIndefiniteTextString_FromArray(bool useIndefiniteLength)
+        {
+            var writer = new CborWriter(new CborWriterOptions
+            {
+                ConformanceMode = CborConformanceMode.Lax,
+                MaxDepth = 1,
+            });
+
+            writer.WriteStartArray(useIndefiniteLength ? null : 1);
+
+            int bytesWritten = writer.BytesWritten;
+
+            AssertExtensions.ThrowsContains<InvalidOperationException>(
+                () => writer.WriteStartIndefiniteLengthTextString(),
+                MaxDepthMessageSentinel);
+
+            Assert.Equal(bytesWritten, writer.BytesWritten);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public static void MaxDepth_GuardsIndefiniteTextString_FromMap(bool useIndefiniteLength)
+        {
+            var writer = new CborWriter(new CborWriterOptions
+            {
+                ConformanceMode = CborConformanceMode.Lax,
+                MaxDepth = 1,
+            });
+
+            writer.WriteStartMap(useIndefiniteLength ? null : 1);
+            writer.WriteInt32(0); // key
+
+            int bytesWritten = writer.BytesWritten;
+
+            AssertExtensions.ThrowsContains<InvalidOperationException>(
+                () => writer.WriteStartIndefiniteLengthTextString(),
+                MaxDepthMessageSentinel);
+
+            Assert.Equal(bytesWritten, writer.BytesWritten);
+        }
+
+        [Fact]
+        public static void MaxDepth_SucceedsAtExactLimit()
+        {
+            var writer = new CborWriter(new CborWriterOptions { MaxDepth = 3 });
+
+            writer.WriteStartArray(1);
+            writer.WriteStartArray(1);
+            writer.WriteStartArray(1);
+            writer.WriteInt32(42);
+            writer.WriteEndArray();
+            writer.WriteEndArray();
+            writer.WriteEndArray();
+
+            byte[] encoded = writer.Encode();
+            Assert.NotEmpty(encoded);
+        }
+
+        [Fact]
+        public static void MaxDepth_Zero_AllowsPrimitiveValues()
+        {
+            var writer = new CborWriter(new CborWriterOptions { MaxDepth = 0 });
+
+            Assert.Equal(0, writer.MaxDepth);
+            writer.WriteInt32(42);
+
+            byte[] encoded = writer.Encode();
+            Assert.Equal(new byte[] { 0x18, 0x2a }, encoded);
+        }
+
+        [Fact]
+        public static void MaxDepth_Zero_BlocksArray()
+        {
+            var writer = new CborWriter(new CborWriterOptions { MaxDepth = 0 });
+
+            int bytesWritten = writer.BytesWritten;
+            AssertExtensions.ThrowsContains<InvalidOperationException>(
+                () => writer.WriteStartArray(1), MaxDepthMessageSentinel);
+            Assert.Equal(bytesWritten, writer.BytesWritten);
+        }
+
+        [Fact]
+        public static void MaxDepth_Zero_BlocksMap()
+        {
+            var writer = new CborWriter(new CborWriterOptions { MaxDepth = 0 });
+
+            int bytesWritten = writer.BytesWritten;
+            AssertExtensions.ThrowsContains<InvalidOperationException>(
+                () => writer.WriteStartMap(1), MaxDepthMessageSentinel);
+            Assert.Equal(bytesWritten, writer.BytesWritten);
+        }
+
+        [Theory]
+        [InlineData("8181182A", 2)] // [[42]]
+        [InlineData("7F6161FF", 1)] // (_ "a")
+        [InlineData("7FFF", 1)] // (_ )
+        [InlineData("817FFF", 2)] // [(_ )]
+        [InlineData("5F4101FF", 1)] // (_ h'01')
+        [InlineData("5FFF", 1)] // (_ )
+        [InlineData("9F01FF", 1)] // [_ 1]
+        [InlineData("819F01FF", 2)] // [[_ 1]]
+        [InlineData("BFFF", 1)] // {_ }
+        [InlineData("BF0101FF", 1)] // {_ 1: 1}
+        public static void MaxDepth_WriteEncodedValue_ThrowsWhenDepthExceeded(string encodedValueHex, int appliedDepth)
+        {
+            const int MaxDepth = 2;
+            byte[] encodedValue = encodedValueHex.HexToByteArray();
+
+            var limitedWriter = new CborWriter(new CborWriterOptions { MaxDepth = MaxDepth });
+            var writer = new CborWriter(new CborWriterOptions { MaxDepth = MaxDepth + 1 });
+
+            int testLimit = MaxDepth - appliedDepth + 1;
+
+            for (int i = testLimit; i > 0; i--)
+            {
+                limitedWriter.WriteStartArray(1);
+                writer.WriteStartArray(1);
+            }
+
+            int bytesWritten = limitedWriter.BytesWritten;
+            Assert.Equal(bytesWritten, writer.BytesWritten);
+
+            // limitedWriter can't accept the value
+            Assert.Throws<ArgumentException>(() => limitedWriter.WriteEncodedValue(encodedValue));
+            Assert.Equal(bytesWritten, limitedWriter.BytesWritten);
+
+            // writer can
+            writer.WriteEncodedValue(encodedValue);
+            Assert.Equal(bytesWritten + encodedValue.Length, writer.BytesWritten);
         }
     }
 }

@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -17,6 +18,7 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoAOT))]
         public void Ctor_Default()
         {
             var stackFrame = new StackFrame();
@@ -24,23 +26,13 @@ namespace System.Diagnostics.Tests
         }
 
         [Theory]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoAOT))]
         [InlineData(true)]
         [InlineData(false)]
         public void Ctor_FNeedFileInfo(bool fNeedFileInfo)
         {
             var stackFrame = new StackFrame(fNeedFileInfo);
             VerifyStackFrame(stackFrame, fNeedFileInfo, 0, typeof(StackFrameTests).GetMethod(nameof(Ctor_FNeedFileInfo)));
-        }
-
-        [Theory]
-        [ActiveIssue("https://github.com/mono/mono/issues/15183", TestRuntimes.Mono)]
-        [InlineData(StackFrame.OFFSET_UNKNOWN)]
-        [InlineData(0)]
-        [InlineData(1)]
-        public void Ctor_SkipFrames(int skipFrames)
-        {
-            var stackFrame = new StackFrame(skipFrames);
-            VerifyStackFrame(stackFrame, true, skipFrames, typeof(StackFrameTests).GetMethod(nameof(Ctor_SkipFrames)), isCurrentFrame: skipFrames == 0);
         }
 
         [Theory]
@@ -58,6 +50,7 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoAOT))]
         public void SkipFrames_CallMethod_ReturnsExpected()
         {
             StackFrame stackFrame = CallMethod(1);
@@ -71,6 +64,7 @@ namespace System.Diagnostics.Tests
         [Theory]
         [InlineData(int.MinValue)]
         [InlineData(int.MaxValue)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/103218", typeof(PlatformDetection), nameof(PlatformDetection.IsNativeAot))]
         public void SkipFrames_ManyFrames_HasNoMethod(int skipFrames)
         {
             var stackFrame = new StackFrame(skipFrames);
@@ -78,10 +72,11 @@ namespace System.Diagnostics.Tests
         }
 
         [Theory]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoAOT))]
         [InlineData(null, StackFrame.OFFSET_UNKNOWN)]
         [InlineData("", 0)]
         [InlineData("FileName", 1)]
-        public void Ctor_Filename_LineNumber(string fileName, int lineNumber)
+        public void Ctor_Filename_LineNumber(string? fileName, int lineNumber)
         {
             var stackFrame = new StackFrame(fileName, lineNumber);
             Assert.Equal(fileName, stackFrame.GetFileName());
@@ -96,7 +91,7 @@ namespace System.Diagnostics.Tests
         [InlineData(null, StackFrame.OFFSET_UNKNOWN, 0)]
         [InlineData("", 0, StackFrame.OFFSET_UNKNOWN)]
         [InlineData("FileName", 1, 2)]
-        public void Ctor_Filename_LineNumber_ColNumber(string fileName, int lineNumber, int columnNumber)
+        public void Ctor_Filename_LineNumber_ColNumber(string? fileName, int lineNumber, int columnNumber)
         {
             var stackFrame = new StackFrame(fileName, lineNumber, columnNumber);
             Assert.Equal(fileName, stackFrame.GetFileName());
@@ -110,7 +105,11 @@ namespace System.Diagnostics.Tests
         {
             yield return new object[] { new StackFrame(), "MoveNext at offset {offset} in file:line:column {fileName}:{lineNumber}:{column}" + Environment.NewLine };
             yield return new object[] { new StackFrame("FileName", 1, 2), "MoveNext at offset {offset} in file:line:column FileName:1:2" + Environment.NewLine };
-            yield return new object[] { new StackFrame(int.MaxValue), "<null>" + Environment.NewLine };
+
+            // https://github.com/dotnet/runtime/issues/103218
+            if (!PlatformDetection.IsNativeAot)
+                yield return new object[] { new StackFrame(int.MaxValue), "<null>" + Environment.NewLine };
+
             yield return new object[] { GenericMethod<string>(), "GenericMethod<T> at offset {offset} in file:line:column {fileName}:{lineNumber}:{column}" + Environment.NewLine };
             yield return new object[] { GenericMethod<string, int>(), "GenericMethod<T,U> at offset {offset} in file:line:column {fileName}:{lineNumber}:{column}" + Environment.NewLine };
             yield return new object[] { new ClassWithConstructor().StackFrame, ".ctor at offset {offset} in file:line:column {fileName}:{lineNumber}:{column}" + Environment.NewLine };
@@ -163,7 +162,10 @@ namespace System.Diagnostics.Tests
             }
             else
             {
-                Assert.True(stackFrame.GetILOffset() >= 0, $"Expected GetILOffset() {stackFrame.GetILOffset()} for {stackFrame} to be greater or equal to zero.");
+                if (PlatformDetection.IsILOffsetsSupported)
+                {
+                    Assert.True(stackFrame.GetILOffset() >= 0, $"Expected GetILOffset() {stackFrame.GetILOffset()} for {stackFrame} to be greater or equal to zero.");
+                }
             }
 
             // GetMethod returns null for unknown frames.
@@ -181,7 +183,8 @@ namespace System.Diagnostics.Tests
             }
 
             // GetNativeOffset returns StackFrame.OFFSET_UNKNOWN for unknown frames.
-            // GetNativeOffset returns 0 for known frames with a positive skipFrames.
+            // For a positive skipFrame, the GetNativeOffset return value is dependent upon the implementation of reflection
+            // Invoke() which can be native (where the value would be zero) or managed (where the value is likely non-zero).
             if (skipFrames == int.MaxValue || skipFrames == int.MinValue)
             {
                 Assert.Equal(StackFrame.OFFSET_UNKNOWN, stackFrame.GetNativeOffset());
@@ -193,7 +196,7 @@ namespace System.Diagnostics.Tests
             }
             else
             {
-                Assert.Equal(0, stackFrame.GetNativeOffset());
+                Assert.True(stackFrame.GetNativeOffset() >= 0);
             }
         }
     }

@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 
@@ -8,99 +9,111 @@ namespace System.Threading
 {
     internal sealed class ThreadInt64PersistentCounter
     {
-        // This type is used by Monitor for lock contention counting, so can't use an object for a lock. Also it's preferable
-        // (though currently not required) to disallow/ignore thread interrupt for uses of this lock here. Using Lock directly
-        // is a possibility but maybe less compatible with other runtimes. Lock cases are relatively rare, static instance
-        // should be ok.
-        private static readonly LowLevelLock s_lock = new LowLevelLock();
+        private readonly LowLevelLock _lock = new LowLevelLock();
 
-        private readonly ThreadLocal<ThreadLocalNode> _threadLocalNode = new ThreadLocal<ThreadLocalNode>(trackAllValues: true);
+        [ThreadStatic]
+        private static List<ThreadLocalNodeFinalizationHelper>? t_nodeFinalizationHelpers;
+
         private long _overflowCount;
+        private long _lastReturnedCount;
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public void Increment()
+        // dummy node serving as a start and end of the ring list
+        private readonly ThreadLocalNode _nodes;
+
+        public ThreadInt64PersistentCounter()
         {
-            ThreadLocalNode? node = _threadLocalNode.Value;
-            if (node != null)
-            {
-                node.Increment();
-                return;
-            }
-
-            TryCreateNode();
+            _nodes = new ThreadLocalNode(this);
         }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private void TryCreateNode()
+        public ThreadLocalNode CreateThreadLocalCountObject()
         {
-            Debug.Assert(_threadLocalNode.Value == null);
+            var node = new ThreadLocalNode(this);
 
+            List<ThreadLocalNodeFinalizationHelper>? nodeFinalizationHelpers = t_nodeFinalizationHelpers ??= new List<ThreadLocalNodeFinalizationHelper>(1);
+            nodeFinalizationHelpers.Add(new ThreadLocalNodeFinalizationHelper(node));
+
+            _lock.Acquire();
             try
             {
-                _threadLocalNode.Value = new ThreadLocalNode(this);
+                node._next = _nodes._next;
+                node._prev = _nodes;
+                _nodes._next._prev = node;
+                _nodes._next = node;
             }
-            catch (OutOfMemoryException)
+            finally
             {
+                _lock.Release();
             }
+
+            return node;
         }
 
         public long Count
         {
             get
             {
-                long count = 0;
+                _lock.Acquire();
+                long count = _overflowCount;
                 try
                 {
-                    s_lock.Acquire();
-                    try
+                    ThreadLocalNode first = _nodes;
+                    ThreadLocalNode node = first._next;
+                    while (node != first)
                     {
-                        count = _overflowCount;
-                        foreach (ThreadLocalNode node in _threadLocalNode.ValuesAsEnumerable)
-                        {
-                            if (node != null)
-                            {
-                                count += node.Count;
-                            }
-                        }
-                        return count;
+                        count += node.Count;
+                        node = node._next;
                     }
-                    finally
+
+                    // Ensure that the returned value is monotonically increasing
+                    long lastReturnedCount = _lastReturnedCount;
+                    if (count > lastReturnedCount)
                     {
-                        s_lock.Release();
+                        _lastReturnedCount = count;
+                    }
+                    else
+                    {
+                        count = lastReturnedCount;
                     }
                 }
-                catch (OutOfMemoryException)
+                finally
                 {
-                    // Some allocation occurs above and it may be a bit awkward to get an OOM from this property getter
-                    return count;
+                    _lock.Release();
                 }
+
+                return count;
             }
         }
 
-        private sealed class ThreadLocalNode
+        internal sealed class ThreadLocalNode
         {
             private uint _count;
             private readonly ThreadInt64PersistentCounter _counter;
 
+            internal ThreadLocalNode _prev;
+            internal ThreadLocalNode _next;
+
             public ThreadLocalNode(ThreadInt64PersistentCounter counter)
             {
                 Debug.Assert(counter != null);
-
-                _count = 1;
                 _counter = counter;
+                _prev = this;
+                _next = this;
             }
 
-            ~ThreadLocalNode()
+            public void Dispose()
             {
                 ThreadInt64PersistentCounter counter = _counter;
-                s_lock.Acquire();
+                counter._lock.Acquire();
                 try
                 {
                     counter._overflowCount += _count;
+
+                    _prev._next = _next;
+                    _next._prev = _prev;
                 }
                 finally
                 {
-                    s_lock.Release();
+                    counter._lock.Release();
                 }
             }
 
@@ -116,28 +129,69 @@ namespace System.Threading
                     return;
                 }
 
-                OnIncrementOverflow();
+                OnAddOverflow(1);
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public void Decrement()
+            {
+                if (_count != 0)
+                {
+                    _count--;
+                    return;
+                }
+
+                OnAddOverflow(-1);
+            }
+
+            public void Add(uint count)
+            {
+                Debug.Assert(count != 0);
+
+                uint newCount = _count + count;
+                if (newCount >= count)
+                {
+                    _count = newCount;
+                    return;
+                }
+
+                OnAddOverflow(count);
             }
 
             [MethodImpl(MethodImplOptions.NoInlining)]
-            private void OnIncrementOverflow()
+            private void OnAddOverflow(long count)
             {
-                // Accumulate the count for this increment into the overflow count and reset the thread-local count
+                Debug.Assert(count != 0);
+
+                // Accumulate the count for this add into the overflow count and reset the thread-local count
 
                 // The lock, in coordination with other places that read these values, ensures that both changes below become
                 // visible together
                 ThreadInt64PersistentCounter counter = _counter;
-                s_lock.Acquire();
+                counter._lock.Acquire();
                 try
                 {
+                    counter._overflowCount += _count + count;
                     _count = 0;
-                    counter._overflowCount += (long)uint.MaxValue + 1;
                 }
                 finally
                 {
-                    s_lock.Release();
+                    counter._lock.Release();
                 }
             }
+        }
+
+        private sealed class ThreadLocalNodeFinalizationHelper
+        {
+            private readonly ThreadLocalNode _node;
+
+            public ThreadLocalNodeFinalizationHelper(ThreadLocalNode node)
+            {
+                Debug.Assert(node != null);
+                _node = node;
+            }
+
+            ~ThreadLocalNodeFinalizationHelper() => _node.Dispose();
         }
     }
 }

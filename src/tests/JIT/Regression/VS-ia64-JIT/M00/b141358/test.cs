@@ -3,14 +3,17 @@
 //
 
 using System;
+using Xunit;
 
-namespace test
+namespace b141358
 {
 
-    class Class1
+    public class Class1
     {
 
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             try
             {
@@ -48,7 +51,6 @@ namespace test
             {
                 Console.WriteLine(" finally 1");
             }
-            return 100;
         }
     }
 }

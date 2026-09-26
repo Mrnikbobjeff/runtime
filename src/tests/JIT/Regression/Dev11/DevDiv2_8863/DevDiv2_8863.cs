@@ -2,7 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace DevDiv2_8863;
+
 using System;
+using Xunit;
 
 public class Base
 {
@@ -65,7 +69,9 @@ public class Program
         d.j = 0x77777777;
     }
 
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         /* This issue is caused by CSE and trying to pull a typecheck out of a loop.
          * We used to do this incorrectly and this could allow a type to call methods
@@ -74,7 +80,7 @@ public class Program
          * This example will AV...
          * */
         x64_JIT_Bug(new MyDerived());
-        return 100; // Well, we made it here... should be good.
+        // Well, we made it here... should be good.
     }
 }
 

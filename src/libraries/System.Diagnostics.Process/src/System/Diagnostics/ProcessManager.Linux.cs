@@ -4,40 +4,44 @@
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
-using System.Linq;
-using System.Text;
 
 namespace System.Diagnostics
 {
     internal static partial class ProcessManager
     {
-        /// <summary>Gets the IDs of all processes on the current machine.</summary>
-        public static int[] GetProcessIds()
-        {
-            return EnumerateProcessIds().ToArray();
-        }
+        private static NullableBool _procMatchesPidNamespace;
 
-        /// <summary>Gets process infos for each process on the specified machine.</summary>
-        /// <param name="machineName">The target machine.</param>
-        /// <returns>An array of process infos, one per found process.</returns>
-        public static ProcessInfo[] GetProcessInfos(string machineName)
+        /// <summary>Gets process infos for each process on the local machine.</summary>
+        /// <param name="builder">The builder to add found process infos to.</param>
+        /// <param name="processNameFilter">Optional process name to use as an inclusion filter.</param>
+        public static void GetProcessInfos(ref ArrayBuilder<ProcessInfo> builder, string? processNameFilter)
         {
-            ThrowIfRemoteMachine(machineName);
-            int[] procIds = GetProcessIds(machineName);
-
             // Iterate through all process IDs to load information about each process
-            var reusableReader = new ReusableTextReader();
-            var processes = new List<ProcessInfo>(procIds.Length);
-            foreach (int pid in procIds)
+            IEnumerable<int> pids = EnumerateProcessIds();
+            foreach (int pid in pids)
             {
-                ProcessInfo? pi = CreateProcessInfo(pid, reusableReader);
+                ProcessInfo? pi = CreateProcessInfo(pid, processNameFilter);
                 if (pi != null)
                 {
-                    processes.Add(pi);
+                    builder.Add(pi);
                 }
             }
+        }
 
-            return processes.ToArray();
+        internal static string? GetProcessName(int processId, string _ /* machineName */, bool __ /* isRemoteMachine */, ref ProcessInfo? processInfo)
+        {
+            if (processInfo is not null)
+            {
+                return processInfo.ProcessName;
+            }
+
+            if (TryGetProcPid(processId, out Interop.procfs.ProcPid procPid) &&
+                Interop.procfs.TryReadStatFile(procPid, out Interop.procfs.ParsedStat stat))
+            {
+                return Process.GetUntruncatedProcessName(procPid, ref stat);
+            }
+
+            return null;
         }
 
         /// <summary>Gets an array of module infos for the specified process.</summary>
@@ -45,86 +49,69 @@ namespace System.Diagnostics
         /// <returns>The array of modules.</returns>
         internal static ProcessModuleCollection GetModules(int processId)
         {
-            var modules = new ProcessModuleCollection(0);
-
-            // Process from the parsed maps file each entry representing a module
-            foreach (Interop.procfs.ParsedMapsModule entry in Interop.procfs.ParseMapsModules(processId))
+            ProcessModuleCollection? modules = null;
+            if (TryGetProcPid(processId, out Interop.procfs.ProcPid procPid))
             {
-                int sizeOfImage = (int)(entry.AddressRange.Value - entry.AddressRange.Key);
+                modules = Interop.procfs.ParseMapsModules(procPid);
 
-                // A single module may be split across multiple map entries; consolidate based on
-                // the name and address ranges of sequential entries.
-                if (modules.Count > 0)
+                // Move the main executable module to be the first in the list if it's not already
+                if (modules is not null && Process.GetExePath(procPid) is string exePath)
                 {
-                    ProcessModule module = modules[modules.Count - 1];
-                    if (module.FileName == entry.FileName &&
-                        ((long)module.BaseAddress + module.ModuleMemorySize == entry.AddressRange.Key))
+                    for (int i = 0; i < modules.Count; i++)
                     {
-                        // Merge this entry with the previous one
-                        module.ModuleMemorySize += sizeOfImage;
-                        continue;
+                        ProcessModule module = modules[i];
+                        if (module.FileName == exePath)
+                        {
+                            if (i > 0)
+                            {
+                                modules.RemoveAt(i);
+                                modules.Insert(0, module);
+                            }
+                            break;
+                        }
                     }
-                }
-
-                // It's not a continuation of a previous entry but a new one: add it.
-                unsafe
-                {
-                    modules.Add(new ProcessModule()
-                    {
-                        FileName = entry.FileName,
-                        ModuleName = Path.GetFileName(entry.FileName),
-                        BaseAddress = new IntPtr(unchecked((void*)entry.AddressRange.Key)),
-                        ModuleMemorySize = sizeOfImage,
-                        EntryPointAddress = IntPtr.Zero // unknown
-                    });
                 }
             }
 
-            // Move the main executable module to be the first in the list if it's not already
-            string? exePath = Process.GetExePath(processId);
-            for (int i = 0; i < modules.Count; i++)
-            {
-                ProcessModule module = modules[i];
-                if (module.FileName == exePath)
-                {
-                    if (i > 0)
-                    {
-                        modules.RemoveAt(i);
-                        modules.Insert(0, module);
-                    }
-                    break;
-                }
-            }
-
-            // Return the set of modules found
-            return modules;
+            return modules ?? new(capacity: 0);
         }
 
         /// <summary>
         /// Creates a ProcessInfo from the specified process ID.
         /// </summary>
-        internal static ProcessInfo? CreateProcessInfo(int pid, ReusableTextReader? reusableReader = null)
+        internal static ProcessInfo? CreateProcessInfo(int pid, string? processNameFilter = null)
         {
-            reusableReader ??= new ReusableTextReader();
-            if (Interop.procfs.TryReadStatFile(pid, out Interop.procfs.ParsedStat stat, reusableReader))
+            if (!TryGetProcPid(pid, out Interop.procfs.ProcPid procPid) ||
+                !Interop.procfs.TryReadStatFile(procPid, out Interop.procfs.ParsedStat stat))
             {
-                Interop.procfs.TryReadStatusFile(pid, out Interop.procfs.ParsedStatus status, reusableReader);
-                return CreateProcessInfo(ref stat, ref status, reusableReader);
+                return null;
             }
-            return null;
+
+            string? processName = null;
+            if (processNameFilter != null)
+            {
+                processName = Process.GetUntruncatedProcessName(procPid, ref stat);
+                if (!processNameFilter.Equals(processName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return null;
+                }
+            }
+
+            Interop.procfs.TryReadStatusFile(procPid, out Interop.procfs.ParsedStatus status);
+            return CreateProcessInfo(procPid, ref stat, ref status, processName: processName);
         }
 
         /// <summary>
         /// Creates a ProcessInfo from the data parsed from a /proc/pid/stat file and the associated tasks directory.
         /// </summary>
-        internal static ProcessInfo CreateProcessInfo(ref Interop.procfs.ParsedStat procFsStat, ref Interop.procfs.ParsedStatus procFsStatus, ReusableTextReader reusableReader, string? processName = null)
+        internal static unsafe ProcessInfo CreateProcessInfo(Interop.procfs.ProcPid procPid, ref Interop.procfs.ParsedStat procFsStat, ref Interop.procfs.ParsedStatus procFsStatus, string? processName = null)
         {
             int pid = procFsStat.pid;
 
             var pi = new ProcessInfo()
             {
                 ProcessId = pid,
-                ProcessName = processName ?? Process.GetUntruncatedProcessName(ref procFsStat) ?? string.Empty,
+                ProcessName = processName ?? Process.GetUntruncatedProcessName(procPid, ref procFsStat) ?? string.Empty,
                 BasePriority = (int)procFsStat.nice,
                 SessionId = procFsStat.session,
                 PoolPagedBytes = (long)procFsStatus.VmSwap,
@@ -141,7 +128,7 @@ namespace System.Diagnostics
             };
 
             // Then read through /proc/pid/task/ to find each thread in the process...
-            string tasksDir = Interop.procfs.GetTaskDirectoryPathForProcess(pid);
+            string tasksDir = Interop.procfs.GetTaskDirectoryPathForProcess(procPid);
             try
             {
                 foreach (string taskDir in Directory.EnumerateDirectories(tasksDir))
@@ -151,21 +138,18 @@ namespace System.Diagnostics
                     int tid;
                     Interop.procfs.ParsedStat stat;
                     if (int.TryParse(dirName, NumberStyles.Integer, CultureInfo.InvariantCulture, out tid) &&
-                        Interop.procfs.TryReadStatFile(pid, tid, out stat, reusableReader))
+                        Interop.procfs.TryReadStatFile(procPid, tid, out stat))
                     {
-                        unsafe
+                        pi._threadInfoList.Add(new ThreadInfo()
                         {
-                            pi._threadInfoList.Add(new ThreadInfo()
-                            {
-                                _processId = pid,
-                                _threadId = (ulong)tid,
-                                _basePriority = pi.BasePriority,
-                                _currentPriority = (int)stat.nice,
-                                _startAddress = IntPtr.Zero,
-                                _threadState = ProcFsStateToThreadState(stat.state),
-                                _threadWaitReason = ThreadWaitReason.Unknown
-                            });
-                        }
+                            _processId = pid,
+                            _threadId = (ulong)tid,
+                            _basePriority = pi.BasePriority,
+                            _currentPriority = (int)stat.nice,
+                            _startAddress = null,
+                            _threadState = ProcFsStateToThreadState(stat.state),
+                            _threadWaitReason = ThreadWaitReason.Unknown
+                        });
                     }
                 }
             }
@@ -186,17 +170,25 @@ namespace System.Diagnostics
         /// <summary>Enumerates the IDs of all processes on the current machine.</summary>
         internal static IEnumerable<int> EnumerateProcessIds()
         {
-            // Parse /proc for any directory that's named with a number.  Each such
-            // directory represents a process.
-            foreach (string procDir in Directory.EnumerateDirectories(Interop.procfs.RootPath))
+            if (ProcMatchesPidNamespace)
             {
-                string dirName = Path.GetFileName(procDir);
-                int pid;
-                if (int.TryParse(dirName, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid))
+                // Parse /proc for any directory that's named with a number.  Each such
+                // directory represents a process.
+                foreach (string procDir in Directory.EnumerateDirectories(Interop.procfs.RootPath))
                 {
-                    Debug.Assert(pid >= 0);
-                    yield return pid;
+                    string dirName = Path.GetFileName(procDir);
+                    int pid;
+                    if (int.TryParse(dirName, NumberStyles.Integer, CultureInfo.InvariantCulture, out pid))
+                    {
+                        Debug.Assert(pid >= 0);
+                        yield return pid;
+                    }
                 }
+            }
+            else
+            {
+                // Limit to our own process. For other processes, the pids from /proc don't match with those in the process namespace.
+                yield return Environment.ProcessId;
             }
         }
 
@@ -237,5 +229,76 @@ namespace System.Diagnostics
             }
         }
 
+        internal static bool TryReadStatFile(int pid, out Interop.procfs.ParsedStat stat)
+        {
+            if (!TryGetProcPid(pid, out Interop.procfs.ProcPid procPid))
+            {
+                stat = default;
+                return false;
+            }
+            return Interop.procfs.TryReadStatFile(procPid, out stat);
+        }
+
+        internal static bool TryReadStatusFile(int pid, out Interop.procfs.ParsedStatus status)
+        {
+            if (!TryGetProcPid(pid, out Interop.procfs.ProcPid procPid))
+            {
+                status = default;
+                return false;
+            }
+            return Interop.procfs.TryReadStatusFile(procPid, out status);
+        }
+
+        internal static bool TryReadStatFile(int pid, int tid, out Interop.procfs.ParsedStat stat)
+        {
+            if (!TryGetProcPid(pid, out Interop.procfs.ProcPid procPid))
+            {
+                stat = default;
+                return false;
+            }
+            return Interop.procfs.TryReadStatFile(procPid, tid, out stat);
+        }
+
+        internal static bool TryGetProcPid(int pid, out Interop.procfs.ProcPid procPid)
+        {
+            // Use '/proc/self' for the current process.
+            if (pid == Environment.ProcessId)
+            {
+                procPid = Interop.procfs.ProcPid.Self;
+                return true;
+            }
+
+            if (ProcMatchesPidNamespace)
+            {
+                procPid = (Interop.procfs.ProcPid)pid;
+                return true;
+            }
+
+            // We can't map a process namespace pid to a procfs pid.
+            procPid = Interop.procfs.ProcPid.Invalid;
+            return false;
+        }
+
+        internal static bool ProcMatchesPidNamespace
+        {
+            get
+            {
+                if (_procMatchesPidNamespace == NullableBool.Undefined)
+                {
+                    // '/proc/self' is a symlink to the pid used by '/proc' for the current process.
+                    // We compare it with the pid of the current process to see if the '/proc' and pid namespace match up.
+                    int? procSelfPid = null;
+                    if (Interop.Sys.ReadLink($"{Interop.procfs.RootPath}{Interop.procfs.Self}") is string target &&
+                        int.TryParse(target, out int pid))
+                    {
+                        procSelfPid = pid;
+                    }
+                    Debug.Assert(procSelfPid.HasValue);
+
+                    _procMatchesPidNamespace = !procSelfPid.HasValue || procSelfPid == Environment.ProcessId ? NullableBool.True : NullableBool.False;
+                }
+                return _procMatchesPidNamespace == NullableBool.True;
+            }
+        }
     }
 }

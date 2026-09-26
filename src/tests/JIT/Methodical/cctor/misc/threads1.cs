@@ -5,16 +5,21 @@
 
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 namespace Precise
 {
-    internal class Driver
+    public class Driver_threads1
     {
         public static void f()
         {
             test.b = 0xF;
         }
-        public static int Main()
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/41472", typeof(PlatformDetection), nameof(PlatformDetection.IsNotMultithreadingSupported))]
+        [Fact]
+        [OuterLoop]
+        public static int TestEntryPoint()
         {
             try
             {
@@ -41,7 +46,7 @@ namespace Precise
                 foreach (Thread _thread in tasks)
                     _thread.Start();
 
-                // Wait for tasks to finish	
+                // Wait for tasks to finish
                 foreach (Thread _thread in tasks)
                     _thread.Join();
 

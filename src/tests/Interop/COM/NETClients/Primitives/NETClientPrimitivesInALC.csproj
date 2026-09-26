@@ -1,20 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- Test needs explicit Main for interop purposes -->
+    <RequiresProcessIsolation>true</RequiresProcessIsolation>
+    <ReferenceXUnitWrapperGenerator>false</ReferenceXUnitWrapperGenerator>
     <ApplicationManifest>App.manifest</ApplicationManifest>
-    <!-- ilasm round-trip testing blocked on ILAsm supporting embedding resources. See https://github.com/dotnet/runtime/issues/11412 -->
-    <IlasmRoundTripIncompatible>true</IlasmRoundTripIncompatible>
-    <!-- Test unsupported outside of windows -->
-    <CLRTestTargetUnsupported Condition="'$(TargetsWindows)' != 'true'">true</CLRTestTargetUnsupported>
-    <!-- This test would require the runincontext.exe to include App.manifest describing the COM interfaces -->
-    <UnloadabilityIncompatible>true</UnloadabilityIncompatible>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="TestInALC.cs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../../NativeServer/CMakeLists.txt" />
-    <ProjectReference Include="$(TestSourceDir)Common/CoreCLRTestLibrary/CoreCLRTestLibrary.csproj" />
+    <CMakeProjectReference Include="../../NativeServer/CMakeLists.txt" />
+    <ProjectReference Include="$(TestLibraryProjectPath)" />
     <ProjectReference Include="NETClientPrimitives.csproj" />
   </ItemGroup>
 </Project>

@@ -1,4 +1,4 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Buffers;
@@ -20,21 +20,19 @@ namespace System.IO
     // a stream "view" of the data.
     public class MemoryStream : Stream
     {
-        private byte[] _buffer;    // Either allocated internally or externally.
-        private readonly int _origin;       // For user-provided arrays, start at this origin
-        private int _position;     // read/write head.
-        private int _length;       // Number of bytes within the memory stream
-        private int _capacity;     // length of usable portion of buffer for stream
+        private byte[] _buffer;            // Either allocated internally or externally.
+        private readonly int _origin;      // For user-provided arrays, start at this origin
+        private int _position;             // read/write head.
+        private int _length;               // Number of bytes within the memory stream
+        private int _capacity;             // length of usable portion of buffer for stream
         // Note that _capacity == _buffer.Length for non-user-provided byte[]'s
 
-        private bool _expandable;  // User-provided buffers aren't expandable.
-        private bool _writable;    // Can user write to this stream?
-        private readonly bool _exposable;   // Whether the array can be returned to the user.
-        private bool _isOpen;      // Is this stream open or closed?
+        private bool _expandable;          // User-provided buffers aren't expandable.
+        private bool _writable;            // Can user write to this stream?
+        private readonly bool _exposable;  // Whether the array can be returned to the user.
+        private bool _isOpen;              // Is this stream open or closed?
 
-        private Task<int>? _lastReadTask; // The last successful task returned from ReadAsync
-
-        private const int MemStreamMaxLength = int.MaxValue;
+        private CachedCompletedInt32Task _lastReadTask; // The last successful task returned from ReadAsync
 
         public MemoryStream()
             : this(0)
@@ -43,10 +41,9 @@ namespace System.IO
 
         public MemoryStream(int capacity)
         {
-            if (capacity < 0)
-                throw new ArgumentOutOfRangeException(nameof(capacity), SR.ArgumentOutOfRange_NegativeCapacity);
+            ArgumentOutOfRangeException.ThrowIfNegative(capacity);
 
-            _buffer = capacity != 0 ? new byte[capacity] : Array.Empty<byte>();
+            _buffer = capacity != 0 ? new byte[capacity] : [];
             _capacity = capacity;
             _expandable = true;
             _writable = true;
@@ -61,8 +58,7 @@ namespace System.IO
 
         public MemoryStream(byte[] buffer, bool writable)
         {
-            if (buffer == null)
-                throw new ArgumentNullException(nameof(buffer), SR.ArgumentNull_Buffer);
+            ArgumentNullException.ThrowIfNull(buffer);
 
             _buffer = buffer;
             _length = _capacity = buffer.Length;
@@ -82,12 +78,10 @@ namespace System.IO
 
         public MemoryStream(byte[] buffer, int index, int count, bool writable, bool publiclyVisible)
         {
-            if (buffer == null)
-                throw new ArgumentNullException(nameof(buffer), SR.ArgumentNull_Buffer);
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentNullException.ThrowIfNull(buffer);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
             if (buffer.Length - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -108,32 +102,24 @@ namespace System.IO
         private void EnsureNotClosed()
         {
             if (!_isOpen)
-                throw Error.GetStreamIsClosed();
+                ThrowHelper.ThrowObjectDisposedException_StreamClosed(null);
         }
 
         private void EnsureWriteable()
         {
             if (!CanWrite)
-                throw Error.GetWriteNotSupported();
+                ThrowHelper.ThrowNotSupportedException_UnwritableStream();
         }
 
         protected override void Dispose(bool disposing)
         {
-            try
+            if (disposing)
             {
-                if (disposing)
-                {
-                    _isOpen = false;
-                    _writable = false;
-                    _expandable = false;
-                    // Don't set buffer to null - allow TryGetBuffer, GetBuffer & ToArray to work.
-                    _lastReadTask = null;
-                }
-            }
-            finally
-            {
-                // Call base.Close() to cleanup async IO resources
-                base.Dispose(disposing);
+                _isOpen = false;
+                _writable = false;
+                _expandable = false;
+                // Don't set buffer to null - allow TryGetBuffer, GetBuffer & ToArray to work.
+                _lastReadTask = default;
             }
         }
 
@@ -155,11 +141,11 @@ namespace System.IO
                     newCapacity = _capacity * 2;
                 }
 
-                // We want to expand the array up to Array.MaxByteArrayLength
+                // We want to expand the array up to Array.MaxLength.
                 // And we want to give the user the value that they asked for
-                if ((uint)(_capacity * 2) > Array.MaxByteArrayLength)
+                if ((uint)(_capacity * 2) > Array.MaxLength)
                 {
-                    newCapacity = Math.Max(value, Array.MaxByteArrayLength);
+                    newCapacity = Math.Max(value, Array.MaxLength);
                 }
 
                 Capacity = newCapacity;
@@ -233,7 +219,7 @@ namespace System.IO
             if ((uint)newPos > (uint)_length)
             {
                 _position = _length;
-                throw Error.GetEndOfFile();
+                ThrowHelper.ThrowEndOfFileException();
             }
 
             var span = new ReadOnlySpan<byte>(_buffer, origPos, count);
@@ -252,7 +238,7 @@ namespace System.IO
             if (n < 0)
                 n = 0;
 
-            Debug.Assert(_position + n >= 0, "_position + n >= 0");  // len is less than 2^31 -1.
+            Debug.Assert(_position + n >= 0);  // len is less than 2^31 -1.
             _position += n;
             return n;
         }
@@ -294,7 +280,7 @@ namespace System.IO
                     }
                     else
                     {
-                        _buffer = Array.Empty<byte>();
+                        _buffer = [];
                     }
                     _capacity = value;
                 }
@@ -319,28 +305,18 @@ namespace System.IO
             }
             set
             {
-                if (value < 0)
-                    throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_NeedNonNegNum);
-
+                ArgumentOutOfRangeException.ThrowIfNegative(value);
                 EnsureNotClosed();
 
-                if (value > MemStreamMaxLength)
-                    throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_StreamLength);
+                if (value > int.MaxValue - _origin)
+                    throw new ArgumentOutOfRangeException(nameof(value), SR.Format(SR.ArgumentOutOfRange_StreamLength, Array.MaxLength));
                 _position = _origin + (int)value;
             }
         }
 
         public override int Read(byte[] buffer, int offset, int count)
         {
-            if (buffer == null)
-                throw new ArgumentNullException(nameof(buffer), SR.ArgumentNull_Buffer);
-            if (offset < 0)
-                throw new ArgumentOutOfRangeException(nameof(offset), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (buffer.Length - offset < count)
-                throw new ArgumentException(SR.Argument_InvalidOffLen);
-
+            ValidateBufferArguments(buffer, offset, count);
             EnsureNotClosed();
 
             int n = _length - _position;
@@ -349,7 +325,7 @@ namespace System.IO
             if (n <= 0)
                 return 0;
 
-            Debug.Assert(_position + n >= 0, "_position + n >= 0");  // len is less than 2^31 -1.
+            Debug.Assert(_position + n >= 0);  // len is less than 2^31 -1.
 
             if (n <= 8)
             {
@@ -388,14 +364,7 @@ namespace System.IO
 
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
-            if (buffer == null)
-                throw new ArgumentNullException(nameof(buffer), SR.ArgumentNull_Buffer);
-            if (offset < 0)
-                throw new ArgumentOutOfRangeException(nameof(offset), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (buffer.Length - offset < count)
-                throw new ArgumentException(SR.Argument_InvalidOffLen);
+            ValidateBufferArguments(buffer, offset, count);
 
             // If cancellation was requested, bail early
             if (cancellationToken.IsCancellationRequested)
@@ -404,10 +373,7 @@ namespace System.IO
             try
             {
                 int n = Read(buffer, offset, count);
-                Task<int>? t = _lastReadTask;
-                Debug.Assert(t == null || t.Status == TaskStatus.RanToCompletion,
-                    "Expected that a stored last task completed successfully");
-                return (t != null && t.Result == n) ? t : (_lastReadTask = Task.FromResult<int>(n));
+                return _lastReadTask.GetTask(n);
             }
             catch (OperationCanceledException oce)
             {
@@ -467,10 +433,6 @@ namespace System.IO
 
         public override void CopyTo(Stream destination, int bufferSize)
         {
-            // Since we did not originally override this method, validate the arguments
-            // the same way Stream does for back-compat.
-            StreamHelpers.ValidateCopyToArgs(this, destination, bufferSize);
-
             // If we have been inherited into a subclass, the following implementation could be incorrect
             // since it does not call through to Read() which a subclass might have overridden.
             // To be safe we will only use this implementation in cases where we know it is safe to do so,
@@ -480,6 +442,10 @@ namespace System.IO
                 base.CopyTo(destination, bufferSize);
                 return;
             }
+
+            // Validate the arguments the same way Stream does for back-compat.
+            ValidateCopyToArguments(destination, bufferSize);
+            EnsureNotClosed();
 
             int originalPosition = _position;
 
@@ -499,7 +465,8 @@ namespace System.IO
         {
             // This implementation offers better performance compared to the base class version.
 
-            StreamHelpers.ValidateCopyToArgs(this, destination, bufferSize);
+            ValidateCopyToArguments(destination, bufferSize);
+            EnsureNotClosed();
 
             // If we have been inherited into a subclass, the following implementation could be incorrect
             // since it does not call through to ReadAsync() which a subclass might have overridden.
@@ -524,7 +491,7 @@ namespace System.IO
                 return Task.CompletedTask;
 
             // If destination is not a memory stream, write there asynchronously:
-            if (!(destination is MemoryStream memStrDest))
+            if (destination is not MemoryStream memStrDest)
                 return destination.WriteAsync(_buffer, pos, n, cancellationToken);
 
             try
@@ -543,41 +510,26 @@ namespace System.IO
         {
             EnsureNotClosed();
 
-            if (offset > MemStreamMaxLength)
-                throw new ArgumentOutOfRangeException(nameof(offset), SR.ArgumentOutOfRange_StreamLength);
-
-            switch (loc)
+            return SeekCore(offset, loc switch
             {
-                case SeekOrigin.Begin:
-                    {
-                        int tempPosition = unchecked(_origin + (int)offset);
-                        if (offset < 0 || tempPosition < _origin)
-                            throw new IOException(SR.IO_SeekBeforeBegin);
-                        _position = tempPosition;
-                        break;
-                    }
-                case SeekOrigin.Current:
-                    {
-                        int tempPosition = unchecked(_position + (int)offset);
-                        if (unchecked(_position + offset) < _origin || tempPosition < _origin)
-                            throw new IOException(SR.IO_SeekBeforeBegin);
-                        _position = tempPosition;
-                        break;
-                    }
-                case SeekOrigin.End:
-                    {
-                        int tempPosition = unchecked(_length + (int)offset);
-                        if (unchecked(_length + offset) < _origin || tempPosition < _origin)
-                            throw new IOException(SR.IO_SeekBeforeBegin);
-                        _position = tempPosition;
-                        break;
-                    }
-                default:
-                    throw new ArgumentException(SR.Argument_InvalidSeekOrigin);
-            }
+                SeekOrigin.Begin => _origin,
+                SeekOrigin.Current => _position,
+                SeekOrigin.End => _length,
+                _ => throw new ArgumentException(SR.Argument_InvalidSeekOrigin)
+            });
+        }
 
-            Debug.Assert(_position >= 0, "_position >= 0");
-            return _position;
+        private long SeekCore(long offset, int loc)
+        {
+            if (offset > int.MaxValue - loc)
+                throw new ArgumentOutOfRangeException(nameof(offset), SR.Format(SR.ArgumentOutOfRange_StreamLength, Array.MaxLength));
+            int tempPosition = unchecked(loc + (int)offset);
+            if (unchecked(loc + offset) < _origin || tempPosition < _origin)
+                throw new IOException(SR.IO_SeekBeforeBegin);
+            _position = tempPosition;
+
+            Debug.Assert(_position >= _origin);
+            return _position - _origin;
         }
 
         // Sets the length of the stream to a given value.  The new
@@ -593,14 +545,13 @@ namespace System.IO
         public override void SetLength(long value)
         {
             if (value < 0 || value > int.MaxValue)
-                throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_StreamLength);
+                throw new ArgumentOutOfRangeException(nameof(value), SR.Format(SR.ArgumentOutOfRange_StreamLength, Array.MaxLength));
 
             EnsureWriteable();
 
             // Origin wasn't publicly exposed above.
-            Debug.Assert(MemStreamMaxLength == int.MaxValue);  // Check parameter validation logic in this method if this fails.
             if (value > (int.MaxValue - _origin))
-                throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_StreamLength);
+                throw new ArgumentOutOfRangeException(nameof(value), SR.Format(SR.ArgumentOutOfRange_StreamLength, Array.MaxLength));
 
             int newLength = _origin + (int)value;
             bool allocatedNewArray = EnsureCapacity(newLength);
@@ -615,23 +566,15 @@ namespace System.IO
         {
             int count = _length - _origin;
             if (count == 0)
-                return Array.Empty<byte>();
-            byte[] copy = new byte[count];
-            Buffer.BlockCopy(_buffer, _origin, copy, 0, count);
+                return [];
+            byte[] copy = GC.AllocateUninitializedArray<byte>(count);
+            _buffer.AsSpan(_origin, count).CopyTo(copy);
             return copy;
         }
 
         public override void Write(byte[] buffer, int offset, int count)
         {
-            if (buffer == null)
-                throw new ArgumentNullException(nameof(buffer), SR.ArgumentNull_Buffer);
-            if (offset < 0)
-                throw new ArgumentOutOfRangeException(nameof(offset), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (buffer.Length - offset < count)
-                throw new ArgumentException(SR.Argument_InvalidOffLen);
-
+            ValidateBufferArguments(buffer, offset, count);
             EnsureNotClosed();
             EnsureWriteable();
 
@@ -715,14 +658,7 @@ namespace System.IO
 
         public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
-            if (buffer == null)
-                throw new ArgumentNullException(nameof(buffer), SR.ArgumentNull_Buffer);
-            if (offset < 0)
-                throw new ArgumentOutOfRangeException(nameof(offset), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (buffer.Length - offset < count)
-                throw new ArgumentException(SR.Argument_InvalidOffLen);
+            ValidateBufferArguments(buffer, offset, count);
 
             // If cancellation is already requested, bail early
             if (cancellationToken.IsCancellationRequested)
@@ -803,8 +739,7 @@ namespace System.IO
         // Writes this MemoryStream to another stream.
         public virtual void WriteTo(Stream stream)
         {
-            if (stream == null)
-                throw new ArgumentNullException(nameof(stream), SR.ArgumentNull_Stream);
+            ArgumentNullException.ThrowIfNull(stream);
 
             EnsureNotClosed();
 

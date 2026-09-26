@@ -2,11 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b89279;
+
 using System;
+using Xunit;
 
 public class AA
 {
-    public static void Static5(int param1)
+    internal static void Static5(int param1)
     {
         if (param1 != 0)
         {
@@ -17,5 +21,10 @@ public class AA
         param1 = param1;
 #pragma warning restore 1717
     }
-    static int Main() { Static5(0); return 100; }
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
+    {
+        Static5(0);
+    }
 }

@@ -8,9 +8,11 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using Microsoft.Diagnostics.Tools.RuntimeClient;
 using Microsoft.Diagnostics.Tracing;
 using Tracing.Tests.Common;
+using Microsoft.Diagnostics.NETCore.Client;
+using Xunit;
+using TestLibrary;
 
 namespace Tracing.Tests.ProviderValidation
 {
@@ -23,21 +25,24 @@ namespace Tracing.Tests.ProviderValidation
 
     public class ProviderValidation
     {
-        public static int Main(string[] args)
+        [ActiveIssue("WASM doesn't support diagnostics tracing", TestPlatforms.Browser)]
+        [ActiveIssue("Can't find file dotnet-diagnostic-{pid}-*-socket", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoRuntime), nameof(PlatformDetection.IsRiscv64Process))]
+        [SkipOnCoreClr("This test is sensitive to JIT optimizations.", RuntimeTestModes.AnyJitOptimizationStress)]
+        [SkipOnCoreClr("Tracing tests routinely time out with JIT stress and GC stress.", RuntimeTestModes.AnyGCStress)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             // This test validates that the rundown events are present
             // and that providers turned on that generate events are being written to
             // the stream.
 
-            var providers = new List<Provider>()
+            var providers = new List<EventPipeProvider>()
             {
-                new Provider("MyEventSource"),
-                new Provider("Microsoft-DotNETCore-SampleProfiler")
+                new EventPipeProvider("MyEventSource", EventLevel.Verbose),
+                new EventPipeProvider("Microsoft-DotNETCore-SampleProfiler", EventLevel.Verbose)
             };
 
-            var config = new SessionConfiguration(circularBufferSizeMB: (uint)Math.Pow(2, 10), format: EventPipeSerializationFormat.NetTrace,  providers: providers);
-
-            var ret = IpcTraceTest.RunAndValidateEventCounts(_expectedEventCounts, _eventGeneratingAction, config);
+            var ret = IpcTraceTest.RunAndValidateEventCounts(_expectedEventCounts, _eventGeneratingAction, providers, 1024);
             if (ret < 0)
                 return ret;
             else

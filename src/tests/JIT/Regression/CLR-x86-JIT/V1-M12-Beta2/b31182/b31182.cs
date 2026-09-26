@@ -2,11 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b31182
 {
     using System;
 
-    class App
+    public class App
     {
         public static bool[] m_abStatic1 = new bool[7];
         public uint Method1()
@@ -27,7 +28,9 @@ namespace Test
             }
             return 0;
         }
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

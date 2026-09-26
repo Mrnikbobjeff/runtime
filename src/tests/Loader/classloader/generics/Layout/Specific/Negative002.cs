@@ -3,6 +3,8 @@
 
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
+using TestLibrary;
 
 [StructLayout(LayoutKind.Auto)]
 public class GenBase<T>
@@ -28,7 +30,7 @@ public class GenTest<T>
 	{
 		InternalTest();
 	}
-	public bool Test()
+	public bool Test_Negative002()
 	{
 		try
 		{
@@ -48,7 +50,7 @@ public class GenTest<T>
 	}
 }
 
-public class Test
+public class Test_Negative002
 {
 	public static int counter = 0;
 	public static bool result = true;
@@ -63,14 +65,16 @@ public class Test
 	
 	}
 	
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 
-		Eval(new GenTest<int>().Test());
-		Eval(new GenTest<double>().Test());
-		Eval(new GenTest<Guid>().Test());
-		Eval(new GenTest<string>().Test());
-		Eval(new GenTest<object>().Test());
+		Eval(new GenTest<int>().Test_Negative002());
+		Eval(new GenTest<double>().Test_Negative002());
+		Eval(new GenTest<Guid>().Test_Negative002());
+		Eval(new GenTest<string>().Test_Negative002());
+		Eval(new GenTest<object>().Test_Negative002());
 		
 		
 		if (result)

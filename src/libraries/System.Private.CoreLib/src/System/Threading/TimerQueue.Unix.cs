@@ -3,8 +3,14 @@
 
 namespace System.Threading
 {
-    internal partial class TimerQueue
+    internal sealed partial class TimerQueue
     {
-        private static long TickCount64 => Environment.TickCount64;
+#pragma warning disable IDE0060
+        private TimerQueue(int id)
+        {
+        }
+#pragma warning restore IDE0060
+
+        private bool SetTimer(uint actualDuration) => SetTimerPortable(actualDuration);
     }
 }

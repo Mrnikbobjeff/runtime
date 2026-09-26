@@ -1,13 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
 namespace System.Xml.Schema
 {
-    using System;
-    using System.Collections;
-    using System.Collections.Generic;
-    using System.Runtime.InteropServices;
-
     [StructLayout(LayoutKind.Explicit)]
     internal struct StateUnion
     {
@@ -42,7 +42,7 @@ namespace System.Xml.Schema
         public bool HasMatched;       // whether the element has been verified correctly
 
         //For NFAs
-        public BitSet[] CurPos = new BitSet[2];
+        public BitSet[] CurPos => field ??= new BitSet[2];
 
         //For all
         public BitSet? AllElementsSet;

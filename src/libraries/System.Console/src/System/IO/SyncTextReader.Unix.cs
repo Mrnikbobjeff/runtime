@@ -20,11 +20,11 @@ namespace System.IO
             }
         }
 
-        public ConsoleKeyInfo ReadKey(out bool previouslyProcessed)
+        public ConsoleKeyInfo ReadKey(bool intercept)
         {
             lock (this)
             {
-                return Inner.ReadKey(out previouslyProcessed);
+                return Inner.ReadKey(intercept);
             }
         }
 
@@ -35,12 +35,11 @@ namespace System.IO
                 lock (this)
                 {
                     StdInReader r = Inner;
-                    return !r.IsUnprocessedBufferEmpty() || r.StdinReady;
+                    return !r.IsUnprocessedBufferEmpty() || StdInReader.StdinReady;
                 }
             }
         }
 
-        public int ReadLine(byte[] buffer, int offset, int count)
-            => Inner.ReadLine(buffer, offset, count);
+        public int ReadLine(Span<byte> buffer) => Inner.ReadLine(buffer);
     }
 }

@@ -18,16 +18,17 @@
 #if !defined(__APPLE__) && !defined(__FreeBSD__) && !defined(__OpenBSD__)
 #include <malloc.h>
 #endif
+#ifndef HOST_WIN32
 #include <unistd.h>
-#include <stdlib.h>
-#if defined (HAVE_SYS_ZLIB)
-#include <zlib.h>
 #endif
+#include <stdlib.h>
+#ifndef DISABLE_LOG_PROFILER_GZ
+#include <zlib.h>
+#endif // DISABLE_LOG_PROFILER_GZ
 #include <glib.h>
 #include <mono/metadata/profiler.h>
 #include <mono/metadata/object.h>
 #include <mono/metadata/debug-helpers.h>
-#include <mono/utils/mono-counters.h>
 
 #define HASH_SIZE 9371
 #define SMALL_HASH_SIZE 31
@@ -1552,7 +1553,7 @@ typedef struct _RemCtxContext RemCtxContext;
 
 typedef struct {
 	FILE *file;
-#if defined (HAVE_SYS_ZLIB)
+#ifndef DISABLE_LOG_PROFILER_GZ
 	gzFile gzfile;
 #endif
 	unsigned char *buf;
@@ -1622,7 +1623,7 @@ static int
 load_data (ProfContext *ctx, int size)
 {
 	ensure_buffer (ctx, size);
-#if defined (HAVE_SYS_ZLIB)
+#ifndef DISABLE_LOG_PROFILER_GZ
 	if (ctx->gzfile) {
 		int r = gzread (ctx->gzfile, ctx->buf, size);
 		if (r == 0)
@@ -2225,7 +2226,7 @@ decode_buffer (ProfContext *ctx)
 	int len, i;
 	ThreadContext *thread;
 
-#ifdef HAVE_SYS_ZLIB
+#ifndef DISABLE_LOG_PROFILER_GZ
 	if (ctx->gzfile)
 		file_offset = gztell (ctx->gzfile);
 	else
@@ -2430,7 +2431,7 @@ decode_buffer (ProfContext *ctx)
 					add_image (ptr_base + ptrdiff, (char*)p);
 				while (*p) p++;
 				p++;
-				if (ctx->data_version >= 16) {
+				if (ctx->data_version >= 16 && subtype == TYPE_END_LOAD) {
 					while (*p) p++; // mvid
 					p++;
 				}
@@ -3232,7 +3233,7 @@ load_file (char *name)
 		printf ("Cannot open file: %s\n", name);
 		exit (1);
 	}
-#if defined (HAVE_SYS_ZLIB)
+#ifndef DISABLE_LOG_PROFILER_GZ
 	if (ctx->file != stdin)
 		ctx->gzfile = gzdopen (fileno (ctx->file), "rb");
 #endif

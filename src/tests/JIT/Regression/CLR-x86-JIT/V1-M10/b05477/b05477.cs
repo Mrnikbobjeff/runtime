@@ -2,7 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b05477;
+
 using System;
+using Xunit;
 
 public class TestClass
 {
@@ -20,7 +24,8 @@ public class mem035
         }
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int RetInt = 1;
 

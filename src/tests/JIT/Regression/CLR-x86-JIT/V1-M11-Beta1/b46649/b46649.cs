@@ -2,13 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b46649
 {
     using System;
 
-    class AA
+    public class AA
     {
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             int L = -111;
             object O = null;
@@ -23,7 +26,6 @@ namespace Test
                     }
                 }
             }
-            return 100;
         }
     }
 }

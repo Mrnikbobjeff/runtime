@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 interface IGen<T>
 {
@@ -16,18 +18,18 @@ struct GenInt : IGen<int>
 	public void Target<U>(object p)
 	{		
 		//dummy line to avoid warnings
-		Test.Eval(typeof(U)!=p.GetType());
+		Test_thread23.Eval(typeof(U)!=p.GetType());
 		ManualResetEvent evt = (ManualResetEvent) p;
-		Interlocked.Increment(ref Test.Xcounter);
+		Interlocked.Increment(ref Test_thread23.Xcounter);
 		evt.Set();
 	}
 	
 	public static void ThreadPoolTest<U>()
 	{
-		ManualResetEvent[] evts = new ManualResetEvent[Test.nThreads];
-		WaitHandle[] hdls = new WaitHandle[Test.nThreads];
+		ManualResetEvent[] evts = new ManualResetEvent[Test_thread23.nThreads];
+		WaitHandle[] hdls = new WaitHandle[Test_thread23.nThreads];
 
-		for (int i=0; i<Test.nThreads; i++)
+		for (int i=0; i<Test_thread23.nThreads; i++)
 		{
 			evts[i] = new ManualResetEvent(false);
 			hdls[i] = (WaitHandle) evts[i];
@@ -35,15 +37,15 @@ struct GenInt : IGen<int>
 
 		IGen<int> obj = new GenInt();
 
-		for (int i = 0; i <Test.nThreads; i++)
+		for (int i = 0; i <Test_thread23.nThreads; i++)
 		{	
 			WaitCallback cb = new WaitCallback(obj.Target<U>);
 			ThreadPool.QueueUserWorkItem(cb,evts[i]);
 		}
 
 		WaitHandle.WaitAll(hdls);
-		Test.Eval(Test.Xcounter==Test.nThreads);
-		Test.Xcounter = 0;
+		Test_thread23.Eval(Test_thread23.Xcounter==Test_thread23.nThreads);
+		Test_thread23.Xcounter = 0;
 	}
 }
 
@@ -54,18 +56,18 @@ struct GenDouble : IGen<double>
 	public void Target<U>(object p)
 	{		
 		//dummy line to avoid warnings
-		Test.Eval(typeof(U)!=p.GetType());
+		Test_thread23.Eval(typeof(U)!=p.GetType());
 		ManualResetEvent evt = (ManualResetEvent) p;
-        Interlocked.Increment(ref Test.Xcounter);
+        Interlocked.Increment(ref Test_thread23.Xcounter);
         evt.Set();
 	}
 	
 	public static void ThreadPoolTest<U>()
 	{
-		ManualResetEvent[] evts = new ManualResetEvent[Test.nThreads];
-		WaitHandle[] hdls = new WaitHandle[Test.nThreads];
+		ManualResetEvent[] evts = new ManualResetEvent[Test_thread23.nThreads];
+		WaitHandle[] hdls = new WaitHandle[Test_thread23.nThreads];
 
-		for (int i=0; i<Test.nThreads; i++)
+		for (int i=0; i<Test_thread23.nThreads; i++)
 		{
 			evts[i] = new ManualResetEvent(false);
 			hdls[i] = (WaitHandle) evts[i];
@@ -73,15 +75,15 @@ struct GenDouble : IGen<double>
 
 		IGen<double> obj = new GenDouble();
 
-		for (int i = 0; i <Test.nThreads; i++)
+		for (int i = 0; i <Test_thread23.nThreads; i++)
 		{	
 			WaitCallback cb = new WaitCallback(obj.Target<U>);
 			ThreadPool.QueueUserWorkItem(cb,evts[i]);
 		}
 
 		WaitHandle.WaitAll(hdls);
-		Test.Eval(Test.Xcounter==Test.nThreads);
-		Test.Xcounter = 0;
+		Test_thread23.Eval(Test_thread23.Xcounter==Test_thread23.nThreads);
+		Test_thread23.Xcounter = 0;
 	}
 }
 
@@ -93,18 +95,18 @@ struct GenString : IGen<string>
 	public void Target<U>(object p)
 	{		
 		//dummy line to avoid warnings
-		Test.Eval(typeof(U)!=p.GetType());
+		Test_thread23.Eval(typeof(U)!=p.GetType());
 		ManualResetEvent evt = (ManualResetEvent) p;
-        Interlocked.Increment(ref Test.Xcounter);
+        Interlocked.Increment(ref Test_thread23.Xcounter);
         evt.Set();
 	}
 	
 	public static void ThreadPoolTest<U>()
 	{
-		ManualResetEvent[] evts = new ManualResetEvent[Test.nThreads];
-		WaitHandle[] hdls = new WaitHandle[Test.nThreads];
+		ManualResetEvent[] evts = new ManualResetEvent[Test_thread23.nThreads];
+		WaitHandle[] hdls = new WaitHandle[Test_thread23.nThreads];
 
-		for (int i=0; i<Test.nThreads; i++)
+		for (int i=0; i<Test_thread23.nThreads; i++)
 		{
 			evts[i] = new ManualResetEvent(false);
 			hdls[i] = (WaitHandle) evts[i];
@@ -112,15 +114,15 @@ struct GenString : IGen<string>
 
 		IGen<string> obj = new GenString();
 
-		for (int i = 0; i <Test.nThreads; i++)
+		for (int i = 0; i <Test_thread23.nThreads; i++)
 		{	
 			WaitCallback cb = new WaitCallback(obj.Target<U>);
 			ThreadPool.QueueUserWorkItem(cb,evts[i]);
 		}
 
 		WaitHandle.WaitAll(hdls);
-		Test.Eval(Test.Xcounter==Test.nThreads);
-		Test.Xcounter = 0;
+		Test_thread23.Eval(Test_thread23.Xcounter==Test_thread23.nThreads);
+		Test_thread23.Xcounter = 0;
 	}
 }
 
@@ -131,19 +133,19 @@ struct GenObject : IGen<object>
 	public void Target<U>(object p)
 	{		
 		//dummy line to avoid warnings
-		Test.Eval(typeof(U)!=p.GetType());
+		Test_thread23.Eval(typeof(U)!=p.GetType());
 		ManualResetEvent evt = (ManualResetEvent) p;
 
-        Interlocked.Increment(ref Test.Xcounter);
+        Interlocked.Increment(ref Test_thread23.Xcounter);
         evt.Set();
 	}
 	
 	public static void ThreadPoolTest<U>()
 	{
-		ManualResetEvent[] evts = new ManualResetEvent[Test.nThreads];
-		WaitHandle[] hdls = new WaitHandle[Test.nThreads];
+		ManualResetEvent[] evts = new ManualResetEvent[Test_thread23.nThreads];
+		WaitHandle[] hdls = new WaitHandle[Test_thread23.nThreads];
 
-		for (int i=0; i<Test.nThreads; i++)
+		for (int i=0; i<Test_thread23.nThreads; i++)
 		{
 			evts[i] = new ManualResetEvent(false);
 			hdls[i] = (WaitHandle) evts[i];
@@ -151,15 +153,15 @@ struct GenObject : IGen<object>
 
 		IGen<object> obj = new GenObject();
 
-		for (int i = 0; i <Test.nThreads; i++)
+		for (int i = 0; i <Test_thread23.nThreads; i++)
 		{	
 			WaitCallback cb = new WaitCallback(obj.Target<U>);
 			ThreadPool.QueueUserWorkItem(cb,evts[i]);
 		}
 
 		WaitHandle.WaitAll(hdls);
-		Test.Eval(Test.Xcounter==Test.nThreads);
-		Test.Xcounter = 0;
+		Test_thread23.Eval(Test_thread23.Xcounter==Test_thread23.nThreads);
+		Test_thread23.Xcounter = 0;
 	}
 }
 
@@ -170,19 +172,19 @@ struct GenGuid : IGen<Guid>
 	public void Target<U>(object p)
 	{		
 		//dummy line to avoid warnings
-		Test.Eval(typeof(U)!=p.GetType());
+		Test_thread23.Eval(typeof(U)!=p.GetType());
 		ManualResetEvent evt = (ManualResetEvent) p;
 
-        Interlocked.Increment(ref Test.Xcounter);
+        Interlocked.Increment(ref Test_thread23.Xcounter);
         evt.Set();
 	}
 	
 	public static void ThreadPoolTest<U>()
 	{
-		ManualResetEvent[] evts = new ManualResetEvent[Test.nThreads];
-		WaitHandle[] hdls = new WaitHandle[Test.nThreads];
+		ManualResetEvent[] evts = new ManualResetEvent[Test_thread23.nThreads];
+		WaitHandle[] hdls = new WaitHandle[Test_thread23.nThreads];
 
-		for (int i=0; i<Test.nThreads; i++)
+		for (int i=0; i<Test_thread23.nThreads; i++)
 		{
 			evts[i] = new ManualResetEvent(false);
 			hdls[i] = (WaitHandle) evts[i];
@@ -190,18 +192,18 @@ struct GenGuid : IGen<Guid>
 
 		IGen<Guid> obj = new GenGuid();
 
-		for (int i = 0; i <Test.nThreads; i++)
+		for (int i = 0; i <Test_thread23.nThreads; i++)
 		{	
 			WaitCallback cb = new WaitCallback(obj.Target<U>);
 			ThreadPool.QueueUserWorkItem(cb,evts[i]);
 		}
 
 		WaitHandle.WaitAll(hdls);
-		Test.Eval(Test.Xcounter==Test.nThreads);
-		Test.Xcounter = 0;
+		Test_thread23.Eval(Test_thread23.Xcounter==Test_thread23.nThreads);
+		Test_thread23.Xcounter = 0;
 	}
 }
-public class Test
+public class Test_thread23
 {
 	public static int nThreads =50;
 	public static int counter = 0;
@@ -218,7 +220,8 @@ public class Test
 	
 	}
 	
-	public static int Main()
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint()
 	{
 	
 		GenInt.ThreadPoolTest<int>();

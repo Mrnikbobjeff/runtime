@@ -2,7 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace ConstToString;
+
 using System;
+using Xunit;
 
 public class ConstToString
 {
@@ -66,7 +70,9 @@ public class ConstToString
         }
         return iret;
     }
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int iret = 100;
         if (IntConstToString() != 100)

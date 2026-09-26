@@ -1,19 +1,19 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Xml;
 using System.Collections;
+using System.Xml;
 
 namespace System.Security.Cryptography.Xml
 {
-    internal class NamespaceSortOrder : IComparer
+    internal sealed class NamespaceSortOrder : IComparer
     {
         internal NamespaceSortOrder() { }
 
-        public int Compare(object a, object b)
+        public int Compare(object? a, object? b)
         {
-            XmlNode nodeA = a as XmlNode;
-            XmlNode nodeB = b as XmlNode;
+            XmlNode? nodeA = a as XmlNode;
+            XmlNode? nodeB = b as XmlNode;
             if ((nodeA == null) || (nodeB == null))
                 throw new ArgumentException();
             bool nodeAdefault = Utils.IsDefaultNamespaceNode(nodeA);

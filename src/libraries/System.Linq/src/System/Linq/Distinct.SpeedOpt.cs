@@ -7,20 +7,23 @@ namespace System.Linq
 {
     public static partial class Enumerable
     {
-        private sealed partial class DistinctIterator<TSource> : IIListProvider<TSource>
+        private sealed partial class DistinctIterator<TSource>
         {
-            private Set<TSource> FillSet()
-            {
-                var set = new Set<TSource>(_comparer);
-                set.UnionWith(_source);
-                return set;
-            }
+            public override TSource[] ToArray() => ICollectionToArray(new HashSet<TSource>(_source, _comparer));
 
-            public TSource[] ToArray() => FillSet().ToArray();
+            public override List<TSource> ToList() => new List<TSource>(new HashSet<TSource>(_source, _comparer));
 
-            public List<TSource> ToList() => FillSet().ToList();
+            public override int GetCount(bool onlyIfCheap) => onlyIfCheap ? -1 : new HashSet<TSource>(_source, _comparer).Count;
 
-            public int GetCount(bool onlyIfCheap) => onlyIfCheap ? -1 : FillSet().Count;
+            public override TSource? TryGetFirst(out bool found) => _source.TryGetFirst(out found);
+
+            public override bool Contains(TSource value) =>
+                // If we're using the default comparer, then source.Distinct().Contains(value) is no different from
+                // source.Contains(value), as the Distinct() won't remove anything that could have caused
+                // Contains to return true. If, however, there is a custom comparer, Distinct might remove
+                // the elements that would have matched, and thus we can't skip it.
+                _comparer is null ? _source.Contains(value) :
+                base.Contains(value);
         }
     }
 }

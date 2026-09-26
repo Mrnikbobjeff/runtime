@@ -1,10 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <Optimize>True</Optimize>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="DoWhileBndChk.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(TestLibraryProjectPath)" />
   </ItemGroup>
   <PropertyGroup>
     <DebugType>PdbOnly</DebugType>

@@ -9,7 +9,7 @@ namespace System.DirectoryServices.AccountManagement.Tests
 {
     public class PrincipalContextTests
     {
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer), nameof(PlatformDetection.IsNotWindowsIoTCore))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore), nameof(PlatformDetection.IsNotWindowsIoTCore))]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/34442", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         public void Ctor_ContextType()
         {
@@ -23,13 +23,14 @@ namespace System.DirectoryServices.AccountManagement.Tests
             Assert.Equal(Environment.MachineName, context.ConnectedServer);
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/34442", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         [OuterLoop("Takes too long on domain joined machines")]
         [InlineData(ContextType.Machine, null)]
         [InlineData(ContextType.Machine, "")]
         [InlineData(ContextType.Machine, "\0")]
         [InlineData(ContextType.Machine, "name")]
-        public void Ctor_ContextType_Name(ContextType contextType, string name)
+        public void Ctor_ContextType_Name(ContextType contextType, string? name)
         {
             var context = new PrincipalContext(contextType, name);
             Assert.Equal(contextType, context.ContextType);
@@ -49,13 +50,14 @@ namespace System.DirectoryServices.AccountManagement.Tests
             }
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/34442", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         [OuterLoop("Takes too long on domain joined machines")]
         [InlineData(ContextType.Machine, null, null)]
         [InlineData(ContextType.Machine, "", null)]
         [InlineData(ContextType.Machine, "\0", null)]
         [InlineData(ContextType.Machine, "name", null)]
-        public void Ctor_ContextType_Name_Container(ContextType contextType, string name, string container)
+        public void Ctor_ContextType_Name_Container(ContextType contextType, string? name, string? container)
         {
             var context = new PrincipalContext(contextType, name, container);
             Assert.Equal(contextType, context.ContextType);
@@ -75,13 +77,14 @@ namespace System.DirectoryServices.AccountManagement.Tests
             }
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/34442", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         [OuterLoop("Takes too long on domain joined machines")]
         [InlineData(ContextType.Machine, null, null, ContextOptions.Negotiate)]
         [InlineData(ContextType.Machine, "", null, ContextOptions.Negotiate)]
         [InlineData(ContextType.Machine, "\0", null, ContextOptions.Negotiate)]
         [InlineData(ContextType.Machine, "name", null, ContextOptions.Negotiate)]
-        public void Ctor_ContextType_Name_Container_Options(ContextType contextType, string name, string container, ContextOptions options)
+        public void Ctor_ContextType_Name_Container_Options(ContextType contextType, string? name, string? container, ContextOptions options)
         {
             var context = new PrincipalContext(contextType, name, container, options);
             Assert.Equal(contextType, context.ContextType);
@@ -102,13 +105,13 @@ namespace System.DirectoryServices.AccountManagement.Tests
         }
 
         [ActiveIssue("https://github.com/dotnet/runtime/issues/23448")]
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore))]
         [OuterLoop("Takes too long on domain joined machines")]
         [InlineData(ContextType.Machine, null, "userName", "password")]
         [InlineData(ContextType.Machine, "", "", "")]
         [InlineData(ContextType.Machine, "\0", "userName", "")]
         [InlineData(ContextType.Machine, "name", "\0", "\0")]
-        public void Ctor_ContextType_Name_UserName_Password(ContextType contextType, string name, string userName, string password)
+        public void Ctor_ContextType_Name_UserName_Password(ContextType contextType, string? name, string userName, string password)
         {
             var context = new PrincipalContext(contextType, name, userName, password);
             Assert.Equal(contextType, context.ContextType);
@@ -128,13 +131,13 @@ namespace System.DirectoryServices.AccountManagement.Tests
         }
 
         [ActiveIssue("https://github.com/dotnet/runtime/issues/23448")]
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore))]
         [OuterLoop("Takes too long on domain joined machines")]
         [InlineData(ContextType.Machine, null, null, "userName", "password")]
         [InlineData(ContextType.Machine, "", null, "", "")]
         [InlineData(ContextType.Machine, "\0", null, "userName", "")]
         [InlineData(ContextType.Machine, "name", null, "\0", "\0")]
-        public void Ctor_ContextType_Name_Container_UserName_Password(ContextType contextType, string name, string container, string userName, string password)
+        public void Ctor_ContextType_Name_Container_UserName_Password(ContextType contextType, string? name, string? container, string userName, string password)
         {
             var context = new PrincipalContext(contextType, name, container, userName, password);
             Assert.Equal(contextType, context.ContextType);
@@ -227,7 +230,7 @@ namespace System.DirectoryServices.AccountManagement.Tests
         [Theory]
         [InlineData(null, "password")]
         [InlineData("userName", null)]
-        public void Ctor_InconsistentUserNameAndPassword_ThrowsArgumentException(string userName, string password)
+        public void Ctor_InconsistentUserNameAndPassword_ThrowsArgumentException(string? userName, string? password)
         {
             AssertExtensions.Throws<ArgumentException>(null, () => new PrincipalContext(ContextType.Machine, "name", userName, password));
             AssertExtensions.Throws<ArgumentException>(null, () => new PrincipalContext(ContextType.Machine, "name", null, userName, password));
@@ -288,11 +291,11 @@ namespace System.DirectoryServices.AccountManagement.Tests
             Assert.Throws<ObjectDisposedException>(() => context.UserName);
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer), nameof(PlatformDetection.IsNotWindowsIoTCore))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore), nameof(PlatformDetection.IsNotWindowsIoTCore))]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/34442", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         [InlineData(null, null, true)]
         [InlineData("", "", false)]
-        public void ValidateCredentials_Invoke_ReturnsExpected(string userName, string password, bool expected)
+        public void ValidateCredentials_Invoke_ReturnsExpected(string? userName, string? password, bool expected)
         {
             var context = new PrincipalContext(ContextType.Machine);
             Assert.Equal(expected, context.ValidateCredentials(userName, password));
@@ -300,7 +303,7 @@ namespace System.DirectoryServices.AccountManagement.Tests
         }
 
         [ActiveIssue("https://github.com/dotnet/runtime/issues/23448")]
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore))]
         [OuterLoop("Takes too long on domain joined machines")]
         public void ValidateCredentials_InvalidUserName_ThrowsException()
         {
@@ -309,7 +312,7 @@ namespace System.DirectoryServices.AccountManagement.Tests
         }
 
         [ActiveIssue("https://github.com/dotnet/runtime/issues/23448")]
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore))]
         [OuterLoop("Takes too long on domain joined machines")]
         public void ValidateCredentials_IncorrectUserNamePassword_ThrowsException()
         {
@@ -320,7 +323,7 @@ namespace System.DirectoryServices.AccountManagement.Tests
         [Theory]
         [InlineData(null, "password")]
         [InlineData("userName", null)]
-        public void ValidateCredentials_InvalidUsernamePasswordCombo_ThrowsArgumentException(string userName, string password)
+        public void ValidateCredentials_InvalidUsernamePasswordCombo_ThrowsArgumentException(string? userName, string? password)
         {
             var context = new PrincipalContext(ContextType.Machine);
             AssertExtensions.Throws<ArgumentException>(null, () => context.ValidateCredentials(userName, password));

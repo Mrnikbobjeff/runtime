@@ -2,8 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b72996;
+
 using System;
-class testout1
+using Xunit;
+public class testout1
 {
     public struct VT
     {
@@ -25,9 +29,10 @@ class testout1
         long retval = Convert.ToInt64((long)(Convert.ToInt32((Convert.ToInt32(clstatic.a1 - ((double)(vtstatic.a2 * vtstatic.a5))))) - (long)((long)(Convert.ToInt32(arr3d[4, 0, 3]) - (long)((long)(Convert.ToInt32(arr3d[4, 0, 3]) - (long)(((long)(vtstatic.a2 / 1L)))))))));
         return retval;
     }
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         Func();
-        return 100;
     }
 }

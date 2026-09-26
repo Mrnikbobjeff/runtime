@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace System.ComponentModel.DataAnnotations
 {
@@ -26,6 +27,8 @@ namespace System.ComponentModel.DataAnnotations
         // Also we use this ability in Validator.CreateValidationContext()??
         : IServiceProvider
     {
+        internal const string InstanceTypeNotStaticallyDiscovered = "Constructing a ValidationContext without a display name is not trim-safe because it uses reflection to discover the type of the instance being validated in order to resolve the DisplayNameAttribute when a display name is not provided.";
+
         #region Member Fields
 
         private readonly Dictionary<object, object?> _items;
@@ -41,6 +44,7 @@ namespace System.ComponentModel.DataAnnotations
         /// </summary>
         /// <param name="instance">The object instance being validated.  It cannot be <c>null</c>.</param>
         /// <exception cref="ArgumentNullException">When <paramref name="instance" /> is <c>null</c></exception>
+        [RequiresUnreferencedCode(InstanceTypeNotStaticallyDiscovered)]
         public ValidationContext(object instance)
             : this(instance, null, null)
         {
@@ -57,6 +61,7 @@ namespace System.ComponentModel.DataAnnotations
         ///     new dictionary, preventing consumers from modifying the original dictionary.
         /// </param>
         /// <exception cref="ArgumentNullException">When <paramref name="instance" /> is <c>null</c></exception>
+        [RequiresUnreferencedCode(InstanceTypeNotStaticallyDiscovered)]
         public ValidationContext(object instance, IDictionary<object, object?>? items)
             : this(instance, null, items)
         {
@@ -78,20 +83,56 @@ namespace System.ComponentModel.DataAnnotations
         ///     new dictionary, preventing consumers from modifying the original dictionary.
         /// </param>
         /// <exception cref="ArgumentNullException">When <paramref name="instance" /> is <c>null</c></exception>
+        [RequiresUnreferencedCode(InstanceTypeNotStaticallyDiscovered)]
         public ValidationContext(object instance, IServiceProvider? serviceProvider, IDictionary<object, object?>? items)
         {
-            if (instance == null)
-            {
-                throw new ArgumentNullException(nameof(instance));
-            }
+            ArgumentNullException.ThrowIfNull(instance);
 
             if (serviceProvider != null)
             {
-                InitializeServiceProvider(serviceType => serviceProvider.GetService(serviceType));
+                IServiceProvider localServiceProvider = serviceProvider;
+                InitializeServiceProvider(localServiceProvider.GetService);
             }
 
             _items = items != null ? new Dictionary<object, object?>(items) : new Dictionary<object, object?>();
             ObjectInstance = instance;
+        }
+
+        /// <summary>
+        ///     Construct a <see cref="ValidationContext" /> for a given object instance with
+        ///     a <paramref name="displayName" />, an optional <paramref name="serviceProvider" />,
+        ///     and an optional property bag of <paramref name="items" />.
+        /// </summary>
+        /// <param name="instance">The object instance being validated.  It cannot be null.</param>
+        /// <param name="displayName">The display name associated with the object instance.</param>
+        /// <param name="serviceProvider">
+        ///     Optional <see cref="IServiceProvider" /> to use when <see cref="GetService" /> is called.
+        ///     If it is null, <see cref="GetService" /> will always return null.
+        /// </param>
+        /// <param name="items">
+        ///     Optional set of key/value pairs to make available to consumers via <see cref="Items" />.
+        ///     If null, an empty dictionary will be created.  If not null, the set of key/value pairs will be copied into a
+        ///     new dictionary, preventing consumers from modifying the original dictionary.
+        /// </param>
+        /// <exception cref="ArgumentNullException">When <paramref name="instance" /> is <c>null</c></exception>
+        /// <remarks>
+        ///     This constructor is trim-safe because it does not use reflection to resolve
+        ///     the Type of the <paramref name="instance" /> to support setting the DisplayName.
+        /// </remarks>
+        public ValidationContext(object instance, string displayName, IServiceProvider? serviceProvider, IDictionary<object, object?>? items)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(displayName);
+            ArgumentNullException.ThrowIfNull(instance);
+
+            if (serviceProvider != null)
+            {
+                IServiceProvider localServiceProvider = serviceProvider;
+                InitializeServiceProvider(localServiceProvider.GetService);
+            }
+
+            _items = items != null ? new Dictionary<object, object?>(items) : new Dictionary<object, object?>();
+            ObjectInstance = instance;
+            DisplayName = displayName;
         }
 
         #endregion
@@ -104,9 +145,15 @@ namespace System.ComponentModel.DataAnnotations
         ///     <para>Consume this instance with caution!</para>
         /// </summary>
         /// <remarks>
+        ///     <para>
         ///     During validation, especially property-level validation, the object instance might be in an indeterminate state.
         ///     For example, the property being validated, as well as other properties on the instance might not have been
         ///     updated to their new values.
+        ///     </para>
+        ///     <para>
+        ///     When validation is performed without an owning object (for example, validating standalone values),
+        ///     <see cref="ObjectInstance" /> might be a placeholder and should not be treated as the owner of the value.
+        ///     </para>
         /// </remarks>
         public object ObjectInstance { get; }
 
@@ -164,6 +211,14 @@ namespace System.ComponentModel.DataAnnotations
         ///     This property will never be null, but the dictionary may be empty.  Changes made
         ///     to items in this dictionary will never affect the original dictionary specified in the constructor.
         /// </value>
+        /// <remarks>
+        ///     <see cref="Items" /> is designed as a read-only input channel populated before validation
+        ///     begins. The validation pipeline does not guarantee attribute execution order (beyond
+        ///     <see cref="RequiredAttribute" /> priority), and no built-in attribute mutates
+        ///     <see cref="Items" /> during validation. Custom validators should treat <see cref="Items" />
+        ///     as read-only during validation execution. Mutating <see cref="Items" /> from within a
+        ///     validator is unsupported and may produce race conditions under parallel async validation.
+        /// </remarks>
         public IDictionary<object, object?> Items => _items;
 
         #endregion
@@ -174,6 +229,7 @@ namespace System.ComponentModel.DataAnnotations
         ///     Looks up the display name using the DisplayAttribute attached to the respective type or property.
         /// </summary>
         /// <returns>A display-friendly name of the member represented by the <see cref="MemberName" />.</returns>
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode", Justification = "Constructors that trigger this codepath are marked with RequiresUnreferencedCode. Constructor that takes the display name as an argument is trim-safe.")]
         private string? GetDisplayName()
         {
             string? displayName = null;

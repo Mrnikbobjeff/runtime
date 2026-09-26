@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.IO;
 using System.Collections.Generic;
+using System.IO;
 
 namespace System.Reflection.TypeLoading
 {
@@ -17,7 +17,7 @@ namespace System.Reflection.TypeLoading
         public sealed override bool IsDynamic => throw null!;
         public sealed override event ModuleResolveEventHandler? ModuleResolve { add { throw null!; } remove { throw null!; } }
         public sealed override IEnumerable<CustomAttributeData> CustomAttributes => throw null!;
-        public sealed override ManifestResourceInfo GetManifestResourceInfo(string resourceName) => throw null!;
+        public sealed override ManifestResourceInfo? GetManifestResourceInfo(string resourceName) => throw null!;
         public sealed override string[] GetManifestResourceNames() => throw null!;
         public sealed override Stream GetManifestResourceStream(string name) => throw null!;
         protected sealed override AssemblyNameData[] ComputeAssemblyReferences() => throw null!;

@@ -2,22 +2,22 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 /*
- * We need to propigate array dimmension changes through OPADDs that are already NonNull. 
+ * We need to propagate array dimension changes through OPADDs that are already NonNull. 
  * Expected and actual output is at the end of the test.
  * */
 
 using System;
+using Xunit;
 
-public class Test
-
+public class Test_arrayDim
 {
-    private static int Main()
-
+    [Fact]
+    [OuterLoop]
+    public static void TestEntryPoint()
     {
         int[] iAr1 = null;
 
         for (int j = 10; j < 20; j++)
-
         {
             Console.WriteLine("j=" + j);
 
@@ -26,7 +26,6 @@ public class Test
             Console.WriteLine(iAr1.Length); // wrong when j=11
 
             for (int i = 0; i < j; i++)
-
             {
                 Console.Write(i + " ");
 
@@ -35,10 +34,6 @@ public class Test
 
             Console.WriteLine();
         }
-
-        Console.WriteLine("Done");
-
-        return 100;
     }
 }
 
@@ -91,6 +86,6 @@ j=11
 10
 0 1 2 3 4 5 6 7 8 9 10
 Unhandled Exception: System.IndexOutOfRangeException: Index was outside the bounds of the array.
-   at Test.Main() 
+   at Test_arrayDim.Main() 
  
 */

@@ -2,20 +2,37 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
+using TestLibrary;
 
-public class Test
+public class Test_runtest
 
 {
-   public static int Main()
+   [ActiveIssue("https://github.com/dotnet/runtime/issues/102741", typeof(Utilities), nameof(Utilities.IsNativeAot))]
+   [Fact]
+   public static int TestEntryPoint()
    {
       Console.WriteLine();
+      bool failed = false;
 
 
       C28<int> obj405 = new C28<int>();
 
 
       Console.WriteLine(obj405.M28());
+      if (obj405.M28() != 54)
+      {
+          failed = true;
+          Console.WriteLine("FAIL");
+      }
+
       Console.WriteLine(obj405.M3());
+      if (obj405.M3() != 54)
+      {
+          failed = true;
+          Console.WriteLine("FAIL");
+      }
+
       Console.WriteLine();
 
 
@@ -23,18 +40,46 @@ public class Test
 
 
       Console.WriteLine(obj433.M28());
+      if (obj433.M28() != 56)
+      {
+          failed = true;
+          Console.WriteLine("FAIL");
+      }
 
       Console.WriteLine(obj433.M3());
+      if (obj433.M3() != 56)
+      {
+          failed = true;
+          Console.WriteLine("FAIL");
+      }
 
 
       C29 obj434 = new C29();
 
 
       Console.WriteLine(obj434.M28());
+      if (obj434.M28() != 56)
+      {
+          failed = true;
+          Console.WriteLine("FAIL");
+      }
       Console.WriteLine(obj434.M3());
+      if (obj434.M3() != 56)
+      {
+          failed = true;
+          Console.WriteLine("FAIL");
+      }
       Console.WriteLine();
       Console.WriteLine("PASS");
 
-      return 100;
+      if (failed)
+      {
+          return 1;
+      }
+      else
+      {
+          Console.WriteLine("PASS");
+          return 100;
+      }
    }
 }

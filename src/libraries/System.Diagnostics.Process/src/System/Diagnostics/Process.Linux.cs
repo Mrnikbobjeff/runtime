@@ -3,51 +3,19 @@
 
 using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.ComponentModel;
-using System.Globalization;
 using System.IO;
+using System.Runtime.Versioning;
 using System.Text;
+using System.Threading;
 
 namespace System.Diagnostics
 {
     public partial class Process : IDisposable
     {
-        /// <summary>
-        /// Creates an array of <see cref="Process"/> components that are associated with process resources on a
-        /// remote computer. These process resources share the specified process name.
-        /// </summary>
-        public static Process[] GetProcessesByName(string? processName, string machineName)
+        public partial TimeSpan PrivilegedProcessorTime
         {
-            ProcessManager.ThrowIfRemoteMachine(machineName);
-            if (processName == null)
-            {
-                processName = string.Empty;
-            }
-
-            var reusableReader = new ReusableTextReader();
-            var processes = new List<Process>();
-            foreach (int pid in ProcessManager.EnumerateProcessIds())
-            {
-                if (Interop.procfs.TryReadStatFile(pid, out Interop.procfs.ParsedStat parsedStat, reusableReader) &&
-                    string.Equals(processName, Process.GetUntruncatedProcessName(ref parsedStat), StringComparison.OrdinalIgnoreCase) &&
-                    Interop.procfs.TryReadStatusFile(pid, out Interop.procfs.ParsedStatus parsedStatus, reusableReader))
-                {
-                    ProcessInfo processInfo = ProcessManager.CreateProcessInfo(ref parsedStat, ref parsedStatus, reusableReader, processName);
-                    processes.Add(new Process(machineName, false, processInfo.ProcessId, processInfo));
-                }
-            }
-
-            return processes.ToArray();
-        }
-
-        /// <summary>Gets the amount of time the process has spent running code inside the operating system core.</summary>
-        public TimeSpan PrivilegedProcessorTime
-        {
-            get
-            {
-                return TicksToTimeSpan(GetStat().stime);
-            }
+            get => IsCurrentProcess ? Environment.CpuUsage.PrivilegedTime : TicksToTimeSpan(GetStat().stime);
         }
 
         /// <summary>Gets the time the associated process was started.</summary>
@@ -72,45 +40,37 @@ namespace System.Diagnostics
             return dt.ToLocalTime();
         }
 
+        private static long s_bootTimeTicks;
         /// <summary>Gets the system boot time.</summary>
         private static DateTime BootTime
         {
             get
             {
-                // '/proc/stat -> btime' gets the boot time.
-                // btime is the time of system boot in seconds since the Unix epoch.
-                // It includes suspended time and is updated based on the system time (settimeofday).
-                const string StatFile = Interop.procfs.ProcStatFilePath;
-                string text = File.ReadAllText(StatFile);
-                int btimeLineStart = text.IndexOf("\nbtime ", StringComparison.Ordinal);
-                if (btimeLineStart >= 0)
-                {
-                    int btimeStart = btimeLineStart + "\nbtime ".Length;
-                    int btimeEnd = text.IndexOf('\n', btimeStart);
-                    if (btimeEnd > btimeStart)
+               long bootTimeTicks = Interlocked.Read(ref s_bootTimeTicks);
+               if (bootTimeTicks == 0)
+               {
+                    bootTimeTicks = Interop.Sys.GetBootTimeTicks();
+                    long oldValue = Interlocked.CompareExchange(ref s_bootTimeTicks, bootTimeTicks, 0);
+                    if (oldValue != 0) // a different thread has managed to update the ticks first
                     {
-                        if (long.TryParse(text.AsSpan(btimeStart, btimeEnd - btimeStart), out long bootTimeSeconds))
-                        {
-                            return DateTime.UnixEpoch + TimeSpan.FromSeconds(bootTimeSeconds);
-                        }
+                        bootTimeTicks = oldValue; // consistency
                     }
-                }
-
-                return DateTime.UtcNow;
-            }
-        }
+               }
+               return new DateTime(bootTimeTicks);
+           }
+       }
 
         /// <summary>Gets the parent process ID</summary>
         private int ParentProcessId =>
             GetStat().ppid;
 
         /// <summary>Gets execution path</summary>
-        private string? GetPathToOpenFile()
+        internal static string? GetPathToOpenFile()
         {
-            string[] allowedProgramsToRun = { "xdg-open", "gnome-open", "kfmclient" };
+            ReadOnlySpan<string> allowedProgramsToRun = ["xdg-open", "gnome-open", "kfmclient"];
             foreach (var program in allowedProgramsToRun)
             {
-                string? pathToProgram = FindProgramInPath(program);
+                string? pathToProgram = ProcessUtils.FindProgramInPath(program);
                 if (!string.IsNullOrEmpty(pathToProgram))
                 {
                     return pathToProgram;
@@ -119,30 +79,23 @@ namespace System.Diagnostics
             return null;
         }
 
-        /// <summary>
-        /// Gets the amount of time the associated process has spent utilizing the CPU.
-        /// It is the sum of the <see cref='System.Diagnostics.Process.UserProcessorTime'/> and
-        /// <see cref='System.Diagnostics.Process.PrivilegedProcessorTime'/>.
-        /// </summary>
-        public TimeSpan TotalProcessorTime
+        public partial TimeSpan TotalProcessorTime
         {
             get
             {
+                if (IsCurrentProcess)
+                {
+                    return Environment.CpuUsage.TotalTime;
+                }
+
                 Interop.procfs.ParsedStat stat = GetStat();
                 return TicksToTimeSpan(stat.utime + stat.stime);
             }
         }
 
-        /// <summary>
-        /// Gets the amount of time the associated process has spent running code
-        /// inside the application portion of the process (not the operating system core).
-        /// </summary>
-        public TimeSpan UserProcessorTime
+        public partial TimeSpan UserProcessorTime
         {
-            get
-            {
-                return TicksToTimeSpan(GetStat().utime);
-            }
+            get => IsCurrentProcess ? Environment.CpuUsage.UserTime : TicksToTimeSpan(GetStat().utime);
         }
 
         partial void EnsureHandleCountPopulated()
@@ -154,7 +107,11 @@ namespace System.Diagnostics
                 {
                     return;
                 }
-                string path = Interop.procfs.GetFileDescriptorDirectoryPathForProcess(_processId);
+                if (!ProcessManager.TryGetProcPid(_processId, out Interop.procfs.ProcPid procPid))
+                {
+                    return;
+                }
+                string path = Interop.procfs.GetFileDescriptorDirectoryPathForProcess(procPid);
                 if (Directory.Exists(path))
                 {
                     try
@@ -171,7 +128,7 @@ namespace System.Diagnostics
         /// <summary>
         /// Gets or sets which processors the threads in this process can be scheduled to run on.
         /// </summary>
-        private unsafe IntPtr ProcessorAffinityCore
+        private IntPtr ProcessorAffinityCore
         {
             get
             {
@@ -235,28 +192,29 @@ namespace System.Diagnostics
         /// <param name="newMax">The new maximum working set limit, or null not to change it.</param>
         /// <param name="resultingMin">The resulting minimum working set limit after any changes applied.</param>
         /// <param name="resultingMax">The resulting maximum working set limit after any changes applied.</param>
+#pragma warning disable IDE0060
         private void SetWorkingSetLimitsCore(IntPtr? newMin, IntPtr? newMax, out IntPtr resultingMin, out IntPtr resultingMax)
         {
+            EnsureState(State.HaveNonExitedId);
             // RLIMIT_RSS with setrlimit not supported on Linux > 2.4.30.
             throw new PlatformNotSupportedException(SR.MinimumWorkingSetNotSupported);
         }
+#pragma warning restore IDE0060
 
         /// <summary>Gets the path to the executable for the process, or null if it could not be retrieved.</summary>
-        /// <param name="processId">The pid for the target process, or -1 for the current process.</param>
-        internal static string? GetExePath(int processId = -1)
+        /// <param name="procPid">The pid for the target process.</param>
+        internal static string? GetExePath(Interop.procfs.ProcPid procPid)
         {
-            string exeFilePath = processId == -1 ?
-                Interop.procfs.SelfExeFilePath :
-                Interop.procfs.GetExeFilePathForProcess(processId);
-
-            return Interop.Sys.ReadLink(exeFilePath);
+            return procPid == Interop.procfs.ProcPid.Self ? Environment.ProcessPath :
+                Interop.Sys.ReadLink(Interop.procfs.GetExeFilePathForProcess(procPid));
         }
 
         /// <summary>Gets the name that was used to start the process, or null if it could not be retrieved.</summary>
+        /// <param name="procPid">The pid for the target process.</param>
         /// <param name="stat">The stat for the target process.</param>
-        internal static string GetUntruncatedProcessName(ref Interop.procfs.ParsedStat stat)
+        internal static unsafe string GetUntruncatedProcessName(Interop.procfs.ProcPid procPid, ref Interop.procfs.ParsedStat stat)
         {
-            string cmdLineFilePath = Interop.procfs.GetCmdLinePathForProcess(stat.pid);
+            string cmdLineFilePath = Interop.procfs.GetCmdLinePathForProcess(procPid);
 
             byte[]? rentedArray = null;
             try
@@ -291,7 +249,7 @@ namespace System.Diagnostics
                         // stat.comm contains a possibly truncated version of the process name.
                         // When the program is a native executable, the process name will be in argv[0].
                         // When the program is a script, argv[0] contains the interpreter, and argv[1] contains the script name.
-                        Span<byte> argRemainder = buffer.Slice(0, bytesRead);
+                        ReadOnlySpan<byte> argRemainder = buffer.Slice(0, bytesRead);
                         int argEnd = argRemainder.IndexOf((byte)'\0');
                         if (argEnd != -1)
                         {
@@ -331,7 +289,7 @@ namespace System.Diagnostics
                 }
             }
 
-            string? GetUntruncatedNameFromArg(Span<byte> arg, string prefix)
+            static string? GetUntruncatedNameFromArg(ReadOnlySpan<byte> arg, string prefix)
             {
                 // Strip directory names from arg.
                 int nameStart = arg.LastIndexOf((byte)'/') + 1;
@@ -357,7 +315,7 @@ namespace System.Diagnostics
         {
             EnsureState(State.HaveNonExitedId);
             Interop.procfs.ParsedStat stat;
-            if (!Interop.procfs.TryReadStatFile(_processId, out stat, new ReusableTextReader()))
+            if (!ProcessManager.TryReadStatFile(_processId, out stat))
             {
                 throw new Win32Exception(SR.ProcessInformationUnavailable);
             }

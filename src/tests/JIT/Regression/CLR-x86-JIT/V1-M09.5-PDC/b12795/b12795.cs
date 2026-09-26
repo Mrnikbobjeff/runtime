@@ -1,23 +1,25 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-namespace DefaultNamespace
+using Xunit;
+namespace b12795
 {
     using System;
 
-    internal class NStructTun
+    public class NStructTun
     {
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             Mainy();
             GC.Collect();
             GC.WaitForPendingFinalizers();
             GC.Collect();
             Console.Out.WriteLine(STRMAP.icFinal + " finalized.");
-            return 100;
         }
 
-        public static void Mainy()
+        internal static void Mainy()
         {
             try
             {

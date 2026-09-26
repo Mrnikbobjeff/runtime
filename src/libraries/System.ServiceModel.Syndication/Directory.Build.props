@@ -1,6 +1,6 @@
-﻿<Project>
+<Project>
   <Import Project="..\Directory.Build.props" />
   <PropertyGroup>
-    <StrongNameKeyId>Open</StrongNameKeyId>
+    <IsAotCompatible>false</IsAotCompatible>
   </PropertyGroup>
 </Project>

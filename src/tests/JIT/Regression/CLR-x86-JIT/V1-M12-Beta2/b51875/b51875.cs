@@ -4,11 +4,12 @@
 
 using System;
 using System.Collections;
+using Xunit;
 
 
-namespace Test
+namespace b51875
 {
-    internal struct AA
+    public struct AA
     {
         public static int Main1()
         {
@@ -26,7 +27,9 @@ namespace Test
                 return 1;
             return 0;
         }
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

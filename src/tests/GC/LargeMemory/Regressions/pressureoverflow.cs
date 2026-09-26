@@ -6,6 +6,7 @@
  */
 
 using System;
+using Xunit;
 
 public class PressureOverflow {
 
@@ -74,7 +75,9 @@ public class PressureOverflow {
     }
 
 
-    public static int Main() {
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint() {
 
             PressureOverflow a = new PressureOverflow();
 

@@ -16,9 +16,13 @@ namespace Microsoft.Extensions.Primitives
         bool HasChanged { get; }
 
         /// <summary>
-        /// Indicates if this token will pro-actively raise callbacks. If <c>false</c>, the token consumer must
+        /// Gets a value that indicates whether this token will proactively raise callbacks. If <see langword="false" />, the token consumer must
         /// poll <see cref="HasChanged" /> to detect changes.
         /// </summary>
+        /// <remarks>
+        /// A <see langword="true" /> value does not guarantee that callbacks will be raised for all changes.
+        /// Consumers should also check <see cref="HasChanged" /> when complete accuracy is required.
+        /// </remarks>
         bool ActiveChangeCallbacks { get; }
 
         /// <summary>
@@ -28,6 +32,6 @@ namespace Microsoft.Extensions.Primitives
         /// <param name="callback">The <see cref="Action{Object}"/> to invoke.</param>
         /// <param name="state">State to be passed into the callback.</param>
         /// <returns>An <see cref="IDisposable"/> that is used to unregister the callback.</returns>
-        IDisposable RegisterChangeCallback(Action<object> callback, object state);
+        IDisposable RegisterChangeCallback(Action<object?> callback, object? state);
     }
 }

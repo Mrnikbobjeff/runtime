@@ -5,21 +5,16 @@ using System.Collections.Generic;
 
 namespace System.Composition.Hosting.Core
 {
-    internal class DirectExportDescriptor : ExportDescriptor
+    internal sealed class DirectExportDescriptor : ExportDescriptor
     {
         private readonly CompositeActivator _activator;
         private readonly IDictionary<string, object> _metadata;
 
         public DirectExportDescriptor(CompositeActivator activator, IDictionary<string, object> metadata)
         {
-            if (activator == null)
-            {
-                throw new ArgumentNullException(nameof(activator));
-            }
-            if (metadata == null)
-            {
-                throw new ArgumentNullException(nameof(metadata));
-            }
+            ArgumentNullException.ThrowIfNull(activator);
+            ArgumentNullException.ThrowIfNull(metadata);
+
             _activator = activator;
             _metadata = metadata;
         }

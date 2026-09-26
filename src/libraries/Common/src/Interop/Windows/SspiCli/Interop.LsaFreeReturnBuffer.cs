@@ -8,7 +8,8 @@ internal static partial class Interop
 {
     internal static partial class SspiCli
     {
-        [DllImport(Interop.Libraries.SspiCli, SetLastError = true)]
-        internal static extern int LsaFreeReturnBuffer(IntPtr handle);
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [LibraryImport(Interop.Libraries.SspiCli, SetLastError = true)]
+        internal static partial int LsaFreeReturnBuffer(IntPtr handle);
     }
 }

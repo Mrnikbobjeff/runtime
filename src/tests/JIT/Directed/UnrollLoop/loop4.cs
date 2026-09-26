@@ -4,11 +4,15 @@
 
 //Testing small for loops (less than 5)
 
-using System;
+namespace JitTest_Directed_UnrollLoop_loop4;
 
-internal class SmallLoop1
+using System;
+using Xunit;
+
+public class SmallLoop1
 {
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         bool passed = true;
         int j;
@@ -418,7 +422,6 @@ internal class SmallLoop1
         }
     }
 }
-
 
 
 

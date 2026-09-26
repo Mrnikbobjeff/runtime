@@ -1,14 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
+using System.Reflection;
+
 namespace System.Xml.Serialization
 {
-    using System;
-    using System.Reflection;
-    using System.Collections;
-    using System.ComponentModel;
-    using System.Linq;
-
     internal enum SoapAttributeFlags
     {
         Enum = 0x1,
@@ -35,10 +32,27 @@ namespace System.Xml.Serialization
             object[] attrs = provider.GetCustomAttributes(false);
             for (int i = 0; i < attrs.Length; i++)
             {
-                if (attrs[i] is SoapIgnoreAttribute || attrs[i] is ObsoleteAttribute)
+                if (attrs[i] is SoapIgnoreAttribute)
                 {
                     _soapIgnore = true;
                     break;
+                }
+                else if (attrs[i] is ObsoleteAttribute obsoleteAttr)
+                {
+                    if (!System.Xml.LocalAppContextSwitches.IgnoreObsoleteMembers)
+                    {
+                        if (obsoleteAttr.IsError)
+                        {
+                            throw new InvalidOperationException(SR.Format(SR.XmlObsoleteIsError, obsoleteAttr.Message));
+                        }
+                        // If IsError is false, continue processing normally (don't ignore)
+                    }
+                    else
+                    {
+                        // Old behavior: ignore obsolete members when switch is enabled
+                        _soapIgnore = true;
+                        break;
+                    }
                 }
                 else if (attrs[i] is SoapElementAttribute)
                 {

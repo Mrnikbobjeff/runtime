@@ -61,7 +61,7 @@ namespace System.Reflection.Metadata.Tests
             var builder2 = new BlobBuilder(0);
             builder2.WriteBytes(right);
 
-            bool expected = ByteSequenceComparer.Equals(left, right);
+            bool expected = left.AsSpan().SequenceEqual(right.AsSpan());
             Assert.Equal(expected, builder1.ContentEquals(builder2));
         }
 
@@ -515,6 +515,48 @@ namespace System.Reflection.Metadata.Tests
         }
 
         [Fact]
+        public void LinkSuffix_EmptyDestination_SuffixAlreadyLinked()
+        {
+            var emptyPrefix = new BlobBuilder(16);
+            var element = new BlobBuilder(16);
+            var tail = new BlobBuilder(16);
+
+            element.WriteByte(0x11);
+            tail.WriteByte(0x22);
+
+            element.LinkSuffix(tail);
+            emptyPrefix.LinkSuffix(element);
+
+            AssertEx.Equal(new byte[] { 0x11, 0x22 }, emptyPrefix.ToArray());
+            Assert.Equal(2, emptyPrefix.Count);
+            Assert.Equal(2, element.Count);
+            Assert.Equal(1, tail.Count);
+        }
+
+        [Fact]
+        public void LinkSuffix_EmptyDestination_SuffixThreeChunkChain()
+        {
+            var emptyPrefix = new BlobBuilder(16);
+            var first = new BlobBuilder(16);
+            var second = new BlobBuilder(16);
+            var third = new BlobBuilder(16);
+
+            first.WriteByte(0x11);
+            second.WriteByte(0x22);
+            third.WriteByte(0x33);
+
+            first.LinkSuffix(second);
+            first.LinkSuffix(third);
+            emptyPrefix.LinkSuffix(first);
+
+            AssertEx.Equal(new byte[] { 0x11, 0x22, 0x33 }, emptyPrefix.ToArray());
+            Assert.Equal(3, emptyPrefix.Count);
+            Assert.Equal(3, first.Count);
+            Assert.Equal(1, second.Count);
+            Assert.Equal(1, third.Count);
+        }
+
+        [Fact]
         public void LinkPrefix1()
         {
             var builder1 = new BlobBuilder(16);
@@ -643,6 +685,17 @@ namespace System.Reflection.Metadata.Tests
                 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01,
                 0x01
             }, blobs[0].GetBytes().ToArray());
+        }
+
+        [Fact]
+        public void ReserveBytes3()
+        {
+            var builder = new BlobBuilder(16);
+            builder.WriteBytes(0xff, 16);
+            builder.Clear();
+            // Reserved buffers must be zero-initialized.
+            var reserved = builder.ReserveBytes(4);
+            AssertEx.Equal(Enumerable.Repeat((byte)0, 4).ToArray(), reserved.GetBytes().ToArray());
         }
 
         // TODO:
@@ -1089,6 +1142,32 @@ namespace System.Reflection.Metadata.Tests
             Assert.Equal(4, builder.TryWriteBytes(stream, 6));
 
             AssertEx.Equal(sourceArray, builder.ToArray());
+        }
+
+        [Fact]
+        public void LinkEmptySuffixAndPrefixShouldFreeThem()
+        {
+            var b1 = PooledBlobBuilder.GetInstance();
+            var b2 = PooledBlobBuilder.GetInstance();
+            var b3 = PooledBlobBuilder.GetInstance();
+            var b4 = PooledBlobBuilder.GetInstance();
+            var b5 = PooledBlobBuilder.GetInstance();
+
+            b1.WriteBytes(1, 1);
+            b2.WriteBytes(1, 1);
+            b3.WriteBytes(1, 1);
+
+            b1.LinkSuffix(b2);
+            Assert.False(b2.IsHead);
+
+            b1.LinkPrefix(b3);
+            Assert.False(b3.IsHead);
+
+            b1.LinkSuffix(b4);
+            Assert.True(b4.IsHead);
+
+            b1.LinkPrefix(b5);
+            Assert.True(b4.IsHead);
         }
     }
 }

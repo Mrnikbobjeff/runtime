@@ -5,12 +5,15 @@
 // and thus one could define a new System.Int32 (as below) and use that instead.
 
 using System;
+using Xunit;
 
 namespace System
 {
-    class ASURT_99893
+    public class ASURT_99893
     {
-	static int Main()
+	[OuterLoop]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 	    Boolean pass=true;
 #pragma warning disable 0436
@@ -37,7 +40,7 @@ namespace System
 		pass=false;
 		TestLibrary.Logging.WriteLine("GetByte: Unexpected exception thrown: " + ex);
 	    }
-	    
+
 	    // SetByte
 	    try
 	    {
@@ -72,7 +75,7 @@ namespace System
 		pass=false;
 		TestLibrary.Logging.WriteLine("BlockCopy: Unexpected exception thrown: " + ex);
 	    }
-	    
+
 	    if (pass)
 	    {
 		TestLibrary.Logging.WriteLine("Test passed.");
@@ -85,16 +88,16 @@ namespace System
 	    }
 	}
     }
-	
-    public struct Int32 
+
+    internal struct Int32
     {
 	object value;
-	public void Init (object o) 
+	public void Init (object o)
 	{
 	    value = o;
 	}
-		
-	override public string ToString () 
+
+	override public string ToString ()
 	{
 	    string s = "MyInt32";
 	    if (value == null) s += "<null>";

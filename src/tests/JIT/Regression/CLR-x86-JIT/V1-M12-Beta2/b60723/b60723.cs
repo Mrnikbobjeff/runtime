@@ -2,14 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b60723
 {
     using System;
 
     public struct AA
     {
         public static bool m_bFwd2;
-        public static int Main()
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

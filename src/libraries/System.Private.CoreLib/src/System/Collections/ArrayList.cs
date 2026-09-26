@@ -1,30 +1,19 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*============================================================
-**
-** Class:  ArrayList
-**
-** Purpose: Implements a dynamically sized List as an array,
-**          and provides many convenience methods for treating
-**          an array as an IList.
-**
-===========================================================*/
-
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 
 namespace System.Collections
 {
-    // Implements a variable-size List that uses an array of objects to store the
-    // elements. A ArrayList has a capacity, which is the allocated length
-    // of the internal array. As elements are added to a ArrayList, the capacity
-    // of the ArrayList is automatically increased as required by reallocating the
-    // internal array.
-    //
-    [DebuggerTypeProxy(typeof(System.Collections.ArrayList.ArrayListDebugView))]
+    /// <summary>
+    /// Implements the <see cref="IList" /> interface using an array whose size is dynamically increased as required.
+    /// </summary>
+    [DebuggerTypeProxy(typeof(ArrayListDebugView))]
     [DebuggerDisplay("Count = {Count}")]
     [Serializable]
-    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
+    [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class ArrayList : IList, ICloneable
     {
         private object?[] _items; // Do not rename (binary serialization)
@@ -38,7 +27,7 @@ namespace System.Collections
         // increased to _defaultCapacity, and then increased in multiples of two as required.
         public ArrayList()
         {
-            _items = Array.Empty<object>();
+            _items = [];
         }
 
         // Constructs a ArrayList with a given initial capacity. The list is
@@ -50,7 +39,7 @@ namespace System.Collections
             if (capacity < 0) throw new ArgumentOutOfRangeException(nameof(capacity), SR.Format(SR.ArgumentOutOfRange_MustBeNonNegNum, nameof(capacity)));
 
             if (capacity == 0)
-                _items = Array.Empty<object>();
+                _items = [];
             else
                 _items = new object[capacity];
         }
@@ -61,13 +50,12 @@ namespace System.Collections
         //
         public ArrayList(ICollection c)
         {
-            if (c == null)
-                throw new ArgumentNullException(nameof(c), SR.ArgumentNull_Collection);
+            ArgumentNullException.ThrowIfNull(c);
 
             int count = c.Count;
             if (count == 0)
             {
-                _items = Array.Empty<object>();
+                _items = [];
             }
             else
             {
@@ -132,12 +120,12 @@ namespace System.Collections
         {
             get
             {
-                if (index < 0 || index >= _size) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                if (index < 0 || index >= _size) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLess);
                 return _items[index];
             }
             set
             {
-                if (index < 0 || index >= _size) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                if (index < 0 || index >= _size) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLess);
                 _items[index] = value;
                 _version++;
             }
@@ -153,8 +141,8 @@ namespace System.Collections
         //
         public static ArrayList Adapter(IList list)
         {
-            if (list == null)
-                throw new ArgumentNullException(nameof(list));
+            ArgumentNullException.ThrowIfNull(list);
+
             return new IListWrapper(list);
         }
 
@@ -201,10 +189,8 @@ namespace System.Collections
         //
         public virtual int BinarySearch(int index, int count, object? value, IComparer? comparer)
         {
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
             if (_size - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -250,31 +236,12 @@ namespace System.Collections
         // It does a linear, O(n) search.  Equality is determined by calling
         // item.Equals().
         //
-        public virtual bool Contains(object? item)
-        {
-            if (item == null)
-            {
-                for (int i = 0; i < _size; i++)
-                    if (_items[i] == null)
-                        return true;
-                return false;
-            }
-            else
-            {
-                for (int i = 0; i < _size; i++)
-                    if ((_items[i] != null) && (_items[i]!.Equals(item))) // TODO-NULLABLE: Indexer nullability tracked (https://github.com/dotnet/roslyn/issues/34644)
-                        return true;
-                return false;
-            }
-        }
+        public virtual bool Contains(object? item) => Array.IndexOf(_items, item, 0, _size) >= 0;
 
         // Copies this ArrayList into array, which must be of a
         // compatible array type.
         //
-        public virtual void CopyTo(Array array)
-        {
-            CopyTo(array, 0);
-        }
+        public virtual void CopyTo(Array array) => CopyTo(array, 0);
 
         // Copies this ArrayList into array, which must be of a
         // compatible array type.
@@ -314,7 +281,7 @@ namespace System.Collections
                 int newCapacity = _items.Length == 0 ? _defaultCapacity : _items.Length * 2;
                 // Allow the list to grow to maximum possible capacity (~2G elements) before encountering overflow.
                 // Note that this check works even when _items.Length overflowed thanks to the (uint) cast
-                if ((uint)newCapacity > Array.MaxArrayLength) newCapacity = Array.MaxArrayLength;
+                if ((uint)newCapacity > Array.MaxLength) newCapacity = Array.MaxLength;
                 if (newCapacity < min) newCapacity = min;
                 Capacity = newCapacity;
             }
@@ -325,8 +292,8 @@ namespace System.Collections
         //
         public static IList FixedSize(IList list)
         {
-            if (list == null)
-                throw new ArgumentNullException(nameof(list));
+            ArgumentNullException.ThrowIfNull(list);
+
             return new FixedSizeList(list);
         }
 
@@ -335,8 +302,8 @@ namespace System.Collections
         //
         public static ArrayList FixedSize(ArrayList list)
         {
-            if (list == null)
-                throw new ArgumentNullException(nameof(list));
+            ArgumentNullException.ThrowIfNull(list);
+
             return new FixedSizeArrayList(list);
         }
 
@@ -357,10 +324,8 @@ namespace System.Collections
         //
         public virtual IEnumerator GetEnumerator(int index, int count)
         {
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
             if (_size - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
             return new ArrayListEnumerator(this, index, count);
@@ -391,7 +356,7 @@ namespace System.Collections
         public virtual int IndexOf(object? value, int startIndex)
         {
             if (startIndex > _size)
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             return Array.IndexOf((Array)_items, value, startIndex, _size - startIndex);
         }
 
@@ -407,7 +372,7 @@ namespace System.Collections
         public virtual int IndexOf(object? value, int startIndex, int count)
         {
             if (startIndex > _size)
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             if (count < 0 || startIndex > _size - count) throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_Count);
             return Array.IndexOf((Array)_items, value, startIndex, count);
         }
@@ -419,7 +384,7 @@ namespace System.Collections
         public virtual void Insert(int index, object? value)
         {
             // Note that insertions at the end are legal.
-            if (index < 0 || index > _size) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+            if (index < 0 || index > _size) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
 
             if (_size == _items.Length) EnsureCapacity(_size + 1);
             if (index < _size)
@@ -438,9 +403,9 @@ namespace System.Collections
         //
         public virtual void InsertRange(int index, ICollection c)
         {
-            if (c == null)
-                throw new ArgumentNullException(nameof(c), SR.ArgumentNull_Collection);
-            if (index < 0 || index > _size) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+            ArgumentNullException.ThrowIfNull(c);
+
+            if (index < 0 || index > _size) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
 
             int count = c.Count;
             if (count > 0)
@@ -485,7 +450,7 @@ namespace System.Collections
         public virtual int LastIndexOf(object? value, int startIndex)
         {
             if (startIndex >= _size)
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLess);
             return LastIndexOf(value, startIndex, startIndex + 1);
         }
 
@@ -500,8 +465,11 @@ namespace System.Collections
         //
         public virtual int LastIndexOf(object? value, int startIndex, int count)
         {
-            if (Count != 0 && (startIndex < 0 || count < 0))
-                throw new ArgumentOutOfRangeException(startIndex < 0 ? nameof(startIndex) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            if (Count != 0)
+            {
+                ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
+            }
 
             if (_size == 0)  // Special case for an empty list
                 return -1;
@@ -516,8 +484,8 @@ namespace System.Collections
         //
         public static IList ReadOnly(IList list)
         {
-            if (list == null)
-                throw new ArgumentNullException(nameof(list));
+            ArgumentNullException.ThrowIfNull(list);
+
             return new ReadOnlyList(list);
         }
 
@@ -525,8 +493,8 @@ namespace System.Collections
         //
         public static ArrayList ReadOnly(ArrayList list)
         {
-            if (list == null)
-                throw new ArgumentNullException(nameof(list));
+            ArgumentNullException.ThrowIfNull(list);
+
             return new ReadOnlyArrayList(list);
         }
 
@@ -545,7 +513,7 @@ namespace System.Collections
         //
         public virtual void RemoveAt(int index)
         {
-            if (index < 0 || index >= _size) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+            if (index < 0 || index >= _size) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLess);
 
             _size--;
             if (index < _size)
@@ -560,10 +528,8 @@ namespace System.Collections
         //
         public virtual void RemoveRange(int index, int count)
         {
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
             if (_size - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -584,8 +550,7 @@ namespace System.Collections
         //
         public static ArrayList Repeat(object? value, int count)
         {
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
 
             ArrayList list = new ArrayList((count > _defaultCapacity) ? count : _defaultCapacity);
             for (int i = 0; i < count; i++)
@@ -609,10 +574,8 @@ namespace System.Collections
         //
         public virtual void Reverse(int index, int count)
         {
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
             if (_size - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -625,10 +588,10 @@ namespace System.Collections
         //
         public virtual void SetRange(int index, ICollection c)
         {
-            if (c == null) throw new ArgumentNullException(nameof(c), SR.ArgumentNull_Collection);
+            ArgumentNullException.ThrowIfNull(c);
 
             int count = c.Count;
-            if (index < 0 || index > _size - count) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+            if (index < 0 || index > _size - count) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
 
             if (count > 0)
             {
@@ -639,8 +602,8 @@ namespace System.Collections
 
         public virtual ArrayList GetRange(int index, int count)
         {
-            if (index < 0 || count < 0)
-                throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
             if (_size - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
             return new Range(this, index, count);
@@ -670,10 +633,8 @@ namespace System.Collections
         //
         public virtual void Sort(int index, int count, IComparer? comparer)
         {
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
             if (_size - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -685,8 +646,8 @@ namespace System.Collections
         //
         public static IList Synchronized(IList list)
         {
-            if (list == null)
-                throw new ArgumentNullException(nameof(list));
+            ArgumentNullException.ThrowIfNull(list);
+
             return new SyncIList(list);
         }
 
@@ -694,8 +655,8 @@ namespace System.Collections
         //
         public static ArrayList Synchronized(ArrayList list)
         {
-            if (list == null)
-                throw new ArgumentNullException(nameof(list));
+            ArgumentNullException.ThrowIfNull(list);
+
             return new SyncArrayList(list);
         }
 
@@ -704,7 +665,7 @@ namespace System.Collections
         public virtual object?[] ToArray()
         {
             if (_size == 0)
-                return Array.Empty<object>();
+                return [];
 
             object?[] array = new object[_size];
             Array.Copy(_items, array, _size);
@@ -716,10 +677,10 @@ namespace System.Collections
         // downcasting all elements.  This copy may fail and is an O(n) operation.
         // Internally, this implementation calls Array.Copy.
         //
+        [RequiresDynamicCode("The code for an array of the specified type might not be available.")]
         public virtual Array ToArray(Type type)
         {
-            if (type == null)
-                throw new ArgumentNullException(nameof(type));
+            ArgumentNullException.ThrowIfNull(type);
 
             Array array = Array.CreateInstance(type, _size);
             Array.Copy(_items, array, _size);
@@ -743,7 +704,7 @@ namespace System.Collections
 
         // This class wraps an IList, exposing it as a ArrayList
         // Note this requires reimplementing half of ArrayList...
-        private class IListWrapper : ArrayList
+        private sealed class IListWrapper : ArrayList
         {
             private readonly IList _list;
 
@@ -798,8 +759,8 @@ namespace System.Collections
             // Other overloads with automatically work
             public override int BinarySearch(int index, int count, object? value, IComparer? comparer)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (Count - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -807,10 +768,9 @@ namespace System.Collections
 
                 int lo = index;
                 int hi = index + count - 1;
-                int mid;
                 while (lo <= hi)
                 {
-                    mid = (lo + hi) / 2;
+                    int mid = lo + ((hi - lo) >> 1);
                     int r = comparer.Compare(value, _list[mid]);
                     if (r == 0)
                         return mid;
@@ -856,12 +816,11 @@ namespace System.Collections
 
             public override void CopyTo(int index, Array array, int arrayIndex, int count)
             {
-                if (array == null)
-                    throw new ArgumentNullException(nameof(array));
-                if (index < 0 || arrayIndex < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(arrayIndex), SR.ArgumentOutOfRange_NeedNonNegNum);
-                if (count < 0)
-                    throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentNullException.ThrowIfNull(array);
+
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(arrayIndex);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (array.Length - arrayIndex < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
                 if (array.Rank != 1)
@@ -881,8 +840,8 @@ namespace System.Collections
 
             public override IEnumerator GetEnumerator(int index, int count)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
 
                 if (_list.Count - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
@@ -902,7 +861,7 @@ namespace System.Collections
 
             public override int IndexOf(object? value, int startIndex, int count)
             {
-                if (startIndex < 0 || startIndex > Count) throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+                if (startIndex < 0 || startIndex > Count) throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
                 if (count < 0 || startIndex > Count - count) throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_Count);
 
                 int endIndex = startIndex + count;
@@ -916,7 +875,7 @@ namespace System.Collections
                 else
                 {
                     for (int i = startIndex; i < endIndex; i++)
-                        if (_list[i] != null && _list[i]!.Equals(value)) // TODO-NULLABLE: Indexer nullability tracked (https://github.com/dotnet/roslyn/issues/34644)
+                        if (_list[i] is object o && o.Equals(value))
                             return i;
                     return -1;
                 }
@@ -930,9 +889,9 @@ namespace System.Collections
 
             public override void InsertRange(int index, ICollection c)
             {
-                if (c == null)
-                    throw new ArgumentNullException(nameof(c), SR.ArgumentNull_Collection);
-                if (index < 0 || index > Count) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                ArgumentNullException.ThrowIfNull(c);
+
+                if (index < 0 || index > Count) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
 
                 if (c.Count > 0)
                 {
@@ -970,7 +929,7 @@ namespace System.Collections
                 if (_list.Count == 0)
                     return -1;
 
-                if (startIndex < 0 || startIndex >= _list.Count) throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+                if (startIndex < 0 || startIndex >= _list.Count) throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLess);
                 if (count < 0 || count > startIndex + 1) throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_Count);
 
                 int endIndex = startIndex - count + 1;
@@ -984,7 +943,7 @@ namespace System.Collections
                 else
                 {
                     for (int i = startIndex; i >= endIndex; i--)
-                        if (_list[i] != null && _list[i]!.Equals(value)) // TODO-NULLABLE: Indexer nullability tracked (https://github.com/dotnet/roslyn/issues/34644)
+                        if (_list[i] is object o && o.Equals(value))
                             return i;
                     return -1;
                 }
@@ -1005,8 +964,8 @@ namespace System.Collections
 
             public override void RemoveRange(int index, int count)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
 
                 if (_list.Count - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
@@ -1023,8 +982,8 @@ namespace System.Collections
 
             public override void Reverse(int index, int count)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
 
                 if (_list.Count - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
@@ -1042,14 +1001,11 @@ namespace System.Collections
 
             public override void SetRange(int index, ICollection c)
             {
-                if (c == null)
-                {
-                    throw new ArgumentNullException(nameof(c), SR.ArgumentNull_Collection);
-                }
+                ArgumentNullException.ThrowIfNull(c);
 
                 if (index < 0 || index > _list.Count - c.Count)
                 {
-                    throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                    throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
                 }
 
                 if (c.Count > 0)
@@ -1065,8 +1021,8 @@ namespace System.Collections
 
             public override ArrayList GetRange(int index, int count)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (_list.Count - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
                 return new Range(this, index, count);
@@ -1074,8 +1030,8 @@ namespace System.Collections
 
             public override void Sort(int index, int count, IComparer? comparer)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (_list.Count - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -1092,17 +1048,17 @@ namespace System.Collections
             public override object?[] ToArray()
             {
                 if (Count == 0)
-                    return Array.Empty<object?>();
+                    return [];
 
                 object?[] array = new object[Count];
                 _list.CopyTo(array, 0);
                 return array;
             }
 
+            [RequiresDynamicCode("The code for an array of the specified type might not be available.")]
             public override Array ToArray(Type type)
             {
-                if (type == null)
-                    throw new ArgumentNullException(nameof(type));
+                ArgumentNullException.ThrowIfNull(type);
 
                 Array array = Array.CreateInstance(type, _list.Count);
                 _list.CopyTo(array, 0);
@@ -1183,7 +1139,7 @@ namespace System.Collections
             }
         }
 
-        private class SyncArrayList : ArrayList
+        private sealed class SyncArrayList : ArrayList
         {
             private readonly ArrayList _list;
             private readonly object _root;
@@ -1492,6 +1448,7 @@ namespace System.Collections
                 }
             }
 
+            [RequiresDynamicCode("The code for an array of the specified type might not be available.")]
             public override Array ToArray(Type type)
             {
                 lock (_root)
@@ -1510,7 +1467,7 @@ namespace System.Collections
         }
 
 
-        private class SyncIList : IList
+        private sealed class SyncIList : IList
         {
             private readonly IList _list;
             private readonly object _root;
@@ -1521,19 +1478,19 @@ namespace System.Collections
                 _root = list.SyncRoot;
             }
 
-            public virtual int Count
+            public int Count
             {
                 get { lock (_root) { return _list.Count; } }
             }
 
-            public virtual bool IsReadOnly => _list.IsReadOnly;
+            public bool IsReadOnly => _list.IsReadOnly;
 
-            public virtual bool IsFixedSize => _list.IsFixedSize;
+            public bool IsFixedSize => _list.IsFixedSize;
 
 
-            public virtual bool IsSynchronized => true;
+            public bool IsSynchronized => true;
 
-            public virtual object? this[int index]
+            public object? this[int index]
             {
                 get
                 {
@@ -1551,9 +1508,9 @@ namespace System.Collections
                 }
             }
 
-            public virtual object SyncRoot => _root;
+            public object SyncRoot => _root;
 
-            public virtual int Add(object? value)
+            public int Add(object? value)
             {
                 lock (_root)
                 {
@@ -1562,7 +1519,7 @@ namespace System.Collections
             }
 
 
-            public virtual void Clear()
+            public void Clear()
             {
                 lock (_root)
                 {
@@ -1570,7 +1527,7 @@ namespace System.Collections
                 }
             }
 
-            public virtual bool Contains(object? item)
+            public bool Contains(object? item)
             {
                 lock (_root)
                 {
@@ -1578,7 +1535,7 @@ namespace System.Collections
                 }
             }
 
-            public virtual void CopyTo(Array array, int index)
+            public void CopyTo(Array array, int index)
             {
                 lock (_root)
                 {
@@ -1586,7 +1543,7 @@ namespace System.Collections
                 }
             }
 
-            public virtual IEnumerator GetEnumerator()
+            public IEnumerator GetEnumerator()
             {
                 lock (_root)
                 {
@@ -1594,7 +1551,7 @@ namespace System.Collections
                 }
             }
 
-            public virtual int IndexOf(object? value)
+            public int IndexOf(object? value)
             {
                 lock (_root)
                 {
@@ -1602,7 +1559,7 @@ namespace System.Collections
                 }
             }
 
-            public virtual void Insert(int index, object? value)
+            public void Insert(int index, object? value)
             {
                 lock (_root)
                 {
@@ -1610,7 +1567,7 @@ namespace System.Collections
                 }
             }
 
-            public virtual void Remove(object? value)
+            public void Remove(object? value)
             {
                 lock (_root)
                 {
@@ -1618,7 +1575,7 @@ namespace System.Collections
                 }
             }
 
-            public virtual void RemoveAt(int index)
+            public void RemoveAt(int index)
             {
                 lock (_root)
                 {
@@ -1627,7 +1584,7 @@ namespace System.Collections
             }
         }
 
-        private class FixedSizeList : IList
+        private sealed class FixedSizeList : IList
         {
             private readonly IList _list;
 
@@ -1636,69 +1593,69 @@ namespace System.Collections
                 _list = l;
             }
 
-            public virtual int Count => _list.Count;
+            public int Count => _list.Count;
 
-            public virtual bool IsReadOnly => _list.IsReadOnly;
+            public bool IsReadOnly => _list.IsReadOnly;
 
-            public virtual bool IsFixedSize => true;
+            public bool IsFixedSize => true;
 
-            public virtual bool IsSynchronized => _list.IsSynchronized;
+            public bool IsSynchronized => _list.IsSynchronized;
 
-            public virtual object? this[int index]
+            public object? this[int index]
             {
                 get => _list[index];
                 set => _list[index] = value;
             }
 
-            public virtual object SyncRoot => _list.SyncRoot;
+            public object SyncRoot => _list.SyncRoot;
 
-            public virtual int Add(object? obj)
+            public int Add(object? obj)
             {
                 throw new NotSupportedException(SR.NotSupported_FixedSizeCollection);
             }
 
-            public virtual void Clear()
+            public void Clear()
             {
                 throw new NotSupportedException(SR.NotSupported_FixedSizeCollection);
             }
 
-            public virtual bool Contains(object? obj)
+            public bool Contains(object? obj)
             {
                 return _list.Contains(obj);
             }
 
-            public virtual void CopyTo(Array array, int index)
+            public void CopyTo(Array array, int index)
             {
                 _list.CopyTo(array, index);
             }
 
-            public virtual IEnumerator GetEnumerator()
+            public IEnumerator GetEnumerator()
             {
                 return _list.GetEnumerator();
             }
 
-            public virtual int IndexOf(object? value)
+            public int IndexOf(object? value)
             {
                 return _list.IndexOf(value);
             }
 
-            public virtual void Insert(int index, object? obj)
+            public void Insert(int index, object? obj)
             {
                 throw new NotSupportedException(SR.NotSupported_FixedSizeCollection);
             }
 
-            public virtual void Remove(object? value)
+            public void Remove(object? value)
             {
                 throw new NotSupportedException(SR.NotSupported_FixedSizeCollection);
             }
 
-            public virtual void RemoveAt(int index)
+            public void RemoveAt(int index)
             {
                 throw new NotSupportedException(SR.NotSupported_FixedSizeCollection);
             }
         }
 
-        private class FixedSizeArrayList : ArrayList
+        private sealed class FixedSizeArrayList : ArrayList
         {
             private ArrayList _list;
 
@@ -1849,8 +1806,8 @@ namespace System.Collections
 
             public override ArrayList GetRange(int index, int count)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (Count - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -1874,6 +1831,7 @@ namespace System.Collections
                 return _list.ToArray();
             }
 
+            [RequiresDynamicCode("The code for an array of the specified type might not be available.")]
             public override Array ToArray(Type type)
             {
                 return _list.ToArray(type);
@@ -1885,7 +1843,7 @@ namespace System.Collections
             }
         }
 
-        private class ReadOnlyList : IList
+        private sealed class ReadOnlyList : IList
         {
             private readonly IList _list;
 
@@ -1894,69 +1852,69 @@ namespace System.Collections
                 _list = l;
             }
 
-            public virtual int Count => _list.Count;
+            public int Count => _list.Count;
 
-            public virtual bool IsReadOnly => true;
+            public bool IsReadOnly => true;
 
-            public virtual bool IsFixedSize => true;
+            public bool IsFixedSize => true;
 
-            public virtual bool IsSynchronized => _list.IsSynchronized;
+            public bool IsSynchronized => _list.IsSynchronized;
 
-            public virtual object? this[int index]
+            public object? this[int index]
             {
                 get => _list[index];
                 set => throw new NotSupportedException(SR.NotSupported_ReadOnlyCollection);
             }
 
-            public virtual object SyncRoot => _list.SyncRoot;
+            public object SyncRoot => _list.SyncRoot;
 
-            public virtual int Add(object? obj)
+            public int Add(object? obj)
             {
                 throw new NotSupportedException(SR.NotSupported_ReadOnlyCollection);
             }
 
-            public virtual void Clear()
+            public void Clear()
             {
                 throw new NotSupportedException(SR.NotSupported_ReadOnlyCollection);
             }
 
-            public virtual bool Contains(object? obj)
+            public bool Contains(object? obj)
             {
                 return _list.Contains(obj);
             }
 
-            public virtual void CopyTo(Array array, int index)
+            public void CopyTo(Array array, int index)
             {
                 _list.CopyTo(array, index);
             }
 
-            public virtual IEnumerator GetEnumerator()
+            public IEnumerator GetEnumerator()
             {
                 return _list.GetEnumerator();
             }
 
-            public virtual int IndexOf(object? value)
+            public int IndexOf(object? value)
             {
                 return _list.IndexOf(value);
             }
 
-            public virtual void Insert(int index, object? obj)
+            public void Insert(int index, object? obj)
             {
                 throw new NotSupportedException(SR.NotSupported_ReadOnlyCollection);
             }
 
-            public virtual void Remove(object? value)
+            public void Remove(object? value)
             {
                 throw new NotSupportedException(SR.NotSupported_ReadOnlyCollection);
             }
 
-            public virtual void RemoveAt(int index)
+            public void RemoveAt(int index)
             {
                 throw new NotSupportedException(SR.NotSupported_ReadOnlyCollection);
             }
         }
 
-        private class ReadOnlyArrayList : ArrayList
+        private sealed class ReadOnlyArrayList : ArrayList
         {
             private ArrayList _list;
 
@@ -2102,8 +2060,8 @@ namespace System.Collections
 
             public override ArrayList GetRange(int index, int count)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (Count - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -2125,6 +2083,7 @@ namespace System.Collections
                 return _list.ToArray();
             }
 
+            [RequiresDynamicCode("The code for an array of the specified type might not be available.")]
             public override Array ToArray(Type type)
             {
                 return _list.ToArray(type);
@@ -2200,7 +2159,7 @@ namespace System.Collections
 
         // Implementation of a generic list subrange. An instance of this class
         // is returned by the default implementation of List.GetRange.
-        private class Range : ArrayList
+        private sealed class Range : ArrayList
         {
             private ArrayList _baseList;
             private readonly int _baseIndex;
@@ -2239,10 +2198,7 @@ namespace System.Collections
 
             public override void AddRange(ICollection c)
             {
-                if (c == null)
-                {
-                    throw new ArgumentNullException(nameof(c));
-                }
+                ArgumentNullException.ThrowIfNull(c);
 
                 InternalUpdateRange();
                 int count = c.Count;
@@ -2256,8 +2212,8 @@ namespace System.Collections
 
             public override int BinarySearch(int index, int count, object? value, IComparer? comparer)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (_baseSize - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -2311,7 +2267,7 @@ namespace System.Collections
                 else
                 {
                     for (int i = 0; i < _baseSize; i++)
-                        if (_baseList[_baseIndex + i] != null && _baseList[_baseIndex + i]!.Equals(item)) // TODO-NULLABLE: Indexer nullability tracked (https://github.com/dotnet/roslyn/issues/34644)
+                        if (_baseList[_baseIndex + i] is object o && o.Equals(item))
                             return true;
                     return false;
                 }
@@ -2319,12 +2275,11 @@ namespace System.Collections
 
             public override void CopyTo(Array array, int index)
             {
-                if (array == null)
-                    throw new ArgumentNullException(nameof(array));
+                ArgumentNullException.ThrowIfNull(array);
+
                 if (array.Rank != 1)
                     throw new ArgumentException(SR.Arg_RankMultiDimNotSupported, nameof(array));
-                if (index < 0)
-                    throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
                 if (array.Length - index < _baseSize)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -2334,12 +2289,12 @@ namespace System.Collections
 
             public override void CopyTo(int index, Array array, int arrayIndex, int count)
             {
-                if (array == null)
-                    throw new ArgumentNullException(nameof(array));
+                ArgumentNullException.ThrowIfNull(array);
+
                 if (array.Rank != 1)
                     throw new ArgumentException(SR.Arg_RankMultiDimNotSupported, nameof(array));
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (array.Length - arrayIndex < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
                 if (_baseSize - index < count)
@@ -2371,8 +2326,8 @@ namespace System.Collections
 
             public override IEnumerator GetEnumerator(int index, int count)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (_baseSize - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -2382,8 +2337,8 @@ namespace System.Collections
 
             public override ArrayList GetRange(int index, int count)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (_baseSize - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -2404,10 +2359,9 @@ namespace System.Collections
 
             public override int IndexOf(object? value, int startIndex)
             {
-                if (startIndex < 0)
-                    throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
                 if (startIndex > _baseSize)
-                    throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+                    throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
 
                 InternalUpdateRange();
                 int i = _baseList.IndexOf(value, _baseIndex + startIndex, _baseSize - startIndex);
@@ -2418,7 +2372,7 @@ namespace System.Collections
             public override int IndexOf(object? value, int startIndex, int count)
             {
                 if (startIndex < 0 || startIndex > _baseSize)
-                    throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+                    throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
 
                 if (count < 0 || (startIndex > _baseSize - count))
                     throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_Count);
@@ -2431,7 +2385,7 @@ namespace System.Collections
 
             public override void Insert(int index, object? value)
             {
-                if (index < 0 || index > _baseSize) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                if (index < 0 || index > _baseSize) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
 
                 InternalUpdateRange();
                 _baseList.Insert(_baseIndex + index, value);
@@ -2441,11 +2395,8 @@ namespace System.Collections
 
             public override void InsertRange(int index, ICollection c)
             {
-                if (index < 0 || index > _baseSize) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
-                if (c == null)
-                {
-                    throw new ArgumentNullException(nameof(c));
-                }
+                if (index < 0 || index > _baseSize) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
+                ArgumentNullException.ThrowIfNull(c);
 
                 InternalUpdateRange();
                 int count = c.Count;
@@ -2477,9 +2428,8 @@ namespace System.Collections
                     return -1;
 
                 if (startIndex >= _baseSize)
-                    throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
-                if (startIndex < 0)
-                    throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_NeedNonNegNum);
+                    throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLess);
+                ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
 
                 int i = _baseList.LastIndexOf(value, _baseIndex + startIndex, count);
                 if (i >= 0) return i - _baseIndex;
@@ -2490,7 +2440,7 @@ namespace System.Collections
 
             public override void RemoveAt(int index)
             {
-                if (index < 0 || index >= _baseSize) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                if (index < 0 || index >= _baseSize) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLess);
 
                 InternalUpdateRange();
                 _baseList.RemoveAt(_baseIndex + index);
@@ -2500,8 +2450,8 @@ namespace System.Collections
 
             public override void RemoveRange(int index, int count)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (_baseSize - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -2518,8 +2468,8 @@ namespace System.Collections
 
             public override void Reverse(int index, int count)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (_baseSize - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -2531,7 +2481,7 @@ namespace System.Collections
             public override void SetRange(int index, ICollection c)
             {
                 InternalUpdateRange();
-                if (index < 0 || index >= _baseSize) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                if (index < 0 || index >= _baseSize) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLess);
                 _baseList.SetRange(_baseIndex + index, c);
                 if (c.Count > 0)
                 {
@@ -2541,8 +2491,8 @@ namespace System.Collections
 
             public override void Sort(int index, int count, IComparer? comparer)
             {
-                if (index < 0 || count < 0)
-                    throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
+                ArgumentOutOfRangeException.ThrowIfNegative(count);
                 if (_baseSize - index < count)
                     throw new ArgumentException(SR.Argument_InvalidOffLen);
 
@@ -2556,13 +2506,13 @@ namespace System.Collections
                 get
                 {
                     InternalUpdateRange();
-                    if (index < 0 || index >= _baseSize) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                    if (index < 0 || index >= _baseSize) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLess);
                     return _baseList[_baseIndex + index];
                 }
                 set
                 {
                     InternalUpdateRange();
-                    if (index < 0 || index >= _baseSize) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                    if (index < 0 || index >= _baseSize) throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLess);
                     _baseList[_baseIndex + index] = value;
                     InternalUpdateVersion();
                 }
@@ -2572,16 +2522,16 @@ namespace System.Collections
             {
                 InternalUpdateRange();
                 if (_baseSize == 0)
-                    return Array.Empty<object?>();
+                    return [];
                 object[] array = new object[_baseSize];
-                Array.Copy(_baseList._items, _baseIndex, array, 0, _baseSize);
+                _baseList.CopyTo(_baseIndex, array, 0, _baseSize);
                 return array;
             }
 
+            [RequiresDynamicCode("The code for an array of the specified type might not be available.")]
             public override Array ToArray(Type type)
             {
-                if (type == null)
-                    throw new ArgumentNullException(nameof(type));
+                ArgumentNullException.ThrowIfNull(type);
 
                 InternalUpdateRange();
                 Array array = Array.CreateInstance(type, _baseSize);
@@ -2686,14 +2636,13 @@ namespace System.Collections
             }
         }
 
-        internal class ArrayListDebugView
+        internal sealed class ArrayListDebugView
         {
             private readonly ArrayList _arrayList;
 
             public ArrayListDebugView(ArrayList arrayList)
             {
-                if (arrayList == null)
-                    throw new ArgumentNullException(nameof(arrayList));
+                ArgumentNullException.ThrowIfNull(arrayList);
 
                 _arrayList = arrayList;
             }

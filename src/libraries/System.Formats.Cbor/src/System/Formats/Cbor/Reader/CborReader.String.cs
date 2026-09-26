@@ -15,21 +15,15 @@ namespace System.Formats.Cbor
         // stores a reusable List allocation for storing indefinite length string chunk offsets
         private List<(int Offset, int Length)>? _indefiniteLengthStringRangeAllocation;
 
-        /// <summary>
-        ///   Reads the next data item as a byte string (major type 2).
-        /// </summary>
+        /// <summary>Reads the next data item as a byte string (major type 2).</summary>
         /// <returns>The decoded byte array.</returns>
-        /// <exception cref="InvalidOperationException">
-        ///   the next date item does not have the correct major type.
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
-        /// <remarks>
-        ///   The method accepts indefinite length strings, which it will concatenate to a single string.
-        /// </remarks>
+        /// <exception cref="InvalidOperationException">The next date item does not have the correct major type.</exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
+        /// <remarks>The method accepts indefinite length strings, which it concatenates to a single string.</remarks>
         public byte[] ReadByteString()
         {
             CborInitialByte header = PeekInitialByte(expectedType: CborMajorType.ByteString);
@@ -54,28 +48,17 @@ namespace System.Formats.Cbor
             return result;
         }
 
-        /// <summary>
-        ///   Reads the next data item as a byte string (major type 2).
-        /// </summary>
-        /// <param name="destination">The buffer in which to write.</param>
-        /// <param name="bytesWritten">
-        ///   On success, receives the number of bytes written to <paramref name="destination"/>.
-        /// </param>
-        /// <returns>
-        ///   <see langword="true" /> and advances the reader if <paramref name="destination"/> had sufficient
-        ///   length to receive the value, otherwise <see langword="false" /> and the reader does not advance.
-        /// </returns>
-        /// <exception cref="InvalidOperationException">
-        ///   the next data item does not have the correct major type.
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
-        /// <remarks>
-        ///   The method accepts indefinite length strings, which it will concatenate to a single string.
-        /// </remarks>
+        /// <summary>Reads the next data item as a byte string (major type 2).</summary>
+        /// <param name="destination">The buffer in which to write the read bytes.</param>
+        /// <param name="bytesWritten">On success, receives the number of bytes written to <paramref name="destination" />.</param>
+        /// <returns><see langword="true" /> if <paramref name="destination" /> had sufficient length to receive the value and the reader advances; otherwise, <see langword="false" />.</returns>
+        /// <exception cref="InvalidOperationException">The next data item does not have the correct major type.</exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
+        /// <remarks>The method accepts indefinite length strings, which it will concatenate to a single string.</remarks>
         public bool TryReadByteString(Span<byte> destination, out int bytesWritten)
         {
             CborInitialByte header = PeekInitialByte(expectedType: CborMajorType.ByteString);
@@ -108,21 +91,20 @@ namespace System.Formats.Cbor
             return true;
         }
 
-        /// <summary>
-        ///   Reads the next data item as a definite-length byte string (major type 2).
-        /// </summary>
-        /// <returns>
-        ///   A <see cref="ReadOnlyMemory{T}"/> view of the byte string payload.
-        /// </returns>
-        /// <exception cref="InvalidOperationException">
-        ///   the next data item does not have the correct major type. -or-
-        ///   the data item is an indefinite-length byte string.
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
+        /// <summary>Reads the next data item as a definite-length byte string (major type 2).</summary>
+        /// <returns>A <see cref="ReadOnlyMemory{T}" /> view of the byte string payload.</returns>
+        /// <exception cref="InvalidOperationException"><para>The next data item does not have the correct major type.</para>
+        /// <para>-or-</para>
+        /// <para>The data item is an indefinite-length byte string.</para></exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
+        /// <remarks>The returned <see cref="ReadOnlyMemory{T}" /> is a slice over the reader's input buffer. Callers are responsible
+        /// for preserving the integrity of the value for as long as it is persisted. When using <c>CborReader</c> in streaming mode,
+        /// callers are advised to read the value immediately, make a defensive copy, or avoid reusing the same memory
+        /// across calls to <see cref="SlideData" />.</remarks>
         public ReadOnlyMemory<byte> ReadDefiniteLengthByteString()
         {
             CborInitialByte header = PeekInitialByte(expectedType: CborMajorType.ByteString);
@@ -142,21 +124,19 @@ namespace System.Formats.Cbor
             return byteSlice;
         }
 
-        /// <summary>
-        ///   Reads the next data item as the start of an indefinite-length byte string (major type 2).
-        /// </summary>
-        /// <exception cref="InvalidOperationException">
-        ///   the next data item does not have the correct major type. -or-
-        ///   the next data item is a definite-length encoded string.
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
+        /// <summary>Reads the next data item as the start of an indefinite-length byte string (major type 2).</summary>
+        /// <exception cref="InvalidOperationException"><para>The next data item does not have the correct major type.</para>
+        /// <para>-or-</para>
+        /// <para>The next data item is a definite-length encoded string.</para></exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
         public void ReadStartIndefiniteLengthByteString()
         {
             CborInitialByte header = PeekInitialByte(expectedType: CborMajorType.ByteString);
+            EnsureMaxDepthNotExceeded();
 
             if (header.AdditionalInfo != CborAdditionalInfo.IndefiniteLength)
             {
@@ -172,16 +152,11 @@ namespace System.Formats.Cbor
             PushDataItem(CborMajorType.ByteString, definiteLength: null);
         }
 
-        /// <summary>
-        ///   End reading an indefinite-length byte string (major type 2).
-        /// </summary>
-        /// <exception cref="InvalidOperationException">
-        ///   the current context is not an indefinite-length string. -or-
-        ///   the reader is not at the end of the string
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   there was an unexpected end of CBOR encoding data
-        /// </exception>
+        /// <summary>Ends reading an indefinite-length byte string (major type 2).</summary>
+        /// <exception cref="InvalidOperationException"><para>The current context is not an indefinite-length string.</para>
+        /// <para>-or-</para>
+        /// <para>The reader is not at the end of the string.</para></exception>
+        /// <exception cref="CborContentException">There was an unexpected end of CBOR encoding data.</exception>
         public void ReadEndIndefiniteLengthByteString()
         {
             ValidateNextByteIsBreakByte();
@@ -190,21 +165,15 @@ namespace System.Formats.Cbor
             AdvanceBuffer(1);
         }
 
-        /// <summary>
-        ///   Reads the next data item as a UTF-8 text string (major type 3).
-        /// </summary>
+        /// <summary>Reads the next data item as a UTF-8 text string (major type 3).</summary>
         /// <returns>The decoded string.</returns>
-        /// <exception cref="InvalidOperationException">
-        ///   the next data item does not have the correct major type.
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
-        /// <remarks>
-        ///   The method accepts indefinite length strings, which it will concatenate to a single string.
-        /// </remarks>
+        /// <exception cref="InvalidOperationException">The next data item does not have the correct major type.</exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
+        /// <remarks>The method accepts indefinite length strings, which it will concatenate to a single string.</remarks>
         public string ReadTextString()
         {
             CborInitialByte header = PeekInitialByte(expectedType: CborMajorType.TextString);
@@ -240,28 +209,17 @@ namespace System.Formats.Cbor
             return result;
         }
 
-        /// <summary>
-        ///   Reads the next data item as a UTF-8 text string (major type 3).
-        /// </summary>
+        /// <summary>Reads the next data item as a UTF-8 text string (major type 3).</summary>
         /// <param name="destination">The buffer in which to write.</param>
-        /// <param name="charsWritten">
-        ///   On success, receives the number of chars written to <paramref name="destination"/>.
-        /// </param>
-        /// <returns>
-        ///   <see langword="true" /> and advances the reader if <paramref name="destination"/> had sufficient
-        ///   length to receive the value, otherwise <see langword="false" /> and the reader does not advance.
-        /// </returns>
-        /// <exception cref="InvalidOperationException">
-        ///   the next data item does not have the correct major type.
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
-        /// <remarks>
-        ///   The method accepts indefinite length strings, which it will concatenate to a single string.
-        /// </remarks>
+        /// <param name="charsWritten">On success, receives the number of chars written to <paramref name="destination" />.</param>
+        /// <returns><see langword="true" /> and advances the reader if <paramref name="destination" /> had sufficient length to receive the value, otherwise <see langword="false" /> and the reader does not advance.</returns>
+        /// <exception cref="InvalidOperationException">The next data item does not have the correct major type.</exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
+        /// <remarks>The method accepts indefinite length strings, which it will concatenate to a single string.</remarks>
         public bool TryReadTextString(Span<char> destination, out int charsWritten)
         {
             CborInitialByte header = PeekInitialByte(expectedType: CborMajorType.TextString);
@@ -298,21 +256,20 @@ namespace System.Formats.Cbor
             return true;
         }
 
-        /// <summary>
-        ///   Reads the next data item as a definite-length UTF-8 text string (major type 3).
-        /// </summary>
-        /// <returns>
-        ///   A <see cref="ReadOnlyMemory{T}"/> view of the raw UTF-8 payload.
-        /// </returns>
-        /// <exception cref="InvalidOperationException">
-        ///   the next data item does not have the correct major type. -or-
-        ///   the data item is an indefinite-length text string.
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
+        /// <summary>Reads the next data item as a definite-length UTF-8 text string (major type 3).</summary>
+        /// <returns>A <see cref="ReadOnlyMemory{T}" /> view of the raw UTF-8 payload.</returns>
+        /// <exception cref="InvalidOperationException"><para>The next data item does not have the correct major type.</para>
+        /// <para>-or-</para>
+        /// <para>The data item is an indefinite-length text string.</para></exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
+        /// <remarks>The returned <see cref="ReadOnlyMemory{T}" /> is a slice over the reader's input buffer. Callers are responsible
+        /// for preserving the integrity of the value for as long as it is persisted. When using <c>CborReader</c> in streaming mode,
+        /// callers are advised to read the value immediately, make a defensive copy, or avoid reusing the same memory
+        /// across calls to <see cref="SlideData" />.</remarks>
         public ReadOnlyMemory<byte> ReadDefiniteLengthTextStringBytes()
         {
             CborInitialByte header = PeekInitialByte(expectedType: CborMajorType.TextString);
@@ -339,21 +296,19 @@ namespace System.Formats.Cbor
             return encodedSlice;
         }
 
-        /// <summary>
-        ///   Reads the next data item as the start of an indefinite-length UTF-8 text string (major type 3).
-        /// </summary>
-        /// <exception cref="InvalidOperationException">
-        ///   the next data item does not have the correct major type. -or-
-        ///   the next data item is a definite-length encoded string.
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
+        /// <summary>Reads the next data item as the start of an indefinite-length UTF-8 text string (major type 3).</summary>
+        /// <exception cref="InvalidOperationException"><para>The next data item does not have the correct major type.</para>
+        /// <para>-or-</para>
+        /// <para>The next data item is a definite-length encoded string.</para></exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
         public void ReadStartIndefiniteLengthTextString()
         {
             CborInitialByte header = PeekInitialByte(expectedType: CborMajorType.TextString);
+            EnsureMaxDepthNotExceeded();
 
             if (header.AdditionalInfo != CborAdditionalInfo.IndefiniteLength)
             {
@@ -369,16 +324,11 @@ namespace System.Formats.Cbor
             PushDataItem(CborMajorType.TextString, definiteLength: null);
         }
 
-        /// <summary>
-        ///   End reading an indefinite-length UTF-8 text string (major type 3).
-        /// </summary>
-        /// <exception cref="InvalidOperationException">
-        ///   the current context is not an indefinite-length string. -or-
-        ///   the reader is not at the end of the string
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   there was an unexpected end of CBOR encoding data
-        /// </exception>
+        /// <summary>Ends reading an indefinite-length UTF-8 text string (major type 3).</summary>
+        /// <exception cref="InvalidOperationException"><para>The current context is not an indefinite-length string.</para>
+        /// <para>-or-</para>
+        /// <para>The reader is not at the end of the string.</para></exception>
+        /// <exception cref="CborContentException">There was an unexpected end of CBOR encoding data.</exception>
         public void ReadEndIndefiniteLengthTextString()
         {
             ValidateNextByteIsBreakByte();
@@ -447,7 +397,7 @@ namespace System.Formats.Cbor
             }
 
             // build the string using range data
-            string output = string.Create(concatenatedStringSize, (ranges, _data.Slice(_offset), utf8Encoding), BuildString);
+            string output = CborHelpers.BuildStringFromIndefiniteLengthTextString(concatenatedStringSize, (ranges, _data.Slice(_offset), utf8Encoding), BuildString);
 
             AdvanceBuffer(encodingLength);
             AdvanceDataItemCounters();
@@ -489,8 +439,8 @@ namespace System.Formats.Cbor
 
             foreach ((int o, int l) in ranges)
             {
-                utf8Encoding.GetChars(buffer.Slice(o, l), destination);
-                destination = destination.Slice(l);
+                int chunkCharsWritten = utf8Encoding.GetChars(buffer.Slice(o, l), destination);
+                destination = destination.Slice(chunkCharsWritten);
             }
 
             charsWritten = concatenatedStringSize;
@@ -505,6 +455,8 @@ namespace System.Formats.Cbor
         // containing the individual chunk payloads
         private List<(int Offset, int Length)> ReadIndefiniteLengthStringChunkRanges(CborMajorType type, out int encodingLength, out int concatenatedBufferSize)
         {
+            EnsureMaxDepthNotExceeded();
+
             List<(int Offset, int Length)> ranges = AcquireIndefiniteLengthStringRangeList();
             ReadOnlySpan<byte> data = GetRemainingBytes();
             concatenatedBufferSize = 0;
@@ -563,7 +515,7 @@ namespace System.Formats.Cbor
             AdvanceDataItemCounters();
         }
 
-        private int ValidateUtf8AndGetCharCount(ReadOnlySpan<byte> buffer, Encoding utf8Encoding)
+        private static int ValidateUtf8AndGetCharCount(ReadOnlySpan<byte> buffer, Encoding utf8Encoding)
         {
             try
             {

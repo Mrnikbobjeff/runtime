@@ -2,12 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using Microsoft.Xunit.Performance;
 using System;
 using System.Runtime.CompilerServices;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
+using TestLibrary;
 
 namespace Benchstone.BenchI
 {
@@ -62,18 +60,6 @@ public static class XposMatrix
         return true;
     }
 
-    [Benchmark]
-    public static void Test() {
-        int[][] matrix = AllocArray<int>(ArraySize + 1, ArraySize + 1);
-        foreach (var iteration in Benchmark.Iterations) {
-            using (iteration.StartMeasurement()) {
-                for (int i = 0; i < Iterations; i++) {
-                    Bench(matrix);
-                }
-            }
-        }
-    }
-
     static bool TestBase() {
         int[][] matrix = AllocArray<int>(ArraySize + 1, ArraySize + 1);
         bool result = true;
@@ -83,7 +69,9 @@ public static class XposMatrix
         return result;
     }
 
-    public static int Main() {
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [Fact]
+    public static int TestEntryPoint() {
         bool result = TestBase();
         return (result ? 100 : -1);
     }

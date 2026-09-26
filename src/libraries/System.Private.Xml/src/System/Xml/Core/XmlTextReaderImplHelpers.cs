@@ -2,20 +2,21 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.IO;
-using System.Text;
-using System.Security;
-using System.Xml.Schema;
 using System.Collections;
-using System.Diagnostics;
-using System.Globalization;
 using System.Collections.Generic;
-using System.Runtime.Versioning;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.IO;
+using System.Runtime.CompilerServices;
+using System.Runtime.Versioning;
+using System.Security;
+using System.Text;
+using System.Xml.Schema;
 
 namespace System.Xml
 {
-    internal partial class XmlTextReaderImpl
+    internal sealed partial class XmlTextReaderImpl
     {
         //
         // ParsingState
@@ -92,9 +93,9 @@ namespace System.Xml
                     {
                         stream.Dispose();
                     }
-                    else if (textReader != null)
+                    else
                     {
-                        textReader.Dispose();
+                        textReader?.Dispose();
                     }
                 }
             }
@@ -119,7 +120,7 @@ namespace System.Xml
         //
         // XmlContext
         //
-        private class XmlContext
+        private sealed class XmlContext
         {
             internal XmlSpace xmlSpace;
             internal string xmlLang;
@@ -146,7 +147,7 @@ namespace System.Xml
         //
         // NoNamespaceManager
         //
-        private class NoNamespaceManager : XmlNamespaceManager
+        private sealed class NoNamespaceManager : XmlNamespaceManager
         {
             public NoNamespaceManager() : base() { }
             public override string DefaultNamespace { get { return string.Empty; } }
@@ -164,7 +165,7 @@ namespace System.Xml
         //
         // DtdParserProxy: IDtdParserAdapter proxy for XmlTextReaderImpl
         //
-        internal partial class DtdParserProxy : IDtdParserAdapterV1
+        internal sealed partial class DtdParserProxy : IDtdParserAdapterV1
         {
             // Fields
             private readonly XmlTextReaderImpl _reader;
@@ -330,24 +331,15 @@ namespace System.Xml
         //
         // NodeData
         //
-        private class NodeData : IComparable
+        private sealed class NodeData : IComparable
         {
             // static instance with no data - is used when XmlTextReader is closed
-            private static volatile NodeData? s_None;
+            private static NodeData? s_None;
 
             // NOTE: Do not use this property for reference comparison. It may not be unique.
-            internal static NodeData None
-            {
-                get
-                {
-                    if (s_None == null)
-                    {
-                        // no locking; s_None is immutable so it's not a problem that it may get initialized more than once
-                        s_None = new NodeData();
-                    }
-                    return s_None;
-                }
-            }
+            internal static NodeData None =>
+                // no locking; s_None is immutable so it's not a problem that it may get initialized more than once
+                s_None ??= new NodeData();
 
             // type
             internal XmlNodeType type;
@@ -478,11 +470,11 @@ namespace System.Xml
                 }
             }
 
-            [MemberNotNull("_value")]
-            [MemberNotNull("nameWPrefix")]
-            [MemberNotNull("localName")]
-            [MemberNotNull("prefix")]
-            [MemberNotNull("ns")]
+            [MemberNotNull(nameof(_value))]
+            [MemberNotNull(nameof(nameWPrefix))]
+            [MemberNotNull(nameof(localName))]
+            [MemberNotNull(nameof(prefix))]
+            [MemberNotNull(nameof(ns))]
             internal void Clear(XmlNodeType type)
             {
                 this.type = type;
@@ -493,10 +485,10 @@ namespace System.Xml
                 typedValue = null;
             }
 
-            [MemberNotNull("localName")]
-            [MemberNotNull("prefix")]
-            [MemberNotNull("ns")]
-            [MemberNotNull("nameWPrefix")]
+            [MemberNotNull(nameof(localName))]
+            [MemberNotNull(nameof(prefix))]
+            [MemberNotNull(nameof(ns))]
+            [MemberNotNull(nameof(nameWPrefix))]
             internal void ClearName()
             {
                 localName = string.Empty;
@@ -681,7 +673,7 @@ namespace System.Xml
                 }
                 else
                 {
-                    nameWPrefix = nt.Add(string.Concat(prefix, ":", localName));
+                    nameWPrefix = nt.Add($"{prefix}:{localName}");
                 }
                 return nameWPrefix;
             }
@@ -714,13 +706,37 @@ namespace System.Xml
                     return 1;
                 }
             }
+
+            internal sealed class AtomizedNameEqualityComparer : IEqualityComparer<NodeData>
+            {
+                internal static readonly AtomizedNameEqualityComparer Instance = new AtomizedNameEqualityComparer();
+
+                public bool Equals(NodeData? x, NodeData? y)
+                {
+                    if (x is null)
+                    {
+                        return y is null;
+                    }
+
+                    return y is not null
+                        && Ref.Equal(x.localName, y.localName)
+                        && Ref.Equal(x.ns, y.ns);
+                }
+
+                public int GetHashCode(NodeData node)
+                {
+                    return HashCode.Combine(
+                        RuntimeHelpers.GetHashCode(node.localName),
+                        RuntimeHelpers.GetHashCode(node.ns));
+                }
+            }
         }
 
         //
         // DtdDefaultAttributeInfoToNodeDataComparer
         //
         // Compares IDtdDefaultAttributeInfo to NodeData
-        private class DtdDefaultAttributeInfoToNodeDataComparer : IComparer<object>
+        private sealed class DtdDefaultAttributeInfoToNodeDataComparer : IComparer<object>
         {
             private static readonly IComparer<object> s_instance = new DtdDefaultAttributeInfoToNodeDataComparer();
 

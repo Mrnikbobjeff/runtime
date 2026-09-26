@@ -3,7 +3,7 @@
 
 namespace System.Text.Json
 {
-    internal static class JsonConstants
+    internal static partial class JsonConstants
     {
         public const byte OpenBrace = (byte)'{';
         public const byte CloseBrace = (byte)'}';
@@ -14,7 +14,7 @@ namespace System.Text.Json
         public const byte LineFeed = (byte)'\n';
         public const byte Tab = (byte)'\t';
         public const byte ListSeparator = (byte)',';
-        public const byte KeyValueSeperator = (byte)':';
+        public const byte KeyValueSeparator = (byte)':';
         public const byte Quote = (byte)'"';
         public const byte BackSlash = (byte)'\\';
         public const byte Slash = (byte)'/';
@@ -28,49 +28,67 @@ namespace System.Text.Json
         public const byte UtcOffsetToken = (byte)'Z';
         public const byte TimePrefix = (byte)'T';
 
+        public const string NewLineLineFeed = "\n";
+        public const string NewLineCarriageReturnLineFeed = "\r\n";
+
         // \u2028 and \u2029 are considered respectively line and paragraph separators
         // UTF-8 representation for them is E2, 80, A8/A9
         public const byte StartingByteOfNonStandardSeparator = 0xE2;
 
-        public static ReadOnlySpan<byte> Utf8Bom => new byte[] { 0xEF, 0xBB, 0xBF };
-        public static ReadOnlySpan<byte> TrueValue => new byte[] { (byte)'t', (byte)'r', (byte)'u', (byte)'e' };
-        public static ReadOnlySpan<byte> FalseValue => new byte[] { (byte)'f', (byte)'a', (byte)'l', (byte)'s', (byte)'e' };
-        public static ReadOnlySpan<byte> NullValue => new byte[] { (byte)'n', (byte)'u', (byte)'l', (byte)'l' };
+        public static ReadOnlySpan<byte> Utf8Bom => [0xEF, 0xBB, 0xBF];
+        public static ReadOnlySpan<byte> TrueValue => "true"u8;
+        public static ReadOnlySpan<byte> FalseValue => "false"u8;
+        public static ReadOnlySpan<byte> NullValue => "null"u8;
 
-        public static ReadOnlySpan<byte> NaNValue => new byte[] { (byte)'N', (byte)'a', (byte)'N' };
-        public static ReadOnlySpan<byte> PositiveInfinityValue => new byte[] { (byte)'I', (byte)'n', (byte)'f', (byte)'i', (byte)'n', (byte)'i', (byte)'t', (byte)'y' };
-        public static ReadOnlySpan<byte> NegativeInfinityValue => new byte[] { (byte)'-', (byte)'I', (byte)'n', (byte)'f', (byte)'i', (byte)'n', (byte)'i', (byte)'t', (byte)'y' };
+        public static ReadOnlySpan<byte> NaNValue => "NaN"u8;
+        public static ReadOnlySpan<byte> PositiveInfinityValue => "Infinity"u8;
+        public static ReadOnlySpan<byte> NegativeInfinityValue => "-Infinity"u8;
+        // The length of the longest of the three named literals above, i.e. "-Infinity".
+        public const int MaximumFloatingPointConstantLength = 9;
 
         // Used to search for the end of a number
-        public static ReadOnlySpan<byte> Delimiters => new byte[] { ListSeparator, CloseBrace, CloseBracket, Space, LineFeed, CarriageReturn, Tab, Slash };
+        public static ReadOnlySpan<byte> Delimiters => ",}] \n\r\t/"u8;
 
         // Explicitly skipping ReverseSolidus since that is handled separately
-        public static ReadOnlySpan<byte> EscapableChars => new byte[] { Quote, (byte)'n', (byte)'r', (byte)'t', Slash, (byte)'u', (byte)'b', (byte)'f' };
+        public static ReadOnlySpan<byte> EscapableChars => "\"nrt/ubf"u8;
 
-        public const int SpacesPerIndent = 2;
-        public const int MaxWriterDepth = 1_000;
         public const int RemoveFlagsBitMask = 0x7FFFFFFF;
 
-        public const int StackallocThreshold = 256;
-
         // In the worst case, an ASCII character represented as a single utf-8 byte could expand 6x when escaped.
-        // For example: '+' becomes '\u0043'
+        // For example: '+' becomes '\u002B'
         // Escaping surrogate pairs (represented by 3 or 4 utf-8 bytes) would expand to 12 bytes (which is still <= 6x).
         // The same factor applies to utf-16 characters.
+        // This factor also serves as an upper bound for the combined escaping-and-transcoding pipeline.
+        // A non-ASCII unicode character is either:
+        // - escaped into an ASCII sequence (e.g. \uXXXX), so 1 UTF-16 char -> at most 6 UTF-8 bytes, or
+        // - written directly as UTF-8 (e.g. when using a non-default encoder such as UnsafeRelaxedJsonEscaping),
+        //   expanding at most 3x (MaxExpansionFactorWhileTranscoding), which is <= 6.
         public const int MaxExpansionFactorWhileEscaping = 6;
 
         // In the worst case, a single UTF-16 character could be expanded to 3 UTF-8 bytes.
-        // Only surrogate pairs expand to 4 UTF-8 bytes but that is a transformation of 2 UTF-16 characters goign to 4 UTF-8 bytes (factor of 2).
+        // Only surrogate pairs expand to 4 UTF-8 bytes but that is a transformation of 2 UTF-16 characters going to 4 UTF-8 bytes (factor of 2).
         // All other UTF-16 characters can be represented by either 1 or 2 UTF-8 bytes.
         public const int MaxExpansionFactorWhileTranscoding = 3;
 
+        // When transcoding from UTF8 -> UTF16, the byte count threshold where we rent from the array pool before performing a normal alloc.
+        public const long ArrayPoolMaxSizeBeforeUsingNormalAlloc =
+#if NET
+            1024 * 1024 * 1024; // ArrayPool limit increased in .NET 6
+#else
+            1024 * 1024;
+#endif
+
+        // The maximum number of characters allowed when writing raw UTF-16 JSON. This is the maximum length that we can guarantee can
+        // be safely transcoded to UTF-8 and fit within an integer-length span, given the max expansion factor of a single character (3).
+        public const int MaxUtf16RawValueLength = int.MaxValue / MaxExpansionFactorWhileTranscoding;
+
         public const int MaxEscapedTokenSize = 1_000_000_000;   // Max size for already escaped value.
         public const int MaxUnescapedTokenSize = MaxEscapedTokenSize / MaxExpansionFactorWhileEscaping;  // 166_666_666 bytes
-        public const int MaxBase64ValueTokenSize = (MaxEscapedTokenSize >> 2) * 3 / MaxExpansionFactorWhileEscaping;  // 125_000_000 bytes
         public const int MaxCharacterTokenSize = MaxEscapedTokenSize / MaxExpansionFactorWhileEscaping; // 166_666_666 characters
 
         public const int MaximumFormatBooleanLength = 5;
         public const int MaximumFormatInt64Length = 20;   // 19 + sign (i.e. -9223372036854775808)
+        public const int MaximumFormatUInt32Length = 10;  // i.e. 4294967295
         public const int MaximumFormatUInt64Length = 20;  // i.e. 18446744073709551615
         public const int MaximumFormatDoubleLength = 128;  // default (i.e. 'G'), using 128 (rather than say 32) to be future-proof.
         public const int MaximumFormatSingleLength = 128;  // default (i.e. 'G'), using 128 (rather than say 32) to be future-proof.
@@ -88,7 +106,7 @@ namespace System.Text.Json
         public const int MinimumDateTimeParseLength = 10; // YYYY-MM-DD
         public const int MaximumEscapedDateTimeOffsetParseLength = MaxExpansionFactorWhileEscaping * MaximumDateTimeOffsetParseLength;
 
-        internal const char ScientificNotationFormat = 'e';
+        public const int MaximumLiteralLength = 5; // Must be able to fit null, true, & false.
 
         // Encoding Helpers
         public const char HighSurrogateStart = '\ud800';
@@ -107,7 +125,12 @@ namespace System.Text.Json
         // for a path on deserialization where we don't box the constructor arguments.
         public const int UnboxedParameterCountThreshold = 4;
 
-        // The maximum number of parameters a constructor can have where it can be supported.
-        public const int MaxParameterCount = 64;
+        // Two space characters is the default indentation.
+        public const char DefaultIndentCharacter = ' ';
+        public const char TabIndentCharacter = '\t';
+        public const int DefaultIndentSize = 2;
+        public const int MinimumIndentSize = 0;
+        public const int MaximumIndentSize = 127; // If this value is changed, the impact on the options masking used in the JsonWriterOptions struct must be checked carefully.
+
     }
 }

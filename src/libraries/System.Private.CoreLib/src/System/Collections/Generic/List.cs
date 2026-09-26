@@ -22,13 +22,13 @@ namespace System.Collections.Generic
     {
         private const int DefaultCapacity = 4;
 
-        internal T[] _items; // Do not rename (binary serialization)
-        internal int _size; // Do not rename (binary serialization)
-        private int _version; // Do not rename (binary serialization)
+        internal T[] _items; // Do not rename (binary serialization) [cDAC] [ComWrappers] : Contract depends on this exact name
+        internal int _size; // Do not rename (binary serialization) [cDAC] [ComWrappers] : Contract depends on this exact name
+        internal int _version; // Do not rename (binary serialization)
 
-#pragma warning disable CA1825 // avoid the extra generic instantiation for Array.Empty<T>()
+#pragma warning disable CA1825, IDE0300 // avoid the extra generic instantiation for Array.Empty<T>()
         private static readonly T[] s_emptyArray = new T[0];
-#pragma warning restore CA1825
+#pragma warning restore CA1825, IDE0300
 
         // Constructs a List. The list is initially empty and has a capacity
         // of zero. Upon adding the first element to the list the capacity is
@@ -80,7 +80,7 @@ namespace System.Collections.Generic
             else
             {
                 _items = s_emptyArray;
-                using (IEnumerator<T> en = collection!.GetEnumerator())
+                using (IEnumerator<T> en = collection.GetEnumerator())
                 {
                     while (en.MoveNext())
                     {
@@ -147,7 +147,7 @@ namespace System.Collections.Generic
                 // Following trick can reduce the range check by one
                 if ((uint)index >= (uint)_size)
                 {
-                    ThrowHelper.ThrowArgumentOutOfRange_IndexException();
+                    ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessException();
                 }
                 return _items[index];
             }
@@ -156,7 +156,7 @@ namespace System.Collections.Generic
             {
                 if ((uint)index >= (uint)_size)
                 {
-                    ThrowHelper.ThrowArgumentOutOfRange_IndexException();
+                    ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessException();
                 }
                 _items[index] = value;
                 _version++;
@@ -213,8 +213,9 @@ namespace System.Collections.Generic
         [MethodImpl(MethodImplOptions.NoInlining)]
         private void AddWithResize(T item)
         {
+            Debug.Assert(_size == _items.Length);
             int size = _size;
-            EnsureCapacity(size + 1);
+            Grow(size + 1);
             _size = size + 1;
             _items[size] = item;
         }
@@ -240,7 +241,38 @@ namespace System.Collections.Generic
         // capacity or the new size, whichever is larger.
         //
         public void AddRange(IEnumerable<T> collection)
-            => InsertRange(_size, collection);
+        {
+            if (collection == null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.collection);
+            }
+
+            if (collection is ICollection<T> c)
+            {
+                int count = c.Count;
+                if (count > 0)
+                {
+                    if (_items.Length - _size < count)
+                    {
+                        Grow(checked(_size + count));
+                    }
+
+                    c.CopyTo(_items, _size);
+                    _size += count;
+                    _version++;
+                }
+            }
+            else
+            {
+                using (IEnumerator<T> en = collection.GetEnumerator())
+                {
+                    while (en.MoveNext())
+                    {
+                        Add(en.Current);
+                    }
+                }
+            }
+        }
 
         public ReadOnlyCollection<T> AsReadOnly()
             => new ReadOnlyCollection<T>(this);
@@ -274,7 +306,7 @@ namespace System.Collections.Generic
             if (_size - index < count)
                 ThrowHelper.ThrowArgumentException(ExceptionResource.Argument_InvalidOffLen);
 
-            return Array.BinarySearch<T>(_items, index, count, item, comparer);
+            return Array.BinarySearch(_items, index, count, item, comparer);
         }
 
         public int BinarySearch(T item)
@@ -317,7 +349,7 @@ namespace System.Collections.Generic
             // via EqualityComparer<T>.Default.Equals, we
             // only make one virtual call to EqualityComparer.IndexOf.
 
-            return _size != 0 && IndexOf(item) != -1;
+            return _size != 0 && IndexOf(item) >= 0;
         }
 
         bool IList.Contains(object? item)
@@ -366,7 +398,7 @@ namespace System.Collections.Generic
             }
             catch (ArrayTypeMismatchException)
             {
-                ThrowHelper.ThrowArgumentException_Argument_InvalidArrayType();
+                ThrowHelper.ThrowArgumentException_Argument_IncompatibleArrayType();
             }
         }
 
@@ -391,22 +423,83 @@ namespace System.Collections.Generic
             Array.Copy(_items, 0, array, arrayIndex, _size);
         }
 
-        // Ensures that the capacity of this list is at least the given minimum
-        // value. If the current capacity of the list is less than min, the
-        // capacity is increased to twice the current capacity or to min,
-        // whichever is larger.
-        //
-        private void EnsureCapacity(int min)
+        /// <summary>
+        /// Ensures that the capacity of this list is at least the specified <paramref name="capacity"/>.
+        /// If the current capacity of the list is less than specified <paramref name="capacity"/>,
+        /// the capacity is increased to at least <paramref name="capacity"/>.
+        /// </summary>
+        /// <param name="capacity">The minimum capacity to ensure.</param>
+        /// <returns>The new capacity of this list.</returns>
+        public int EnsureCapacity(int capacity)
         {
-            if (_items.Length < min)
+            if (capacity < 0)
             {
-                int newCapacity = _items.Length == 0 ? DefaultCapacity : _items.Length * 2;
-                // Allow the list to grow to maximum possible capacity (~2G elements) before encountering overflow.
-                // Note that this check works even when _items.Length overflowed thanks to the (uint) cast
-                if ((uint)newCapacity > Array.MaxArrayLength) newCapacity = Array.MaxArrayLength;
-                if (newCapacity < min) newCapacity = min;
-                Capacity = newCapacity;
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.capacity, ExceptionResource.ArgumentOutOfRange_NeedNonNegNum);
             }
+            if (_items.Length < capacity)
+            {
+                Grow(capacity);
+            }
+
+            return _items.Length;
+        }
+
+        /// <summary>
+        /// Increase the capacity of this list to at least the specified <paramref name="capacity"/>.
+        /// </summary>
+        /// <param name="capacity">The minimum capacity to ensure.</param>
+        internal void Grow(int capacity)
+        {
+            Capacity = GetNewCapacity(capacity);
+        }
+
+        /// <summary>
+        /// Enlarge this list so it may contain at least <paramref name="insertionCount"/> more elements
+        /// And copy data to their after-insertion positions.
+        /// This method is specifically for insertion, as it avoids 1 extra array copy.
+        /// You should only call this method when Count + insertionCount > Capacity.
+        /// </summary>
+        /// <param name="indexToInsert">Index of the first insertion.</param>
+        /// <param name="insertionCount">How many elements will be inserted.</param>
+        internal void GrowForInsertion(int indexToInsert, int insertionCount = 1)
+        {
+            Debug.Assert(insertionCount > 0);
+
+            int requiredCapacity = checked(_size + insertionCount);
+            int newCapacity = GetNewCapacity(requiredCapacity);
+
+            // Inline and adapt logic from set_Capacity
+
+            T[] newItems = new T[newCapacity];
+            if (indexToInsert != 0)
+            {
+                Array.Copy(_items, newItems, length: indexToInsert);
+            }
+
+            if (_size != indexToInsert)
+            {
+                Array.Copy(_items, indexToInsert, newItems, indexToInsert + insertionCount, _size - indexToInsert);
+            }
+
+            _items = newItems;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private int GetNewCapacity(int capacity)
+        {
+            Debug.Assert(_items.Length < capacity);
+
+            int newCapacity = _items.Length == 0 ? DefaultCapacity : 2 * _items.Length;
+
+            // Allow the list to grow to maximum possible capacity (~2G elements) before encountering overflow.
+            // Note that this check works even when _items.Length overflowed thanks to the (uint) cast
+            if ((uint)newCapacity > Array.MaxLength) newCapacity = Array.MaxLength;
+
+            // If the computed capacity is still less than specified, set to the original argument.
+            // Capacities exceeding Array.MaxLength will be surfaced as OutOfMemoryException by Array.Resize.
+            if (newCapacity < capacity) newCapacity = capacity;
+
+            return newCapacity;
         }
 
         public bool Exists(Predicate<T> match)
@@ -457,7 +550,7 @@ namespace System.Collections.Generic
         {
             if ((uint)startIndex > (uint)_size)
             {
-                ThrowHelper.ThrowStartIndexArgumentOutOfRange_ArgumentOutOfRange_Index();
+                ThrowHelper.ThrowStartIndexArgumentOutOfRange_ArgumentOutOfRange_IndexMustBeLessOrEqual();
             }
 
             if (count < 0 || startIndex > _size - count)
@@ -513,7 +606,7 @@ namespace System.Collections.Generic
                 // Special case for 0 length List
                 if (startIndex != -1)
                 {
-                    ThrowHelper.ThrowStartIndexArgumentOutOfRange_ArgumentOutOfRange_Index();
+                    ThrowHelper.ThrowStartIndexArgumentOutOfRange_ArgumentOutOfRange_IndexMustBeLess();
                 }
             }
             else
@@ -521,7 +614,7 @@ namespace System.Collections.Generic
                 // Make sure we're not out of range
                 if ((uint)startIndex >= (uint)_size)
                 {
-                    ThrowHelper.ThrowStartIndexArgumentOutOfRange_ArgumentOutOfRange_Index();
+                    ThrowHelper.ThrowStartIndexArgumentOutOfRange_ArgumentOutOfRange_IndexMustBeLess();
                 }
             }
 
@@ -569,14 +662,13 @@ namespace System.Collections.Generic
         // while an enumeration is in progress, the MoveNext and
         // GetObject methods of the enumerator will throw an exception.
         //
-        public Enumerator GetEnumerator()
-            => new Enumerator(this);
+        public Enumerator GetEnumerator() => new Enumerator(this);
 
-        IEnumerator<T> IEnumerable<T>.GetEnumerator()
-            => new Enumerator(this);
+        IEnumerator<T> IEnumerable<T>.GetEnumerator() =>
+            Count == 0 ? SZGenericArrayEnumerator<T>.Empty :
+            GetEnumerator();
 
-        IEnumerator IEnumerable.GetEnumerator()
-            => new Enumerator(this);
+        IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable<T>)this).GetEnumerator();
 
         public List<T> GetRange(int index, int count)
         {
@@ -600,6 +692,20 @@ namespace System.Collections.Generic
             list._size = count;
             return list;
         }
+
+        /// <summary>
+        /// Creates a shallow copy of a range of elements in the source <see cref="List{T}" />.
+        /// </summary>
+        /// <param name="start">The zero-based <see cref="List{T}" /> index at which the range starts.</param>
+        /// <param name="length">The length of the range.</param>
+        /// <returns>A shallow copy of a range of elements in the source <see cref="List{T}" />.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">
+        /// <paramref name="start" /> is less than 0.
+        /// -or-
+        /// <paramref name="length" /> is less than 0.
+        /// </exception>
+        /// <exception cref="ArgumentException"><paramref name="start" /> and <paramref name="length" /> do not denote a valid range of elements in the <see cref="List{T}" />.</exception>
+        public List<T> Slice(int start, int length) => GetRange(start, length);
 
         // Returns the index of the first occurrence of a given value in a range of
         // this list. The list is searched forwards from beginning to end.
@@ -633,7 +739,7 @@ namespace System.Collections.Generic
         public int IndexOf(T item, int index)
         {
             if (index > _size)
-                ThrowHelper.ThrowArgumentOutOfRange_IndexException();
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessOrEqualException();
             return Array.IndexOf(_items, item, index, _size - index);
         }
 
@@ -649,7 +755,7 @@ namespace System.Collections.Generic
         public int IndexOf(T item, int index, int count)
         {
             if (index > _size)
-                ThrowHelper.ThrowArgumentOutOfRange_IndexException();
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessOrEqualException();
 
             if (count < 0 || index > _size - count)
                 ThrowHelper.ThrowCountArgumentOutOfRange_ArgumentOutOfRange_Count();
@@ -668,8 +774,11 @@ namespace System.Collections.Generic
             {
                 ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.index, ExceptionResource.ArgumentOutOfRange_ListInsert);
             }
-            if (_size == _items.Length) EnsureCapacity(_size + 1);
-            if (index < _size)
+            if (_size == _items.Length)
+            {
+                GrowForInsertion(index, 1);
+            }
+            else if (index < _size)
             {
                 Array.Copy(_items, index, _items, index + 1, _size - index);
             }
@@ -706,7 +815,7 @@ namespace System.Collections.Generic
 
             if ((uint)index > (uint)_size)
             {
-                ThrowHelper.ThrowArgumentOutOfRange_IndexException();
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessOrEqualException();
             }
 
             if (collection is ICollection<T> c)
@@ -714,8 +823,11 @@ namespace System.Collections.Generic
                 int count = c.Count;
                 if (count > 0)
                 {
-                    EnsureCapacity(_size + count);
-                    if (index < _size)
+                    if (_items.Length - _size < count)
+                    {
+                        GrowForInsertion(index, count);
+                    }
+                    else if (index < _size)
                     {
                         Array.Copy(_items, index, _items, index + count, _size - index);
                     }
@@ -733,6 +845,7 @@ namespace System.Collections.Generic
                         c.CopyTo(_items, index);
                     }
                     _size += count;
+                    _version++;
                 }
             }
             else
@@ -745,7 +858,6 @@ namespace System.Collections.Generic
                     }
                 }
             }
-            _version++;
         }
 
         // Returns the index of the last occurrence of a given value in a range of
@@ -780,7 +892,7 @@ namespace System.Collections.Generic
         public int LastIndexOf(T item, int index)
         {
             if (index >= _size)
-                ThrowHelper.ThrowArgumentOutOfRange_IndexException();
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessException();
             return LastIndexOf(item, index, index + 1);
         }
 
@@ -823,8 +935,8 @@ namespace System.Collections.Generic
             return Array.LastIndexOf(_items, item, index, count);
         }
 
-        // Removes the element at the given index. The size of the list is
-        // decreased by one.
+        // Removes the first occurrence of the given element, if found.
+        // The size of the list is decreased by one if successful.
         public bool Remove(T item)
         {
             int index = IndexOf(item);
@@ -890,7 +1002,7 @@ namespace System.Collections.Generic
         {
             if ((uint)index >= (uint)_size)
             {
-                ThrowHelper.ThrowArgumentOutOfRange_IndexException();
+                ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessException();
             }
             _size--;
             if (index < _size)
@@ -1002,7 +1114,7 @@ namespace System.Collections.Generic
 
             if (count > 1)
             {
-                Array.Sort<T>(_items, index, count, comparer);
+                Array.Sort(_items, index, count, comparer);
             }
             _version++;
         }
@@ -1073,16 +1185,15 @@ namespace System.Collections.Generic
         public struct Enumerator : IEnumerator<T>, IEnumerator
         {
             private readonly List<T> _list;
-            private int _index;
             private readonly int _version;
+
+            private int _index;
             private T? _current;
 
             internal Enumerator(List<T> list)
             {
                 _list = list;
-                _index = 0;
                 _version = list._version;
-                _current = default;
             }
 
             public void Dispose()
@@ -1093,24 +1204,20 @@ namespace System.Collections.Generic
             {
                 List<T> localList = _list;
 
-                if (_version == localList._version && ((uint)_index < (uint)localList._size))
-                {
-                    _current = localList._items[_index];
-                    _index++;
-                    return true;
-                }
-                return MoveNextRare();
-            }
-
-            private bool MoveNextRare()
-            {
                 if (_version != _list._version)
                 {
                     ThrowHelper.ThrowInvalidOperationException_InvalidOperation_EnumFailedVersion();
                 }
 
-                _index = _list._size + 1;
+                if ((uint)_index < (uint)localList._size)
+                {
+                    _current = localList._items[_index];
+                    _index++;
+                    return true;
+                }
+
                 _current = default;
+                _index = -1;
                 return false;
             }
 
@@ -1120,11 +1227,12 @@ namespace System.Collections.Generic
             {
                 get
                 {
-                    if (_index == 0 || _index == _list._size + 1)
+                    if (_index <= 0)
                     {
                         ThrowHelper.ThrowInvalidOperationException_InvalidOperation_EnumOpCantHappen();
                     }
-                    return Current;
+
+                    return _current;
                 }
             }
 

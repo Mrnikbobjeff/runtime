@@ -49,7 +49,7 @@ namespace System.Management
     {
         private readonly ManagementObject parent;
 
-        private class enumLock
+        private sealed class enumLock
         {
         } //used to lock usage of BeginMethodEnum/NextMethod
 
@@ -207,7 +207,7 @@ namespace System.Management
         ///   ManagementClass diskClass = new ManagementClass("win32_logicaldisk");
         ///   MethodDataCollection.MethodDataEnumerator diskEnumerator =
         ///    diskClass.Methods.GetEnumerator();
-        ///   while(diskEnumerator.MoveNext())
+        ///   while (diskEnumerator.MoveNext())
         ///   {
         ///    MethodData method = diskEnumerator.Current;
         ///    Console.WriteLine("Method = " + method.Name);

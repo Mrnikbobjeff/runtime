@@ -1,10 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Net.Sockets;
+using System.Net.Security;
+using System.Security.Authentication;
 using System.Text;
 
 namespace System.Net
@@ -23,11 +26,12 @@ namespace System.Net
     ///     This means basic command sending and parsing.
     /// </para>
     /// </summary>
-    internal class FtpControlStream : CommandStream
+    internal sealed class FtpControlStream : CommandStream
     {
         private Socket? _dataSocket;
+        private NetworkStream? _dataStream;
         private IPEndPoint? _passiveEndPoint;
-        private TlsStream? _tlsStream;
+        private SslStream? _sslStream;
 
         private StringBuilder? _bannerMessage;
         private StringBuilder? _welcomeMessage;
@@ -63,10 +67,7 @@ namespace System.Net
             }
             set
             {
-                if (_credentials == null)
-                {
-                    _credentials = new WeakReference(null);
-                }
+                _credentials ??= new WeakReference(null);
                 _credentials.Target = value;
             }
         }
@@ -75,7 +76,7 @@ namespace System.Net
         private static readonly AsyncCallback s_connectCallbackDelegate = new AsyncCallback(ConnectCallback);
         private static readonly AsyncCallback s_SSLHandshakeCallback = new AsyncCallback(SSLHandshakeCallback);
 
-        internal FtpControlStream(TcpClient client)
+        internal FtpControlStream(NetworkStream client)
             : base(client)
         {
         }
@@ -149,7 +150,7 @@ namespace System.Net
             FtpControlStream connection = (FtpControlStream)asyncResult.AsyncState!;
             try
             {
-                connection._tlsStream!.EndAuthenticateAsClient(asyncResult);
+                connection._sslStream!.EndAuthenticateAsClient(asyncResult);
                 connection.ContinueCommandPipeline();
             }
             catch (Exception e)
@@ -167,38 +168,53 @@ namespace System.Net
                 throw new InternalException();
 
             //
-            // Re-entered pipeline with completed read on the TlsStream
+            // Re-entered pipeline with completed read on the SslStream
             //
-            if (_tlsStream != null)
+            if (_sslStream != null)
             {
-                stream = new FtpDataStream(_tlsStream, (FtpWebRequest)_request!, IsFtpDataStreamWriteable());
-                _tlsStream = null;
+                Debug.Assert(_dataStream != null, "Data stream is null");
+
+                stream = new FtpDataStream(_sslStream, _dataStream!, (FtpWebRequest)_request!, IsFtpDataStreamWriteable());
+                _sslStream = null;
                 return PipelineInstruction.GiveStream;
             }
 
-            NetworkStream networkStream = new NetworkStream(_dataSocket, true);
+            _dataStream = new NetworkStream(_dataSocket, true);
+
+            SslStream? sslStream = null;
 
             if (UsingSecureStream)
             {
                 FtpWebRequest request = (FtpWebRequest)_request!;
 
-                TlsStream tlsStream = new TlsStream(networkStream, _dataSocket, request.RequestUri.Host, request.ClientCertificates);
-                networkStream = tlsStream;
+#pragma warning disable SYSLIB0014 // ServicePointManager is obsolete
+                sslStream = new SslStream(_dataStream, leaveInnerStreamOpen: true, ServicePointManager.ServerCertificateValidationCallback);
 
                 if (_isAsync)
                 {
-                    _tlsStream = tlsStream;
+                    _sslStream = sslStream;
 
-                    tlsStream.BeginAuthenticateAsClient(s_SSLHandshakeCallback, this);
+                    sslStream.BeginAuthenticateAsClient(
+                        request.RequestUri.Host,
+                        request.ClientCertificates,
+                        (SslProtocols)ServicePointManager.SecurityProtocol, // enums use same values
+                        ServicePointManager.CheckCertificateRevocationList,
+                        s_SSLHandshakeCallback,
+                        this);
                     return PipelineInstruction.Pause;
                 }
                 else
                 {
-                    tlsStream.AuthenticateAsClient();
+                    sslStream.AuthenticateAsClient(
+                        request.RequestUri.Host,
+                        request.ClientCertificates,
+                        (SslProtocols)ServicePointManager.SecurityProtocol, // enums use same values
+                        ServicePointManager.CheckCertificateRevocationList);
                 }
+#pragma warning restore SYSLIB0014 // ServicePointManager is obsolete
             }
 
-            stream = new FtpDataStream(networkStream, (FtpWebRequest)_request!, IsFtpDataStreamWriteable());
+            stream = new FtpDataStream((Stream?)sslStream ?? _dataStream, _dataStream, (FtpWebRequest)_request!, IsFtpDataStreamWriteable());
             return PipelineInstruction.GiveStream;
         }
 
@@ -213,7 +229,8 @@ namespace System.Net
 
             _dataSocket = null;
             _passiveEndPoint = null;
-            _tlsStream = null;
+            _sslStream = null;
+            _dataStream = null;
 
             base.ClearState();
         }
@@ -281,7 +298,7 @@ namespace System.Net
             // If we are already logged in and the server returns 530 then
             // the server does not support re-issuing a USER command,
             // tear down the connection and start all over again
-            if (entry.Command.IndexOf("USER", StringComparison.Ordinal) != -1)
+            if (entry.Command.Contains("USER"))
             {
                 // The server may not require a password for this user, so bypass the password command
                 if (status == FtpStatusCode.LoggedInProceed)
@@ -304,7 +321,7 @@ namespace System.Net
             }
 
             if (_loginState != FtpLoginState.LoggedIn
-                && entry.Command.IndexOf("PASS", StringComparison.Ordinal) != -1)
+                && entry.Command.Contains("PASS"))
             {
                 // Note the fact that we logged in
                 if (status == FtpStatusCode.NeedLoginAccount || status == FtpStatusCode.LoggedInProceed)
@@ -319,7 +336,7 @@ namespace System.Net
             if (entry.HasFlag(PipelineEntryFlags.CreateDataConnection) && (response.PositiveCompletion || response.PositiveIntermediate))
             {
                 bool isSocketReady;
-                PipelineInstruction result = QueueOrCreateDataConection(entry, response, timeout, ref stream, out isSocketReady);
+                PipelineInstruction result = QueueOrCreateDataConection(entry, response, out isSocketReady);
                 if (!isSocketReady)
                     return result;
                 // otherwise we have a stream to create
@@ -372,39 +389,51 @@ namespace System.Net
             // OR set us up for SSL/TLS, after this we'll be writing securely
             else if (status == FtpStatusCode.ServerWantsSecureSession)
             {
-                // If NetworkStream is a TlsStream, then this must be in the async callback
+                // If NetworkStream is a SslStream, then this must be in the async callback
                 // from completing the SSL handshake.
                 // So just let the pipeline continue.
-                if (!(NetworkStream is TlsStream))
+                if (!(Stream is SslStream))
                 {
                     FtpWebRequest request = (FtpWebRequest)_request!;
-                    TlsStream tlsStream = new TlsStream(NetworkStream, Socket, request.RequestUri.Host, request.ClientCertificates);
+#pragma warning disable SYSLIB0014 // ServicePointManager is obsolete
+                    SslStream sslStream = new SslStream(Stream, false, ServicePointManager.ServerCertificateValidationCallback);
 
                     if (_isAsync)
                     {
-                        tlsStream.BeginAuthenticateAsClient(ar =>
-                        {
-                            try
+                        sslStream.BeginAuthenticateAsClient(
+                            request.RequestUri.Host,
+                            request.ClientCertificates,
+                            (SslProtocols)ServicePointManager.SecurityProtocol, // enums use same values
+                            ServicePointManager.CheckCertificateRevocationList,
+                            ar =>
                             {
-                                tlsStream.EndAuthenticateAsClient(ar);
-                                NetworkStream = tlsStream;
-                                this.ContinueCommandPipeline();
-                            }
-                            catch (Exception e)
-                            {
-                                this.CloseSocket();
-                                this.InvokeRequestCallback(e);
-                            }
-                        }, null);
+                                try
+                                {
+                                    sslStream.EndAuthenticateAsClient(ar);
+                                    Stream = sslStream;
+                                    this.ContinueCommandPipeline();
+                                }
+                                catch (Exception e)
+                                {
+                                    this.CloseSocket();
+                                    this.InvokeRequestCallback(e);
+                                }
+                            },
+                            null);
 
                         return PipelineInstruction.Pause;
                     }
                     else
                     {
-                        tlsStream.AuthenticateAsClient();
-                        NetworkStream = tlsStream;
+                        sslStream.AuthenticateAsClient(
+                            request.RequestUri.Host,
+                            request.ClientCertificates,
+                            (SslProtocols)ServicePointManager.SecurityProtocol, // enums use same values
+                            ServicePointManager.CheckCertificateRevocationList);
+                        Stream = sslStream;
                     }
                 }
+#pragma warning restore SYSLIB0014 // ServicePointManager is obsolete
             }
             // OR parse out the file size or file time, usually a result of sending SIZE/MDTM commands
             else if (status == FtpStatusCode.FileStatus)
@@ -430,7 +459,7 @@ namespace System.Net
             else
             {
                 // We only use CWD to reset ourselves back to the login directory.
-                if (entry.Command.IndexOf("CWD", StringComparison.Ordinal) != -1)
+                if (entry.Command.Contains("CWD"))
                 {
                     _establishedServerDirectory = _requestedServerDirectory;
                 }
@@ -456,7 +485,8 @@ namespace System.Net
             if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this);
 
             _responseUri = request.RequestUri;
-            ArrayList commandList = new ArrayList();
+
+            var commandList = new List<PipelineEntry>();
 
             if (request.EnableSsl && !UsingSecureStream)
             {
@@ -499,7 +529,7 @@ namespace System.Net
                 if (domainUserName.Length == 0 && password.Length == 0)
                 {
                     domainUserName = "anonymous";
-                    // [SuppressMessage("Microsoft.Security", "CS002:SecretInNextLine", Justification="Anonymous FTP credential in production code.")]
+                    // [SuppressMessage("Microsoft.Security", "CS002:SecretInNextLine", Justification="Suppression approved. Anonymous FTP credential in production code.")]
                     password = "anonymous@";
                 }
 
@@ -574,8 +604,8 @@ namespace System.Net
                 else
                 {
                     string portCommand = (ServerAddress.AddressFamily == AddressFamily.InterNetwork || ServerAddress.IsIPv4MappedToIPv6) ? "PORT" : "EPRT";
-                    CreateFtpListenerSocket(request);
-                    commandList.Add(new PipelineEntry(FormatFtpCommand(portCommand, GetPortCommandLine(request))));
+                    CreateFtpListenerSocket();
+                    commandList.Add(new PipelineEntry(FormatFtpCommand(portCommand, GetPortCommandLine())));
                 }
 
                 if (request.ContentOffset > 0)
@@ -600,8 +630,7 @@ namespace System.Net
                 commandList.Add(new PipelineEntry(FormatFtpCommand("RNFR", baseDir + requestFilename), flags));
 
                 string renameTo;
-                if (!string.IsNullOrEmpty(request.RenameTo)
-                    && request.RenameTo.StartsWith("/", StringComparison.OrdinalIgnoreCase))
+                if (request.RenameTo is not null && request.RenameTo.StartsWith('/'))
                 {
                     renameTo = request.RenameTo; // Absolute path
                 }
@@ -626,10 +655,10 @@ namespace System.Net
 
             commandList.Add(new PipelineEntry(FormatFtpCommand("QUIT", null)));
 
-            return (PipelineEntry[])commandList.ToArray(typeof(PipelineEntry));
+            return commandList.ToArray();
         }
 
-        private PipelineInstruction QueueOrCreateDataConection(PipelineEntry entry, ResponseDescription response, bool timeout, ref Stream? stream, out bool isSocketReady)
+        private PipelineInstruction QueueOrCreateDataConection(PipelineEntry entry, ResponseDescription response, out bool isSocketReady)
         {
             isSocketReady = false;
             if (_dataHandshakeStarted)
@@ -665,14 +694,11 @@ namespace System.Net
 
             if (isPassive)
             {
-                if (port == -1)
-                {
-                    NetEventSource.Fail(this, "'port' not set.");
-                }
+                Debug.Assert(port != -1, "'port' not set.");
 
                 try
                 {
-                    _dataSocket = CreateFtpDataSocket((FtpWebRequest)_request!, Socket);
+                    _dataSocket = CreateFtpDataSocket(Socket);
                 }
                 catch (ObjectDisposedException)
                 {
@@ -771,11 +797,11 @@ namespace System.Net
             else
             {
                 directory = path.Substring(0, index + 1);
-                filename = path.Substring(index + 1, path.Length - (index + 1));
+                filename = path.Substring(index + 1);
             }
 
             // strip off trailing '/' on directory if present
-            if (directory.Length > 1 && directory[directory.Length - 1] == '/')
+            if (directory.Length > 1 && directory.EndsWith('/'))
                 directory = directory.Substring(0, directory.Length - 1);
         }
 
@@ -783,7 +809,7 @@ namespace System.Net
         /// <summary>
         ///    <para>Formats an IP address (contained in a UInt32) to a FTP style command string</para>
         /// </summary>
-        private string FormatAddress(IPAddress address, int Port)
+        private static string FormatAddress(IPAddress address, int Port)
         {
             byte[] localAddressInBytes = address.GetAddressBytes();
 
@@ -806,16 +832,14 @@ namespace System.Net
         ///    Looks something in this form: |2|1080::8:800:200C:417A|5282| </para>
         ///    |2|4567::0123:5678:0123:5678|0123|
         /// </summary>
-        private string FormatAddressV6(IPAddress address, int port)
+        private static string FormatAddressV6(IPAddress address, int port)
         {
-            StringBuilder sb = new StringBuilder(43); // based on max size of IPv6 address + port + seperators
-            string addressString = address.ToString();
-            sb.Append("|2|");
-            sb.Append(addressString);
-            sb.Append('|');
-            sb.Append(port.ToString(NumberFormatInfo.InvariantInfo));
-            sb.Append('|');
-            return sb.ToString();
+            return
+                "|2|" +
+                address.ToString() +
+                "|" +
+                port.ToString(NumberFormatInfo.InvariantInfo) +
+                "|";
         }
 
         internal long ContentLength
@@ -849,7 +873,7 @@ namespace System.Net
         {
             get
             {
-                return (_bannerMessage != null) ? _bannerMessage.ToString() : null;
+                return _bannerMessage?.ToString();
             }
         }
 
@@ -860,7 +884,7 @@ namespace System.Net
         {
             get
             {
-                return (_welcomeMessage != null) ? _welcomeMessage.ToString() : null;
+                return _welcomeMessage?.ToString();
             }
         }
 
@@ -871,14 +895,17 @@ namespace System.Net
         {
             get
             {
-                return (_exitMessage != null) ? _exitMessage.ToString() : null;
+                return _exitMessage?.ToString();
             }
         }
+
+        private static readonly char[] s_whitespaceDot = new char[] { ' ', '.', '\r', '\n' };
+        private static readonly char[] s_spaceCommaBrackets = new char[] { ' ', '(', ',', ')' };
 
         /// <summary>
         ///    <para>Parses a response string for content length</para>
         /// </summary>
-        private long GetContentLengthFrom213Response(string responseString)
+        private static long GetContentLengthFrom213Response(string responseString)
         {
             string[] parsedList = responseString.Split(' ');
             if (parsedList.Length < 2)
@@ -889,29 +916,31 @@ namespace System.Net
         /// <summary>
         ///    <para>Parses a response string for last modified time</para>
         /// </summary>
-        private DateTime GetLastModifiedFrom213Response(string str)
+        private unsafe DateTime GetLastModifiedFrom213Response(string str)
         {
             DateTime dateTime = _lastModified;
-            string[] parsedList = str.Split(new char[] { ' ', '.' });
-            if (parsedList.Length < 2)
+            Span<Range> parts = stackalloc Range[4];
+            ReadOnlySpan<char> strSpan = str;
+            int count = strSpan.SplitAny(parts, " .");
+            if (count < 2)
             {
                 return dateTime;
             }
-            string dateTimeLine = parsedList[1];
+            ReadOnlySpan<char> dateTimeLine = strSpan[parts[1]];
             if (dateTimeLine.Length < 14)
             {
                 return dateTime;
             }
-            int year = Convert.ToInt32(dateTimeLine.Substring(0, 4), NumberFormatInfo.InvariantInfo);
-            int month = Convert.ToInt16(dateTimeLine.Substring(4, 2), NumberFormatInfo.InvariantInfo);
-            int day = Convert.ToInt16(dateTimeLine.Substring(6, 2), NumberFormatInfo.InvariantInfo);
-            int hour = Convert.ToInt16(dateTimeLine.Substring(8, 2), NumberFormatInfo.InvariantInfo);
-            int minute = Convert.ToInt16(dateTimeLine.Substring(10, 2), NumberFormatInfo.InvariantInfo);
-            int second = Convert.ToInt16(dateTimeLine.Substring(12, 2), NumberFormatInfo.InvariantInfo);
+            int year = int.Parse(dateTimeLine.Slice(0, 4), NumberFormatInfo.InvariantInfo);
+            int month = short.Parse(dateTimeLine.Slice(4, 2), NumberFormatInfo.InvariantInfo);
+            int day = short.Parse(dateTimeLine.Slice(6, 2), NumberFormatInfo.InvariantInfo);
+            int hour = short.Parse(dateTimeLine.Slice(8, 2), NumberFormatInfo.InvariantInfo);
+            int minute = short.Parse(dateTimeLine.Slice(10, 2), NumberFormatInfo.InvariantInfo);
+            int second = short.Parse(dateTimeLine.Slice(12, 2), NumberFormatInfo.InvariantInfo);
             int millisecond = 0;
-            if (parsedList.Length > 2)
+            if (count > 2)
             {
-                millisecond = Convert.ToInt16(parsedList[2], NumberFormatInfo.InvariantInfo);
+                millisecond = short.Parse(strSpan[parts[2]], NumberFormatInfo.InvariantInfo);
             }
             try
             {
@@ -948,20 +977,18 @@ namespace System.Net
             if (end <= start)
                 return;
 
-            string filename = str.Substring(start, end - start);
-            filename = filename.TrimEnd(new char[] { ' ', '.', '\r', '\n' });
+            string filename = str.AsSpan(start, end - start).TrimEnd(s_whitespaceDot).ToString();
             // Do minimal escaping that we need to get a valid Uri
             // when combined with the baseUri
-            string escapedFilename;
-            escapedFilename = filename.Replace("%", "%25");
+            string escapedFilename = filename.Replace("%", "%25");
             escapedFilename = escapedFilename.Replace("#", "%23");
 
             // help us out if the user forgot to add a slash to the directory name
-            string orginalPath = baseUri.AbsolutePath;
-            if (orginalPath.Length > 0 && orginalPath[orginalPath.Length - 1] != '/')
+            string originalPath = baseUri.AbsolutePath;
+            if (originalPath.Length > 0 && !originalPath.EndsWith('/'))
             {
                 UriBuilder uriBuilder = new UriBuilder(baseUri);
-                uriBuilder.Path = orginalPath + "/";
+                uriBuilder.Path = originalPath + "/";
                 baseUri = uriBuilder.Uri;
             }
 
@@ -1010,7 +1037,7 @@ namespace System.Net
         /// <summary>
         ///    <para>Parses a response string for our login dir in " "</para>
         /// </summary>
-        private string GetLoginDirectory(string str)
+        private static string GetLoginDirectory(string str)
         {
             int firstQuote = str.IndexOf('"');
             int lastQuote = str.LastIndexOf('"');
@@ -1027,9 +1054,9 @@ namespace System.Net
         /// <summary>
         ///    <para>Parses a response string for a port number</para>
         /// </summary>
-        private int GetPortV4(string responseString)
+        private static int GetPortV4(string responseString)
         {
-            string[] parsedList = responseString.Split(new char[] { ' ', '(', ',', ')' });
+            string[] parsedList = responseString.Split(s_spaceCommaBrackets);
 
             // We need at least the status code and the port
             if (parsedList.Length <= 7)
@@ -1043,8 +1070,7 @@ namespace System.Net
                 index--;
 
             int port = Convert.ToByte(parsedList[index--], NumberFormatInfo.InvariantInfo);
-            port = port |
-                   (Convert.ToByte(parsedList[index--], NumberFormatInfo.InvariantInfo) << 8);
+            port |= (Convert.ToByte(parsedList[index--], NumberFormatInfo.InvariantInfo) << 8);
 
             return port;
         }
@@ -1052,7 +1078,7 @@ namespace System.Net
         /// <summary>
         ///    <para>Parses a response string for a port number</para>
         /// </summary>
-        private int GetPortV6(string responseString)
+        private static int GetPortV6(string responseString)
         {
             int pos1 = responseString.LastIndexOf('(');
             int pos2 = responseString.LastIndexOf(')');
@@ -1072,13 +1098,13 @@ namespace System.Net
         /// <summary>
         ///    <para>Creates the Listener socket</para>
         /// </summary>
-        private void CreateFtpListenerSocket(FtpWebRequest request)
+        private void CreateFtpListenerSocket()
         {
             // Gets an IPEndPoint for the local host for the data socket to bind to.
             IPEndPoint epListener = new IPEndPoint(((IPEndPoint)Socket.LocalEndPoint!).Address, 0);
             try
             {
-                _dataSocket = CreateFtpDataSocket(request, Socket);
+                _dataSocket = CreateFtpDataSocket(Socket);
             }
             catch (ObjectDisposedException)
             {
@@ -1093,7 +1119,7 @@ namespace System.Net
         /// <summary>
         ///    <para>Builds a command line to send to the server with proper port and IP address of client</para>
         /// </summary>
-        private string GetPortCommandLine(FtpWebRequest request)
+        private string GetPortCommandLine()
         {
             try
             {
@@ -1121,17 +1147,16 @@ namespace System.Net
         /// <summary>
         ///    <para>Formats a simple FTP command + parameter in correct pre-wire format</para>
         /// </summary>
-        private string FormatFtpCommand(string command, string? parameter)
+        private static string FormatFtpCommand(string command, string? parameter)
         {
-            StringBuilder stringBuilder = new StringBuilder(command.Length + ((parameter != null) ? parameter.Length : 0) + 3 /*size of ' ' \r\n*/);
-            stringBuilder.Append(command);
-            if (!string.IsNullOrEmpty(parameter))
+            if (parameter is not null && parameter.AsSpan().ContainsAny('\r', '\n'))
             {
-                stringBuilder.Append(' ');
-                stringBuilder.Append(parameter);
+                throw new FormatException(SR.net_ftp_no_newlines);
             }
-            stringBuilder.Append("\r\n");
-            return stringBuilder.ToString();
+
+            return string.IsNullOrEmpty(parameter) ?
+                command + "\r\n" :
+                command + " " + parameter + "\r\n";
         }
 
         /// <summary>
@@ -1139,7 +1164,7 @@ namespace System.Net
         ///     This will handle either connecting to a port or listening for one
         ///    </para>
         /// </summary>
-        protected Socket CreateFtpDataSocket(FtpWebRequest request, Socket templateSocket)
+        private static Socket CreateFtpDataSocket(Socket templateSocket)
         {
             // Safe to be called under an Assert.
             Socket socket = new Socket(templateSocket.AddressFamily, templateSocket.SocketType, templateSocket.ProtocolType);
@@ -1193,7 +1218,7 @@ namespace System.Net
             // If the line contained three other digits followed by the response, then this is a violation of the
             // FTP protocol for multiline responses.
             // All other cases indicate that the response is not yet complete.
-            int index = 0;
+            int index;
             while ((index = responseString.IndexOf("\r\n", validThrough, StringComparison.Ordinal)) != -1)  // gets the end line.
             {
                 int lineStart = validThrough;

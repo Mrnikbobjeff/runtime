@@ -5,11 +5,12 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http.Functional.Tests;
+using System.Net.Sockets;
 using System.Net.Test.Common;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-
+using Microsoft.DotNet.RemoteExecutor;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -27,10 +28,111 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
 
         private readonly ITestOutputHelper _output;
 
+        public static IEnumerable<object[]> HttpVersions = [[HttpVersion.Version11, Configuration.Http.SecureRemoteEchoServer], [HttpVersion20.Value, Configuration.Http.Http2RemoteEchoServer]];
+
         public WinHttpHandlerTest(ITestOutputHelper output)
         {
             _output = output;
         }
+
+#if !NETFRAMEWORK
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsWindows10Version1607OrGreater))]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task GetAsync_Http2LoopbackConnectionDisposed_ResponseRemainsReadable(bool handleRequest)
+        {
+            const string Content = "Response read after the server finishes sending";
+            var serverFinished = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Http2LoopbackConnection connection = null;
+
+            await Http2LoopbackServer.CreateClientAndServerAsync(async address =>
+            {
+                using var client = new HttpClient(new WinHttpHandler
+                {
+                    ServerCertificateValidationCallback = TestHelper.AllowAllCertificates
+                });
+                using var request = new HttpRequestMessage(HttpMethod.Get, address) { Version = HttpVersion20.Value };
+                using HttpResponseMessage response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead);
+                await serverFinished.Task.WaitAsync(TestHelper.PassingTestTimeout);
+
+                Assert.False(connection.IsInvalid);
+                Assert.Equal(Content, await response.Content.ReadAsStringAsync());
+            },
+            async server =>
+            {
+                try
+                {
+                    connection = await server.EstablishConnectionAsync();
+                    await using (connection)
+                    {
+                        if (handleRequest)
+                        {
+                            await connection.HandleRequestAsync(content: Content);
+                        }
+                        else
+                        {
+                            int streamId = await connection.ReadRequestHeaderAsync();
+                            await connection.SendResponseHeadersAsync(streamId, endStream: false);
+                            await connection.SendResponseBodyAsync(streamId, Encoding.ASCII.GetBytes(Content));
+                        }
+                    }
+
+                    serverFinished.SetResult(true);
+                }
+                catch (Exception e)
+                {
+                    serverFinished.TrySetException(e);
+                    throw;
+                }
+            });
+
+            Assert.True(connection.IsInvalid);
+        }
+
+        [Fact]
+        public async Task Http2LoopbackConnection_CloseDuringDeferredDispose_Completes()
+        {
+            var writeStarted = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var finishWrite = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            bool closed = false;
+            using var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
+            using var stream = new DelegateStream(
+                canReadFunc: () => true,
+                canWriteFunc: () => true,
+                readAsyncFunc: (buffer, offset, count, token) =>
+                {
+                    byte[] preface = Encoding.ASCII.GetBytes(Http2LoopbackConnection.Http2Prefix);
+                    Assert.Equal(preface.Length, count);
+                    preface.CopyTo(buffer, offset);
+                    return Task.FromResult(preface.Length);
+                },
+                writeAsyncFunc: async (buffer, offset, count, token) =>
+                {
+                    writeStarted.TrySetResult(true);
+                    await finishWrite.Task.WaitAsync(TestHelper.PassingTestTimeout);
+                    Assert.True(closed);
+                    throw new ObjectDisposedException(nameof(DelegateStream));
+                },
+                disposeFunc: _ => closed = true);
+
+            Http2LoopbackConnection connection = await Http2LoopbackConnection.CreateAsync(
+                new SocketWrapper(socket), stream, new Http2Options { UseSsl = false });
+            connection.DeferClose = true;
+            Task disposeTask = connection.DisposeAsync().AsTask();
+            try
+            {
+                await writeStarted.Task.WaitAsync(TestHelper.PassingTestTimeout);
+                connection.Close();
+            }
+            finally
+            {
+                finishWrite.TrySetResult(true);
+            }
+
+            await disposeTask.WaitAsync(TestHelper.PassingTestTimeout);
+            Assert.True(connection.IsInvalid);
+        }
+#endif
 
         [OuterLoop]
         [Fact]
@@ -44,6 +146,98 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
                 var responseContent = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
                 _output.WriteLine(responseContent);
             }
+        }
+
+        [OuterLoop("Uses external server.")]
+        [Fact]
+        public async Task GetAsync_ConcurrentRead_ThrowsInvalidOperationException()
+        {
+            using var client = new HttpClient(new WinHttpHandler());
+            using var response = await client.GetAsync("https://httpbin.org/stream-bytes/4096", HttpCompletionOption.ResponseHeadersRead);
+            using var stream = await response.Content.ReadAsStreamAsync();
+            var tasks = new Task[1_000];
+            for (int i = 0; i < tasks.Length; ++i)
+            {
+                tasks[i] = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await stream.ReadAsync(new byte[5]);
+                    }
+                    catch (InvalidOperationException ioe) when (ioe.Message.Contains("concurrent I/O")) // Expected exception for concurrent IO
+                    { }
+                });
+            }
+            await Task.WhenAll(tasks);
+        }
+
+        [OuterLoop]
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [MemberData(nameof(HttpVersions))]
+        public async Task SendAsync_ServerCertificateValidationCallback_CalledOnce(Version version, Uri uri)
+        {
+            await RemoteExecutor.Invoke(async (version, uri) =>
+            {
+                AppContext.SetSwitch("System.Net.Http.UseWinHttpCertificateCaching", true);
+                int callbackCount = 0;
+                var handler = new WinHttpHandler()
+                {
+                    ServerCertificateValidationCallback = (_, _, _, _) =>
+                    {
+                        Interlocked.Increment(ref callbackCount);
+                        return true;
+                    }
+                };
+                using (var client = new HttpClient(handler))
+                {
+                    for (int i = 0; i < 5; i++)
+                    {
+                        var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Get, uri)
+                        {
+                            Version = Version.Parse(version)
+                        });
+                        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                        _ = await response.Content.ReadAsStringAsync();
+                    }
+                    Assert.Equal(1, callbackCount);
+                }
+            }, version.ToString(), uri.ToString()).DisposeAsync();
+        }
+
+        [OuterLoop]
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [MemberData(nameof(HttpVersions))]
+        public async Task SendAsync_ServerCertificateValidationCallbackCertificateTimerTriggered_CalledTwice(Version version, Uri uri)
+        {
+            await RemoteExecutor.Invoke(async (version, uri) =>
+            {
+                const int certificateCacheCleanupInterval = 10;
+                AppContext.SetSwitch("System.Net.Http.UseWinHttpCertificateCaching", true);
+                AppDomain.CurrentDomain.SetData("System.Net.Http.WinHttpCertificateCachingCleanupTimerInterval", certificateCacheCleanupInterval);
+                int callbackCount = 0;
+                var handler = new WinHttpHandler()
+                {
+                    ServerCertificateValidationCallback = (_, _, _, _) =>
+                    {
+                        Interlocked.Increment(ref callbackCount);
+                        return true;
+                    }
+                };
+                using (var client = new HttpClient(handler))
+                {
+                    for (int i = 0; i < 5; i++)
+                    {
+                        var response = await client.SendAsync(new HttpRequestMessage(HttpMethod.Get, uri)
+                        {
+                            Version = Version.Parse(version)
+                        });
+                        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                        _ = await response.Content.ReadAsStringAsync();
+                        await Task.Delay(TimeSpan.FromMilliseconds(certificateCacheCleanupInterval * 3));
+                    }
+                    Assert.True(callbackCount > 1);
+                }
+            }, version.ToString(), uri.ToString()).DisposeAsync();
         }
 
         [OuterLoop]
@@ -80,7 +274,6 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
 
         [OuterLoop]
         [Fact]
-        [OuterLoop]
         public async Task SendAsync_SlowServerAndCancel_ThrowsTaskCanceledException()
         {
             var handler = new WinHttpHandler();
@@ -97,20 +290,30 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
             }
         }
 
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/20675")]
         [OuterLoop]
         [Fact]
-        [OuterLoop]
-        public void SendAsync_SlowServerRespondsAfterDefaultReceiveTimeout_ThrowsHttpRequestException()
+        public async Task SendAsync_SlowServerRespondsAfterDefaultReceiveTimeout_ThrowsHttpRequestException()
         {
-            var handler = new WinHttpHandler();
-            using (var client = new HttpClient(handler))
+            TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
+            await LoopbackServer.CreateClientAndServerAsync(async uri =>
             {
-                Task<HttpResponseMessage> t = client.GetAsync(SlowServer);
-
-                AggregateException ag = Assert.Throws<AggregateException>(() => t.Wait());
-                Assert.IsType<HttpRequestException>(ag.InnerException);
-            }
+                using var client = new HttpClient(new WinHttpHandler());
+                HttpRequestException ex = await Assert.ThrowsAsync<HttpRequestException>(() => client.GetAsync(uri));
+                _output.WriteLine($"Exception: {ex}");
+                Assert.IsType<IOException>(ex.InnerException);
+                Assert.NotNull(ex.InnerException.InnerException);
+                Assert.Contains("The operation timed out", ex.InnerException.InnerException.Message);
+                tcs.TrySetResult(true);
+            },
+            async server =>
+            {
+                await server.AcceptConnectionAsync(async connection =>
+                {
+                    await connection.ReadRequestDataAsync();
+                    await connection.SendResponseAsync(LoopbackServer.GetHttpResponseHeaders(contentLength: 1000));
+                    await tcs.Task;
+                });
+            });
         }
 
         [Fact]
@@ -128,7 +331,7 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
             using (HttpClient client = new HttpClient(handler))
             {
                 HttpRequestException ex = await Assert.ThrowsAsync<HttpRequestException>(() => client.SendAsync(request));
-                _output.WriteLine(ex.ToString());
+                _output.WriteLine($"Ignored exception:{Environment.NewLine}{ex}");
             }
         }
 
@@ -168,7 +371,6 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
                 Assert.Equal("POST", responseContent.Method);
                 Assert.Equal(payload, responseContent.BodyContent);
                 Assert.Equal(cookies.ToDictionary(c => c.Name, c => c.Value), responseContent.Cookies);
-
             };
         }
 
@@ -200,12 +402,12 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
             aboveLimitRequest.Content = new StringContent($"{payloadText}-{maxActiveStreamsLimit + 1}");
             Task<HttpResponseMessage> aboveLimitResponseTask = client.SendAsync(aboveLimitRequest, HttpCompletionOption.ResponseContentRead);
 
-            await aboveLimitResponseTask.TimeoutAfter(TestHelper.PassingTestTimeoutMilliseconds);
+            await aboveLimitResponseTask.WaitAsync(TestHelper.PassingTestTimeout);
             await VerifyResponse(aboveLimitResponseTask, $"{payloadText}-{maxActiveStreamsLimit + 1}");
 
             delaySource.SetResult(true);
 
-            await Task.WhenAll(requests.Select(r => r.task).ToArray()).TimeoutAfter(15000);
+            await Task.WhenAll(requests.Select(r => r.task).ToArray()).WaitAsync(TimeSpan.FromSeconds(15));
 
             foreach ((Task<HttpResponseMessage> task, DelayedStream stream) in requests)
             {
@@ -213,9 +415,31 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
                 HttpResponseMessage response = task.Result;
                 Assert.True(response.IsSuccessStatusCode);
                 Assert.Equal(HttpVersion20.Value, response.Version);
-                string responsePayload = await response.Content.ReadAsStringAsync().TimeoutAfter(TestHelper.PassingTestTimeoutMilliseconds);
+                string responsePayload = await response.Content.ReadAsStringAsync().WaitAsync(TestHelper.PassingTestTimeout);
                 Assert.Contains(payloadText, responsePayload);
             }
+        }
+
+        [OuterLoop("Uses external service")]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsWindows10Version2004OrGreater))]
+        public async Task SendAsync_UseTcpKeepAliveOptions()
+        {
+            using var handler = new WinHttpHandler()
+            {
+                TcpKeepAliveEnabled = true,
+                TcpKeepAliveTime = TimeSpan.FromSeconds(1),
+                TcpKeepAliveInterval = TimeSpan.FromMilliseconds(500)
+            };
+
+            using var client = new HttpClient(handler);
+
+            var response = client.GetAsync(System.Net.Test.Common.Configuration.Http.RemoteEchoServer).Result;
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            string responseContent = await response.Content.ReadAsStringAsync();
+            _output.WriteLine(responseContent);
+
+            // Uncomment this to observe an exchange of "TCP Keep-Alive" and "TCP Keep-Alive ACK" packets:
+            // await Task.Delay(5000);
         }
 
         private async Task VerifyResponse(Task<HttpResponseMessage> task, string payloadText)
@@ -224,7 +448,7 @@ namespace System.Net.Http.WinHttpHandlerFunctional.Tests
             HttpResponseMessage response = task.Result;
             Assert.True(response.IsSuccessStatusCode);
             Assert.Equal(HttpVersion20.Value, response.Version);
-            string responsePayload = await response.Content.ReadAsStringAsync().TimeoutAfter(TestHelper.PassingTestTimeoutMilliseconds);
+            string responsePayload = await response.Content.ReadAsStringAsync().WaitAsync(TestHelper.PassingTestTimeout);
             Assert.Contains(payloadText, responsePayload);
         }
 

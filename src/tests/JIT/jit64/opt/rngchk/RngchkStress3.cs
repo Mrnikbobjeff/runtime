@@ -5,13 +5,16 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 namespace SimpleArray_01
 {
     public delegate void RngTest();
-    internal class Class1
+    public class Class1
     {
-        private static int Main()
+        [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/120904", typeof(TestLibrary.Utilities), nameof(TestLibrary.Utilities.IsCoreClrInterpreter))]
+        public static int TestEntryPoint()
         {
             int retVal = 100;
 

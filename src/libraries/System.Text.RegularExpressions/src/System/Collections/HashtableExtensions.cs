@@ -1,21 +1,19 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics.CodeAnalysis;
-
 namespace System.Collections
 {
     internal static class HashtableExtensions
     {
-        public static bool TryGetValue<T>(this Hashtable table, object key, out T? value)
+        public static bool TryGetValue(this Hashtable table, object key, out int value)
         {
-            if (table.ContainsKey(key))
+            if (table[key] is { } obj)
             {
-                value = (T)table[key]!;
+                value = (int)obj;
                 return true;
             }
 
-            value = default;
+            value = 0;
             return false;
         }
     }

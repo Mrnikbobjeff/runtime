@@ -8,6 +8,7 @@ namespace Microsoft.Win32.SafeHandles
 {
     public sealed partial class SafeAccessTokenHandle : System.Runtime.InteropServices.SafeHandle
     {
+        public SafeAccessTokenHandle() : base (default(System.IntPtr), default(bool)) { }
         public SafeAccessTokenHandle(System.IntPtr handle) : base (default(System.IntPtr), default(bool)) { }
         public static Microsoft.Win32.SafeHandles.SafeAccessTokenHandle InvalidHandle { get { throw null; } }
         public override bool IsInvalid { get { throw null; } }
@@ -22,6 +23,8 @@ namespace System.Security.Principal
         public IdentityNotMappedException(string? message) { }
         public IdentityNotMappedException(string? message, System.Exception? inner) { }
         public System.Security.Principal.IdentityReferenceCollection UnmappedIdentities { get { throw null; } }
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
         public override void GetObjectData(System.Runtime.Serialization.SerializationInfo serializationInfo, System.Runtime.Serialization.StreamingContext streamingContext) { }
     }
     public abstract partial class IdentityReference
@@ -58,7 +61,7 @@ namespace System.Security.Principal
         public NTAccount(string name) { }
         public NTAccount(string domainName, string accountName) { }
         public override string Value { get { throw null; } }
-        public override bool Equals(object? o) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? o) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsValidTargetType(System.Type targetType) { throw null; }
         public static bool operator ==(System.Security.Principal.NTAccount? left, System.Security.Principal.NTAccount? right) { throw null; }
@@ -71,14 +74,14 @@ namespace System.Security.Principal
         public static readonly int MaxBinaryLength;
         public static readonly int MinBinaryLength;
         public SecurityIdentifier(byte[] binaryForm, int offset) { }
-        public SecurityIdentifier(System.IntPtr binaryForm) { }
+        public unsafe SecurityIdentifier(System.IntPtr binaryForm) { }
         public SecurityIdentifier(System.Security.Principal.WellKnownSidType sidType, System.Security.Principal.SecurityIdentifier? domainSid) { }
         public SecurityIdentifier(string sddlForm) { }
         public System.Security.Principal.SecurityIdentifier? AccountDomainSid { get { throw null; } }
         public int BinaryLength { get { throw null; } }
         public override string Value { get { throw null; } }
         public int CompareTo(System.Security.Principal.SecurityIdentifier? sid) { throw null; }
-        public override bool Equals(object? o) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? o) { throw null; }
         public bool Equals(System.Security.Principal.SecurityIdentifier sid) { throw null; }
         public void GetBinaryForm(byte[] binaryForm, int offset) { }
         public override int GetHashCode() { throw null; }
@@ -235,6 +238,8 @@ namespace System.Security.Principal
         public WindowsIdentity(System.IntPtr userToken, string type) { }
         public WindowsIdentity(System.IntPtr userToken, string type, System.Security.Principal.WindowsAccountType acctType) { }
         public WindowsIdentity(System.IntPtr userToken, string type, System.Security.Principal.WindowsAccountType acctType, bool isAuthenticated) { }
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
         public WindowsIdentity(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         protected WindowsIdentity(System.Security.Principal.WindowsIdentity identity) { }
         public WindowsIdentity(string sUserPrincipalName) { }

@@ -16,9 +16,6 @@ using System.Collections.Generic;
 /// Classed used for all logging infrastructure
 /// </summary>
 internal class RFLogging
-#if !PROJECTK_BUILD
-    : MarshalByRefObject
-#endif
 {
     private Queue<string> _messageQueue;
     private Queue<string> _instrumentationMessageQueue;
@@ -44,9 +41,6 @@ internal class RFLogging
         _closeLogFile = false;
         _loggingThread = new Thread(new ThreadStart(LogWorker));
         _loggingThread.IsBackground = true;
-#if !PROJECTK_BUILD
-        loggingThread.Priority = ThreadPriority.Highest;
-#endif
         _loggingThread.Start();
     }
 
@@ -55,7 +49,7 @@ internal class RFLogging
         while (true)
         {
             bool cachedCloseLogFile = _closeLogFile; // The CloseLog method will set closeLogFile to true indicating we should close the log file
-                                                    // This value is cached here so we can write all of the remaining messages to log before closing it
+                                                     // This value is cached here so we can write all of the remaining messages to log before closing it
             int messageQueueCount = _messageQueue.Count;
             int instrumentationQueueCount = _instrumentationMessageQueue.Count;
 
@@ -85,8 +79,13 @@ internal class RFLogging
                 }
                 catch (IOException e)
                 {
-                    ReliabilityFramework.MyDebugBreak(String.Format("LogWorker IOException:{0}", e.ToString()));
                     //Disk may be full so simply stop logging
+                    ExceptionHandler exceptionHandler = ReliabilityFramework.GenerateExceptionMessageAndHandler(ReliabilityFramework._debugBreakOnTestHang, e);
+                    string msg = exceptionHandler.HandleMessage;
+                    Action handler = exceptionHandler.Handler;
+
+                    Console.WriteLine(msg);
+                    handler();
                 }
             }
 
@@ -95,9 +94,6 @@ internal class RFLogging
             {
                 if (null != _logFile)
                 {
-#if !PROJECTK_BUILD
-                    logFile.Close();
-#endif
                     _logFile = null;
                 }
                 _closeLogFile = false;
@@ -129,7 +125,12 @@ internal class RFLogging
                 }
                 catch (IOException e)
                 {
-                    ReliabilityFramework.MyDebugBreak(String.Format("LogWorker IOException:{0}", e.ToString()));
+                    ExceptionHandler exceptionHandler = ReliabilityFramework.GenerateExceptionMessageAndHandler(ReliabilityFramework._debugBreakOnTestHang, e);
+                    string msg = exceptionHandler.HandleMessage;
+                    Action handler = exceptionHandler.Handler;
+
+                    Console.WriteLine(msg);
+                    handler();
                 }
             }
         }
@@ -141,15 +142,15 @@ internal class RFLogging
         {
             try
             {
-                string logFilename = Path.Combine (logDirectory, "instrmentation.log");
+                string logFilename = Path.Combine(logDirectory, "instrmentation.log");
                 while (File.Exists(logFilename))
                 {
-                    logFilename = Path.Combine (logDirectory, "instrmentation.log-" + DateTime.Now.ToString().Replace('/', '-').Replace(':', '.'));
+                    logFilename = Path.Combine(logDirectory, "instrmentation.log-" + DateTime.Now.ToString().Replace('/', '-').Replace(':', '.'));
                 }
 
-                string logDirname = Path.GetDirectoryName (logFilename);
-                if (!Directory.Exists (logDirname))
-                    Directory.CreateDirectory (logDirname);
+                string logDirname = Path.GetDirectoryName(logFilename);
+                if (!Directory.Exists(logDirname))
+                    Directory.CreateDirectory(logDirname);
                 _instrumentationLogFile = File.Open(logFilename, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.ReadWrite);
             }
             catch
@@ -169,9 +170,6 @@ internal class RFLogging
     {
         if (_logFile != null)
         {
-#if !PROJECTK_BUILD
-            logFile.Close();
-#endif
             _logFile = null;
         }
         // open the log file if the user hasn't disabled it.
@@ -186,7 +184,7 @@ internal class RFLogging
             {
                 fRetry = false;
 
-                string safeName = Path.Combine (logDirectory, name.Replace('\\', ' ').Replace('*', ' ').Replace('?', ' ').Replace('>', ' ').Replace('<', ' ').Replace('|', ' ').Replace(':', ' ').Replace('/', ' ').Replace('"', ' '));
+                string safeName = Path.Combine(logDirectory, name.Replace('\\', ' ').Replace('*', ' ').Replace('?', ' ').Replace('>', ' ').Replace('<', ' ').Replace('|', ' ').Replace(':', ' ').Replace('/', ' ').Replace('"', ' '));
                 filename = safeName + ".log";
                 if (File.Exists(filename))
                 {
@@ -194,9 +192,9 @@ internal class RFLogging
                 }
                 try
                 {
-                    string dirname = Path.GetDirectoryName (filename);
-                    if (!Directory.Exists (dirname))
-                        Directory.CreateDirectory (dirname);
+                    string dirname = Path.GetDirectoryName(filename);
+                    if (!Directory.Exists(dirname))
+                        Directory.CreateDirectory(dirname);
                     _logFile = File.Open(filename, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.ReadWrite);
                 }
                 catch (IOException e)
@@ -385,16 +383,14 @@ internal class RFLogging
                     ProcessStartInfo psi = new ProcessStartInfo("cscript.exe", Environment.ExpandEnvironmentVariables("//b //nologo %SCRIPTSDIR%\\record.js -i %STRESSID% -a UPDATE_RECORD -s RUNNING"));
                     psi.UseShellExecute = false;
                     psi.RedirectStandardOutput = true;
+                    psi.RedirectStandardError = true;
 
-                    Process p = Process.Start(psi);
-                    p.StandardOutput.ReadToEnd();
-                    p.WaitForExit();
-                    if (p.ExitCode != 0)
+                    ProcessTextOutput result = Process.RunAndCaptureText(psi);
+                    if (result.ExitStatus.ExitCode != 0)
                     {
-                        string msg = String.Format("cscript.exe " + Environment.ExpandEnvironmentVariables("//b //nologo %SCRIPTSDIR%\\record.js -i %STRESSID% -a UPDATE_RECORD -s RUNNING\r\nWARNING: Status update did not return success!"), p.ExitCode);
+                        string msg = String.Format("cscript.exe " + Environment.ExpandEnvironmentVariables("//b //nologo %SCRIPTSDIR%\\record.js -i %STRESSID% -a UPDATE_RECORD -s RUNNING\r\nWARNING: Status update did not return success!") + " ExitCode={0}", result.ExitStatus.ExitCode);
                         WriteToInstrumentationLog(null, LoggingLevels.UrtFrameworks, msg);
                     }
-                    p.Dispose();
                 }
                 else if (!_noStatusWarningDisplayed)
                 {

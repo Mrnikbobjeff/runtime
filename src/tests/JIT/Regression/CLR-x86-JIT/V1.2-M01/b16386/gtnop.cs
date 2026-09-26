@@ -2,10 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b16386;
+
 using System;
+using Xunit;
 public class gtnop
 {
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         byte[] arr = new byte[1];
         short i = 3;

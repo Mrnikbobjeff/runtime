@@ -1,6 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
     <NoWarn>$(NoWarn);xUnit1013</NoWarn>
   </PropertyGroup>
   <PropertyGroup>
@@ -18,6 +17,9 @@
     <Compile Include="VectorFloat.cs" />
     <Compile Include="VectorFloatStrict.cs" />
     <Compile Include="VectorHelpers.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(TestLibraryProjectPath)" />
   </ItemGroup>
   <PropertyGroup>
     <ProjectAssetsFile>$(JitPackagesConfigFileDirectory)benchmark\obj\project.assets.json</ProjectAssetsFile>

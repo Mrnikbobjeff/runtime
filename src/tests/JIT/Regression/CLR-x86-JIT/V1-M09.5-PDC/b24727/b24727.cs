@@ -9,7 +9,11 @@
 
 //<Expects Status=success> </Expects>
 
+
+namespace b24727;
+
 using System;
+using Xunit;
 
 interface Inter1
 {
@@ -35,7 +39,9 @@ struct Struct1 : Inter1, Inter2, Inter3
 
 public class Test
 {
-    public static int Main(string[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         Inter1 i1 = new Struct1();
 

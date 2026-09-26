@@ -3,6 +3,8 @@
 
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
+using TestLibrary;
 
 internal struct VT
 {
@@ -15,12 +17,12 @@ internal struct VT
     public char m4;
 }
 
-internal unsafe class test
+public unsafe class test
 {
     private static unsafe bool CheckDoubleAlignment1(VT* p)
     {
         Console.WriteLine("Address {0}", (IntPtr)p);
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || (RuntimeInformation.ProcessArchitecture != Architecture.X86))
+        if (OperatingSystem.IsWindows() || (RuntimeInformation.ProcessArchitecture != Architecture.X86))
         {
             if ((int)(long)p % sizeof(double) != 0)
             {
@@ -39,7 +41,10 @@ internal unsafe class test
         }
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    [SkipOnCoreClr("JIT optimization sensitive test", RuntimeTestModes.AnyJitOptimizationStress)]
+    public static int TestEntryPoint()
     {
         VT vt1 = new VT();
         VT vt2 = new VT();

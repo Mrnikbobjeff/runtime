@@ -1,17 +1,39 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Text;
+using System.Buffers;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Runtime.InteropServices;
+using System.Text;
 
 namespace System
 {
     internal static class UriHelper
     {
-        internal static readonly Encoding s_noFallbackCharUTF8 = Encoding.GetEncoding(
-            Encoding.UTF8.CodePage, new EncoderReplacementFallback(""), new DecoderReplacementFallback(""));
+        public static string SpanToLowerInvariantString(ReadOnlySpan<char> span)
+        {
+            return string.Create(span.Length, span, static (buffer, span) =>
+            {
+                int charsWritten = span.ToLowerInvariant(buffer);
+                Debug.Assert(charsWritten == buffer.Length);
+            });
+        }
+
+        public static string NormalizeAndConcat(string? start, ReadOnlySpan<char> toNormalize)
+        {
+            var vsb = new ValueStringBuilder(stackalloc char[Uri.StackallocThreshold]);
+
+            int charsWritten;
+            while (!toNormalize.TryNormalize(vsb.RawChars, out charsWritten, NormalizationForm.FormC))
+            {
+                vsb.EnsureCapacity(vsb.Capacity + 1);
+            }
+
+            string result = string.Concat(start, vsb.RawChars.Slice(0, charsWritten));
+            vsb.Dispose();
+            return result;
+        }
 
         // http://host/Path/Path/File?Query is the base of
         //      - http://host/Path/Path/File/ ...    (those "File" words may be different in semantic but anyway)
@@ -33,8 +55,7 @@ namespace System
         // ASSUMES that strings like http://host/Path/Path/MoreDir/../../  have been canonicalized before going to this method.
         // ASSUMES that back slashes already have been converted if applicable.
         //
-        internal static unsafe bool TestForSubPath(char* selfPtr, int selfLength, char* otherPtr, int otherLength,
-            bool ignoreCase)
+        internal static bool TestForSubPath(ReadOnlySpan<char> self, ReadOnlySpan<char> other, bool ignoreCase)
         {
             int i = 0;
             char chSelf;
@@ -42,10 +63,10 @@ namespace System
 
             bool AllSameBeforeSlash = true;
 
-            for (; i < selfLength && i < otherLength; ++i)
+            for (; i < self.Length && i < other.Length; ++i)
             {
-                chSelf = *(selfPtr + i);
-                chOther = *(otherPtr + i);
+                chSelf = self[i];
+                chOther = other[i];
 
                 if (chSelf == '?' || chSelf == '#')
                 {
@@ -95,9 +116,9 @@ namespace System
             }
 
             // If self is longer then it must not have any more path segments
-            for (; i < selfLength; ++i)
+            for (; i < self.Length; ++i)
             {
-                if ((chSelf = *(selfPtr + i)) == '?' || chSelf == '#')
+                if ((chSelf = self[i]) == '?' || chSelf == '#')
                 {
                     return true;
                 }
@@ -110,558 +131,371 @@ namespace System
             return true;
         }
 
-        internal static string EscapeString(
-            string stringToEscape, // same name as public API
-            bool checkExistingEscaped, ReadOnlySpan<bool> unreserved, char forceEscape1 = '\0', char forceEscape2 = '\0')
+        public static bool TryEscapeDataString(ReadOnlySpan<char> charsToEscape, Span<char> destination, out int charsWritten)
         {
-            if (stringToEscape is null)
+            if (destination.Length < charsToEscape.Length)
             {
-                throw new ArgumentNullException(nameof(stringToEscape));
-            }
-            if (stringToEscape.Length == 0)
-            {
-                return string.Empty;
+                charsWritten = 0;
+                return false;
             }
 
-            // Get the table of characters that do not need to be escaped.
-            Debug.Assert(unreserved.Length == 0x80);
-            ReadOnlySpan<bool> noEscape = stackalloc bool[0];
-            if ((forceEscape1 | forceEscape2) == 0)
+            int indexOfFirstToEscape = charsToEscape.IndexOfAnyExcept(Unreserved);
+            if (indexOfFirstToEscape < 0)
             {
-                noEscape = unreserved;
+                // Nothing to escape, just copy the original chars.
+                charsToEscape.CopyTo(destination);
+                charsWritten = charsToEscape.Length;
+                return true;
+            }
+
+            // We may throw for very large inputs (when growing the ValueStringBuilder).
+            scoped ValueStringBuilder vsb;
+
+            // If the input and destination buffers overlap, we must take care not to overwrite parts of the input before we've processed it.
+            bool overlapped = charsToEscape.Overlaps(destination);
+
+            if (overlapped)
+            {
+                vsb = new ValueStringBuilder(stackalloc char[Uri.StackallocThreshold]);
+                vsb.EnsureCapacity(charsToEscape.Length);
             }
             else
             {
-                Span<bool> tmp = stackalloc bool[0x80];
-                unreserved.CopyTo(tmp);
-                tmp[forceEscape1] = false;
-                tmp[forceEscape2] = false;
-                noEscape = tmp;
+                vsb = new ValueStringBuilder(destination.Slice(indexOfFirstToEscape));
             }
 
-            // If the whole string is made up of ASCII unreserved chars, just return it.
-            Debug.Assert(!noEscape['%'], "Need to treat % specially; it should be part of any escaped set");
-            int i = 0;
-            char c;
-            for (; i < stringToEscape.Length && (c = stringToEscape[i]) <= 0x7F && noEscape[c]; i++) ;
-            if (i == stringToEscape.Length)
+            EscapeStringToBuilder(charsToEscape.Slice(indexOfFirstToEscape), ref vsb, Unreserved, checkExistingEscaped: false);
+
+            int newLength = checked(indexOfFirstToEscape + vsb.Length);
+            Debug.Assert(newLength > charsToEscape.Length);
+
+            if (destination.Length >= newLength)
             {
-                return stringToEscape;
+                charsToEscape.Slice(0, indexOfFirstToEscape).CopyTo(destination);
+
+                if (overlapped)
+                {
+                    vsb.AsSpan().CopyTo(destination.Slice(indexOfFirstToEscape));
+                    vsb.Dispose();
+                }
+                else
+                {
+                    // We are expecting the builder not to grow if the original span was large enough.
+                    // This means that we MUST NOT over allocate anywhere in EscapeStringToBuilder (e.g. append and then decrease the length).
+                    Debug.Assert(vsb.RawChars.Overlaps(destination));
+                }
+
+                charsWritten = newLength;
+                return true;
             }
 
-            // Otherwise, create a ValueStringBuilder to store the escaped data into,
-            // append to it all of the noEscape chars we already iterated through,
-            // escape the rest, and return the result as a string.
-            var vsb = new ValueStringBuilder(stackalloc char[256]);
-            vsb.Append(stringToEscape.AsSpan(0, i));
-            EscapeStringToBuilder(stringToEscape.AsSpan(i), ref vsb, noEscape, checkExistingEscaped);
-            return vsb.ToString();
+            vsb.Dispose();
+            charsWritten = 0;
+            return false;
         }
 
-        // forceX characters are always escaped if found
-        // destPos  - starting offset in dest for output, on return this will be an exclusive "end" in the output.
-        // In case "dest" has lack of space it will be reallocated by preserving the _whole_ content up to current destPos
-        // Returns null if nothing has to be escaped AND passed dest was null, otherwise the resulting array with the updated destPos
-        [return: NotNullIfNotNull("dest")]
-        internal static char[]? EscapeString(
-            ReadOnlySpan<char> stringToEscape,
-            char[]? dest, ref int destPos,
-            bool checkExistingEscaped, char forceEscape1 = '\0', char forceEscape2 = '\0')
+        public static string EscapeString(string stringToEscape, bool checkExistingEscaped, SearchValues<char> noEscape)
         {
-            // Get the table of characters that do not need to be escaped.
-            ReadOnlySpan<bool> noEscape = stackalloc bool[0];
-            if ((forceEscape1 | forceEscape2) == 0)
-            {
-                noEscape = UnreservedReservedTable;
-            }
-            else
-            {
-                Span<bool> tmp = stackalloc bool[0x80];
-                UnreservedReservedTable.CopyTo(tmp);
-                tmp[forceEscape1] = false;
-                tmp[forceEscape2] = false;
-                noEscape = tmp;
-            }
+            ArgumentNullException.ThrowIfNull(stringToEscape);
 
-            // If the whole string is made up of ASCII unreserved chars, take a fast pasth.  Per the contract, if
-            // dest is null, just return it.  If it's not null, copy everything to it and update destPos accordingly;
-            // if that requires resizing it, do so.
-            Debug.Assert(!noEscape['%'], "Need to treat % specially in case checkExistingEscaped is true");
-            int i = 0;
-            char c;
-            for (; i < stringToEscape.Length && (c = stringToEscape[i]) <= 0x7F && noEscape[c]; i++) ;
-            if (i == stringToEscape.Length)
-            {
-                if (dest != null)
-                {
-                    EnsureCapacity(dest, destPos, stringToEscape.Length);
-                    stringToEscape.CopyTo(dest.AsSpan(destPos));
-                    destPos += stringToEscape.Length;
-                }
+            return EscapeString(stringToEscape, checkExistingEscaped, noEscape, stringToEscape);
+        }
 
-                return dest;
+        public static string EscapeString(ReadOnlySpan<char> charsToEscape, bool checkExistingEscaped, SearchValues<char> noEscape, string? backingString)
+        {
+            Debug.Assert(!noEscape.Contains('%'), "Need to treat % specially; it should be part of any escaped set");
+            Debug.Assert(backingString is null || backingString.Length == charsToEscape.Length);
+
+            int indexOfFirstToEscape = charsToEscape.IndexOfAnyExcept(noEscape);
+            if (indexOfFirstToEscape < 0)
+            {
+                // Nothing to escape, just return the original value.
+                return backingString ?? charsToEscape.ToString();
             }
 
             // Otherwise, create a ValueStringBuilder to store the escaped data into,
-            // append to it all of the noEscape chars we already iterated through, and
-            // escape the rest into the ValueStringBuilder.
-            var vsb = new ValueStringBuilder(stackalloc char[256]);
-            vsb.Append(stringToEscape.Slice(0, i));
-            EscapeStringToBuilder(stringToEscape.Slice(i), ref vsb, noEscape, checkExistingEscaped);
+            // escape the rest, and concat the result with the characters we skipped above.
+            var vsb = new ValueStringBuilder(stackalloc char[Uri.StackallocThreshold]);
 
-            // Finally update dest with the result.
-            EnsureCapacity(dest, destPos, vsb.Length);
-            vsb.TryCopyTo(dest.AsSpan(destPos), out int charsWritten);
-            destPos += charsWritten;
-            return dest;
+            // We may throw for very large inputs (when growing the ValueStringBuilder).
+            vsb.EnsureCapacity(charsToEscape.Length);
 
-            static void EnsureCapacity(char[]? dest, int destSize, int requiredSize)
+            EscapeStringToBuilder(charsToEscape.Slice(indexOfFirstToEscape), ref vsb, noEscape, checkExistingEscaped);
+
+            string result = string.Concat(charsToEscape.Slice(0, indexOfFirstToEscape), vsb.AsSpan());
+            vsb.Dispose();
+            return result;
+        }
+
+        internal static void EscapeString(scoped ReadOnlySpan<char> stringToEscape, ref ValueStringBuilder dest,
+            bool checkExistingEscaped, SearchValues<char> noEscape)
+        {
+            Debug.Assert(!noEscape.Contains('%'), "Need to treat % specially; it should be part of any escaped set");
+
+            int indexOfFirstToEscape = stringToEscape.IndexOfAnyExcept(noEscape);
+            if (indexOfFirstToEscape < 0)
             {
-                if (dest == null || dest.Length - destSize < requiredSize)
-                {
-                    Array.Resize(ref dest, destSize + requiredSize + 120); // 120 == arbitrary minimum-empty space copied from previous implementation
-                }
+                // Nothing to escape, just copy the whole span.
+                dest.Append(stringToEscape);
+            }
+            else
+            {
+                dest.Append(stringToEscape.Slice(0, indexOfFirstToEscape));
+
+                EscapeStringToBuilder(stringToEscape.Slice(indexOfFirstToEscape), ref dest, noEscape, checkExistingEscaped);
             }
         }
 
         private static void EscapeStringToBuilder(
-            ReadOnlySpan<char> stringToEscape, ref ValueStringBuilder vsb,
-            ReadOnlySpan<bool> noEscape, bool checkExistingEscaped)
+            scoped ReadOnlySpan<char> stringToEscape, ref ValueStringBuilder vsb,
+            SearchValues<char> noEscape, bool checkExistingEscaped)
         {
+            Debug.Assert(!stringToEscape.IsEmpty && !noEscape.Contains(stringToEscape[0]));
+
             // Allocate enough stack space to hold any Rune's UTF8 encoding.
-            Span<byte> utf8Bytes = stackalloc byte[4];
+            Span<byte> utf8Bytes = [0, 0, 0, 0];
 
-            // Then enumerate every rune in the input.
-            SpanRuneEnumerator e = stringToEscape.EnumerateRunes();
-            while (e.MoveNext())
+            while (!stringToEscape.IsEmpty)
             {
-                Rune r = e.Current;
+                char c = stringToEscape[0];
 
-                if (!r.IsAscii)
+                if (!char.IsAscii(c))
                 {
+                    if (Rune.DecodeFromUtf16(stringToEscape, out Rune r, out int charsConsumed) != OperationStatus.Done)
+                    {
+                        r = Rune.ReplacementChar;
+                    }
+
+                    Debug.Assert(stringToEscape.EnumerateRunes() is { } e && e.MoveNext() && e.Current == r);
+                    Debug.Assert(charsConsumed is 1 or 2);
+
+                    stringToEscape = stringToEscape.Slice(charsConsumed);
+
                     // The rune is non-ASCII, so encode it as UTF8, and escape each UTF8 byte.
                     r.TryEncodeToUtf8(utf8Bytes, out int bytesWritten);
                     foreach (byte b in utf8Bytes.Slice(0, bytesWritten))
                     {
-                        vsb.Append('%');
-                        HexConverter.ToCharsBuffer(b, vsb.AppendSpan(2), 0, HexConverter.Casing.Upper);
+                        PercentEncodeByte(b, ref vsb);
                     }
+
                     continue;
                 }
 
-                // If the value doesn't need to be escaped, append it and continue.
-                byte value = (byte)r.Value;
-                if (noEscape[value])
+                if (!noEscape.Contains(c))
                 {
-                    vsb.Append((char)value);
-                    continue;
-                }
-
-                // If we're checking for existing escape sequences, then if this is the beginning of
-                // one, check the next two characters in the sequence.  This is a little tricky to do
-                // as we're using an enumerator, but luckily it's a ref struct-based enumerator: we can
-                // make a copy and iterate through the copy without impacting the original, and then only
-                // push the original ahead if we find what we're looking for in the copy.
-                if (checkExistingEscaped && value == '%')
-                {
-                    // If the next two characters are valid escaped ASCII, then just output them as-is.
-                    SpanRuneEnumerator tmpEnumerator = e;
-                    if (tmpEnumerator.MoveNext())
+                    // If we're checking for existing escape sequences, then if this is the beginning of
+                    // one, check the next two characters in the sequence.
+                    if (c == '%' && checkExistingEscaped)
                     {
-                        Rune r1 = tmpEnumerator.Current;
-                        if (r1.IsAscii && IsHexDigit((char)r1.Value) && tmpEnumerator.MoveNext())
+                        // If the next two characters are valid escaped ASCII, then just output them as-is.
+                        if (stringToEscape.Length > 2 && char.IsAsciiHexDigit(stringToEscape[1]) && char.IsAsciiHexDigit(stringToEscape[2]))
                         {
-                            Rune r2 = tmpEnumerator.Current;
-                            if (r2.IsAscii && IsHexDigit((char)r2.Value))
-                            {
-                                vsb.Append('%');
-                                vsb.Append((char)r1.Value);
-                                vsb.Append((char)r2.Value);
-                                e = tmpEnumerator;
-                                continue;
-                            }
+                            vsb.Append('%');
+                            vsb.Append(stringToEscape[1]);
+                            vsb.Append(stringToEscape[2]);
+                            stringToEscape = stringToEscape.Slice(3);
+                            continue;
                         }
                     }
+
+                    PercentEncodeByte((byte)c, ref vsb);
+                    stringToEscape = stringToEscape.Slice(1);
+                    continue;
                 }
 
-                // Otherwise, append the escaped character.
-                vsb.Append('%');
-                HexConverter.ToCharsBuffer(value, vsb.AppendSpan(2), 0, HexConverter.Casing.Upper);
+                // We have a character we don't want to escape. It's likely there are more, do a vectorized search.
+                int charsToCopy = stringToEscape.IndexOfAnyExcept(noEscape);
+                if (charsToCopy < 0)
+                {
+                    charsToCopy = stringToEscape.Length;
+                }
+                Debug.Assert(charsToCopy > 0);
+
+                vsb.Append(stringToEscape.Slice(0, charsToCopy));
+                stringToEscape = stringToEscape.Slice(charsToCopy);
             }
         }
 
-        internal static unsafe char[] UnescapeString(string input, int start, int end, char[] dest,
-            ref int destPosition, char rsvd1, char rsvd2, char rsvd3, UnescapeMode unescapeMode, UriParser? syntax,
-            bool isQuery)
+        internal static void Unescape(scoped ReadOnlySpan<char> chars, ref ValueStringBuilder dest)
         {
-            fixed (char* pStr = input)
+            for (int i = 0; (uint)i < (uint)chars.Length;)
             {
-                return UnescapeString(pStr, start, end, dest, ref destPosition, rsvd1, rsvd2, rsvd3, unescapeMode,
-                    syntax, isQuery);
+                if (chars[i] == '%' && (uint)(i + 2) < (uint)chars.Length)
+                {
+                    char unescaped = DecodeHexChars(chars[i + 1], chars[i + 2]);
+
+                    if (unescaped == Uri.c_DummyChar)
+                    {
+                        i++;
+                        continue;
+                    }
+
+                    // Copy previous characters that don't require any transformations.
+                    // Using a loop instead of Append(span) to avoid the call overhead for typically short sections.
+                    foreach (char c in chars.Slice(0, i))
+                    {
+                        dest.Append(c);
+                    }
+
+                    if (char.IsAscii(unescaped))
+                    {
+                        dest.Append(unescaped);
+                        i += 3;
+                    }
+                    else
+                    {
+                        int charactersRead = PercentEncodingHelper.UnescapePercentEncodedUTF8Sequence(
+                            chars.Slice(i),
+                            ref dest,
+                            isQuery: false,
+                            iriParsing: false);
+
+                        Debug.Assert(charactersRead > 0);
+                        i += charactersRead;
+                    }
+
+                    chars = chars.Slice(i);
+                    i = 0;
+                }
+                else
+                {
+                    i++;
+                }
             }
+
+            dest.Append(chars);
         }
 
-        internal static unsafe char[] UnescapeString(char* pStr, int start, int end, char[] dest, ref int destPosition,
+        internal static void UnescapeString(scoped ReadOnlySpan<char> chars, ref ValueStringBuilder dest,
             char rsvd1, char rsvd2, char rsvd3, UnescapeMode unescapeMode, UriParser? syntax, bool isQuery)
         {
-            ValueStringBuilder vsb = new ValueStringBuilder(dest.Length);
-            vsb.Append(dest.AsSpan(0, destPosition));
-            UnescapeString(pStr, start, end, ref vsb, rsvd1, rsvd2, rsvd3, unescapeMode,
-                    syntax, isQuery);
+            Debug.Assert(unescapeMode != UnescapeMode.None);
 
-            if (vsb.Length > dest.Length)
-            {
-                dest = vsb.AsSpan().ToArray();
-            }
-            else
-            {
-                vsb.AsSpan(destPosition).TryCopyTo(dest.AsSpan(destPosition));
-            }
-            destPosition = vsb.Length;
-            vsb.Dispose();
-            return dest;
-        }
-
-        //
-        // This method will assume that any good Escaped Sequence will be unescaped in the output
-        // - Assumes Dest.Length - detPosition >= end-start
-        // - UnescapeLevel controls various modes of operation
-        // - Any "bad" escape sequence will remain as is or '%' will be escaped.
-        // - destPosition tells the starting index in dest for placing the result.
-        //   On return destPosition tells the last character + 1 position in the "dest" array.
-        // - The control chars and chars passed in rsdvX parameters may be re-escaped depending on UnescapeLevel
-        // - It is a RARE case when Unescape actually needs escaping some characters mentioned above.
-        //   For this reason it returns a char[] that is usually the same ref as the input "dest" value.
-        //
-        internal static unsafe void UnescapeString(string input, int start, int end, ref ValueStringBuilder dest,
-            char rsvd1, char rsvd2, char rsvd3, UnescapeMode unescapeMode, UriParser? syntax, bool isQuery)
-        {
-            fixed (char* pStr = input)
-            {
-                UnescapeString(pStr, start, end, ref dest, rsvd1, rsvd2, rsvd3, unescapeMode, syntax, isQuery);
-            }
-        }
-        internal static unsafe void UnescapeString(char* pStr, int start, int end, ref ValueStringBuilder dest,
-            char rsvd1, char rsvd2, char rsvd3, UnescapeMode unescapeMode, UriParser? syntax, bool isQuery)
-        {
-            byte[]? bytes = null;
             bool escapeReserved = false;
-            int next = start;
             bool iriParsing = Uri.IriParsingStatic(syntax)
                                 && ((unescapeMode & UnescapeMode.EscapeUnescape) == UnescapeMode.EscapeUnescape);
-            char[]? unescapedChars = null;
 
-            while (true)
+            while (!chars.IsEmpty)
             {
-                if ((unescapeMode & UnescapeMode.EscapeUnescape) == UnescapeMode.CopyOnly)
-                {
-                    while (start < end)
-                        dest.Append(pStr[start++]);
-                    return;
-                }
+                int i;
+                char ch = (char)0;
 
-                while (true)
+                for (i = 0; (uint)i < (uint)chars.Length; i++)
                 {
-                    char ch = (char)0;
+                    ch = chars[i];
 
-                    for (; next < end; ++next)
+                    if (ch == '%')
                     {
-                        if ((ch = pStr[next]) == '%')
+                        if ((unescapeMode & UnescapeMode.Unescape) == 0)
                         {
-                            if ((unescapeMode & UnescapeMode.Unescape) == 0)
+                            // re-escape, don't check anything else
+                            escapeReserved = true;
+                        }
+                        else if ((uint)(i + 2) < (uint)chars.Length)
+                        {
+                            ch = DecodeHexChars(chars[i + 1], chars[i + 2]);
+
+                            // re-escape % from an invalid sequence
+                            if (ch == Uri.c_DummyChar)
                             {
-                                // re-escape, don't check anything else
-                                escapeReserved = true;
+                                if ((unescapeMode & UnescapeMode.Escape) != 0)
+                                    escapeReserved = true;
+                                else
+                                    continue;   // we should throw instead but since v1.0 would just print '%'
                             }
-                            else if (next + 2 < end)
+                            // Do not unescape '%' itself unless full unescape is requested
+                            else if (ch == '%')
                             {
-                                ch = DecodeHexChars(pStr[next + 1], pStr[next + 2]);
-                                // Unescape a good sequence if full unescape is requested
-                                if (unescapeMode >= UnescapeMode.UnescapeAll)
-                                {
-                                    if (ch == Uri.c_DummyChar)
-                                    {
-                                        if (unescapeMode >= UnescapeMode.UnescapeAllOrThrow)
-                                        {
-                                            // Should be a rare case where the app tries to feed an invalid escaped sequence
-                                            throw new UriFormatException(SR.net_uri_BadString);
-                                        }
-                                        continue;
-                                    }
-                                }
-                                // re-escape % from an invalid sequence
-                                else if (ch == Uri.c_DummyChar)
-                                {
-                                    if ((unescapeMode & UnescapeMode.Escape) != 0)
-                                        escapeReserved = true;
-                                    else
-                                        continue;   // we should throw instead but since v1.0 would just print '%'
-                                }
-                                // Do not unescape '%' itself unless full unescape is requested
-                                else if (ch == '%')
-                                {
-                                    next += 2;
-                                    continue;
-                                }
-                                // Do not unescape a reserved char unless full unescape is requested
-                                else if (ch == rsvd1 || ch == rsvd2 || ch == rsvd3)
-                                {
-                                    next += 2;
-                                    continue;
-                                }
-                                // Do not unescape a dangerous char unless it's V1ToStringFlags mode
-                                else if ((unescapeMode & UnescapeMode.V1ToStringFlag) == 0 && IsNotSafeForUnescape(ch))
-                                {
-                                    next += 2;
-                                    continue;
-                                }
-                                else if (iriParsing && ((ch <= '\x9F' && IsNotSafeForUnescape(ch)) ||
-                                                        (ch > '\x9F' && !IriHelper.CheckIriUnicodeRange(ch, isQuery))))
-                                {
-                                    // check if unenscaping gives a char outside iri range
-                                    // if it does then keep it escaped
-                                    next += 2;
-                                    continue;
-                                }
-                                // unescape escaped char or escape %
-                                break;
-                            }
-                            else if (unescapeMode >= UnescapeMode.UnescapeAll)
-                            {
-                                if (unescapeMode >= UnescapeMode.UnescapeAllOrThrow)
-                                {
-                                    // Should be a rare case where the app tries to feed an invalid escaped sequence
-                                    throw new UriFormatException(SR.net_uri_BadString);
-                                }
-                                // keep a '%' as part of a bogus sequence
+                                i += 2;
                                 continue;
                             }
-                            else
+                            // Do not unescape a reserved char unless full unescape is requested
+                            else if (ch == rsvd1 || ch == rsvd2 || ch == rsvd3)
                             {
-                                escapeReserved = true;
+                                i += 2;
+                                continue;
                             }
-                            // escape (escapeReserved==true) or otherwise unescape the sequence
+                            // Do not unescape a dangerous char unless it's V1ToStringFlags mode
+                            else if ((unescapeMode & UnescapeMode.V1ToStringFlag) == 0 && IsNotSafeForUnescape(ch))
+                            {
+                                i += 2;
+                                continue;
+                            }
+                            else if (iriParsing && (ch <= '\x9F' ? IsNotSafeForUnescape(ch) : !IriHelper.CheckIriUnicodeRange(ch, isQuery)))
+                            {
+                                // check if unenscaping gives a char outside iri range
+                                // if it does then keep it escaped
+                                i += 2;
+                                continue;
+                            }
+                            // unescape escaped char or escape %
                             break;
                         }
-                        else if ((unescapeMode & (UnescapeMode.Unescape | UnescapeMode.UnescapeAll))
-                            == (UnescapeMode.Unescape | UnescapeMode.UnescapeAll))
+                        else
                         {
-                            continue;
+                            escapeReserved = true;
                         }
-                        else if ((unescapeMode & UnescapeMode.Escape) != 0)
-                        {
-                            // Could actually escape some of the characters
-                            if (ch == rsvd1 || ch == rsvd2 || ch == rsvd3)
-                            {
-                                // found an unescaped reserved character -> escape it
-                                escapeReserved = true;
-                                break;
-                            }
-                            else if ((unescapeMode & UnescapeMode.V1ToStringFlag) == 0
-                                && (ch <= '\x1F' || (ch >= '\x7F' && ch <= '\x9F')))
-                            {
-                                // found an unescaped reserved character -> escape it
-                                escapeReserved = true;
-                                break;
-                            }
-                        }
+                        // escape (escapeReserved==true) or otherwise unescape the sequence
+                        break;
                     }
-
-                    //copy off previous characters from input
-                    while (start < next)
-                        dest.Append(pStr[start++]);
-
-                    if (next != end)
+                    else if ((unescapeMode & UnescapeMode.Escape) != 0)
                     {
-                        if (escapeReserved)
+                        // Could actually escape some of the characters
+                        if (ch == rsvd1 || ch == rsvd2 || ch == rsvd3)
                         {
-                            //escape that char
-                            EscapeAsciiChar((byte)pStr[next], ref dest);
-                            escapeReserved = false;
-                            start = ++next;
-                            continue;
+                            // found an unescaped reserved character -> escape it
+                            escapeReserved = true;
+                            break;
                         }
-
-                        // unescaping either one Ascii or possibly multiple Unicode
-
-                        if (ch <= '\x7F')
+                        else if ((unescapeMode & UnescapeMode.V1ToStringFlag) == 0
+                            && (ch <= '\x1F' || (ch >= '\x7F' && ch <= '\x9F')))
                         {
-                            //ASCII
-                            dest.Append(ch);
-                            next += 3;
-                            start = next;
-                            continue;
+                            // found an unescaped reserved character -> escape it
+                            escapeReserved = true;
+                            break;
                         }
-
-                        // Unicode
-
-                        int byteCount = 1;
-                        // lazy initialization of max size, will reuse the array for next sequences
-                        if ((object?)bytes == null)
-                            bytes = new byte[end - next];
-
-                        bytes[0] = (byte)ch;
-                        next += 3;
-                        while (next < end)
-                        {
-                            // Check on exit criterion
-                            if ((ch = pStr[next]) != '%' || next + 2 >= end)
-                                break;
-
-                            // already made sure we have 3 characters in str
-                            ch = DecodeHexChars(pStr[next + 1], pStr[next + 2]);
-
-                            //invalid hex sequence ?
-                            if (ch == Uri.c_DummyChar)
-                                break;
-                            // character is not part of a UTF-8 sequence ?
-                            else if (ch < '\x80')
-                                break;
-                            else
-                            {
-                                //a UTF-8 sequence
-                                bytes[byteCount++] = (byte)ch;
-                                next += 3;
-                            }
-                        }
-
-                        if (unescapedChars == null || unescapedChars.Length < bytes.Length)
-                        {
-                            unescapedChars = new char[bytes.Length];
-                        }
-
-                        int charCount = s_noFallbackCharUTF8.GetChars(bytes, 0, byteCount, unescapedChars, 0);
-
-                        start = next;
-
-                        // match exact bytes
-                        // Do not unescape chars not allowed by Iri
-                        // need to check for invalid utf sequences that may not have given any chars
-
-                        MatchUTF8Sequence(ref dest, unescapedChars.AsSpan(0, charCount), charCount, bytes,
-                            byteCount, isQuery, iriParsing);
                     }
-
-                    if (next == end)
-                        goto done;
                 }
-            }
 
-        done:;
-        }
-
-        //
-        // Need to check for invalid utf sequences that may not have given any chars.
-        // We got the unescaped chars, we then re-encode them and match off the bytes
-        // to get the invalid sequence bytes that we just copy off
-        //
-        internal static unsafe void MatchUTF8Sequence(ref ValueStringBuilder dest, Span<char> unescapedChars,
-            int charCount, byte[] bytes, int byteCount, bool isQuery, bool iriParsing)
-        {
-            Span<byte> maxUtf8EncodedSpan = stackalloc byte[4];
-
-            int count = 0;
-            fixed (char* unescapedCharsPtr = unescapedChars)
-            {
-                for (int j = 0; j < charCount; ++j)
+                // Copy previous characters that don't require any transformations.
+                // Using a loop instead of Append(span) to avoid the call overhead for typically short sections.
+                foreach (char c in chars.Slice(0, i))
                 {
-                    bool isHighSurr = char.IsHighSurrogate(unescapedCharsPtr[j]);
-                    Span<byte> encodedBytes = maxUtf8EncodedSpan;
-                    int bytesWritten = Encoding.UTF8.GetBytes(unescapedChars.Slice(j, isHighSurr ? 2 : 1), encodedBytes);
-                    encodedBytes = encodedBytes.Slice(0, bytesWritten);
-
-                    // we have to keep unicode chars outside Iri range escaped
-                    bool inIriRange = false;
-                    if (iriParsing)
-                    {
-                        if (!isHighSurr)
-                        {
-                            inIriRange = IriHelper.CheckIriUnicodeRange(unescapedChars[j], isQuery);
-                        }
-                        else
-                        {
-                            inIriRange = IriHelper.CheckIriUnicodeRange(unescapedChars[j], unescapedChars[j + 1], out _, isQuery);
-                        }
-                    }
-
-                    while (true)
-                    {
-                        // Escape any invalid bytes that were before this character
-                        while (bytes[count] != encodedBytes[0])
-                        {
-                            EscapeAsciiChar(bytes[count++], ref dest);
-                        }
-
-                        // check if all bytes match
-                        bool allBytesMatch = true;
-                        int k = 0;
-                        for (; k < encodedBytes.Length; ++k)
-                        {
-                            if (bytes[count + k] != encodedBytes[k])
-                            {
-                                allBytesMatch = false;
-                                break;
-                            }
-                        }
-
-                        if (allBytesMatch)
-                        {
-                            count += encodedBytes.Length;
-                            if (iriParsing)
-                            {
-                                if (!inIriRange)
-                                {
-                                    // need to keep chars not allowed as escaped
-                                    for (int l = 0; l < encodedBytes.Length; ++l)
-                                    {
-                                        EscapeAsciiChar(encodedBytes[l], ref dest);
-                                    }
-                                }
-                                else
-                                {
-                                    //copy chars
-                                    dest.Append(unescapedCharsPtr[j]);
-                                    if (isHighSurr)
-                                    {
-                                        dest.Append(unescapedCharsPtr[j + 1]);
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                //copy chars
-                                dest.Append(unescapedCharsPtr[j]);
-
-                                if (isHighSurr)
-                                {
-                                    dest.Append(unescapedCharsPtr[j + 1]);
-                                }
-                            }
-
-                            break; // break out of while (true) since we've matched this char bytes
-                        }
-                        else
-                        {
-                            // copy bytes till place where bytes don't match
-                            for (int l = 0; l < k; ++l)
-                            {
-                                EscapeAsciiChar(bytes[count++], ref dest);
-                            }
-                        }
-                    }
-
-                    if (isHighSurr) j++;
+                    dest.Append(c);
                 }
-            }
 
-            // Include any trailing invalid sequences
-            while (count < byteCount)
-            {
-                EscapeAsciiChar(bytes[count++], ref dest);
+                if (i < chars.Length)
+                {
+                    if (escapeReserved)
+                    {
+                        PercentEncodeByte((byte)chars[i], ref dest);
+                        escapeReserved = false;
+                        i++;
+                    }
+                    else if (ch <= 127)
+                    {
+                        dest.Append(ch);
+                        i += 3;
+                    }
+                    else
+                    {
+                        // Unicode
+                        int charactersRead = PercentEncodingHelper.UnescapePercentEncodedUTF8Sequence(
+                            chars.Slice(i),
+                            ref dest,
+                            isQuery,
+                            iriParsing);
+
+                        Debug.Assert(charactersRead > 0);
+                        i += charactersRead;
+                    }
+                }
+
+                chars = chars.Slice(i);
             }
         }
 
-        internal static void EscapeAsciiChar(byte b, ref ValueStringBuilder to)
+        internal static void PercentEncodeByte(byte b, ref ValueStringBuilder to)
         {
             to.Append('%');
             HexConverter.ToCharsBuffer(b, to.AppendSpan(2), 0, HexConverter.Casing.Upper);
@@ -685,70 +519,37 @@ namespace System
             return (char)((a << 4) | b);
         }
 
-        internal const string RFC3986ReservedMarks = @";/?:@&=+$,#[]!'()*";
-        private const string AdditionalUnsafeToUnescape = @"%\#"; // While not specified as reserved, these are still unsafe to unescape.
-
         // When unescaping in safe mode, do not unescape the RFC 3986 reserved set:
+        // reserved    = gen-delims / sub-delims
         // gen-delims  = ":" / "/" / "?" / "#" / "[" / "]" / "@"
         // sub-delims  = "!" / "$" / "&" / "'" / "(" / ")"
         //             / "*" / "+" / "," / ";" / "="
         //
         // In addition, do not unescape the following unsafe characters:
         // excluded    = "%" / "\"
-        //
-        // This implementation used to use the following variant of the RFC 2396 reserved set.
-        // That behavior is now disabled by default, and is controlled by a UriSyntax property.
-        // reserved    = ";" | "/" | "?" | "@" | "&" | "=" | "+" | "$" | ","
-        // excluded    = control | "#" | "%" | "\"
-        internal static bool IsNotSafeForUnescape(char ch)
-        {
-            if (ch <= '\x1F' || (ch >= '\x7F' && ch <= '\x9F'))
-            {
-                return true;
-            }
+        internal static bool IsNotSafeForUnescape(char ch) =>
+            s_notSafeForUnescapeChars.Contains(ch);
 
-            const string NotSafeForUnescape = RFC3986ReservedMarks + AdditionalUnsafeToUnescape;
+        private static readonly SearchValues<char> s_notSafeForUnescapeChars = SearchValues.Create(
+            "\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\u0008\u0009\u000A\u000B\u000C\u000D\u000E\u000F" +
+            "\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F" +
+            ";/?:@&=+$,#[]!'()*" + "%\\" + "\u007F" +
+            "\u0080\u0081\u0082\u0083\u0084\u0085\u0086\u0087\u0088\u0089\u008A\u008B\u008C\u008D\u008E\u008F" +
+            "\u0090\u0091\u0092\u0093\u0094\u0095\u0096\u0097\u0098\u0099\u009A\u009B\u009C\u009D\u009E\u009F");
 
-            return NotSafeForUnescape.Contains(ch);
-        }
+        /// <summary>All ASCII letters and digits, as well as the RFC3986 unreserved marks '-', '_', '.', and '~'.</summary>
+        public static readonly SearchValues<char> Unreserved =
+            SearchValues.Create("-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz~");
 
-        // "Reserved" and "Unreserved" characters are based on RFC 3986.
+        /// <summary>All ASCII letters and digits, as well as the RFC3986 reserved and unreserved marks.</summary>
+        public static readonly SearchValues<char> UnreservedReserved =
+            SearchValues.Create("!#$&'()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_abcdefghijklmnopqrstuvwxyz~");
 
-        internal static ReadOnlySpan<bool> UnreservedReservedTable => new bool[0x80]
-        {
-            // true for all ASCII letters and digits, as well as the RFC3986 reserved characters, unreserved characters, and hash
-            false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-            false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-            false, true,  false, true,  true,  false, true,  true,  true,  true,  true,  true,  true,  true,  true,  true,
-            true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  false, true,  false, true,
-            true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,
-            true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  false, true,  false, true,
-            false, true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,
-            true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  false, false, false, true,  false,
-        };
+        public static readonly SearchValues<char> UnreservedReservedExceptHash =
+            SearchValues.Create("!$&'()*+,-./0123456789:;=?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_abcdefghijklmnopqrstuvwxyz~");
 
-        internal static bool IsUnreserved(int c) => c < 0x80 && UnreservedTable[c];
-
-        internal static ReadOnlySpan<bool> UnreservedTable => new bool[0x80]
-        {
-            // true for all ASCII letters and digits, as well as the RFC3986 unreserved marks '-', '_', '.', and '~'
-            false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-            false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false,
-            false, false, false, false, false, false, false, false, false, false, false, false, false, true,  true,  false,
-            true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  false, false, false, false, false, false,
-            false, true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,
-            true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  false, false, false, false, true,
-            false, true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,
-            true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  true,  false, false, false, true,  false,
-        };
-
-        //
-        // Is this a gen delim char from RFC 3986
-        //
-        internal static bool IsGenDelim(char ch)
-        {
-            return (ch == ':' || ch == '/' || ch == '?' || ch == '#' || ch == '[' || ch == ']' || ch == '@');
-        }
+        public static readonly SearchValues<char> UnreservedReservedExceptQuestionMarkHash =
+            SearchValues.Create("!$&'()*+,-./0123456789:;=@ABCDEFGHIJKLMNOPQRSTUVWXYZ[]_abcdefghijklmnopqrstuvwxyz~");
 
         internal static readonly char[] s_WSchars = new char[] { ' ', '\n', '\r', '\t' };
 
@@ -757,67 +558,217 @@ namespace System
             return (ch <= ' ') && (ch == ' ' || ch == '\n' || ch == '\r' || ch == '\t');
         }
 
-        internal static bool IsAsciiLetter(char character) =>
-            (((uint)character - 'A') & ~0x20) < 26;
-
-        internal static bool IsAsciiLetterOrDigit(char character) =>
-            ((((uint)character - 'A') & ~0x20) < 26) ||
-            (((uint)character - '0') < 10);
-
-        internal static bool IsHexDigit(char character) => HexConverter.IsHexChar(character);
-
-        //
         // Is this a Bidirectional control char.. These get stripped
-        //
-        internal static bool IsBidiControlCharacter(char ch)
-        {
-            return (ch == '\u200E' /*LRM*/ || ch == '\u200F' /*RLM*/ || ch == '\u202A' /*LRE*/ ||
-                    ch == '\u202B' /*RLE*/ || ch == '\u202C' /*PDF*/ || ch == '\u202D' /*LRO*/ ||
-                    ch == '\u202E' /*RLO*/);
-        }
+        internal static bool IsBidiControlCharacter(char ch) =>
+            char.IsBetween(ch, '\u200E', '\u202E') && !char.IsBetween(ch, '\u2010', '\u2029');
 
-        //
         // Strip Bidirectional control characters from this string
-        //
-        internal static unsafe string StripBidiControlCharacters(ReadOnlySpan<char> strToClean, string? backingString = null)
+        public static string StripBidiControlCharacters(ReadOnlySpan<char> strToClean, string? backingString = null)
         {
             Debug.Assert(backingString is null || strToClean.Length == backingString.Length);
 
-            int charsToRemove = 0;
-            foreach (char c in strToClean)
+            if (StripBidiControlCharacters(strToClean, out string? stripped))
             {
-                if ((uint)(c - '\u200E') <= ('\u202E' - '\u200E') && IsBidiControlCharacter(c))
+                return stripped;
+            }
+
+            return backingString ?? strToClean.ToString();
+        }
+
+        public static bool StripBidiControlCharacters(ReadOnlySpan<char> strToClean, [NotNullWhen(true)] out string? stripped)
+        {
+            int charsToRemove = 0;
+
+            int indexOfPossibleCharToRemove = strToClean.IndexOfAnyInRange('\u200E', '\u202E');
+            if (indexOfPossibleCharToRemove >= 0)
+            {
+                // Slow path: Contains chars that fall in the [u200E, u202E] range (so likely Bidi)
+                foreach (char c in strToClean.Slice(indexOfPossibleCharToRemove))
                 {
-                    charsToRemove++;
+                    if (IsBidiControlCharacter(c))
+                    {
+                        charsToRemove++;
+                    }
                 }
             }
 
             if (charsToRemove == 0)
             {
-                return backingString ?? new string(strToClean);
+                // Hot path
+                stripped = null;
+                return false;
             }
 
-            if (charsToRemove == strToClean.Length)
+            stripped = string.Create(strToClean.Length - charsToRemove, strToClean, static (buffer, strToClean) =>
             {
-                return string.Empty;
-            }
-
-            fixed (char* pStrToClean = &MemoryMarshal.GetReference(strToClean))
-            {
-                return string.Create(strToClean.Length - charsToRemove, (StrToClean: (IntPtr)pStrToClean, strToClean.Length), (buffer, state) =>
+                int destIndex = 0;
+                foreach (char c in strToClean)
                 {
-                    var strToClean = new ReadOnlySpan<char>((char*)state.StrToClean, state.Length);
-                    int destIndex = 0;
-                    foreach (char c in strToClean)
+                    if (!IsBidiControlCharacter(c))
                     {
-                        if ((uint)(c - '\u200E') > ('\u202E' - '\u200E') || !IsBidiControlCharacter(c))
+                        buffer[destIndex++] = c;
+                    }
+                }
+                Debug.Assert(buffer.Length == destIndex);
+            });
+            return true;
+        }
+
+        // This will compress any "\" "/../" "/./" "///" "/..../" /XXX.../, etc found in the input
+        //
+        // The passed options control whether to use aggressive compression or the one specified in RFC 2396
+        public static int Compress(Span<char> span, bool convertPathSlashes, bool canonicalizeAsFilePath)
+        {
+            if (span.IsEmpty)
+            {
+                return 0;
+            }
+
+            if (convertPathSlashes)
+            {
+                span.Replace('\\', '/');
+            }
+
+            ValueListBuilder<(int Start, int Length)> removedSegments = default;
+
+            int slashCount = 0;
+            int lastSlash = 0;
+            int dotCount = 0;
+            int removeSegments = 0;
+
+            for (int i = span.Length - 1; i >= 0; i--)
+            {
+                char ch = span[i];
+
+                // compress multiple '/' for file URI
+                if (ch == '/')
+                {
+                    ++slashCount;
+                }
+                else
+                {
+                    if (slashCount > 1)
+                    {
+                        // else preserve repeated slashes
+                        lastSlash = i + 1;
+                    }
+                    slashCount = 0;
+                }
+
+                if (ch == '.')
+                {
+                    ++dotCount;
+                    continue;
+                }
+                else if (dotCount != 0)
+                {
+                    bool skipSegment = canonicalizeAsFilePath && (dotCount > 2 || ch != '/');
+
+                    // Cases:
+                    // /./                  = remove this segment
+                    // /../                 = remove this segment, mark next for removal
+                    // /....x               = DO NOT TOUCH, leave as is
+                    // x.../                = DO NOT TOUCH, leave as is, except for V2 legacy mode
+                    if (!skipSegment && ch == '/')
+                    {
+                        if ((lastSlash == i + dotCount + 1 // "/..../"
+                                || (lastSlash == 0 && i + dotCount + 1 == span.Length)) // "/..."
+                            && (dotCount <= 2))
                         {
-                            buffer[destIndex++] = c;
+                            //  /./ or /.<eos> or /../ or /..<eos>
+                            removedSegments.Append((i + 1, dotCount + (lastSlash == 0 ? 0 : 1)));
+
+                            lastSlash = i;
+                            if (dotCount == 2)
+                            {
+                                // We have 2 dots in between like /../ or /..<eos>,
+                                // Mark next segment for removal and remove this /../ or /..
+                                ++removeSegments;
+                            }
+                            dotCount = 0;
+                            continue;
                         }
                     }
-                    Debug.Assert(buffer.Length == destIndex);
-                });
+                    // .NET 4.5 no longer removes trailing dots in a path segment x.../  or  x...<eos>
+                    dotCount = 0;
+
+                    // Here all other cases go such as
+                    // x.[..]y or /.[..]x or (/x.[...][/] && removeSegments !=0)
+                }
+
+                // Now we may want to remove a segment because of previous /../
+                if (ch == '/')
+                {
+                    if (removeSegments != 0)
+                    {
+                        removeSegments--;
+                        removedSegments.Append((i + 1, lastSlash - i));
+                    }
+
+                    lastSlash = i;
+                }
             }
+
+            if (canonicalizeAsFilePath)
+            {
+                if (slashCount <= 1)
+                {
+                    if (removeSegments != 0 && span[0] != '/')
+                    {
+                        // remove first not rooted segment
+                        removedSegments.Append((0, lastSlash + 1));
+                    }
+                    else if (dotCount != 0)
+                    {
+                        // If final string starts with a segment looking like .[...]/ or .[...]<eos>
+                        // then we remove this first segment
+                        if (lastSlash == dotCount || (lastSlash == 0 && dotCount == span.Length))
+                        {
+                            removedSegments.Append((0, dotCount + (lastSlash == 0 ? 0 : 1)));
+                        }
+                    }
+                }
+            }
+
+            if (removedSegments.Length == 0)
+            {
+                return span.Length;
+            }
+
+            // Merge any remaining segments.
+            // Write and read offsets are only ever the same for the first segment.
+            // Copying the first section would no-op anyway, so we start with the first removed segment.
+            int writeOffset = removedSegments[^1].Start;
+            int readOffset = writeOffset;
+
+            for (int i = removedSegments.Length - 1; i >= 0; i--)
+            {
+                (int start, int length) = removedSegments[i];
+
+                Debug.Assert(start >= readOffset && length > 0 && start + length <= span.Length);
+
+                if (readOffset != start)
+                {
+                    Debug.Assert(readOffset > writeOffset);
+
+                    int segmentLength = start - readOffset;
+                    span.Slice(readOffset, segmentLength).CopyTo(span.Slice(writeOffset));
+                    writeOffset += segmentLength;
+                }
+
+                readOffset = start + length;
+            }
+
+            if (readOffset != span.Length)
+            {
+                Debug.Assert(readOffset > writeOffset);
+
+                span.Slice(readOffset).CopyTo(span.Slice(writeOffset));
+                writeOffset += span.Length - readOffset;
+            }
+
+            removedSegments.Dispose();
+            return writeOffset;
         }
     }
 }

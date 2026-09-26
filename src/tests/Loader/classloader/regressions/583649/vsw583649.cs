@@ -6,11 +6,15 @@
 // The struct contains a literal field and we should ignore marshaling data attached to literals and statics
 
 using System;
+using Xunit;
+using TestLibrary;
 
 public class Type_Class42_Driver
 {
 
-    public static int Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

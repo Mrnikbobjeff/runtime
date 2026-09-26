@@ -4,6 +4,7 @@
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace System.Reflection.Internal
@@ -33,19 +34,13 @@ namespace System.Reflection.Internal
             return new ByteArrayMemoryBlock(this, start, size);
         }
 
-        public override Stream GetStream(out StreamConstraints constraints)
-        {
-            constraints = new StreamConstraints(null, 0, Size);
-            return new ImmutableMemoryStream(_array);
-        }
-
         internal unsafe byte* Pointer
         {
             get
             {
                 if (_pinned == null)
                 {
-                    var newPinned = new PinnedObject(ImmutableByteArrayInterop.DangerousGetUnderlyingArray(_array)!);
+                    var newPinned = new PinnedObject(ImmutableCollectionsMarshal.AsArray(_array)!);
 
                     if (Interlocked.CompareExchange(ref _pinned, newPinned, null) != null)
                     {

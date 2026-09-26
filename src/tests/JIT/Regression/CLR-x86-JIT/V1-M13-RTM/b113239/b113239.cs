@@ -1,9 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b113239;
+
 using System;
 using System.Diagnostics;
 using System.Text;
+using Xunit;
 
 
 public class A
@@ -134,9 +138,11 @@ public class B
 
 
 
-internal class Test
+public class Test_b113239
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         byte[] block = new byte[20];
         int retval = B.B1(-123456781234567L, -123456781234567L, block, 0, 0);

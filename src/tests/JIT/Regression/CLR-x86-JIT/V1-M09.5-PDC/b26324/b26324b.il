@@ -1,6 +1,5 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
-.module 'gcindir.exe'
 
 .assembly extern System.Console
 {
@@ -8,11 +7,15 @@
   .ver 4:0:0:0
 }
 .assembly extern legacy library mscorlib {}
-.assembly 'gcindir'
+.assembly extern System.Runtime { .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A ) }
+.assembly 'b26324b'
 {
   
   
 }
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
 .namespace Test
 {
   .class public auto ansi FormatSpecException extends [mscorlib]System.Exception
@@ -120,12 +123,16 @@
 
   } 
 
-  .class auto ansi App extends [mscorlib]System.Object
+  .class public auto ansi App extends [mscorlib]System.Object
   {
     .field private static initonly class [mscorlib]System.String formatSpec
     .field private static initonly class [mscorlib]System.String expResult
-    .method private static int32 Main() il managed
+    .method public static int32 Main() il managed
     {
+      .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ConditionalFactAttribute::.ctor(class [System.Runtime]System.Type, string[]) = {
+          type([TestLibrary]TestLibrary.PlatformDetection)
+          string[1] ('IsVarArgSupported')
+      }
       .entrypoint
       .maxstack  12
       .locals ([0] class Test.GCClass inst)

@@ -7,12 +7,10 @@
 // Reinhold P. Weicker
 // Communications of the ACM, Volume 27 Issue 10, Oct 1984, Pages 1013-1030
 
-using Microsoft.Xunit.Performance;
 using System;
 using System.Runtime.CompilerServices;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
+using TestLibrary;
 
 namespace Benchstone.BenchI
 {
@@ -265,21 +263,14 @@ public static class NDhrystone
         return true;
     }
 
-    [Benchmark]
-    public static void Test() {
-        foreach (var iteration in Benchmark.Iterations) {
-            using (iteration.StartMeasurement()) {
-                Bench();
-            }
-        }
-    }
-
     static bool TestBase() {
         bool result = Bench();
         return result;
     }
 
-    public static int Main() {
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [Fact]
+    public static int TestEntryPoint() {
         bool result = TestBase();
         return (result ? 100 : -1);
     }

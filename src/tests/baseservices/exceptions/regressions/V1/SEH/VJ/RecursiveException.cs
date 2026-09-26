@@ -3,13 +3,17 @@
 using System;
 using System.Threading;
 using System.IO;
+using Xunit;
+using TestLibrary;
 
 class UserException : Exception {
 	
 }
 
 public class RecursiveException {
-	public static int Main(String [] args) {
+	[SkipOnCoreClr("This test is not compatible with GC stress. See https://github.com/dotnet/runtime/issues/11947.", RuntimeTestModes.AnyGCStress)]
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint() {
 		String s = "Done";
 		int retVal = 100;
 		Thread mv_Thread;

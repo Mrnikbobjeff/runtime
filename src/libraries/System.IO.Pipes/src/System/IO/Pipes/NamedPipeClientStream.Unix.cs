@@ -1,14 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.Win32.SafeHandles;
 using System.ComponentModel;
 using System.Diagnostics.CodeAnalysis;
-using System.Runtime.InteropServices;
 using System.Net.Sockets;
-using System.Security;
-using System.Threading;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Security;
+using System.Security.Principal;
+using System.Threading;
+using Microsoft.Win32.SafeHandles;
 
 namespace System.IO.Pipes
 {
@@ -18,12 +19,35 @@ namespace System.IO.Pipes
     /// </summary>
     public sealed partial class NamedPipeClientStream : PipeStream
     {
-        private bool TryConnect(int timeout, CancellationToken cancellationToken)
+        [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+        public NamedPipeClientStream(string serverName, string pipeName, PipeAccessRights desiredAccessRights,
+            PipeOptions options, TokenImpersonationLevel impersonationLevel, HandleInheritability inheritability)
+            : base(PipeDirection.InOut, 0)
         {
-            // timeout and cancellationToken aren't used as Connect will be very fast,
+            throw new PlatformNotSupportedException(SR.PlatformNotSupported_PipeAccessRights);
+        }
+
+        private static int AccessRightsFromDirection(PipeDirection _) => 0;
+
+        private bool TryConnect(int _ /* timeout */)
+        {
+            // timeout isn't used as Connect will be very fast,
             // either succeeding immediately if the server is listening or failing
             // immediately if it isn't.  The only delay will be between the time the server
             // has called Bind and Listen, with the latter immediately following the former.
+
+            // If the socket file doesn't exist yet, skip the socket allocation and
+            // Connect call that would throw a SocketException.  Only ENOENT (not found)
+            // is short-circuited; permission errors and other conditions still reach
+            // socket.Connect so they surface their specific exceptions.
+            // TOCTOU note: the file could appear between this check and the next retry
+            // iteration, but ConnectInternal's polling loop handles that naturally.
+            if (Interop.Sys.Stat(_normalizedPipePath!, out Interop.Sys.FileStatus _) != 0 &&
+                Interop.Sys.GetLastErrorInfo().Error == Interop.Error.ENOENT)
+            {
+                return false;
+            }
+
             var socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
             SafePipeHandle? clientHandle = null;
             try
@@ -83,7 +107,7 @@ namespace System.IO.Pipes
             {
                 CheckPipePropertyOperations();
                 if (!CanRead) throw new NotSupportedException(SR.NotSupported_UnreadableStream);
-                return InternalHandle?.NamedPipeSocket?.ReceiveBufferSize ?? 0;
+                return InternalHandle?.PipeSocket.ReceiveBufferSize ?? 0;
             }
         }
 
@@ -93,7 +117,7 @@ namespace System.IO.Pipes
             {
                 CheckPipePropertyOperations();
                 if (!CanWrite) throw new NotSupportedException(SR.NotSupported_UnwritableStream);
-                return InternalHandle?.NamedPipeSocket?.SendBufferSize ?? 0;
+                return InternalHandle?.PipeSocket.SendBufferSize ?? 0;
             }
         }
 

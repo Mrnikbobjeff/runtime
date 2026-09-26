@@ -2,27 +2,30 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
-using System.Security;
-using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
+using System.Security;
 
 namespace System.Runtime.Caching
 {
     // until then we provide a stub
-    internal class SRefMultiple
+    internal sealed class SRefMultiple
     {
-        internal SRefMultiple(object[] targets)
+        internal SRefMultiple()
         {
         }
+
+#pragma warning disable CA1822
         internal long ApproximateSize => 0;
         internal void Dispose()
         {
         }
+#pragma warning restore CA1822
     }
 
-    internal class GCHandleRef<T> : IDisposable
+    internal sealed class GCHandleRef<T> : IDisposable
     where T : class, IDisposable
     {
         private GCHandle _handle;

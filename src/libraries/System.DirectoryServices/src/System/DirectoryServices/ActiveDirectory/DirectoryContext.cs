@@ -1,12 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Net;
-using System.Security.Principal;
-using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.ComponentModel;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Net;
+using System.Runtime.InteropServices;
+using System.Security.Principal;
+using Microsoft.Win32.SafeHandles;
 
 namespace System.DirectoryServices.ActiveDirectory
 {
@@ -21,17 +23,17 @@ namespace System.DirectoryServices.ActiveDirectory
 
     public class DirectoryContext
     {
-        private string _name;
+        private string? _name;
         private DirectoryContextType _contextType;
         private NetworkCredential _credential;
-        internal string serverName;
+        internal string? serverName;
         internal bool usernameIsNull;
         internal bool passwordIsNull;
         private bool _validated;
         private bool _contextIsValid;
 
-        internal static LoadLibrarySafeHandle ADHandle;
-        internal static LoadLibrarySafeHandle ADAMHandle;
+        internal static Microsoft.Win32.SafeHandles.SafeLibraryHandle ADHandle;
+        internal static Microsoft.Win32.SafeHandles.SafeLibraryHandle ADAMHandle;
 
         #region constructors
 
@@ -42,7 +44,8 @@ namespace System.DirectoryServices.ActiveDirectory
         }
 
         // Internal Constructors
-        internal void InitializeDirectoryContext(DirectoryContextType contextType, string name, string username, string password)
+        [MemberNotNull(nameof(_credential))]
+        internal void InitializeDirectoryContext(DirectoryContextType contextType, string? name, string? username, string? password)
         {
             _name = name;
             _contextType = contextType;
@@ -57,7 +60,7 @@ namespace System.DirectoryServices.ActiveDirectory
             }
         }
 
-        internal DirectoryContext(DirectoryContextType contextType, string name, DirectoryContext context)
+        internal DirectoryContext(DirectoryContextType contextType, string? name, DirectoryContext? context)
         {
             _name = name;
             _contextType = contextType;
@@ -118,10 +121,7 @@ namespace System.DirectoryServices.ActiveDirectory
                 throw new InvalidEnumArgumentException(nameof(contextType), (int)contextType, typeof(DirectoryContextType));
             }
 
-            if (name == null)
-            {
-                throw new ArgumentNullException(nameof(name));
-            }
+            ArgumentNullException.ThrowIfNull(name);
 
             if (name.Length == 0)
             {
@@ -131,7 +131,7 @@ namespace System.DirectoryServices.ActiveDirectory
             InitializeDirectoryContext(contextType, name, null, null);
         }
 
-        public DirectoryContext(DirectoryContextType contextType, string username, string password)
+        public DirectoryContext(DirectoryContextType contextType, string? username, string? password)
         {
             //
             // this constructor can only be called for DirectoryContextType.Forest or DirectoryContextType.Domain
@@ -145,17 +145,14 @@ namespace System.DirectoryServices.ActiveDirectory
             InitializeDirectoryContext(contextType, null, username, password);
         }
 
-        public DirectoryContext(DirectoryContextType contextType, string name, string username, string password)
+        public DirectoryContext(DirectoryContextType contextType, string name, string? username, string? password)
         {
             if (contextType < DirectoryContextType.Domain || contextType > DirectoryContextType.ApplicationPartition)
             {
                 throw new InvalidEnumArgumentException(nameof(contextType), (int)contextType, typeof(DirectoryContextType));
             }
 
-            if (name == null)
-            {
-                throw new ArgumentNullException(nameof(name));
-            }
+            ArgumentNullException.ThrowIfNull(name);
 
             if (name.Length == 0)
             {
@@ -169,11 +166,11 @@ namespace System.DirectoryServices.ActiveDirectory
 
         #region public properties
 
-        public string Name => _name;
+        public string? Name => _name;
 
-        public string UserName => usernameIsNull ? null : _credential.UserName;
+        public string? UserName => usernameIsNull ? null : _credential.UserName;
 
-        internal string Password
+        internal string? Password
         {
             get => passwordIsNull ? null : _credential.Password;
         }
@@ -191,7 +188,7 @@ namespace System.DirectoryServices.ActiveDirectory
 
             if ((contextType == DirectoryContextType.Domain) || ((contextType == DirectoryContextType.Forest) && (context.Name == null)))
             {
-                string tmpTarget = context.Name;
+                string? tmpTarget = context.Name;
 
                 if (tmpTarget == null)
                 {
@@ -206,13 +203,13 @@ namespace System.DirectoryServices.ActiveDirectory
                     DomainControllerInfo domainControllerInfo;
                     errorCode = Locator.DsGetDcNameWrapper(null, tmpTarget, null, (long)PrivateLocatorFlags.DirectoryServicesRequired, out domainControllerInfo);
 
-                    if (errorCode == NativeMethods.ERROR_NO_SUCH_DOMAIN)
+                    if (errorCode == Interop.Errors.ERROR_NO_SUCH_DOMAIN)
                     {
                         // try with force rediscovery
 
                         errorCode = Locator.DsGetDcNameWrapper(null, tmpTarget, null, (long)PrivateLocatorFlags.DirectoryServicesRequired | (long)LocatorOptions.ForceRediscovery, out domainControllerInfo);
 
-                        if (errorCode == NativeMethods.ERROR_NO_SUCH_DOMAIN)
+                        if (errorCode == Interop.Errors.ERROR_NO_SUCH_DOMAIN)
                         {
                             contextIsValid = false;
                         }
@@ -228,7 +225,7 @@ namespace System.DirectoryServices.ActiveDirectory
                             contextIsValid = true;
                         }
                     }
-                    else if (errorCode == NativeMethods.ERROR_INVALID_DOMAIN_NAME_FORMAT)
+                    else if (errorCode == Interop.Errors.ERROR_INVALID_DOMAINNAME)
                     {
                         // we can get this error if the target it server:port (not a valid domain)
                         contextIsValid = false;
@@ -255,13 +252,13 @@ namespace System.DirectoryServices.ActiveDirectory
                 DomainControllerInfo domainControllerInfo;
                 errorCode = Locator.DsGetDcNameWrapper(null, context.Name, null, (long)(PrivateLocatorFlags.GCRequired | PrivateLocatorFlags.DirectoryServicesRequired), out domainControllerInfo);
 
-                if (errorCode == NativeMethods.ERROR_NO_SUCH_DOMAIN)
+                if (errorCode == Interop.Errors.ERROR_NO_SUCH_DOMAIN)
                 {
                     // try with force rediscovery
 
                     errorCode = Locator.DsGetDcNameWrapper(null, context.Name, null, (long)((PrivateLocatorFlags.GCRequired | PrivateLocatorFlags.DirectoryServicesRequired)) | (long)LocatorOptions.ForceRediscovery, out domainControllerInfo);
 
-                    if (errorCode == NativeMethods.ERROR_NO_SUCH_DOMAIN)
+                    if (errorCode == Interop.Errors.ERROR_NO_SUCH_DOMAIN)
                     {
                         contextIsValid = false;
                     }
@@ -277,7 +274,7 @@ namespace System.DirectoryServices.ActiveDirectory
                         contextIsValid = true;
                     }
                 }
-                else if (errorCode == NativeMethods.ERROR_INVALID_DOMAIN_NAME_FORMAT)
+                else if (errorCode == Interop.Errors.ERROR_INVALID_DOMAINNAME)
                 {
                     // we can get this error if the target it server:port (not a valid forest)
                     contextIsValid = false;
@@ -303,13 +300,13 @@ namespace System.DirectoryServices.ActiveDirectory
                 DomainControllerInfo domainControllerInfo;
                 errorCode = Locator.DsGetDcNameWrapper(null, context.Name, null, (long)PrivateLocatorFlags.OnlyLDAPNeeded, out domainControllerInfo);
 
-                if (errorCode == NativeMethods.ERROR_NO_SUCH_DOMAIN)
+                if (errorCode == Interop.Errors.ERROR_NO_SUCH_DOMAIN)
                 {
                     // try with force rediscovery
 
                     errorCode = Locator.DsGetDcNameWrapper(null, context.Name, null, (long)PrivateLocatorFlags.OnlyLDAPNeeded | (long)LocatorOptions.ForceRediscovery, out domainControllerInfo);
 
-                    if (errorCode == NativeMethods.ERROR_NO_SUCH_DOMAIN)
+                    if (errorCode == Interop.Errors.ERROR_NO_SUCH_DOMAIN)
                     {
                         contextIsValid = false;
                     }
@@ -322,7 +319,7 @@ namespace System.DirectoryServices.ActiveDirectory
                         contextIsValid = true;
                     }
                 }
-                else if (errorCode == NativeMethods.ERROR_INVALID_DOMAIN_NAME_FORMAT)
+                else if (errorCode == Interop.Errors.ERROR_INVALID_DOMAINNAME)
                 {
                     // we can get this error if the target it server:port (not a valid application partition)
                     contextIsValid = false;
@@ -341,9 +338,9 @@ namespace System.DirectoryServices.ActiveDirectory
                 //
                 // if the servername contains a port number, then remove that
                 //
-                string tempServerName = null;
-                string portNumber;
-                tempServerName = Utils.SplitServerNameAndPortNumber(context.Name, out portNumber);
+                string? tempServerName = null;
+                string? portNumber;
+                tempServerName = Utils.SplitServerNameAndPortNumber(context.Name!, out portNumber);
 
                 //
                 // this will validate that the name specified in the context is truely the name of a machine (and not of a domain)
@@ -471,7 +468,7 @@ namespace System.DirectoryServices.ActiveDirectory
             //
             // if there is no forest associated with the logged on domain, then we return false
             //
-            else if (errorCode != NativeMethods.ERROR_NO_SUCH_DOMAIN)
+            else if (errorCode != Interop.Errors.ERROR_NO_SUCH_DOMAIN)
             {
                 throw ExceptionHelper.GetExceptionFromErrorCode(errorCode);
             }
@@ -484,7 +481,7 @@ namespace System.DirectoryServices.ActiveDirectory
             return ((ContextType == DirectoryContextType.DirectoryServer) || (ContextType == DirectoryContextType.ConfigurationSet));
         }
 
-        internal string GetServerName()
+        internal string? GetServerName()
         {
             if (serverName == null)
             {
@@ -547,25 +544,25 @@ namespace System.DirectoryServices.ActiveDirectory
             return serverName;
         }
 
-        internal static string GetLoggedOnDomain()
+        internal static unsafe string GetLoggedOnDomain()
         {
-            string domainName = null;
+            string? domainName = null;
 
-            NegotiateCallerNameRequest requestBuffer = new NegotiateCallerNameRequest();
-            int requestBufferLength = (int)Marshal.SizeOf(requestBuffer);
+            Interop.Secur32.NegotiateCallerNameRequest requestBuffer = default;
+            int requestBufferLength = sizeof(Interop.Secur32.NegotiateCallerNameRequest);
 
             IntPtr pResponseBuffer = IntPtr.Zero;
             NegotiateCallerNameResponse responseBuffer = new NegotiateCallerNameResponse();
             int responseBufferLength;
-            int protocolStatus;
-            int result;
+            uint protocolStatus;
+            uint result;
 
-            LsaLogonProcessSafeHandle lsaHandle;
+            Interop.Secur32.LsaLogonProcessSafeHandle lsaHandle;
 
             //
-            // since we are using safe handles, we don't need to explicitly call NativeMethods.LsaDeregisterLogonProcess(lsaHandle)
+            // since we are using safe handles, we don't need to explicitly call Interop.Secur32.LsaDeregisterLogonProcess(lsaHandle)
             //
-            result = NativeMethods.LsaConnectUntrusted(out lsaHandle);
+            result = Interop.Secur32.LsaConnectUntrusted(out lsaHandle);
 
             if (result == 0)
             {
@@ -574,7 +571,7 @@ namespace System.DirectoryServices.ActiveDirectory
                 //
                 requestBuffer.messageType = NativeMethods.NegGetCallerName;
 
-                result = NativeMethods.LsaCallAuthenticationPackage(lsaHandle, 0, requestBuffer, requestBufferLength, out pResponseBuffer, out responseBufferLength, out protocolStatus);
+                result = Interop.Secur32.LsaCallAuthenticationPackage(lsaHandle, 0, requestBuffer, requestBufferLength, out pResponseBuffer, out responseBufferLength, out protocolStatus);
 
                 try
                 {
@@ -592,16 +589,16 @@ namespace System.DirectoryServices.ActiveDirectory
                     }
                     else
                     {
-                        if (result == NativeMethods.STATUS_QUOTA_EXCEEDED)
+                        if (result == global::Interop.StatusOptions.STATUS_QUOTA_EXCEEDED)
                         {
                             throw new OutOfMemoryException();
                         }
-                        else if ((result == 0) && (UnsafeNativeMethods.LsaNtStatusToWinError(protocolStatus) == NativeMethods.ERROR_NO_SUCH_LOGON_SESSION))
+                        else if ((result == 0) && (global::Interop.Advapi32.LsaNtStatusToWinError(protocolStatus) == Interop.Errors.ERROR_NO_SUCH_LOGON_SESSION))
                         {
                             // If this is a directory user, extract domain info from username
                             if (!Utils.IsSamUser())
                             {
-                                WindowsIdentity identity = WindowsIdentity.GetCurrent();
+                                using WindowsIdentity identity = WindowsIdentity.GetCurrent();
 
                                 int index = identity.Name.IndexOf('\\');
                                 Debug.Assert(index != -1);
@@ -610,7 +607,7 @@ namespace System.DirectoryServices.ActiveDirectory
                         }
                         else
                         {
-                            throw ExceptionHelper.GetExceptionFromErrorCode(UnsafeNativeMethods.LsaNtStatusToWinError((result != 0) ? result : protocolStatus));
+                            throw ExceptionHelper.GetExceptionFromErrorCode((int)global::Interop.Advapi32.LsaNtStatusToWinError((result != 0) ? result : protocolStatus));
                         }
                     }
                 }
@@ -618,17 +615,17 @@ namespace System.DirectoryServices.ActiveDirectory
                 {
                     if (pResponseBuffer != IntPtr.Zero)
                     {
-                        NativeMethods.LsaFreeReturnBuffer(pResponseBuffer);
+                        Interop.Secur32.LsaFreeReturnBuffer(pResponseBuffer);
                     }
                 }
             }
-            else if (result == NativeMethods.STATUS_QUOTA_EXCEEDED)
+            else if (result == global::Interop.StatusOptions.STATUS_QUOTA_EXCEEDED)
             {
                 throw new OutOfMemoryException();
             }
             else
             {
-                throw ExceptionHelper.GetExceptionFromErrorCode(UnsafeNativeMethods.LsaNtStatusToWinError(result));
+                throw ExceptionHelper.GetExceptionFromErrorCode((int)global::Interop.Advapi32.LsaNtStatusToWinError(result));
             }
 
             // If we're running as a local user (i.e. NT AUTHORITY\LOCAL SYSTEM, IIS APPPOOL\APPPoolIdentity, etc.),
@@ -647,7 +644,7 @@ namespace System.DirectoryServices.ActiveDirectory
             return domainName;
         }
 
-        internal static string GetDnsDomainName(string domainName)
+        internal static string? GetDnsDomainName(string? domainName)
         {
             DomainControllerInfo domainControllerInfo;
             int errorCode = 0;
@@ -656,11 +653,11 @@ namespace System.DirectoryServices.ActiveDirectory
             // Locator.DsGetDcNameWrapper internally passes the ReturnDNSName flag when calling DsGetDcName
             //
             errorCode = Locator.DsGetDcNameWrapper(null, domainName, null, (long)PrivateLocatorFlags.DirectoryServicesRequired, out domainControllerInfo);
-            if (errorCode == NativeMethods.ERROR_NO_SUCH_DOMAIN)
+            if (errorCode == Interop.Errors.ERROR_NO_SUCH_DOMAIN)
             {
                 // try again with force rediscovery
                 errorCode = Locator.DsGetDcNameWrapper(null, domainName, null, (long)((long)PrivateLocatorFlags.DirectoryServicesRequired | (long)LocatorOptions.ForceRediscovery), out domainControllerInfo);
-                if (errorCode == NativeMethods.ERROR_NO_SUCH_DOMAIN)
+                if (errorCode == Interop.Errors.ERROR_NO_SUCH_DOMAIN)
                 {
                     return null;
                 }
@@ -680,31 +677,33 @@ namespace System.DirectoryServices.ActiveDirectory
             return domainControllerInfo.DomainName;
         }
 
+        [MemberNotNull(nameof(ADHandle))]
+        [MemberNotNull(nameof(ADAMHandle))]
         private static void GetLibraryHandle()
         {
             // first get AD handle
             string systemPath = Environment.SystemDirectory;
-            IntPtr tempHandle = UnsafeNativeMethods.LoadLibrary(systemPath + "\\ntdsapi.dll");
+            IntPtr tempHandle = global::Interop.Kernel32.LoadLibrary(systemPath + "\\ntdsapi.dll");
             if (tempHandle == (IntPtr)0)
             {
-                throw ExceptionHelper.GetExceptionFromErrorCode(Marshal.GetLastWin32Error());
+                throw ExceptionHelper.GetExceptionFromErrorCode(Marshal.GetLastPInvokeError());
             }
             else
             {
-                ADHandle = new LoadLibrarySafeHandle(tempHandle);
+                ADHandle = new SafeLibraryHandle(tempHandle);
             }
 
             // not get the ADAM handle
             // got to the windows\adam directory
-            DirectoryInfo windowsDirectory = Directory.GetParent(systemPath);
-            tempHandle = UnsafeNativeMethods.LoadLibrary(windowsDirectory.FullName + "\\ADAM\\ntdsapi.dll");
+            DirectoryInfo windowsDirectory = Directory.GetParent(systemPath)!;
+            tempHandle = global::Interop.Kernel32.LoadLibrary(windowsDirectory.FullName + "\\ADAM\\ntdsapi.dll");
             if (tempHandle == (IntPtr)0)
             {
                 ADAMHandle = ADHandle;
             }
             else
             {
-                ADAMHandle = new LoadLibrarySafeHandle(tempHandle);
+                ADAMHandle = new SafeLibraryHandle(tempHandle);
             }
         }
 

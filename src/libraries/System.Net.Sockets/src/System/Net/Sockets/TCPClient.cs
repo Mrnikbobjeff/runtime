@@ -17,10 +17,10 @@ namespace System.Net.Sockets
         private AddressFamily _family;
         private Socket _clientSocket = null!; // initialized by helper called from ctor
         private NetworkStream? _dataStream;
-        private volatile int _disposed;
+        private volatile bool _disposed;
         private bool _active;
 
-        private bool Disposed => _disposed != 0;
+        private bool Disposed => _disposed;
 
         // Initializes a new instance of the System.Net.Sockets.TcpClient class.
         public TcpClient() : this(AddressFamily.Unknown)
@@ -32,10 +32,7 @@ namespace System.Net.Sockets
         {
             if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, family);
 
-            // Validate parameter
-            if (family != AddressFamily.InterNetwork &&
-                family != AddressFamily.InterNetworkV6 &&
-                family != AddressFamily.Unknown)
+            if (family is not (AddressFamily.InterNetwork or AddressFamily.InterNetworkV6 or AddressFamily.Unknown))
             {
                 throw new ArgumentException(SR.Format(SR.net_protocol_invalid_family, "TCP"), nameof(family));
             }
@@ -47,13 +44,9 @@ namespace System.Net.Sockets
         // Initializes a new instance of the System.Net.Sockets.TcpClient class with the specified end point.
         public TcpClient(IPEndPoint localEP)
         {
+            ArgumentNullException.ThrowIfNull(localEP);
+
             if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, localEP);
-
-            if (localEP == null)
-            {
-                throw new ArgumentNullException(nameof(localEP));
-            }
-
             _family = localEP.AddressFamily; // set before calling CreateSocket
             InitializeClientSocket();
             _clientSocket.Bind(localEP);
@@ -61,14 +54,11 @@ namespace System.Net.Sockets
 
         // Initializes a new instance of the System.Net.Sockets.TcpClient class and connects to the specified port on
         // the specified host.
-        public TcpClient(string hostname, int port)
+        public TcpClient(string hostname, int port) : this(AddressFamily.Unknown)
         {
-            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, hostname);
+            ArgumentNullException.ThrowIfNull(hostname);
 
-            if (hostname == null)
-            {
-                throw new ArgumentNullException(nameof(hostname));
-            }
+            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, hostname);
             if (!TcpValidationHelpers.ValidatePortNumber(port))
             {
                 throw new ArgumentOutOfRangeException(nameof(port));
@@ -109,6 +99,10 @@ namespace System.Net.Sockets
             {
                 _clientSocket = value;
                 _family = _clientSocket?.AddressFamily ?? AddressFamily.Unknown;
+                if (_clientSocket == null)
+                {
+                    InitializeClientSocket();
+                }
             }
         }
 
@@ -119,115 +113,37 @@ namespace System.Net.Sockets
             get { return Client?.ExclusiveAddressUse ?? false; }
             set
             {
-                if (_clientSocket != null)
-                {
-                    _clientSocket.ExclusiveAddressUse = value;
-                }
+                _clientSocket?.ExclusiveAddressUse = value;
             }
         }
 
         // Connects the Client to the specified port on the specified host.
         public void Connect(string hostname, int port)
         {
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
 
             ThrowIfDisposed();
 
-            if (hostname == null)
-            {
-                throw new ArgumentNullException(nameof(hostname));
-            }
+            ArgumentNullException.ThrowIfNull(hostname);
             if (!TcpValidationHelpers.ValidatePortNumber(port))
             {
                 throw new ArgumentOutOfRangeException(nameof(port));
             }
 
-            // Check for already connected and throw here. This check
-            // is not required in the other connect methods as they
-            // will throw from WinSock. Here, the situation is more
-            // complex since we have to resolve a hostname so it's
-            // easier to simply block the request up front.
-            if (_active)
-            {
-                throw new SocketException((int)SocketError.IsConnected);
-            }
+            Client.Connect(hostname, port);
+            _family = Client.AddressFamily;
+            _active = true;
 
-            // IPv6: We need to process each of the addresses returned from
-            //       DNS when trying to connect. Use of AddressList[0] is
-            //       bad form.
-            IPAddress[] addresses = Dns.GetHostAddresses(hostname);
-            ExceptionDispatchInfo? lastex = null;
-
-            try
-            {
-                foreach (IPAddress address in addresses)
-                {
-                    try
-                    {
-                        if (_clientSocket == null)
-                        {
-                            // We came via the <hostname,port> constructor. Set the address family appropriately,
-                            // create the socket and try to connect.
-                            Debug.Assert(address.AddressFamily == AddressFamily.InterNetwork || address.AddressFamily == AddressFamily.InterNetworkV6);
-                            if ((address.AddressFamily == AddressFamily.InterNetwork && Socket.OSSupportsIPv4) || Socket.OSSupportsIPv6)
-                            {
-                                var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
-                                // Use of Interlocked.Exchanged ensures _clientSocket is written before Disposed is read.
-                                Interlocked.Exchange(ref _clientSocket!, socket);
-                                if (Disposed)
-                                {
-                                    // Dispose the socket so it throws ObjectDisposedException when we Connect.
-                                    socket.Dispose();
-                                }
-
-                                try
-                                {
-                                    socket.Connect(address, port);
-                                }
-                                catch
-                                {
-                                    _clientSocket = null!;
-                                    throw;
-                                }
-                            }
-
-                            _family = address.AddressFamily;
-                            _active = true;
-                            break;
-                        }
-                        else if (address.AddressFamily == _family || _family == AddressFamily.Unknown)
-                        {
-                            // Only use addresses with a matching family
-                            Connect(new IPEndPoint(address, port));
-                            _active = true;
-                            break;
-                        }
-                    }
-                    catch (Exception ex) when (!(ex is OutOfMemoryException))
-                    {
-                        lastex = ExceptionDispatchInfo.Capture(ex);
-                    }
-                }
-            }
-            finally
-            {
-                if (!_active)
-                {
-                    // The connect failed - rethrow the last error we had
-                    lastex?.Throw();
-                    throw new SocketException((int)SocketError.NotConnected);
-                }
-            }
         }
 
         // Connects the Client to the specified port on the specified host.
         public void Connect(IPAddress address, int port)
         {
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
+
             ThrowIfDisposed();
 
-            if (address == null)
-            {
-                throw new ArgumentNullException(nameof(address));
-            }
+            ArgumentNullException.ThrowIfNull(address);
             if (!TcpValidationHelpers.ValidatePortNumber(port))
             {
                 throw new ArgumentOutOfRangeException(nameof(port));
@@ -240,12 +156,11 @@ namespace System.Net.Sockets
         // Connect the Client to the specified end point.
         public void Connect(IPEndPoint remoteEP)
         {
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
+
             ThrowIfDisposed();
 
-            if (remoteEP == null)
-            {
-                throw new ArgumentNullException(nameof(remoteEP));
-            }
+            ArgumentNullException.ThrowIfNull(remoteEP);
 
             Client.Connect(remoteEP);
             _family = Client.AddressFamily;
@@ -254,6 +169,10 @@ namespace System.Net.Sockets
 
         public void Connect(IPAddress[] ipAddresses, int port)
         {
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
+
+            ThrowIfDisposed();
+
             Client.Connect(ipAddresses, port);
             _family = Client.AddressFamily;
             _active = true;
@@ -267,6 +186,14 @@ namespace System.Net.Sockets
 
         public Task ConnectAsync(IPAddress[] addresses, int port) =>
             CompleteConnectAsync(Client.ConnectAsync(addresses, port));
+
+        /// <summary>
+        /// Connects the client to a remote TCP host using the specified endpoint as an asynchronous operation.
+        /// </summary>
+        /// <param name="remoteEP">The <see cref="IPEndPoint"/> to which you intend to connect.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public Task ConnectAsync(IPEndPoint remoteEP) =>
+            CompleteConnectAsync(Client.ConnectAsync(remoteEP));
 
         private async Task CompleteConnectAsync(Task task)
         {
@@ -282,6 +209,15 @@ namespace System.Net.Sockets
 
         public ValueTask ConnectAsync(IPAddress[] addresses, int port, CancellationToken cancellationToken) =>
             CompleteConnectAsync(Client.ConnectAsync(addresses, port, cancellationToken));
+
+        /// <summary>
+        /// Connects the client to a remote TCP host using the specified endpoint as an asynchronous operation.
+        /// </summary>
+        /// <param name="remoteEP">The <see cref="IPEndPoint"/> to which you intend to connect.</param>
+        /// <param name="cancellationToken">A cancellation token used to propagate notification that this operation should be canceled.</param>
+        /// <returns>A task representing the asynchronous operation.</returns>
+        public ValueTask ConnectAsync(IPEndPoint remoteEP, CancellationToken cancellationToken) =>
+            CompleteConnectAsync(Client.ConnectAsync(remoteEP, cancellationToken));
 
         private async ValueTask CompleteConnectAsync(ValueTask task)
         {
@@ -300,6 +236,8 @@ namespace System.Net.Sockets
 
         public void EndConnect(IAsyncResult asyncResult)
         {
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
+
             _clientSocket.EndConnect(asyncResult);
             _active = true;
 
@@ -315,12 +253,7 @@ namespace System.Net.Sockets
                 throw new InvalidOperationException(SR.net_notconnected);
             }
 
-            if (_dataStream == null)
-            {
-                _dataStream = new NetworkStream(Client, true);
-            }
-
-            return _dataStream;
+            return _dataStream ??= new NetworkStream(Client, true);
         }
 
         public void Close() => Dispose();
@@ -328,11 +261,11 @@ namespace System.Net.Sockets
         // Disposes the Tcp connection.
         protected virtual void Dispose(bool disposing)
         {
-            if (Interlocked.CompareExchange(ref _disposed, 1, 0) == 0)
+            if (!Interlocked.Exchange(ref _disposed, true))
             {
                 if (disposing)
                 {
-                    IDisposable? dataStream = _dataStream;
+                    NetworkStream? dataStream = _dataStream;
                     if (dataStream != null)
                     {
                         dataStream.Dispose();
@@ -383,23 +316,46 @@ namespace System.Net.Sockets
         // Gets or sets the receive time out value of the connection in milliseconds.
         public int ReceiveTimeout
         {
-            get { return (int)Client.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReceiveTimeout)!; }
-            set { Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReceiveTimeout, value); }
+            get
+            {
+                if (OperatingSystem.IsWasi()) throw new PlatformNotSupportedException(); // https://github.com/dotnet/runtime/issues/108151
+                return (int)Client.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReceiveTimeout)!;
+            }
+            set
+            {
+                if (OperatingSystem.IsWasi()) throw new PlatformNotSupportedException(); // https://github.com/dotnet/runtime/issues/108151
+                Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReceiveTimeout, value);
+            }
         }
 
         // Gets or sets the send time out value of the connection in milliseconds.
         public int SendTimeout
         {
-            get { return (int)Client.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.SendTimeout)!; }
-            set { Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.SendTimeout, value); }
+            get
+            {
+                if (OperatingSystem.IsWasi()) throw new PlatformNotSupportedException(); // https://github.com/dotnet/runtime/issues/108151
+                return (int)Client.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.SendTimeout)!;
+            }
+            set
+            {
+                if (OperatingSystem.IsWasi()) throw new PlatformNotSupportedException(); // https://github.com/dotnet/runtime/issues/108151
+                Client.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.SendTimeout, value);
+            }
         }
 
         // Gets or sets the value of the connection's linger option.
         [DisallowNull]
         public LingerOption? LingerState
         {
-            get { return Client.LingerState; }
-            set { Client.LingerState = value!; }
+            get
+            {
+                return Client.LingerState;
+            }
+            set
+            {
+                if (OperatingSystem.IsWasi()) throw new PlatformNotSupportedException(); // https://github.com/dotnet/runtime/issues/108151
+                Client.LingerState = value!;
+            }
         }
 
         // Enables or disables delay when send or receive buffers are full.
@@ -429,12 +385,7 @@ namespace System.Net.Sockets
 
         private void ThrowIfDisposed()
         {
-            if (Disposed)
-            {
-                ThrowObjectDisposedException();
-            }
-
-            void ThrowObjectDisposedException() => throw new ObjectDisposedException(GetType().FullName);
+            ObjectDisposedException.ThrowIf(Disposed, this);
         }
     }
 }

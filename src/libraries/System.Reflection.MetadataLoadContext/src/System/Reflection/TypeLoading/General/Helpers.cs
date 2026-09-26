@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
@@ -11,7 +12,9 @@ namespace System.Reflection.TypeLoading
 {
     internal static class Helpers
     {
-        [return: NotNullIfNotNull("original")]
+        private static readonly SearchValues<char> s_charsToEscape = SearchValues.Create("\\[]+*&,");
+
+        [return: NotNullIfNotNull(nameof(original))]
         public static T[]? CloneArray<T>(this T[]? original)
         {
             if (original == null)
@@ -27,11 +30,31 @@ namespace System.Reflection.TypeLoading
             return copy;
         }
 
+        [return: NotNullIfNotNull(nameof(original))]
+        // Converts an array of modified types to unmodified types when unmodified are requested.
+        // This prevents inconsistencies such as allowing modifiers to be returned.
+        // This doesn't affect performance since we need to clone arrays anyway before returning to the caller.
+        public static Type[]? CloneArrayToUnmodifiedTypes(this Type[]? original)
+        {
+            if (original == null)
+                return null;
+
+            if (original.Length == 0)
+                return Type.EmptyTypes;
+
+            Type[] copy = new Type[original.Length];
+            for (int i = 0; i < original.Length; i++)
+            {
+                copy[i] = original[i].UnderlyingSystemType;
+            }
+
+            return copy;
+        }
+
         public static ReadOnlyCollection<T> ToReadOnlyCollection<T>(this IEnumerable<T> enumeration)
         {
-            // todo: use IEnumerable<T> extension: return new ReadOnlyCollection<T>(enumeration.ToArray());
             List<T> list = new List<T>(enumeration);
-            return new ReadOnlyCollection<T>(list.ToArray());
+            return Array.AsReadOnly(list.ToArray());
         }
 
         public static int GetTokenRowNumber(this int token) => token & 0x00ffffff;
@@ -76,7 +99,7 @@ namespace System.Reflection.TypeLoading
         public static string EscapeTypeNameIdentifier(this string identifier)
         {
             // Some characters in a type name need to be escaped
-            if (identifier.IndexOfAny(s_charsToEscape) != -1)
+            if (TypeNameContainsTypeParserMetacharacters(identifier))
             {
                 StringBuilder sbEscapedName = new StringBuilder(identifier.Length);
                 foreach (char c in identifier)
@@ -93,17 +116,17 @@ namespace System.Reflection.TypeLoading
 
         public static bool TypeNameContainsTypeParserMetacharacters(this string identifier)
         {
-            return identifier.IndexOfAny(s_charsToEscape) != -1;
+            return identifier.AsSpan().ContainsAny(s_charsToEscape);
         }
 
         public static bool NeedsEscapingInTypeName(this char c)
         {
-            return Array.IndexOf(s_charsToEscape, c) >= 0;
+            return s_charsToEscape.Contains(c);
         }
 
         public static string UnescapeTypeNameIdentifier(this string identifier)
         {
-            if (identifier.IndexOf('\\') != -1)
+            if (identifier.Contains('\\'))
             {
                 StringBuilder sbUnescapedName = new StringBuilder(identifier.Length);
                 for (int i = 0; i < identifier.Length; i++)
@@ -120,8 +143,6 @@ namespace System.Reflection.TypeLoading
             }
             return identifier;
         }
-
-        private static readonly char[] s_charsToEscape = new char[] { '\\', '[', ']', '+', '*', '&', ',' };
 
         /// <summary>
         /// For AssemblyReferences, convert "unspecified" components from the ECMA format (0xffff) to the in-memory System.Version format (0xffffffff).
@@ -241,8 +262,7 @@ namespace System.Reflection.TypeLoading
 
         public static bool HasSameMetadataDefinitionAsCore<M>(this M thisMember, MemberInfo other) where M : MemberInfo
         {
-            if (other == null)
-                throw new ArgumentNullException(nameof(other));
+            ArgumentNullException.ThrowIfNull(other);
 
             // Ensure that "other" is one of our MemberInfo objects. Do this check before calling any methods on it!
             if (!(other is M))
@@ -273,16 +293,12 @@ namespace System.Reflection.TypeLoading
             MetadataLoadContext loader = defaultAssembly.Loader;
 
             Func<AssemblyName, Assembly> assemblyResolver =
-                delegate (AssemblyName assemblyName)
-                {
-                    return loader.LoadFromAssemblyName(assemblyName);
-                };
+                loader.LoadFromAssemblyName;
 
             Func<Assembly?, string, bool, Type?> typeResolver =
                 delegate (Assembly? assembly, string fullName, bool ignoreCase2)
                 {
-                    if (assembly == null)
-                        assembly = defaultAssembly;
+                    assembly ??= defaultAssembly;
 
                     Debug.Assert(assembly is RoAssembly);
                     RoAssembly roAssembly = (RoAssembly)assembly;
@@ -298,35 +314,6 @@ namespace System.Reflection.TypeLoading
                 };
 
             return (RoType?)Type.GetType(name, assemblyResolver: assemblyResolver, typeResolver: typeResolver, throwOnError: throwOnError, ignoreCase: ignoreCase);
-        }
-
-        public static Type[] ExtractCustomModifiers(this RoType type, bool isRequired)
-        {
-            int count = 0;
-            RoType walk = type;
-            while (walk is RoModifiedType roModifiedType)
-            {
-                if (roModifiedType.IsRequired == isRequired)
-                {
-                    count++;
-                }
-                walk = roModifiedType.UnmodifiedType;
-            }
-
-            Type[] modifiers = new Type[count];
-            walk = type;
-            int index = count;
-            while (walk is RoModifiedType roModifiedType)
-            {
-                if (roModifiedType.IsRequired == isRequired)
-                {
-                    modifiers[--index] = roModifiedType.Modifier;
-                }
-                walk = roModifiedType.UnmodifiedType;
-            }
-            Debug.Assert(index == 0);
-
-            return modifiers;
         }
 
         public static RoType SkipTypeWrappers(this RoType type)
@@ -367,8 +354,7 @@ namespace System.Reflection.TypeLoading
 
         public static byte[] ToUtf8(this string s) => Encoding.UTF8.GetBytes(s);
 
-        public static string ToUtf16(this ReadOnlySpan<byte> utf8) => ToUtf16(utf8.ToArray());
-        public static string ToUtf16(this byte[] utf8) => Encoding.UTF8.GetString(utf8);
+        public static string ToUtf16(this ReadOnlySpan<byte> utf8) => Encoding.UTF8.GetString(utf8);
 
         // Guards ToString() implementations. Sample usage:
         //

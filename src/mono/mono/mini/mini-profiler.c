@@ -41,7 +41,7 @@ emit_fill_call_ctx (MonoCompile *cfg, MonoInst *method, MonoInst *ret)
 	MONO_ADD_INS (cfg->cbb, args_alloc);
 	MONO_EMIT_NEW_STORE_MEMBASE (cfg, OP_STORE_MEMBASE_REG, alloc->dreg, MONO_STRUCT_OFFSET (MonoProfilerCallContext, args), args_alloc->dreg);
 
-	for (int i = 0; i < sig->hasthis + sig->param_count; ++i) {
+	for (guint i = 0; i < sig->hasthis + sig->param_count; ++i) {
 		NEW_VARLOADA (cfg, ins, cfg->args [i], cfg->args [i]->inst_vtype);
 		MONO_ADD_INS (cfg->cbb, ins);
 
@@ -59,13 +59,6 @@ emit_fill_call_ctx (MonoCompile *cfg, MonoInst *method, MonoInst *ret)
 		EMIT_NEW_TEMPSTORE (cfg, store, var->inst_c0, ret);
 		EMIT_NEW_VARLOADA (cfg, addr, var, NULL);
 		MONO_EMIT_NEW_STORE_MEMBASE (cfg, OP_STORE_MEMBASE_REG, alloc->dreg, MONO_STRUCT_OFFSET (MonoProfilerCallContext, return_value), addr->dreg);
-
-		/* Work around a limitation of the register allocator regarding
-		 * FP stack, see https://github.com/mono/mono/pull/17251 */
-		if (cfg->backend->use_fpstack && (ret_type->type == MONO_TYPE_R8 || ret_type->type == MONO_TYPE_R4)) {
-			MonoInst *move_ret_back;
-			EMIT_NEW_VARSTORE (cfg, move_ret_back, ret, ret_type, var);
-		}
 	}
 
 	return alloc;
@@ -83,12 +76,12 @@ can_encode_method_ref (MonoMethod *method)
 void
 mini_profiler_emit_enter (MonoCompile *cfg)
 {
-	gboolean trace = mono_jit_trace_calls != NULL && mono_trace_eval (cfg->method);
-
-	if ((!MONO_CFG_PROFILE (cfg, ENTER) || cfg->current_method != cfg->method || (cfg->compile_aot && !can_encode_method_ref (cfg->method))) && !trace)
+	if (cfg->current_method != cfg->method)
 		return;
 
-	if (cfg->current_method != cfg->method)
+	gboolean trace = mono_jit_trace_calls != NULL && mono_trace_eval (cfg->method);
+
+	if (!trace && (!(MONO_CFG_PROFILE (cfg, ENTER) || MONO_CFG_PROFILE (cfg, ENTER_CONTEXT)) || (cfg->compile_aot && !can_encode_method_ref (cfg->method))))
 		return;
 
 	MonoInst *iargs [3];
@@ -109,11 +102,35 @@ mini_profiler_emit_enter (MonoCompile *cfg)
 }
 
 void
+mini_profiler_emit_samplepoint (MonoCompile *cfg)
+{
+	if (cfg->current_method != cfg->method)
+		return;
+
+	if (!MONO_CFG_PROFILE (cfg, SAMPLEPOINT) || (cfg->compile_aot && !can_encode_method_ref (cfg->method)))
+		return;
+
+	MonoInst *iargs [3];
+
+	EMIT_NEW_METHODCONST (cfg, iargs [0], cfg->method);
+	EMIT_NEW_PCONST (cfg, iargs [1], NULL);
+	// SAMPLEPOINT_CONTEXT alternative is not implemented because emit_fill_call_ctx would stack-allocate inside of a loop
+	EMIT_NEW_PCONST (cfg, iargs [2], NULL);
+
+	/* void mono_profiler_raise_method_samplepoint (MonoMethod *method, MonoJitInfo *ji, MonoProfilerCallContext *ctx) */
+	mono_emit_jit_icall (cfg, mono_profiler_raise_method_samplepoint, iargs);
+	
+}
+
+void
 mini_profiler_emit_leave (MonoCompile *cfg, MonoInst *ret)
 {
+	if (cfg->current_method != cfg->method)
+		return;
+
 	gboolean trace = mono_jit_trace_calls != NULL && mono_trace_eval (cfg->method);
 
-	if (!MONO_CFG_PROFILE (cfg, LEAVE) || cfg->current_method != cfg->method || (cfg->compile_aot && !can_encode_method_ref (cfg->method)))
+	if (!trace && (!(MONO_CFG_PROFILE (cfg, LEAVE) || MONO_CFG_PROFILE (cfg, LEAVE_CONTEXT)) || (cfg->compile_aot && !can_encode_method_ref (cfg->method))))
 		return;
 
 	MonoInst *iargs [3];
@@ -136,9 +153,12 @@ mini_profiler_emit_leave (MonoCompile *cfg, MonoInst *ret)
 void
 mini_profiler_emit_tail_call (MonoCompile *cfg, MonoMethod *target)
 {
+	if (cfg->current_method != cfg->method)
+		return;
+
 	gboolean trace = mono_jit_trace_calls != NULL && mono_trace_eval (cfg->method);
 
-	if ((!MONO_CFG_PROFILE (cfg, TAIL_CALL) || cfg->current_method != cfg->method) && !trace)
+	if (!trace && (!MONO_CFG_PROFILE (cfg, TAIL_CALL) || (cfg->compile_aot && !can_encode_method_ref (cfg->method))))
 		return;
 
 	g_assert (cfg->current_method == cfg->method);
@@ -149,7 +169,7 @@ mini_profiler_emit_tail_call (MonoCompile *cfg, MonoMethod *target)
 	EMIT_NEW_PCONST (cfg, iargs [1], NULL);
 
 	if (target)
-		EMIT_NEW_METHODCONST (cfg, iargs [2], target); 
+		EMIT_NEW_METHODCONST (cfg, iargs [2], target);
 	else
 		EMIT_NEW_PCONST (cfg, iargs [2], NULL);
 
@@ -188,7 +208,7 @@ mini_profiler_emit_call_finally (MonoCompile *cfg, MonoMethodHeader *header, uns
 	// Are we leaving a catch clause?
 	for (guint32 i = 0; i < header->num_clauses; i++) {
 		MonoExceptionClause *hclause = &header->clauses [i];
-		guint32 offset = ip - header->code;
+		guint32 offset = GPTRDIFF_TO_UINT32 (ip - header->code);
 
 		if (hclause->flags != MONO_EXCEPTION_CLAUSE_NONE && hclause->flags != MONO_EXCEPTION_CLAUSE_FILTER)
 			continue;
@@ -356,16 +376,17 @@ mini_profiler_context_get_local (MonoProfilerCallContext *ctx, guint32 pos)
 	if (!info)
 		return NULL;
 
-	return get_variable_buffer (info, &info->locals [pos], &ctx->context);
+	gpointer variable_buffer = get_variable_buffer (info, &info->locals [pos], &ctx->context);
+
+	mono_debug_free_method_jit_info (info);
+
+	return variable_buffer;
 }
 
 gpointer
 mini_profiler_context_get_result (MonoProfilerCallContext *ctx)
 {
 	MonoType *ret = mono_method_signature_internal (ctx->method)->ret;
-
-	if (ctx->interp_frame)
-		ctx->return_value = mini_get_interp_callbacks ()->frame_get_res (ctx->interp_frame);
 
 	if (!ctx->return_value)
 		return NULL;

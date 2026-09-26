@@ -6,8 +6,8 @@
 
 using System.Collections;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Threading;
-using Internal.Runtime.CompilerServices;
 
 namespace System
 {
@@ -38,8 +38,6 @@ namespace System
 
         V1_UnknownUri = 0x10000, // a Compatibility with V1 parser for an unknown scheme
         SimpleUserSyntax = 0x20000, // It is safe to not call virtual UriParser methods
-        BuiltInSyntax = 0x40000, // This is a simple Uri plus it is hardcoded in the product
-        ParserSchemeOnly = 0x80000, // This is a Parser that does only Uri scheme parsing
 
         AllowDOSPath = 0x100000,  // will check for "x:\"
         PathIsRooted = 0x200000,  // For an authority based Uri the first path char is '/'
@@ -50,8 +48,6 @@ namespace System
         AllowIdn = 0x4000000,    // IDN host conversion allowed
         AllowIriParsing = 0x10000000,   // Iri parsing. String is normalized, bidi control
                                         // characters are removed, unicode char limits are checked etc.
-
-        //      KeepTailLWS             = 0x8000000,
     }
 
     //
@@ -108,13 +104,13 @@ namespace System
         internal const int NoDefaultPort = -1;
         private const int c_InitialTableSize = 25;
 
-        private class BuiltInUriParser : UriParser
+        private sealed class BuiltInUriParser : UriParser
         {
             //
             // All BuiltIn parsers use that ctor. They are marked with "simple" and "built-in" flags
             //
             internal BuiltInUriParser(string lwrCaseScheme, int defaultPort, UriSyntaxFlags syntaxFlags)
-                : base((syntaxFlags | UriSyntaxFlags.SimpleUserSyntax | UriSyntaxFlags.BuiltInSyntax))
+                : base(syntaxFlags | UriSyntaxFlags.SimpleUserSyntax)
             {
                 _scheme = lwrCaseScheme;
                 _port = defaultPort;
@@ -132,24 +128,19 @@ namespace System
         internal bool NotAny(UriSyntaxFlags flags)
         {
             // Return true if none of the flags specified in 'flags' are set.
-            return IsFullMatch(flags, UriSyntaxFlags.None);
+            return (_flags & flags) == 0;
         }
 
         internal bool InFact(UriSyntaxFlags flags)
         {
             // Return true if at least one of the flags in 'flags' is set.
-            return !IsFullMatch(flags, UriSyntaxFlags.None);
+            return (_flags & flags) != 0;
         }
 
         internal bool IsAllSet(UriSyntaxFlags flags)
         {
             // Return true if all flags in 'flags' are set.
-            return IsFullMatch(flags, flags);
-        }
-
-        private bool IsFullMatch(UriSyntaxFlags flags, UriSyntaxFlags expected)
-        {
-            return (_flags & flags) == expected;
+            return (_flags & flags) == flags;
         }
 
         //
@@ -273,7 +264,7 @@ namespace System
 
             // InitializeAndValidate should not be called outside of the constructor
             Debug.Assert(sizeof(Uri.Flags) == sizeof(ulong));
-            Interlocked.Or(ref Unsafe.As<Uri.Flags, ulong>(ref thisUri._flags), (ulong)Uri.Flags.CustomParser_ParseMinimalAlreadyCalled);
+            Interlocked.Or(ref thisUri._flags, Uri.Flags.CustomParser_ParseMinimalAlreadyCalled);
         }
 
         internal string? InternalResolve(Uri thisBaseUri, Uri uriLink, out UriFormatException? parsingError)
@@ -418,8 +409,6 @@ namespace System
                                         UriSyntaxFlags.PathIsRooted |
                                         UriSyntaxFlags.AllowIdn |
                                         UriSyntaxFlags.AllowIriParsing;
-
-        //                                        UriSyntaxFlags.KeepTailLWS |
 
         //Note that NNTP and NEWS are quite different in syntax
         private const UriSyntaxFlags NewsSyntaxFlags =

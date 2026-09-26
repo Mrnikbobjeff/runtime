@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 /*	
+using TestLibrary;
 Open and write to a file inside static class constructor of a class/struct (eager and beforefieldinit cases). 
 Access type's static field (which would trigger the .cctor)
 Expected: Should get no exceptions.
@@ -10,6 +11,8 @@ Expected: Should get no exceptions.
 
 using System;
 using System.IO;
+using Xunit;
+using TestLibrary;
 
 public class MyClass
 {	
@@ -41,9 +44,11 @@ public struct MyStruct
 }
 
 
-public class Test
+public class Test_CctorOpenFile
 {
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 
 		int ret;

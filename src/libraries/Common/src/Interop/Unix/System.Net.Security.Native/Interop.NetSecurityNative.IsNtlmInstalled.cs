@@ -8,7 +8,21 @@ internal static partial class Interop
 {
     internal static partial class NetSecurityNative
     {
-        [DllImport(Interop.Libraries.NetSecurityNative, EntryPoint="NetSecurityNative_IsNtlmInstalled")]
-        internal static extern bool IsNtlmInstalled();
+        [LibraryImport(Interop.Libraries.NetSecurityNative, EntryPoint = "NetSecurityNative_IsNtlmInstalled")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static partial bool IsNtlmInstalled();
+
+        [LibraryImport(Interop.Libraries.NetSecurityNative, EntryPoint = "NetSecurityNative_EnsureGssInitialized")]
+        private static partial int EnsureGssInitialized();
+
+        private const string GssApiLibraryName = "libgssapi_krb5.so.2";
+
+        static NetSecurityNative()
+        {
+            if (EnsureGssInitialized() != 0)
+            {
+                throw new DllNotFoundException(GssApiLibraryName);
+            }
+        }
     }
 }

@@ -2,7 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b89946;
+
 using System;
+using Xunit;
 
 public class AA
 {
@@ -12,12 +16,13 @@ public class AA
     static void Static3(int param1)
     {
         if (m_bFlag)
-            Main();
+            TestEntryPoint();
         else
             m_ax[param1, param1] = null;
     }
 
-    static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

@@ -3,16 +3,16 @@
 
 using System;
 using System.Collections.Generic;
+using TestLibrary;
 
-namespace JIT.HardwareIntrinsics.X86
+[assembly:Xunit.ActiveIssue("https://github.com/dotnet/runtime/issues/75767", typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsMonoLLVMAOT))]
+namespace JIT.HardwareIntrinsics.X86._Sse42
 {
     public static partial class Program
     {
         static Program()
         {
-            TestList = new Dictionary<string, Action>() {
-                ["CompareGreaterThan.Int64"] = CompareGreaterThanInt64,
-            };
+
         }
     }
 }

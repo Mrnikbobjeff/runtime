@@ -2,7 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b92614;
+
 using System;
+using Xunit;
 public struct CC
 {
     static float Static3(short N)
@@ -10,5 +14,10 @@ public struct CC
         return
             82 * (ulong)N * (float)(((ulong)N) ^ (82u * (ulong)N));
     }
-    static int Main() { Static3(0); return 100; }
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
+    {
+        Static3(0);
+    }
 }

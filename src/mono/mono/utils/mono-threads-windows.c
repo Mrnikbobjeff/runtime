@@ -17,7 +17,8 @@
 #include <mono/utils/mono-threads-coop.h>
 #include <mono/utils/mono-threads-debug.h>
 #include <mono/utils/mono-os-wait.h>
-#include <mono/metadata/w32subset.h>
+#include <mono/utils/mono-context.h>
+#include <mono/utils/w32subset.h>
 #include <limits.h>
 
 enum Win32APCInfo {
@@ -76,6 +77,7 @@ abort_apc (ULONG_PTR param)
 {
 	THREADS_INTERRUPT_DEBUG ("%06d - abort_apc () called", GetCurrentThreadId ());
 
+#if HAVE_API_SUPPORT_WIN32_CANCEL_IO || HAVE_API_SUPPORT_WIN32_CANCEL_IO_EX
 	MonoThreadInfo *info = mono_thread_info_current_unchecked ();
 	if (info) {
 		// Check if pending interrupt is still relevant and current thread has not left alertable wait region.
@@ -88,12 +90,17 @@ abort_apc (ULONG_PTR param)
 			HANDLE io_handle = (HANDLE)info->win32_apc_info_io_handle;
 			if (io_handle != INVALID_HANDLE_VALUE) {
 				// In order to break IO waits, cancel all outstanding IO requests.
-				// Start to cancel IO requests for the registered IO handle issued by current thread.
 				// NOTE, this is NOT a blocking call.
+#if HAVE_API_SUPPORT_WIN32_CANCEL_IO
+				// Start to cancel IO requests for the registered IO handle issued by current thread.
 				CancelIo (io_handle);
+#elif HAVE_API_SUPPORT_WIN32_CANCEL_IO_EX
+				CancelIoEx (io_handle, NULL);
+#endif
 			}
 		}
 	}
+#endif /* HAVE_API_SUPPORT_WIN32_CANCEL_IO || HAVE_API_SUPPORT_WIN32_CANCEL_IO_EX */
 }
 
 // Attempt to cancel sync blocking IO on abort syscall requests.
@@ -124,16 +131,22 @@ enter_alertable_wait_ex (MonoThreadInfo *info, HANDLE io_handle)
 	mono_atomic_xchg_i32 (&info->win32_apc_info, (io_handle == INVALID_HANDLE_VALUE) ? WIN32_APC_INFO_ALERTABLE_WAIT_SLOT : WIN32_APC_INFO_BLOCKING_IO_SLOT);
 }
 
-static void
+static gboolean
 leave_alertable_wait_ex (MonoThreadInfo *info, HANDLE io_handle)
 {
 	// Clear any previous flags. Thread is exiting alertable wait region, and info around pending interrupt/abort APC's
 	// can now be discarded, thread is out of wait operation and can proceed execution.
-	mono_atomic_xchg_i32 (&info->win32_apc_info, WIN32_APC_INFO_CLEARED);
+	gint32 old = mono_atomic_xchg_i32 (&info->win32_apc_info, WIN32_APC_INFO_CLEARED);
 
 	// Only loaded/stored by current thread, here or in APC (also running on current thread).
 	g_assert (info->win32_apc_info_io_handle == io_handle);
 	info->win32_apc_info_io_handle = (gpointer)INVALID_HANDLE_VALUE;
+
+	gboolean alerted = FALSE;
+	if (old & WIN32_APC_INFO_PENDING_INTERRUPT_SLOT || old & WIN32_APC_INFO_PENDING_ABORT_SLOT)
+		alerted = TRUE;
+
+	return alerted;
 }
 
 void
@@ -143,11 +156,14 @@ mono_win32_enter_alertable_wait (THREAD_INFO_TYPE *info)
 		enter_alertable_wait_ex (info, INVALID_HANDLE_VALUE);
 }
 
-void
+gboolean
 mono_win32_leave_alertable_wait (THREAD_INFO_TYPE *info)
 {
+	gboolean alerted = FALSE;
 	if (info)
-		leave_alertable_wait_ex (info, INVALID_HANDLE_VALUE);
+		alerted = leave_alertable_wait_ex (info, INVALID_HANDLE_VALUE);
+
+	return alerted;
 }
 
 void
@@ -157,11 +173,14 @@ mono_win32_enter_blocking_io_call (THREAD_INFO_TYPE *info, HANDLE io_handle)
 		enter_alertable_wait_ex (info, io_handle);
 }
 
-void
+gboolean
 mono_win32_leave_blocking_io_call (THREAD_INFO_TYPE *info, HANDLE io_handle)
 {
+	gboolean alerted = FALSE;
 	if (info)
-		leave_alertable_wait_ex (info, io_handle);
+		alerted = leave_alertable_wait_ex (info, io_handle);
+
+	return alerted;
 }
 
 void
@@ -199,9 +218,19 @@ mono_threads_suspend_begin_async_suspend (MonoThreadInfo *info, gboolean interru
 	/* in mono's thread state machine implementation on Windows. By requesting a threads context after issuing a */
 	/* suspended request, this will wait until thread is suspended and thread context has been collected */
 	/* and returned. */
-	CONTEXT context;
-	context.ContextFlags = CONTEXT_INTEGER | CONTEXT_FLOATING_POINT | CONTEXT_CONTROL;
-	if (!GetThreadContext (handle, &context)) {
+#if defined(MONO_HAVE_SIMD_REG_AVX) && HAVE_API_SUPPORT_WIN32_CONTEXT_XSTATE
+	BYTE context_buffer [2048];
+	DWORD context_buffer_len = G_N_ELEMENTS (context_buffer);
+	PCONTEXT context = NULL;
+	BOOL success = InitializeContext (context_buffer, CONTEXT_INTEGER | CONTEXT_FLOATING_POINT | CONTEXT_CONTROL | CONTEXT_XSTATE, &context, &context_buffer_len);
+	success &= SetXStateFeaturesMask (context, XSTATE_MASK_AVX);
+	g_assert (success == TRUE);
+#else
+	CONTEXT context_buffer;
+	PCONTEXT context = &context_buffer;
+	context->ContextFlags = CONTEXT_INTEGER | CONTEXT_FLOATING_POINT | CONTEXT_CONTROL;
+#endif
+	if (!GetThreadContext (handle, context)) {
 		result = ResumeThread (handle);
 		g_assert (result == 1);
 		if (!mono_threads_transition_abort_async_suspend (info)) {
@@ -228,7 +257,7 @@ mono_threads_suspend_begin_async_suspend (MonoThreadInfo *info, gboolean interru
 		//XXX interrupt_kernel doesn't make sense in this case as the target is not in a syscall
 		return TRUE;
 	}
-	info->suspend_can_continue = mono_threads_get_runtime_callbacks ()->thread_state_init_from_handle (&info->thread_saved_state [ASYNC_SUSPEND_STATE_INDEX], info, &context);
+	info->suspend_can_continue = mono_threads_get_runtime_callbacks ()->thread_state_init_from_handle (&info->thread_saved_state [ASYNC_SUSPEND_STATE_INDEX], info, context);
 	THREADS_SUSPEND_DEBUG ("thread state %p -> %u\n", GUINT_TO_POINTER (id), result);
 	if (info->suspend_can_continue) {
 		if (interrupt_kernel)
@@ -289,6 +318,8 @@ mono_threads_suspend_begin_async_resume (MonoThreadInfo *info)
 		info->async_target = NULL;
 		info->user_data = NULL;
 
+		// When using MONO_HAVE_SIMD_REG_AVX, Mono won't change YMM (read only), so no need to
+		// read extended context state.
 		context.ContextFlags = CONTEXT_INTEGER | CONTEXT_FLOATING_POINT | CONTEXT_CONTROL;
 
 		if (!GetThreadContext (handle, &context)) {
@@ -298,6 +329,8 @@ mono_threads_suspend_begin_async_resume (MonoThreadInfo *info)
 
 		mono_monoctx_to_sigctx (&ctx, &context);
 
+		// When using MONO_HAVE_SIMD_REG_AVX, Mono won't change YMM (read only), so no need to
+		// write extended context state.
 		context.ContextFlags = CONTEXT_INTEGER | CONTEXT_FLOATING_POINT | CONTEXT_CONTROL;
 		res = SetThreadContext (handle, &context);
 		if (!res) {
@@ -362,19 +395,12 @@ mono_threads_suspend_get_abort_signal (void)
 
 #if defined (HOST_WIN32)
 
-#ifndef ENABLE_NETCORE
-#define MONO_WIN32_DEFAULT_NATIVE_STACK_SIZE (1024 * 1024)
-#else
-// Use default stack size on netcore.
-#define MONO_WIN32_DEFAULT_NATIVE_STACK_SIZE 0
-#endif
-
 gboolean
 mono_thread_platform_create_thread (MonoThreadStart thread_fn, gpointer thread_data, gsize* const stack_size, MonoNativeThreadId *tid)
 {
 	HANDLE result;
 	DWORD thread_id;
-	gsize set_stack_size = MONO_WIN32_DEFAULT_NATIVE_STACK_SIZE;
+	gsize set_stack_size = MONO_DEFAULT_STACKSIZE;
 
 	if (stack_size && *stack_size)
 		set_stack_size = *stack_size;
@@ -391,7 +417,7 @@ mono_thread_platform_create_thread (MonoThreadStart thread_fn, gpointer thread_d
 		*tid = thread_id;
 
 	if (stack_size) {
-		// TOOD: Use VirtualQuery to get correct value 
+		// TOOD: Use VirtualQuery to get correct value
 		// http://stackoverflow.com/questions/2480095/thread-stack-size-on-windows-visual-c
 		*stack_size = set_stack_size;
 	}
@@ -412,14 +438,6 @@ mono_native_thread_os_id_get (void)
 	return (guint64)GetCurrentThreadId ();
 }
 
-gint32
-mono_native_thread_processor_id_get (void)
-{
-	PROCESSOR_NUMBER proc_num;
-	GetCurrentProcessorNumberEx (&proc_num);
-	return ((proc_num.Group << 6) | proc_num.Number);
-}
-
 gboolean
 mono_native_thread_id_equals (MonoNativeThreadId id1, MonoNativeThreadId id2)
 {
@@ -429,7 +447,7 @@ mono_native_thread_id_equals (MonoNativeThreadId id1, MonoNativeThreadId id2)
 gboolean
 mono_native_thread_create (MonoNativeThreadId *tid, gpointer func, gpointer arg)
 {
-	return CreateThread (NULL, MONO_WIN32_DEFAULT_NATIVE_STACK_SIZE, (LPTHREAD_START_ROUTINE)func, arg, 0, tid) != NULL;
+	return CreateThread (NULL, MONO_DEFAULT_STACKSIZE, (LPTHREAD_START_ROUTINE)func, arg, 0, tid) != NULL;
 }
 
 gboolean
@@ -443,10 +461,6 @@ mono_native_thread_join_handle (HANDLE thread_handle, gboolean close_handle)
 	return res != WAIT_FAILED;
 }
 
-/*
- * Can't OpenThread on UWP until SDK 15063 (our minspec today is 10240),
- * but this function doesn't seem to be used on Windows anyway
- */
 #if HAVE_API_SUPPORT_WIN32_OPEN_THREAD
 gboolean
 mono_native_thread_join (MonoNativeThreadId tid)
@@ -457,6 +471,14 @@ mono_native_thread_join (MonoNativeThreadId tid)
 		return FALSE;
 
 	return mono_native_thread_join_handle (handle, TRUE);
+}
+#elif !HAVE_EXTERN_DEFINED_WIN32_OPEN_THREAD
+gboolean
+mono_native_thread_join (MonoNativeThreadId tid)
+{
+	g_unsupported_api ("OpenThread");
+	SetLastError (ERROR_NOT_SUPPORTED);
+	return FALSE;
 }
 #endif
 
@@ -471,9 +493,9 @@ mono_threads_platform_get_stack_bounds (guint8 **staddr, size_t *stsize)
 	*stsize = high - low;
 #else // Win7 and older (or newer, still works, but much slower).
 	MEMORY_BASIC_INFORMATION info;
-	// Windows stacks are commited on demand, one page at time.
+	// Windows stacks are committed on demand, one page at time.
 	// teb->StackBase is the top from which it grows down.
-	// teb->StackLimit is commited, the lowest it has gone so far.
+	// teb->StackLimit is committed, the lowest it has gone so far.
 	// info.AllocationBase is reserved, the lowest it can go.
 	//
 	VirtualQuery (&info, &info, sizeof (info));
@@ -517,7 +539,7 @@ gboolean
 mono_threads_platform_in_critical_region (THREAD_INFO_TYPE *info)
 {
 	gboolean ret = FALSE;
-#if SIZEOF_VOID_P == 4 && HAVE_API_SUPPORT_WIN32_OPEN_THREAD
+#if SIZEOF_VOID_P == 4 && HAVE_API_SUPPORT_WIN32_IS_WOW64_PROCESS && HAVE_API_SUPPORT_WIN32_OPEN_THREAD
 /* FIXME On cygwin these are not defined */
 #if defined(CONTEXT_EXCEPTION_REQUEST) && defined(CONTEXT_EXCEPTION_REPORTING) && defined(CONTEXT_EXCEPTION_ACTIVE)
 	if (is_wow64 && thread_is_cooperative_suspend_aware (info)) {
@@ -562,7 +584,7 @@ mono_threads_platform_yield (void)
 void
 mono_threads_platform_exit (gsize exit_code)
 {
-	ExitThread (exit_code);
+	ExitThread ((DWORD)exit_code);
 }
 
 int

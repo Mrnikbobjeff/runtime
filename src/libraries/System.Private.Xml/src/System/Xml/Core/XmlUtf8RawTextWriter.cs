@@ -4,13 +4,13 @@
 // WARNING: This file is generated and should not be modified directly.
 // Instead, modify XmlRawTextWriterGenerator.ttinclude
 
-#nullable disable
 using System;
-using System.IO;
-using System.Xml;
-using System.Text;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.IO;
+using System.Text;
+using System.Xml;
 
 namespace System.Xml
 {
@@ -26,16 +26,13 @@ namespace System.Xml
         private readonly bool _useAsync;
 
         // main buffer
-        protected byte[] _bufBytes;
+        protected byte[] _bufBytes = null!;
 
         // output stream
-        protected Stream _stream;
+        protected Stream _stream = null!;
 
         // encoding of the stream or text writer
-        protected Encoding _encoding;
-
-        // char type tables
-        protected XmlCharType _xmlCharType = XmlCharType.Instance;
+        protected Encoding _encoding = null!;
 
         // buffer positions
         protected int _bufPos = 1;     // buffer position starts at 1, because we need to be able to safely step back -1 in case we need to
@@ -101,8 +98,8 @@ namespace System.Xml
         {
             Debug.Assert(stream != null && settings != null);
 
-            this._stream = stream;
-            this._encoding = settings.Encoding;
+            _stream = stream;
+            _encoding = settings.Encoding;
 
             // the buffer is allocated will OVERFLOW in order to reduce checks when writing out constant size markup
             if (settings.Async)
@@ -197,7 +194,7 @@ namespace System.Xml
         }
 
         // Serialize the document type declaration.
-        public override void WriteDocType(string name, string pubid, string sysid, string subset)
+        public override void WriteDocType(string name, string? pubid, string? sysid, string? subset)
         {
             Debug.Assert(name != null && name.Length > 0);
 
@@ -236,13 +233,13 @@ namespace System.Xml
         }
 
         // Serialize the beginning of an element start tag: "<prefix:localName"
-        public override void WriteStartElement(string prefix, string localName, string ns)
+        public override void WriteStartElement(string? prefix, string localName, string? ns)
         {
             Debug.Assert(localName != null && localName.Length > 0);
             Debug.Assert(prefix != null);
 
             _bufBytes[_bufPos++] = (byte)'<';
-            if (prefix != null && prefix.Length != 0)
+            if (!string.IsNullOrEmpty(prefix))
             {
                 RawText(prefix);
                 _bufBytes[_bufPos++] = (byte)':';
@@ -277,7 +274,7 @@ namespace System.Xml
                 _bufBytes[_bufPos++] = (byte)'<';
                 _bufBytes[_bufPos++] = (byte)'/';
 
-                if (prefix != null && prefix.Length != 0)
+                if (!string.IsNullOrEmpty(prefix))
                 {
                     RawText(prefix);
                     _bufBytes[_bufPos++] = (byte)':';
@@ -304,7 +301,7 @@ namespace System.Xml
             _bufBytes[_bufPos++] = (byte)'<';
             _bufBytes[_bufPos++] = (byte)'/';
 
-            if (prefix != null && prefix.Length != 0)
+            if (!string.IsNullOrEmpty(prefix))
             {
                 RawText(prefix);
                 _bufBytes[_bufPos++] = (byte)':';
@@ -314,7 +311,7 @@ namespace System.Xml
         }
 
         // Serialize an attribute tag using double quotes around the attribute value: 'prefix:localName="'
-        public override void WriteStartAttribute(string prefix, string localName, string ns)
+        public override void WriteStartAttribute(string? prefix, string localName, string? ns)
         {
             Debug.Assert(localName != null && localName.Length > 0);
             Debug.Assert(prefix != null);
@@ -366,13 +363,18 @@ namespace System.Xml
         {
             Debug.Assert(prefix != null);
 
+            if (_attrEndPos == _bufPos)
+            {
+                _bufBytes[_bufPos++] = (byte)' ';
+            }
+
             if (prefix.Length == 0)
             {
-                RawText(" xmlns=\"");
+                RawText("xmlns=\"");
             }
             else
             {
-                RawText(" xmlns:");
+                RawText("xmlns:");
                 RawText(prefix);
                 _bufBytes[_bufPos++] = (byte)'=';
                 _bufBytes[_bufPos++] = (byte)'"';
@@ -391,7 +393,7 @@ namespace System.Xml
 
         // Serialize a CData section.  If the "]]>" pattern is found within
         // the text, replace it with "]]><![CDATA[>".
-        public override void WriteCData(string text)
+        public override void WriteCData(string? text)
         {
             Debug.Assert(text != null);
 
@@ -426,7 +428,7 @@ namespace System.Xml
         }
 
         // Serialize a comment.
-        public override void WriteComment(string text)
+        public override void WriteComment(string? text)
         {
             Debug.Assert(text != null);
 
@@ -443,7 +445,7 @@ namespace System.Xml
         }
 
         // Serialize a processing instruction.
-        public override void WriteProcessingInstruction(string name, string text)
+        public override void WriteProcessingInstruction(string name, string? text)
         {
             Debug.Assert(name != null && name.Length > 0);
             Debug.Assert(text != null);
@@ -484,7 +486,7 @@ namespace System.Xml
         {
             string strVal = ((int)ch).ToString("X", NumberFormatInfo.InvariantInfo);
 
-            if (_checkCharacters && !_xmlCharType.IsCharData(ch))
+            if (_checkCharacters && !XmlCharType.IsCharData(ch))
             {
                 // we just have a single char, not a surrogate, therefore we have to pass in '\0' for the second char
                 throw XmlConvert.CreateInvalidCharException(ch, '\0');
@@ -506,7 +508,7 @@ namespace System.Xml
 
         // Serialize a whitespace node.
 
-        public override unsafe void WriteWhitespace(string ws)
+        public override unsafe void WriteWhitespace(string? ws)
         {
             Debug.Assert(ws != null);
 
@@ -526,7 +528,7 @@ namespace System.Xml
 
         // Serialize either attribute or element text using XML rules.
 
-        public override unsafe void WriteString(string text)
+        public override unsafe void WriteString(string? text)
         {
             Debug.Assert(text != null);
 
@@ -616,7 +618,6 @@ namespace System.Xml
             try
             {
                 FlushBuffer();
-                FlushEncoder();
             }
             finally
             {
@@ -640,7 +641,7 @@ namespace System.Xml
                         }
                         finally
                         {
-                            _stream = null;
+                            _stream = null!;
                         }
                     }
                 }
@@ -651,12 +652,8 @@ namespace System.Xml
         public override void Flush()
         {
             FlushBuffer();
-            FlushEncoder();
 
-            if (_stream != null)
-            {
-                _stream.Flush();
-            }
+            _stream?.Flush();
         }
 
         //
@@ -707,12 +704,6 @@ namespace System.Xml
             }
         }
 
-        private void FlushEncoder()
-        {
-            // intentionally empty
-
-        }
-
         // Serialize text that is part of an attribute value.  The '&', '<', '>', and '"' characters
         // are entitized.
         protected unsafe void WriteAttributeTextBlock(char* pSrc, char* pSrcEnd)
@@ -730,7 +721,7 @@ namespace System.Xml
                         pDstEnd = pDstBegin + _bufLen;
                     }
 
-                    while (pDst < pDstEnd && (_xmlCharType.IsAttributeValueChar((char)(ch = *pSrc)) && ch <= 0x7F))
+                    while (pDst < pDstEnd && XmlCharType.IsAttributeValueChar((char)(ch = *pSrc)) && ch <= 0x7F)
                     {
                         *pDst = (byte)ch;
                         pDst++;
@@ -853,7 +844,7 @@ namespace System.Xml
                         pDstEnd = pDstBegin + _bufLen;
                     }
 
-                    while (pDst < pDstEnd && (_xmlCharType.IsAttributeValueChar((char)(ch = *pSrc)) && ch <= 0x7F))
+                    while (pDst < pDstEnd && XmlCharType.IsAttributeValueChar((char)(ch = *pSrc)) && ch <= 0x7F)
                     {
                         *pDst = (byte)ch;
                         pDst++;
@@ -1046,7 +1037,7 @@ namespace System.Xml
                         pDstEnd = pDstBegin + _bufLen;
                     }
 
-                    while (pDst < pDstEnd && (_xmlCharType.IsTextChar((char)(ch = *pSrc)) && ch <= 0x7F))
+                    while (pDst < pDstEnd && XmlCharType.IsTextChar((char)(ch = *pSrc)) && ch <= 0x7F)
                     {
                         *pDst = (byte)ch;
                         pDst++;
@@ -1165,7 +1156,7 @@ namespace System.Xml
                         pDstEnd = pDstBegin + _bufLen;
                     }
 
-                    while (pDst < pDstEnd && (_xmlCharType.IsTextChar((char)(ch = *pSrc)) && ch != stopChar && ch <= 0x7F))
+                    while (pDst < pDstEnd && XmlCharType.IsTextChar((char)(ch = *pSrc)) && ch != stopChar && ch <= 0x7F)
                     {
                         *pDst = (byte)ch;
                         pDst++;
@@ -1315,7 +1306,7 @@ namespace System.Xml
                         pDstEnd = pDstBegin + _bufLen;
                     }
 
-                    while (pDst < pDstEnd && (_xmlCharType.IsAttributeValueChar((char)(ch = *pSrc)) && ch != ']' && ch <= 0x7F))
+                    while (pDst < pDstEnd && XmlCharType.IsAttributeValueChar((char)(ch = *pSrc)) && ch != ']' && ch <= 0x7F)
                     {
                         *pDst = (byte)ch;
                         pDst++;
@@ -1469,8 +1460,8 @@ namespace System.Xml
 
         private unsafe byte* InvalidXmlChar(int ch, byte* pDst, bool entitize)
         {
-            Debug.Assert(!_xmlCharType.IsWhiteSpace((char)ch));
-            Debug.Assert(!_xmlCharType.IsAttributeValueChar((char)ch));
+            Debug.Assert(!XmlCharType.IsWhiteSpace((char)ch));
+            Debug.Assert(!XmlCharType.IsAttributeValueChar((char)ch));
 
             if (_checkCharacters)
             {
@@ -1714,21 +1705,21 @@ namespace System.Xml
             return pDst + 3;
         }
 
-        protected void ValidateContentChars(string chars, string propertyName, bool allowOnlyWhitespace)
+        protected static void ValidateContentChars(string chars, string propertyName, bool allowOnlyWhitespace)
         {
             if (allowOnlyWhitespace)
             {
-                if (!_xmlCharType.IsOnlyWhitespace(chars))
+                if (!XmlCharType.IsOnlyWhitespace(chars))
                 {
                     throw new ArgumentException(SR.Format(SR.Xml_IndentCharsNotWhitespace, propertyName));
                 }
             }
             else
             {
-                string error = null;
+                string error;
                 for (int i = 0; i < chars.Length; i++)
                 {
-                    if (!_xmlCharType.IsTextChar(chars[i]))
+                    if (!XmlCharType.IsTextChar(chars[i]))
                     {
                         switch (chars[i])
                         {
@@ -1773,19 +1764,19 @@ namespace System.Xml
     }
 
     // Same as base text writer class except that elements, attributes, comments, and pi's are indented.
-    internal partial class XmlUtf8RawTextWriterIndent : XmlUtf8RawTextWriter
+    internal sealed partial class XmlUtf8RawTextWriterIndent : XmlUtf8RawTextWriter
     {
         //
         // Fields
         //
-        protected int _indentLevel;
-        protected bool _newLineOnAttributes;
-        protected string _indentChars;
+        private int _indentLevel;
+        private bool _newLineOnAttributes;
+        private string _indentChars;
 
-        protected bool _mixedContent;
+        private bool _mixedContent;
         private BitStack _mixedContentStack;
 
-        protected ConformanceLevel _conformanceLevel = ConformanceLevel.Auto;
+        private ConformanceLevel _conformanceLevel = ConformanceLevel.Auto;
 
         //
         // Constructors
@@ -1814,7 +1805,7 @@ namespace System.Xml
             }
         }
 
-        public override void WriteDocType(string name, string pubid, string sysid, string subset)
+        public override void WriteDocType(string name, string? pubid, string? sysid, string? subset)
         {
             // Add indentation
             if (!_mixedContent && base._textPos != base._bufPos)
@@ -1824,9 +1815,9 @@ namespace System.Xml
             base.WriteDocType(name, pubid, sysid, subset);
         }
 
-        public override void WriteStartElement(string prefix, string localName, string ns)
+        public override void WriteStartElement(string? prefix, string localName, string? ns)
         {
-            Debug.Assert(localName != null && localName.Length != 0 && prefix != null && ns != null);
+            Debug.Assert(!string.IsNullOrEmpty(localName) && prefix != null && ns != null);
 
             // Add indentation
             if (!_mixedContent && base._textPos != base._bufPos)
@@ -1897,7 +1888,7 @@ namespace System.Xml
         }
 
         // Same as base class, plus possible indentation.
-        public override void WriteStartAttribute(string prefix, string localName, string ns)
+        public override void WriteStartAttribute(string? prefix, string localName, string? ns)
         {
             // Add indentation
             if (_newLineOnAttributes)
@@ -1908,13 +1899,25 @@ namespace System.Xml
             base.WriteStartAttribute(prefix, localName, ns);
         }
 
-        public override void WriteCData(string text)
+        // Same as base class, plus possible indentation.
+        internal override void WriteStartNamespaceDeclaration(string prefix)
+        {
+            // Add indentation
+            if (_newLineOnAttributes)
+            {
+                WriteIndent();
+            }
+
+            base.WriteStartNamespaceDeclaration(prefix);
+        }
+
+        public override void WriteCData(string? text)
         {
             _mixedContent = true;
             base.WriteCData(text);
         }
 
-        public override void WriteComment(string text)
+        public override void WriteComment(string? text)
         {
             if (!_mixedContent && base._textPos != base._bufPos)
             {
@@ -1924,7 +1927,7 @@ namespace System.Xml
             base.WriteComment(text);
         }
 
-        public override void WriteProcessingInstruction(string target, string text)
+        public override void WriteProcessingInstruction(string target, string? text)
         {
             if (!_mixedContent && base._textPos != base._bufPos)
             {
@@ -1952,13 +1955,13 @@ namespace System.Xml
             base.WriteSurrogateCharEntity(lowChar, highChar);
         }
 
-        public override void WriteWhitespace(string ws)
+        public override void WriteWhitespace(string? ws)
         {
             _mixedContent = true;
             base.WriteWhitespace(ws);
         }
 
-        public override void WriteString(string text)
+        public override void WriteString(string? text)
         {
             _mixedContent = true;
             base.WriteString(text);
@@ -1991,6 +1994,8 @@ namespace System.Xml
         //
         // Private methods
         //
+        [MemberNotNull(nameof(_indentChars))]
+        [MemberNotNull(nameof(_mixedContentStack))]
         private void Init(XmlWriterSettings settings)
         {
             _indentLevel = 0;
@@ -2003,15 +2008,15 @@ namespace System.Xml
             {
                 if (_newLineOnAttributes)
                 {
-                    base.ValidateContentChars(_indentChars, "IndentChars", true);
-                    base.ValidateContentChars(_newLineChars, "NewLineChars", true);
+                    ValidateContentChars(_indentChars, "IndentChars", true);
+                    ValidateContentChars(_newLineChars, "NewLineChars", true);
                 }
                 else
                 {
-                    base.ValidateContentChars(_indentChars, "IndentChars", false);
+                    ValidateContentChars(_indentChars, "IndentChars", false);
                     if (base._newLineHandling != NewLineHandling.Replace)
                     {
-                        base.ValidateContentChars(_newLineChars, "NewLineChars", false);
+                        ValidateContentChars(_newLineChars, "NewLineChars", false);
                     }
                 }
             }

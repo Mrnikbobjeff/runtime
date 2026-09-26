@@ -2,9 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections;
+using System.ComponentModel;
 using System.Data.ProviderBase;
 using System.Diagnostics;
-using System.ComponentModel;
 
 namespace System.Data.Common
 {
@@ -128,14 +128,14 @@ namespace System.Data.Common
 
             public override bool CanResetValue(object component) => false;
 
-            public override object GetValue(object component) => ((IDataRecord)component)[_ordinal];
+            public override object? GetValue(object? component) => ((IDataRecord)component!)[_ordinal];
 
             public override void ResetValue(object component)
             {
                 throw ADP.NotSupported();
             }
 
-            public override void SetValue(object component, object value)
+            public override void SetValue(object? component, object? value)
             {
                 throw ADP.NotSupported();
             }

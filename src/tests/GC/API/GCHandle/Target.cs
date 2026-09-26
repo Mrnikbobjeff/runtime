@@ -5,8 +5,9 @@
 
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
 
-public class Test
+public class Test_Target
 {
     public class Dummy
     {
@@ -22,7 +23,8 @@ public class Test
             return flag;
         }
     }
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         Dummy obj = new Dummy(99);
         bool passed = true;

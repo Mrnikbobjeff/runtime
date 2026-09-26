@@ -5,11 +5,15 @@
 // test was asserting.
 
 using System;
+using Xunit;
+using TestLibrary;
 
-public class Test
+public class Test_VSW576621
 
 {
-   public static int Main()
+   [ActiveIssue("https://github.com/dotnet/runtime/issues/111991", typeof(Utilities), nameof(Utilities.IsNativeAot))]
+   [Fact]
+   public static int TestEntryPoint()
    {
   
       	C2 obj2 = new C2();

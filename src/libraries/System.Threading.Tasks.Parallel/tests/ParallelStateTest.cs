@@ -628,7 +628,7 @@ namespace System.Threading.Tasks.Test
             Assert.False(_isExceptional != state.IsExceptional, string.Format("IsExceptional is expected to be {0} while getting {1}", _isExceptional, state.IsExceptional));
 
             // Previous iteration throws exception, the Parallel should stop it's work
-            Assert.False(_isExceptional && !state.ShouldExitCurrentIteration, string.Format("Expecting ShouldExitCurrentIteration to be true, since Exception was thrown on previous iterations"));
+            Assert.False(_isExceptional && !state.ShouldExitCurrentIteration, "Expecting ShouldExitCurrentIteration to be true, since Exception was thrown on previous iterations");
 
             try
             {
@@ -672,7 +672,7 @@ namespace System.Threading.Tasks.Test
 
                 // Previous iteration throws exception, the Parallel should stop it's work
                 Assert.False(state.IsExceptional && !state.ShouldExitCurrentIteration,
-                    string.Format("Expecting ShouldExitCurrentIteration to be true, since Exception was thrown on previous iterations"));
+                    "Expecting ShouldExitCurrentIteration to be true, since Exception was thrown on previous iterations");
             }
         }
         #endregion
@@ -710,7 +710,7 @@ namespace System.Threading.Tasks.Test
         private void ThreadLocalFinally64(List<long> local)
         {
             //add this row to the global sequences
-            //sequences.Add(Thread.CurrentThread.ManagedThreadId, local);
+            //sequences.Add(Environment.CurrentManagedThreadId, local);
             long index = Interlocked.Increment(ref _threadCount) - 1;
             _sequences64[index] = local;
         }
@@ -733,7 +733,7 @@ namespace System.Threading.Tasks.Test
         private void ThreadLocalFinally(List<int> local)
         {
             //add this row to the global sequences
-            //sequences.Add(Thread.CurrentThread.ManagedThreadId, local);
+            //sequences.Add(Environment.CurrentManagedThreadId, local);
             long index = Interlocked.Increment(ref _threadCount) - 1;
             _sequences[(int)index] = local;
         }
@@ -842,6 +842,7 @@ namespace System.Threading.Tasks.Test
         public bool Is64;
     }
 
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))] // Parallel.For/ForEach use TaskReplicator, which throws PlatformNotSupportedException on single-threaded platforms.
     public sealed class ParallelState
     {
         [Fact]

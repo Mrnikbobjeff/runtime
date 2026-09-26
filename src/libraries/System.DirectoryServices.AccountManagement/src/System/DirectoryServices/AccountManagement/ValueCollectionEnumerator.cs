@@ -2,13 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Diagnostics;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace System.DirectoryServices.AccountManagement
 {
-    internal class ValueCollectionEnumerator<T> : IEnumerator<T>, IEnumerator
+    internal sealed class ValueCollectionEnumerator<T> : IEnumerator<T>, IEnumerator
     // T must be a ValueType
     {
         //

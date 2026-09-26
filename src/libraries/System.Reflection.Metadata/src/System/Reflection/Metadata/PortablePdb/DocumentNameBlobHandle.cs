@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Internal;
 using System.Reflection.Metadata.Ecma335;
 
@@ -53,9 +54,9 @@ namespace System.Reflection.Metadata
             get { return _heapOffset == 0; }
         }
 
-        public override bool Equals(object? obj)
+        public override bool Equals([NotNullWhen(true)] object? obj)
         {
-            return obj is DocumentNameBlobHandle && Equals((DocumentNameBlobHandle)obj);
+            return obj is DocumentNameBlobHandle documentHandle && Equals(documentHandle);
         }
 
         public bool Equals(DocumentNameBlobHandle other)

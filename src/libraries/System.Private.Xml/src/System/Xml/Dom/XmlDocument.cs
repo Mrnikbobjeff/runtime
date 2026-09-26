@@ -5,14 +5,14 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
+using System.Runtime.Versioning;
+using System.Security;
 using System.Text;
 using System.Xml.Schema;
 using System.Xml.XPath;
-using System.Security;
-using System.Globalization;
-using System.Runtime.Versioning;
-using System.Diagnostics.CodeAnalysis;
 
 namespace System.Xml
 {
@@ -74,7 +74,6 @@ namespace System.Xml
         private readonly XmlImplementation _implementation;
         private readonly DomNameTable _domNameTable; // hash table of XmlName
         private XmlLinkedNode? _lastChild;
-        private XmlNamedNodeMap? _entities;
         private Hashtable? _htElementIdMap;
         private Hashtable? _htElementIDAttrDecl; //key: id; object: the ArrayList of the elements that have the same id (connected or disconnected)
         private SchemaInfo? _schemaInfo;
@@ -125,10 +124,10 @@ namespace System.Xml
 
         private XmlAttribute? _namespaceXml;
 
-        internal static EmptyEnumerator EmptyEnumerator = new EmptyEnumerator();
-        internal static IXmlSchemaInfo NotKnownSchemaInfo = new XmlSchemaInfo(XmlSchemaValidity.NotKnown);
-        internal static IXmlSchemaInfo ValidSchemaInfo = new XmlSchemaInfo(XmlSchemaValidity.Valid);
-        internal static IXmlSchemaInfo InvalidSchemaInfo = new XmlSchemaInfo(XmlSchemaValidity.Invalid);
+        internal static readonly EmptyEnumerator EmptyEnumerator = new EmptyEnumerator();
+        internal static readonly IXmlSchemaInfo NotKnownSchemaInfo = new XmlSchemaInfo(XmlSchemaValidity.NotKnown);
+        internal static readonly IXmlSchemaInfo ValidSchemaInfo = new XmlSchemaInfo(XmlSchemaValidity.Valid);
+        internal static readonly IXmlSchemaInfo InvalidSchemaInfo = new XmlSchemaInfo(XmlSchemaValidity.Invalid);
 
         // Initializes a new instance of the XmlDocument class.
         public XmlDocument() : this(new XmlImplementation())
@@ -255,8 +254,7 @@ namespace System.Xml
             //string.Empty) because in DTD, the namespace is not supported
             if (_htElementIDAttrDecl == null || _htElementIDAttrDecl[eleName] == null)
             {
-                if (_htElementIDAttrDecl == null)
-                    _htElementIDAttrDecl = new Hashtable();
+                _htElementIDAttrDecl ??= new Hashtable();
                 _htElementIDAttrDecl.Add(eleName, attrName);
                 return true;
             }
@@ -284,23 +282,27 @@ namespace System.Xml
                 return GetIDInfoByElement_(eleName);
         }
 
-        private WeakReference? GetElement(ArrayList elementList, XmlElement elem)
+        private static WeakReference<XmlElement>? GetElement(ArrayList elementList, XmlElement elem)
         {
             ArrayList gcElemRefs = new ArrayList();
-            foreach (WeakReference elemRef in elementList)
+            foreach (WeakReference<XmlElement> elemRef in elementList)
             {
-                if (!elemRef.IsAlive)
+                if (!elemRef.TryGetTarget(out XmlElement? target))
+                {
                     //take notes on the garbage collected nodes
                     gcElemRefs.Add(elemRef);
+                }
                 else
                 {
-                    if ((XmlElement?)(elemRef.Target) == elem)
+                    if (target == elem)
                         return elemRef;
                 }
             }
+
             //Clear out the gced elements
-            foreach (WeakReference elemRef in gcElemRefs)
+            foreach (WeakReference<XmlElement> elemRef in gcElemRefs)
                 elementList.Remove(elemRef);
+
             return null;
         }
 
@@ -308,10 +310,9 @@ namespace System.Xml
         {
             if (_htElementIdMap == null || !_htElementIdMap.Contains(id))
             {
-                if (_htElementIdMap == null)
-                    _htElementIdMap = new Hashtable();
+                _htElementIdMap ??= new Hashtable();
                 ArrayList elementList = new ArrayList();
-                elementList.Add(new WeakReference(elem));
+                elementList.Add(new WeakReference<XmlElement>(elem));
                 _htElementIdMap.Add(id, elementList);
             }
             else
@@ -319,7 +320,7 @@ namespace System.Xml
                 // there are other element(s) that has the same id
                 ArrayList elementList = (ArrayList)(_htElementIdMap[id]!);
                 if (GetElement(elementList, elem) == null)
-                    elementList.Add(new WeakReference(elem));
+                    elementList.Add(new WeakReference<XmlElement>(elem));
             }
         }
 
@@ -328,7 +329,7 @@ namespace System.Xml
             if (_htElementIdMap != null && _htElementIdMap.Contains(id))
             {
                 ArrayList elementList = (ArrayList)(_htElementIdMap[id]!);
-                WeakReference? elemRef = GetElement(elementList, elem);
+                WeakReference<XmlElement>? elemRef = GetElement(elementList, elem);
                 if (elemRef != null)
                 {
                     elementList.Remove(elemRef);
@@ -423,19 +424,8 @@ namespace System.Xml
 
         public XmlSchemaSet Schemas
         {
-            get
-            {
-                if (_schemas == null)
-                {
-                    _schemas = new XmlSchemaSet(NameTable);
-                }
-                return _schemas;
-            }
-
-            set
-            {
-                _schemas = value;
-            }
+            get => _schemas ??= new XmlSchemaSet(NameTable);
+            set => _schemas = value;
         }
 
         internal bool CanReportValidity
@@ -453,7 +443,7 @@ namespace System.Xml
             return _resolver;
         }
 
-        public virtual XmlResolver XmlResolver
+        public virtual XmlResolver? XmlResolver
         {
             set
             {
@@ -462,10 +452,7 @@ namespace System.Xml
                     bSetResolver = true;
 
                 XmlDocumentType? dtd = this.DocumentType;
-                if (dtd != null)
-                {
-                    dtd.DtdSchemaInfo = null;
-                }
+                dtd?.DtdSchemaInfo = null;
             }
         }
         internal override bool IsValidChildType(XmlNodeType type)
@@ -499,7 +486,7 @@ namespace System.Xml
         }
         // the function examines all the siblings before the refNode
         //  if any of the nodes has type equals to "nt", return true; otherwise, return false;
-        private bool HasNodeTypeInPrevSiblings(XmlNodeType nt, XmlNode? refNode)
+        private static bool HasNodeTypeInPrevSiblings(XmlNodeType nt, XmlNode? refNode)
         {
             if (refNode == null)
                 return false;
@@ -520,7 +507,7 @@ namespace System.Xml
 
         // the function examines all the siblings after the refNode
         //  if any of the nodes has the type equals to "nt", return true; otherwise, return false;
-        private bool HasNodeTypeInNextSiblings(XmlNodeType nt, XmlNode? refNode)
+        private static bool HasNodeTypeInNextSiblings(XmlNodeType nt, XmlNode? refNode)
         {
             XmlNode? node = refNode;
             while (node != null)
@@ -534,8 +521,7 @@ namespace System.Xml
 
         internal override bool CanInsertBefore(XmlNode newChild, XmlNode? refChild)
         {
-            if (refChild == null)
-                refChild = FirstChild;
+            refChild ??= FirstChild;
 
             if (refChild == null)
                 return true;
@@ -577,8 +563,7 @@ namespace System.Xml
 
         internal override bool CanInsertAfter(XmlNode newChild, XmlNode? refChild)
         {
-            if (refChild == null)
-                refChild = LastChild;
+            refChild ??= LastChild;
 
             if (refChild == null)
                 return true;
@@ -610,8 +595,8 @@ namespace System.Xml
         // Creates an XmlAttribute with the specified name.
         public XmlAttribute CreateAttribute(string name)
         {
-            string prefix = string.Empty;
-            string localName = string.Empty;
+            string prefix;
+            string localName;
             string namespaceURI = string.Empty;
 
             SplitName(name, out prefix, out localName);
@@ -661,8 +646,8 @@ namespace System.Xml
         // Creates an element with the specified name.
         public XmlElement CreateElement(string name)
         {
-            string prefix = string.Empty;
-            string localName = string.Empty;
+            string prefix;
+            string localName;
             SplitName(name, out prefix, out localName);
             return CreateElement(prefix, localName, string.Empty);
         }
@@ -726,10 +711,7 @@ namespace System.Xml
             defattr.InnerXml = attdef.DefaultValueRaw;
             //during the expansion of the tree, the flag could be set to true, we need to set it back.
             XmlUnspecifiedAttribute? unspAttr = defattr as XmlUnspecifiedAttribute;
-            if (unspAttr != null)
-            {
-                unspAttr.SetSpecified(false);
-            }
+            unspAttr?.SetSpecified(false);
             return defattr;
         }
 
@@ -741,8 +723,9 @@ namespace System.Xml
 
         // Creates a XmlProcessingInstruction with the specified name
         // and data strings.
-        public virtual XmlProcessingInstruction CreateProcessingInstruction(string target, string data)
+        public virtual XmlProcessingInstruction CreateProcessingInstruction(string target, string? data)
         {
+            ArgumentNullException.ThrowIfNull(target);
             return new XmlProcessingInstruction(target, data, this);
         }
 
@@ -854,7 +837,7 @@ namespace System.Xml
             }
         }
 
-        private XmlNode? NormalizeText(XmlNode node)
+        private static XmlNode? NormalizeText(XmlNode node)
         {
             XmlNode? retnode = null;
             XmlNode? n = node;
@@ -919,8 +902,8 @@ namespace System.Xml
         // and NamespaceURI.
         public XmlAttribute CreateAttribute(string qualifiedName, string? namespaceURI)
         {
-            string prefix = string.Empty;
-            string localName = string.Empty;
+            string prefix;
+            string localName;
 
             SplitName(qualifiedName, out prefix, out localName);
             return CreateAttribute(prefix, localName, namespaceURI);
@@ -930,8 +913,8 @@ namespace System.Xml
         // NamespaceURI.
         public XmlElement CreateElement(string qualifiedName, string? namespaceURI)
         {
-            string prefix = string.Empty;
-            string localName = string.Empty;
+            string prefix;
+            string localName;
             SplitName(qualifiedName, out prefix, out localName);
             return CreateElement(prefix, localName, namespaceURI);
         }
@@ -951,11 +934,9 @@ namespace System.Xml
                 ArrayList? elementList = (ArrayList?)(_htElementIdMap[elementId]);
                 if (elementList != null)
                 {
-                    foreach (WeakReference elemRef in elementList)
+                    foreach (WeakReference<XmlElement> elemRef in elementList)
                     {
-                        XmlElement? elem = (XmlElement?)elemRef.Target;
-                        if (elem != null
-                            && elem.IsConnected())
+                        if (elemRef.TryGetTarget(out XmlElement? elem) && elem.IsConnected())
                             return elem;
                     }
                 }
@@ -1105,13 +1086,8 @@ namespace System.Xml
 
         internal XmlNamedNodeMap Entities
         {
-            get
-            {
-                if (_entities == null)
-                    _entities = new XmlNamedNodeMap(this);
-                return _entities;
-            }
-            set { _entities = value; }
+            get => field ??= new XmlNamedNodeMap(this);
+            set => field = value;
         }
 
         internal bool IsLoading
@@ -1215,7 +1191,7 @@ namespace System.Xml
             return node;
         }
 
-        internal XmlNodeType ConvertToNodeType(string nodeTypeString)
+        internal static XmlNodeType ConvertToNodeType(string nodeTypeString)
         {
             if (nodeTypeString == "element")
             {
@@ -1353,7 +1329,7 @@ namespace System.Xml
         }
 
         // Loads the XML document from the specified string.
-        public virtual void LoadXml(string xml)
+        public virtual void LoadXml([StringSyntax(StringSyntaxAttribute.Xml)] string xml)
         {
             XmlTextReader reader = SetupReader(new XmlTextReader(new StringReader(xml), NameTable));
             try
@@ -1413,7 +1389,7 @@ namespace System.Xml
             XmlDOMTextWriter xw = new XmlDOMTextWriter(filename, TextEncoding);
             try
             {
-                if (_preserveWhitespace == false)
+                if (!_preserveWhitespace)
                     xw.Formatting = Formatting.Indented;
                 WriteTo(xw);
                 xw.Flush();
@@ -1428,7 +1404,7 @@ namespace System.Xml
         public virtual void Save(Stream outStream)
         {
             XmlDOMTextWriter xw = new XmlDOMTextWriter(outStream, TextEncoding);
-            if (_preserveWhitespace == false)
+            if (!_preserveWhitespace)
                 xw.Formatting = Formatting.Indented;
             WriteTo(xw);
             xw.Flush();
@@ -1441,7 +1417,7 @@ namespace System.Xml
         public virtual void Save(TextWriter writer)
         {
             XmlDOMTextWriter xw = new XmlDOMTextWriter(writer);
-            if (_preserveWhitespace == false)
+            if (!_preserveWhitespace)
                 xw.Formatting = Formatting.Indented;
             Save(xw);
         }
@@ -1644,18 +1620,15 @@ namespace System.Xml
                 switch (args.Action)
                 {
                     case XmlNodeChangedAction.Insert:
-                        if (_onNodeInsertingDelegate != null)
-                            _onNodeInsertingDelegate(this, args);
+                        _onNodeInsertingDelegate?.Invoke(this, args);
                         break;
 
                     case XmlNodeChangedAction.Remove:
-                        if (_onNodeRemovingDelegate != null)
-                            _onNodeRemovingDelegate(this, args);
+                        _onNodeRemovingDelegate?.Invoke(this, args);
                         break;
 
                     case XmlNodeChangedAction.Change:
-                        if (_onNodeChangingDelegate != null)
-                            _onNodeChangingDelegate(this, args);
+                        _onNodeChangingDelegate?.Invoke(this, args);
                         break;
                 }
             }
@@ -1668,18 +1641,15 @@ namespace System.Xml
                 switch (args.Action)
                 {
                     case XmlNodeChangedAction.Insert:
-                        if (_onNodeInsertedDelegate != null)
-                            _onNodeInsertedDelegate(this, args);
+                        _onNodeInsertedDelegate?.Invoke(this, args);
                         break;
 
                     case XmlNodeChangedAction.Remove:
-                        if (_onNodeRemovedDelegate != null)
-                            _onNodeRemovedDelegate(this, args);
+                        _onNodeRemovedDelegate?.Invoke(this, args);
                         break;
 
                     case XmlNodeChangedAction.Change:
-                        if (_onNodeChangedDelegate != null)
-                            _onNodeChangedDelegate(this, args);
+                        _onNodeChangedDelegate?.Invoke(this, args);
                         break;
                 }
             }
@@ -1754,9 +1724,9 @@ namespace System.Xml
         {
             if (DocumentType != null)
             {
-                XmlNamedNodeMap entites = DocumentType.Entities;
-                if (entites != null)
-                    return (XmlEntity?)(entites.GetNamedItem(name));
+                XmlNamedNodeMap entities = DocumentType.Entities;
+                if (entities != null)
+                    return (XmlEntity?)(entities.GetNamedItem(name));
             }
             return null;
         }

@@ -4,31 +4,23 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices.WindowsRuntime;
-using TestLibrary;
+using Xunit;
 
 namespace WinRT
 {
     [WindowsRuntimeImport]
     interface I {}
 
-    class Program
+    public class Program
     {
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static bool ObjectIsI(object o) => o is I;
 
-        public static int Main(string[] args)
+        [Fact]
+        [SkipOnMono("WinRT interop was never supported on Mono, so blocking loading WinRT types was never added.")]
+        public static void CannotLoadWinRTType()
         {
-            try
-            {
-                Assert.Throws<TypeLoadException>(() => ObjectIsI(new object()));
-            }
-            catch (System.Exception ex)
-            {
-                Console.WriteLine(ex);
-                return 101;
-            }
-            return 100;
+            Assert.Throws<TypeLoadException>(() => ObjectIsI(new object()));
         }
     }
 }
-

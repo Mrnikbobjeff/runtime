@@ -11,16 +11,18 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-namespace Test
+namespace JitTest_Directed_CheckedCtor_Generic_Test_CSharp_Base_6
 {
-    static class App
+    public static class App
     {
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             new DerivedClass<Reftype>();
             new DerivedClass<Valuetype>();
-            return 100;
         }
     }
 
@@ -46,4 +48,3 @@ namespace Test
         public override string ToString() { return "Valuetype instance"; }
     }
 }
-

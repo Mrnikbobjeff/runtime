@@ -2,11 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 
-using System;
 
-internal class BasicMath
+namespace b15203;
+
+using System;
+using Xunit;
+
+public class BasicMath
 {
-    public static int Main(String[] Args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int ec = 0;
         int x = 10;

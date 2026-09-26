@@ -3,7 +3,7 @@
 
 namespace System.Reflection
 {
-    // This Enum matchs the CorTypeAttr defined in CorHdr.h
+    // This Enum matches the CorTypeAttr defined in CorHdr.h
     [Flags]
     public enum TypeAttributes
     {
@@ -17,12 +17,12 @@ namespace System.Reflection
         NestedFamANDAssem = 0x00000006,     // Class is nested with family and assembly visibility.
         NestedFamORAssem = 0x00000007,     // Class is nested with family or assembly visibility.
 
-        // Use this mask to retrieve class layout informaiton
-        // 0 is AutoLayout, 0x2 is SequentialLayout, 4 is ExplicitLayout
+        // Use this mask to retrieve class layout information
         LayoutMask = 0x00000018,
         AutoLayout = 0x00000000,     // Class fields are auto-laid out
         SequentialLayout = 0x00000008,     // Class fields are laid out sequentially
         ExplicitLayout = 0x00000010,     // Layout is supplied explicitly
+        ExtendedLayout = 0x00000018,     // Layout is supplied via the System.Runtime.InteropServices.ExtendedLayoutAttribute
                                          // end layout mask
 
         // Use this mask to distinguish whether a type declaration is an interface.  (Class vs. ValueType done based on whether it subclasses S.ValueType)
@@ -37,6 +37,7 @@ namespace System.Reflection
 
         // Implementation attributes.
         Import = 0x00001000,     // Class / interface is imported
+        [Obsolete(Obsoletions.LegacyFormatterMessage, DiagnosticId = Obsoletions.LegacyFormatterDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         Serializable = 0x00002000,     // The class is Serializable.
         WindowsRuntime = 0x00004000,     // Type is a Windows Runtime type.
 

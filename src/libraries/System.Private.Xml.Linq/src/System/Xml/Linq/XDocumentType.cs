@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -14,12 +15,12 @@ namespace System.Xml.Linq
         private string _name;
         private string? _publicId;
         private string? _systemId;
-        private string _internalSubset;
+        private string? _internalSubset;
 
         /// <summary>
         /// Initializes an empty instance of the <see cref="XDocumentType"/> class.
         /// </summary>
-        public XDocumentType(string name, string? publicId, string? systemId, string internalSubset)
+        public XDocumentType(string name, string? publicId, string? systemId, string? internalSubset)
         {
             _name = XmlConvert.VerifyName(name);
             _publicId = publicId;
@@ -34,7 +35,8 @@ namespace System.Xml.Linq
         /// <param name="other"><see cref="XDocumentType"/> object to copy from.</param>
         public XDocumentType(XDocumentType other)
         {
-            if (other == null) throw new ArgumentNullException(nameof(other));
+            ArgumentNullException.ThrowIfNull(other);
+
             _name = other._name;
             _publicId = other._publicId;
             _systemId = other._systemId;
@@ -53,14 +55,10 @@ namespace System.Xml.Linq
         /// <summary>
         /// Gets or sets the internal subset for this Document Type Definition (DTD).
         /// </summary>
-        public string InternalSubset
+        public string? InternalSubset
         {
             get
             {
-                // TODO-NULLABLE: As per documentation, this should return string.Empty.
-                // Should we check for null here?
-                // This is also referenced by XNodeReader.Value which overrides XmlReader.Value, which is non-nullable.
-                // There is one case that passes a nullable parameter (XNodeBuilder.WriteDocType), currently we are just asserting that the nullable parameter does not receive null.
                 return _internalSubset;
             }
             set
@@ -145,7 +143,8 @@ namespace System.Xml.Linq
         /// </param>
         public override void WriteTo(XmlWriter writer)
         {
-            if (writer == null) throw new ArgumentNullException(nameof(writer));
+            ArgumentNullException.ThrowIfNull(writer);
+
             writer.WriteDocType(_name, _publicId, _systemId, _internalSubset);
         }
 
@@ -160,8 +159,8 @@ namespace System.Xml.Linq
         /// </param>
         public override Task WriteToAsync(XmlWriter writer, CancellationToken cancellationToken)
         {
-            if (writer == null)
-                throw new ArgumentNullException(nameof(writer));
+            ArgumentNullException.ThrowIfNull(writer);
+
             if (cancellationToken.IsCancellationRequested)
                 return Task.FromCanceled(cancellationToken);
             return writer.WriteDocTypeAsync(_name, _publicId, _systemId, _internalSubset);

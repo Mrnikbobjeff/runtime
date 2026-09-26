@@ -55,7 +55,7 @@ namespace System.Net.Http.Functional.Tests
                 {
                     await server.AcceptConnectionAsync(async connection =>
                     {
-                        server.ListenSocket.Close(); // Shut down the listen socket so attempts at additional connections would fail on the client
+                        await server.ListenSocket.CloseAsync(); // Shut down the listen socket so attempts at additional connections would fail on the client
 
                         string response = LoopbackServer.GetContentModeResponse(mode, simpleContent);
                         await connection.ReadRequestHeaderAndSendCustomResponseAsync(response);
@@ -128,7 +128,7 @@ namespace System.Net.Http.Functional.Tests
                         await connection.ReadRequestHeaderAsync().ConfigureAwait(false);
                         foreach (char c in response)
                         {
-                            await connection.Writer.WriteAsync(c);
+                            await connection.WriteStringAsync(c.ToString());
                         }
 
                         // Process the second request.
@@ -197,7 +197,7 @@ namespace System.Net.Http.Functional.Tests
                         await connection.ReadRequestHeaderAsync();
                         try
                         {
-                            await connection.Writer.WriteAsync(LoopbackServer.GetContentModeResponse(mode, content, connectionClose: false));
+                            await connection.WriteStringAsync(LoopbackServer.GetContentModeResponse(mode, content, connectionClose: false));
                         }
                         catch (Exception) { }     // Eat errors from client disconnect.
 

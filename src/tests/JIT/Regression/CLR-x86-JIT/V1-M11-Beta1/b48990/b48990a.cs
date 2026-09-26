@@ -13,11 +13,17 @@
 // <Expects Status=success></Expects>
 
 // <Code> 
+
+namespace b48990a;
+
 using System;
+using Xunit;
 
 public class MyClass
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
 
         float f1 = float.Epsilon;

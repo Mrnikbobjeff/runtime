@@ -5,8 +5,11 @@
 using System;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-internal partial class VectorTest
+namespace SIMDTests.VectorReturnTests;
+
+public partial class VectorTest : VectorTestBase
 {
     private const int Pass = 100;
     private const int Fail = -1;
@@ -29,10 +32,18 @@ internal partial class VectorTest
     private static Vector4 s_v4_2;
     private static Vector4 s_v4_3;
 
-    [MethodImplAttribute(MethodImplOptions.NoInlining)]
-    public static void init()
+    private const int DefaultSeed = 20010415;
+    private static int Seed = Environment.GetEnvironmentVariable("CORECLR_SEED") switch
     {
-        Random random = new Random(100);
+        string seedStr when seedStr.Equals("random", StringComparison.OrdinalIgnoreCase) => new Random().Next(),
+        string seedStr when int.TryParse(seedStr, out int envSeed) => envSeed,
+        _ => DefaultSeed
+    };
+
+    [MethodImplAttribute(MethodImplOptions.NoInlining)]
+    internal static void init()
+    {
+        Random random = new Random(Seed);
 
         s_v2_array = new Vector2[10];
         for (int i = 0; i < 10; i++)
@@ -213,7 +224,8 @@ internal partial class VectorTest
         return Pass;
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         init();
 

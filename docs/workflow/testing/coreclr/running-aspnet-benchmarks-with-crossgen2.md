@@ -24,16 +24,14 @@ For Windows:
 
 ```powershell
 .\build.cmd -subset clr+libs -c release
-cd src\coreclr
-.\build-test.cmd Release generatelayoutonly
+.\src\tests\build.cmd Release generatelayoutonly
 ```
 
 For Linux:
 
 ```bash
 ./build.sh -subset clr+libs -c release
-cd src/coreclr
-./build-test.sh -release -generatelayoutonly
+./src/tests/build.sh -release -generatelayoutonly
 ```
 
 ### Generate a Configuration File for ASP&#46;NET Benchmarking Runs
@@ -59,7 +57,7 @@ jobs:
       transport: Sockets
       scenario: plaintext
     channel: edge
-    framework: netcoreapp5.0
+    framework: net6.0
     arguments: "--nonInteractive true --scenarios {{scenario}} --server-urls {{protocol}}://[*]:{{serverPort}} --server {{server}} --kestrelTransport {{transport}} --protocol {{protocol}}"
 
 scenarios:
@@ -187,14 +185,14 @@ using the following command.
 On Windows:
 
 ```powershell
-CoreRun.exe \runtime\artifacts\bin\coreclr\Windows_NT.x64.Release\crossgen2\crossgen2.dll
+CoreRun.exe \runtime\artifacts\bin\coreclr\windows.x64.Release\crossgen2\crossgen2.dll
 --Os --composite -o \path\to\results\composite\TotalComposite.dll \path\to\results\application\*.dll
 ```
 
 On Linux:
 
 ```bash
-./corerun /runtime/artifacts/bin/coreclr/Linux.x64.Release/crossgen2/crossgen2.dll
+corerun /runtime/artifacts/bin/coreclr/Linux.x64.Release/crossgen2/crossgen2.dll
 --Os --composite -o /path/to/results/composite/TotalComposite.dll /path/to/results/application/*.dll
 ```
 

@@ -1,7 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
 namespace System.Threading.Channels
@@ -21,6 +23,9 @@ namespace System.Threading.Channels
         /// <summary>Gets whether <see cref="Count"/> is available for use on this <see cref="ChannelReader{T}"/> instance.</summary>
         public virtual bool CanCount => false;
 
+        /// <summary>Gets whether <see cref="TryPeek"/> is available for use on this <see cref="ChannelReader{T}"/> instance.</summary>
+        public virtual bool CanPeek => false;
+
         /// <summary>Gets the current number of items available from this channel reader.</summary>
         /// <exception cref="NotSupportedException">Counting is not supported on this instance.</exception>
         public virtual int Count => throw new NotSupportedException();
@@ -29,6 +34,15 @@ namespace System.Threading.Channels
         /// <param name="item">The read item, or a default value if no item could be read.</param>
         /// <returns>true if an item was read; otherwise, false if no item was read.</returns>
         public abstract bool TryRead([MaybeNullWhen(false)] out T item);
+
+        /// <summary>Attempts to peek at an item from the channel.</summary>
+        /// <param name="item">The peeked item, or a default value if no item could be peeked.</param>
+        /// <returns>true if an item was read; otherwise, false if no item was read.</returns>
+        public virtual bool TryPeek([MaybeNullWhen(false)] out T item)
+        {
+            item = default;
+            return false;
+        }
 
         /// <summary>Returns a <see cref="ValueTask{Boolean}"/> that will complete when data is available to read.</summary>
         /// <param name="cancellationToken">A <see cref="CancellationToken"/> used to cancel the wait operation.</param>
@@ -50,12 +64,12 @@ namespace System.Threading.Channels
 
             try
             {
-                if (TryRead(out T fastItem))
+                if (TryRead(out T? fastItem))
                 {
                     return new ValueTask<T>(fastItem);
                 }
             }
-            catch (Exception exc) when (!(exc is ChannelClosedException || exc is OperationCanceledException))
+            catch (Exception exc) when (exc is not (ChannelClosedException or OperationCanceledException))
             {
                 return new ValueTask<T>(Task.FromException<T>(exc));
             }
@@ -71,10 +85,28 @@ namespace System.Threading.Channels
                         throw new ChannelClosedException();
                     }
 
-                    if (TryRead(out T item))
+                    if (TryRead(out T? item))
                     {
                         return item;
                     }
+                }
+            }
+        }
+
+        /// <summary>Creates an <see cref="IAsyncEnumerable{T}"/> that enables reading all of the data from the channel.</summary>
+        /// <param name="cancellationToken">The <see cref="CancellationToken"/> to use to cancel the enumeration.</param>
+        /// <remarks>
+        /// Each <see cref="IAsyncEnumerator{T}.MoveNextAsync"/> call that returns <c>true</c> will read the next item out of the channel.
+        /// <see cref="IAsyncEnumerator{T}.MoveNextAsync"/> will return false once no more data is or will ever be available to read.
+        /// </remarks>
+        /// <returns>The created async enumerable.</returns>
+        public virtual async IAsyncEnumerable<T> ReadAllAsync([EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            while (await WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+            {
+                while (TryRead(out T? item))
+                {
+                    yield return item;
                 }
             }
         }

@@ -11,14 +11,16 @@
   .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )
   .ver 4:0:0:0
 }
-.assembly array2// as "array2"
+.assembly ASSEMBLY_NAME// as "array2"
 {
 }
-.module array2.exe
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
 // MVID: {1781A471-82F3-4159-8D0F-B3B5A9FF1BB6}
-.namespace JitTest
+.namespace JitTest_array3_refany_il
 {
-  .class private auto ansi Test
+  .class public auto ansi Test
          extends [mscorlib]System.Object
   {
     .method private hidebysig static unsigned int64 MyGet(refany,int32,int32) il managed
@@ -54,7 +56,7 @@
                                                                         unsigned int64)
 		ret
      }
-    .method private hidebysig static void 
+    .method private hidebysig static void
             TestRef(typedref _ref) il managed
     {
       // Code size       78 (0x4e)
@@ -91,16 +93,16 @@
       IL_002c:  ldloc.2
       IL_002d:  ldloc.3
       IL_002e:  ldloc.s    V_4
-      
-      
-      IL_0030:  call  unsigned int64 JitTest.Test::MyGet(	refany,
+
+
+      IL_0030:  call  unsigned int64 JitTest_array3_refany_il.Test::MyGet(	refany,
       														int32,
                                                             int32)
       IL_0035:  ldc.i4.1
       IL_0036:  conv.i8
       IL_0037:  sub
 
-      			call  void JitTest.Test::MySet(refany,int32,int32,unsigned int64)
+      			call  void JitTest_array3_refany_il.Test::MySet(refany,int32,int32,unsigned int64)
 
       IL_003d:  ldloc.1
       IL_003e:  ldc.i4.1
@@ -121,9 +123,13 @@
       IL_004d:  ret
     } // end of method Test::TestRef
 
-    .method private hidebysig static int32
+    .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, class [mscorlib]System.Type, string[]) = {string('https://github.com/dotnet/runtimelab/issues/155: Arrays with non-zero lower bounds') type([TestLibrary]TestLibrary.PlatformDetection) string[1] ('IsNonZeroLowerBoundArrayNotSupported') }
+    .method public hidebysig static int32
             Main() il managed
     {
+      .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+          01 00 00 00
+      )
       .entrypoint
       // Code size       150 (0x96)
       .maxstack  4
@@ -193,7 +199,7 @@
       IL_004d:  stloc.0
       IL_004e:  ldloca.s   V_0
       IL_0050:  mkrefany   unsigned int64[1000...,1000...]
-      IL_0055:  call       void JitTest.Test::TestRef(typedref)
+      IL_0055:  call       void JitTest_array3_refany_il.Test::TestRef(typedref)
       IL_005a:  ldc.i4.0
       IL_005b:  stloc.1
       IL_005c:  br.s       IL_0082
@@ -249,7 +255,7 @@
       IL_0095:  ret
     } // end of method Test::Main
 
-    .method public hidebysig specialname rtspecialname 
+    .method public hidebysig specialname rtspecialname
             instance void .ctor() il managed
     {
       // Code size       7 (0x7)
@@ -261,6 +267,6 @@
 
   } // end of class Test
 
-} // end of namespace JitTest
+} // end of namespace JitTest_array3_refany_il
 
 //*********** DISASSEMBLY COMPLETE ***********************

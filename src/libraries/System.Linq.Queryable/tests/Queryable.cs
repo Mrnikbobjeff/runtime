@@ -3,6 +3,7 @@
 
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.CompilerServices;
@@ -15,13 +16,13 @@ namespace System.Linq.Tests
         [Fact]
         public void AsQueryable()
         {
-            Assert.NotNull(((IEnumerable)(new int[] { })).AsQueryable());
+            Assert.NotNull(((IEnumerable)new int[] { }).AsQueryable());
         }
 
         [Fact]
         public void AsQueryableT()
         {
-            Assert.NotNull((new int[] { }).AsQueryable());
+            Assert.NotNull(new int[] { }.AsQueryable());
         }
 
         [Fact]
@@ -86,16 +87,18 @@ namespace System.Linq.Tests
                 typeof(Enumerable),
                 typeof(Queryable),
                  new [] {
-                     "ToLookup",
-                     "ToDictionary",
-                     "ToArray",
-                     "AsEnumerable",
-                     "ToList",
+                     nameof(Enumerable.ToLookup),
+                     nameof(Enumerable.ToDictionary),
+                     nameof(Enumerable.ToArray),
+                     nameof(Enumerable.AsEnumerable),
+                     nameof(Enumerable.ToList),
+                     nameof(Enumerable.Append),
+                     nameof(Enumerable.Prepend),
+                     nameof(Enumerable.ToHashSet),
+                     nameof(Enumerable.TryGetNonEnumeratedCount),
+                     nameof(Enumerable.Reverse),
                      "Fold",
                      "LeftJoin",
-                     "Append",
-                     "Prepend",
-                     "ToHashSet"
                  }
                 );
 
@@ -105,7 +108,7 @@ namespace System.Linq.Tests
                 typeof(Queryable),
                 typeof(Enumerable),
                  new [] {
-                     "AsQueryable"
+                     nameof(Queryable.AsQueryable)
                  }
                 );
 

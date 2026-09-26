@@ -2,14 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Security.Cryptography.Tests;
+using Test.Cryptography;
 using Xunit;
 
 namespace System.Security.Cryptography.Dsa.Tests
 {
-    public partial class DSASignatureFormatterTests : AsymmetricSignatureFormatterTests
+    [ConditionalClass(typeof(PlatformSupport), nameof(PlatformSupport.IsDSASupported))]
+    public abstract class DSASignatureFormatterTests : AsymmetricSignatureFormatterTests
     {
+        protected abstract DSAProvider DSAFactory { get; }
+
         [Fact]
-        public static void VerifySignature_SHA1()
+        public void VerifySignature_SHA1()
         {
             using (DSA dsa = DSAFactory.Create())
             {
@@ -27,7 +31,7 @@ namespace System.Security.Cryptography.Dsa.Tests
         }
 
         [Fact]
-        public static void InvalidHashAlgorithm()
+        public void InvalidHashAlgorithm()
         {
             using (DSA dsa = DSAFactory.Create())
             {
@@ -49,7 +53,7 @@ namespace System.Security.Cryptography.Dsa.Tests
         }
 
         [Fact]
-        public static void VerifyKnownSignature()
+        public void VerifyKnownSignature()
         {
             using (DSA dsa = DSAFactory.Create())
             {
@@ -58,11 +62,7 @@ namespace System.Security.Cryptography.Dsa.Tests
                 DSAParameters dsaParameters;
                 DSATestData.GetDSA1024_186_2(out dsaParameters, out signature, out data);
 
-                byte[] hash;
-                using (SHA1 alg = SHA1.Create())
-                {
-                    hash = alg.ComputeHash(data);
-                }
+                byte[] hash = SHA1.HashData(data);
 
                 dsa.ImportParameters(dsaParameters);
                 var deformatter = new DSASignatureDeformatter(dsa);
@@ -71,14 +71,6 @@ namespace System.Security.Cryptography.Dsa.Tests
                 // Negative case
                 signature[signature.Length - 1] ^= 0xff;
                 Assert.False(deformatter.VerifySignature(hash, signature));
-            }
-        }
-
-        public static bool SupportsFips186_3
-        {
-            get
-            {
-                return DSAFactory.SupportsFips186_3;
             }
         }
     }

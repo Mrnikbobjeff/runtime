@@ -3,16 +3,14 @@
 using System;
 using System.IO;
 using System.Runtime.Loader;
-using TestLibrary;
 using Xunit;
-
-using Assert = Xunit.Assert;
 
 namespace AssemblyDependencyResolverTests
 {
-    class InvalidHostingTest
-    {        
-        public static int Main(string [] args)
+    public class InvalidHostingTest
+    {
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {
@@ -22,7 +20,7 @@ namespace AssemblyDependencyResolverTests
                 Directory.CreateDirectory(componentDirectory);
                 string componentAssemblyPath = Path.Combine(componentDirectory, "InvalidHostingComponent.dll");
                 File.WriteAllText(componentAssemblyPath, "Mock assembly");
-                
+
                 object innerException = Assert.Throws<InvalidOperationException>(() =>
                 {
                     AssemblyDependencyResolver resolver = new AssemblyDependencyResolver(

@@ -1,14 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
+using System.Diagnostics;
+using System.Xml;
+using System.Xml.XPath;
+
 namespace System.Xml.Xsl.XsltOld
 {
-    using System;
-    using System.Diagnostics;
-    using System.Xml;
-    using System.Xml.XPath;
-
-    internal class CommentAction : ContainerAction
+    internal sealed class CommentAction : ContainerAction
     {
         internal override void Compile(Compiler compiler)
         {
@@ -28,7 +28,7 @@ namespace System.Xml.Xsl.XsltOld
             switch (frame.State)
             {
                 case Initialized:
-                    if (processor.BeginEvent(XPathNodeType.Comment, string.Empty, string.Empty, string.Empty, false) == false)
+                    if (!processor.BeginEvent(XPathNodeType.Comment, string.Empty, string.Empty, string.Empty, false))
                     {
                         // Come back later
                         break;
@@ -39,7 +39,7 @@ namespace System.Xml.Xsl.XsltOld
                     break;                              // Allow children to run
 
                 case ProcessingChildren:
-                    if (processor.EndEvent(XPathNodeType.Comment) == false)
+                    if (!processor.EndEvent(XPathNodeType.Comment))
                     {
                         break;
                     }

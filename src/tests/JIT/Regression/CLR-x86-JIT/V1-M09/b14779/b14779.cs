@@ -4,19 +4,21 @@
 
 using System;
 using System.Globalization;
+using Xunit;
 
 
-namespace DefaultNamespace
+namespace b14779
 {
     public class cinfo
     {
-        public static int Main(String[] args)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             Console.Out.WriteLine("Char Class tests");
 
             VTestIsPrintable();
             VTestIsTitleCase();
-            return 100;
         }
         internal static void VTestIsPrintable()
         {

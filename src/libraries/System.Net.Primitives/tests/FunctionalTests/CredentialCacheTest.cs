@@ -273,6 +273,74 @@ namespace System.Net.Primitives.Functional.Tests
         }
 
         [Fact]
+        public static void GetCredential_LongerUriButShorterMatch()
+        {
+            CredentialCache cc = new CredentialCache();
+            cc.Add(new Uri("http://microsoft:80/common/unique/something"), authenticationType1, credential2);
+            cc.Add(new Uri("http://microsoft:80/common/veryloooooongprefix"), authenticationType1, credential1);
+
+            NetworkCredential nc = cc.GetCredential(new Uri("http://microsoft:80/common/unique/a"), authenticationType1);
+            Assert.Equal(nc, credential2);
+        }
+
+        [Fact]
+        public static void GetCredential_PathCaseMismatch_ReturnsNull()
+        {
+            CredentialCache cc = new CredentialCache();
+            // Use a multi-segment path so the compared prefix (everything up to the last '/')
+            // is non-empty and includes characters whose case can differ.
+            cc.Add(new Uri("http://microsoft:80/CaseSensitive/path"), authenticationType1, credential1);
+
+            // The path is compared case-sensitively, so a differently-cased path must not match.
+            NetworkCredential nc = cc.GetCredential(new Uri("http://microsoft:80/casesensitive/path"), authenticationType1);
+            Assert.Null(nc);
+        }
+
+        [Fact]
+        public static void GetCredential_PathCaseMatch_ReturnsCredential()
+        {
+            CredentialCache cc = new CredentialCache();
+            cc.Add(new Uri("http://microsoft:80/CaseSensitive/path"), authenticationType1, credential1);
+
+            // Exact-case prefix match, including a longer request URI to exercise prefix matching.
+            NetworkCredential nc = cc.GetCredential(new Uri("http://microsoft:80/CaseSensitive/path/resource"), authenticationType1);
+            Assert.Equal(credential1, nc);
+        }
+
+        [Fact]
+        public static void GetCredential_HostCaseInsensitivePathCaseSensitive()
+        {
+            CredentialCache cc = new CredentialCache();
+            cc.Add(new Uri("http://MICROSOFT:80/CaseSensitive/path"), authenticationType1, credential1);
+
+            // Host comparison remains case-insensitive while the path portion is case-sensitive.
+            Assert.Equal(credential1, cc.GetCredential(new Uri("http://microsoft:80/CaseSensitive/path/resource"), authenticationType1));
+            Assert.Null(cc.GetCredential(new Uri("http://microsoft:80/casesensitive/path/resource"), authenticationType1));
+        }
+
+        [Fact]
+        public static void GetCredential_SiblingPath_ReturnsNull()
+        {
+            CredentialCache cc = new CredentialCache();
+            cc.Add(new Uri("http://microsoft:80/admin/"), authenticationType1, credential1);
+
+            // A prefix of "/admin/" must only match resources under that directory, not a sibling
+            // path such as "/administrator/..." that merely shares a leading substring.
+            Assert.Null(cc.GetCredential(new Uri("http://microsoft:80/administrator/something"), authenticationType1));
+        }
+
+        [Fact]
+        public static void GetCredential_ChildAndExactPath_ReturnsCredential()
+        {
+            CredentialCache cc = new CredentialCache();
+            cc.Add(new Uri("http://microsoft:80/admin/"), authenticationType1, credential1);
+
+            // The directory itself and resources under it must still match.
+            Assert.Equal(credential1, cc.GetCredential(new Uri("http://microsoft:80/admin/"), authenticationType1));
+            Assert.Equal(credential1, cc.GetCredential(new Uri("http://microsoft:80/admin/something"), authenticationType1));
+        }
+
+        [Fact]
         public static void GetCredential_UriAuthenticationType_Invalid()
         {
             CredentialCache cc = new CredentialCache();
@@ -448,20 +516,10 @@ namespace System.Net.Primitives.Functional.Tests
             // .NET Framework and .NET Core have different behaviors for Digest when default NetworkCredential is used.
             if (string.Equals(authType, authenticationTypeDigest, StringComparison.OrdinalIgnoreCase) && (nc == CredentialCache.DefaultNetworkCredentials))
             {
-                if (PlatformDetection.IsNetFramework)
-                {
-                    // In .NET Framework, when authType == Digest, if WDigestAvailable == true, it will pass the validation.
-                    // if WDigestAvailable == false, it will throw ArgumentException.
-                    // It is not possible to easily determine if Digest is supported or not on .NET Framework. So, we will skip the test.
-                    return;
-                }
-                else
-                {
-                    // In .NET Core, WDigestAvailable will always be false (we don't support it).
-                    // It will always throw ArgumentException.
-                    AssertExtensions.Throws<ArgumentException>("authType", () => cc.Add(uriPrefix1, authType, nc));
-                    return;
-                }
+                // In .NET Core, WDigestAvailable will always be false (we don't support it).
+                // It will always throw ArgumentException.
+                AssertExtensions.Throws<ArgumentException>("authType", () => cc.Add(uriPrefix1, authType, nc));
+                return;
             }
 
             cc.Add(uriPrefix1, authType, nc);
@@ -492,20 +550,10 @@ namespace System.Net.Primitives.Functional.Tests
             // .NET Framework and .NET Core have different behaviors for Digest when default NetworkCredential is used.
             if (string.Equals(authType, authenticationTypeDigest, StringComparison.OrdinalIgnoreCase) && (nc == CredentialCache.DefaultNetworkCredentials))
             {
-                if (PlatformDetection.IsNetFramework)
-                {
-                    // In .NET Framework, when authType == Digest, if WDigestAvailable == true, it will pass the validation.
-                    // if WDigestAvailable == false, it will throw ArgumentException.
-                    // It is not possible to easily determine if Digest is supported or not on .NET Framework. So, we will skip the test.
-                    return;
-                }
-                else
-                {
-                    // In .NET Core, WDigestAvailable will always be false (we don't support it).
-                    // It will always throw ArgumentException.
-                    AssertExtensions.Throws<ArgumentException>("authenticationType", () => cc.Add(host1, port1, authType, nc));
-                    return;
-                }
+                // In .NET Core, WDigestAvailable will always be false (we don't support it).
+                // It will always throw ArgumentException.
+                AssertExtensions.Throws<ArgumentException>("authenticationType", () => cc.Add(host1, port1, authType, nc));
+                return;
             }
 
             cc.Add(host1, port1, authType, nc);

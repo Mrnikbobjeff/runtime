@@ -1,9 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.Net.Http;
-using System.Net;
 using System.Collections.Generic;
 
 namespace System.Net.Http
@@ -65,6 +62,11 @@ namespace System.Net.Http
                 return null;
             }
 
+            if (value == ":")
+            {
+                return CredentialCache.DefaultNetworkCredentials;
+            }
+
             value = Uri.UnescapeDataString(value);
 
             string password = "";
@@ -95,9 +97,10 @@ namespace System.Net.Http
         private const string EnvNoProxyUC = "NO_PROXY";
         private const string EnvCGI = "GATEWAY_INTERFACE"; // Running in a CGI environment.
 
-        private readonly Uri? _httpProxyUri;       // String URI for HTTP requests
-        private readonly Uri? _httpsProxyUri;      // String URI for HTTPS requests
-        private readonly string[]? _bypass;        // list of domains not to proxy
+        private readonly Uri? _httpProxyUri;                  // String URI for HTTP requests
+        private readonly Uri? _httpsProxyUri;                 // String URI for HTTPS requests
+        private readonly List<string>? _bypass;               // list of domains or IP addresses not to proxy
+        private readonly List<IPNetwork>? _bypassNetworks;    // list of subnet ranges not to proxy
         private ICredentials? _credentials;
 
         private HttpEnvironmentProxy(Uri? httpProxy, Uri? httpsProxy, string? bypassList)
@@ -106,28 +109,80 @@ namespace System.Net.Http
             _httpsProxyUri = httpsProxy;
 
             _credentials = HttpEnvironmentProxyCredentials.TryCreate(httpProxy, httpsProxy);
-            _bypass = bypassList?.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+
+            if (bypassList != null)
+            {
+                foreach (string entry in bypassList.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    if (IPNetwork.TryParse(entry, out IPNetwork networkEntry))
+                    {
+                        _bypassNetworks ??= new List<IPNetwork>();
+                        _bypassNetworks.Add(networkEntry);
+                    }
+                    else
+                    {
+                        _bypass ??= new List<string>();
+                        _bypass.Add(entry);
+                    }
+                }
+            }
         }
 
         /// <summary>
-        /// This function will evaluate given string and it will try to convert
-        /// it to Uri object. The string could contain URI fragment, IP address and  port
-        /// tuple or just IP address or name. It will return null if parsing fails.
+        /// Attempt to parse a partial Uri string into a Uri object.
+        /// The string may contain the scheme, user info, host, and port. The host is the only required part.
+        /// Example expected inputs: contoso.com, contoso.com:8080, http://contoso.com/, user@contoso.com.
         /// </summary>
-        private static Uri? GetUriFromString(string? value)
+        /// <returns><see langword="null"/> if parsing fails.</returns>
+        private static unsafe Uri? GetUriFromString(string? value)
         {
             if (string.IsNullOrEmpty(value))
             {
                 return null;
             }
+
+            int hostIndex = 0;
+            string protocol = "http";
+            ushort port = 80;
+
             if (value.StartsWith("http://", StringComparison.OrdinalIgnoreCase))
             {
-                value = value.Substring(7);
+                hostIndex = 7;
+            }
+            else if (value.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                hostIndex = 8;
+                protocol = "https";
+                port = 443;
+            }
+            else if (value.StartsWith("socks4://", StringComparison.OrdinalIgnoreCase))
+            {
+                hostIndex = 9;
+                protocol = "socks4";
+            }
+            else if (value.StartsWith("socks5://", StringComparison.OrdinalIgnoreCase))
+            {
+                hostIndex = 9;
+                protocol = "socks5";
+            }
+            else if (value.StartsWith("socks5h://", StringComparison.OrdinalIgnoreCase))
+            {
+                hostIndex = 10;
+                protocol = "socks5h";
+            }
+            else if (value.StartsWith("socks4a://", StringComparison.OrdinalIgnoreCase))
+            {
+                hostIndex = 10;
+                protocol = "socks4a";
+            }
+
+            if (hostIndex > 0)
+            {
+                value = value.Substring(hostIndex);
             }
 
             string? user = null;
             string? password = null;
-            ushort port = 80;
             string host;
 
             // Check if there is authentication part with user and possibly password.
@@ -135,16 +190,9 @@ namespace System.Net.Http
             int separatorIndex = value.LastIndexOf('@');
             if (separatorIndex != -1)
             {
-                string auth = value.Substring(0, separatorIndex);
-
                 // The User and password may or may not be URL encoded.
-                // Curl seems to accept both. To match that,
-                // we do opportunistic decode and we use original string if it fails.
-                try
-                {
-                    auth = Uri.UnescapeDataString(auth);
-                }
-                catch { };
+                // Curl seems to accept both. To match that, we also decode the value.
+                string auth = Uri.UnescapeDataString(value.AsSpan(0, separatorIndex));
 
                 value = value.Substring(separatorIndex + 1);
                 separatorIndex = auth.IndexOf(':');
@@ -159,6 +207,14 @@ namespace System.Net.Http
                 }
             }
 
+            // We expect inputs to not contain the path/query/fragment, but we do handle some simple cases like a trailing slash.
+            // An arbitrary path can break this parsing logic, but we expect environment variables to be trusted and well formed.
+            int delimiterIndex = value.IndexOfAny('/', '?', '#');
+            if (delimiterIndex >= 0)
+            {
+                value = value.Substring(0, delimiterIndex);
+            }
+
             int ipV6AddressEnd = value.IndexOf(']');
             separatorIndex = value.LastIndexOf(':');
             // No ':' or it is part of IPv6 address.
@@ -169,18 +225,8 @@ namespace System.Net.Http
             else
             {
                 host = value.Substring(0, separatorIndex);
-                int endIndex = separatorIndex + 1;
-                // Strip any trailing characters after port number.
-                while (endIndex < value.Length)
-                {
-                    if (!char.IsDigit(value[endIndex]))
-                    {
-                        break;
-                    }
-                    endIndex += 1;
-                }
 
-                if (!ushort.TryParse(value.AsSpan(separatorIndex + 1, endIndex - separatorIndex - 1), out port))
+                if (!ushort.TryParse(value.AsSpan(separatorIndex + 1), out port))
                 {
                     return null;
                 }
@@ -188,7 +234,7 @@ namespace System.Net.Http
 
             try
             {
-                UriBuilder ub = new UriBuilder("http", host, port);
+                UriBuilder ub = new UriBuilder(protocol, host, port);
                 if (user != null)
                 {
                     ub.UserName = Uri.EscapeDataString(user);
@@ -199,7 +245,21 @@ namespace System.Net.Http
                     ub.Password = Uri.EscapeDataString(password);
                 }
 
-                return ub.Uri;
+                Uri uri = ub.Uri;
+
+                // if both user and password exist and are empty we should preserve that and use default credentials.
+                // UriBuilder does not handle that now e.g. does not distinguish between empty and missing.
+                if (user == "" && password == "")
+                {
+                    Span<Range> tokens = stackalloc Range[3];
+                    ReadOnlySpan<char> uriSpan = uri.ToString();
+                    if (uriSpan.Split(tokens, '/') == 3)
+                    {
+                        uri = new Uri($"{uriSpan[tokens[0]]}//:@{uriSpan[tokens[2]]}");
+                    }
+                }
+
+                return uri;
             }
             catch { };
             return null;
@@ -219,8 +279,7 @@ namespace System.Net.Http
                     {
                         // This should match either domain it self or any subdomain or host
                         // .foo.com will match foo.com it self or *.foo.com
-                        if ((s.Length - 1) == input.Host.Length &&
-                            string.Compare(s, 1, input.Host, 0, input.Host.Length, StringComparison.OrdinalIgnoreCase) == 0)
+                        if (s.AsSpan(1).Equals(input.Host, StringComparison.OrdinalIgnoreCase))
                         {
                             return true;
                         }
@@ -239,6 +298,18 @@ namespace System.Net.Http
                     }
                 }
             }
+
+            if (_bypassNetworks != null && IPAddress.TryParse(input.Host, out IPAddress? ip))
+            {
+                foreach (IPNetwork network in _bypassNetworks)
+                {
+                    if (network.Contains(ip))
+                    {
+                        return true;
+                    }
+                }
+            }
+
             return false;
         }
 

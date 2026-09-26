@@ -4,8 +4,11 @@
 // Regression test for bug VSWhidbey 208900
 // "Corrupt OBJECTREF when calling a virtual generic method instantiated at a struct which returns that struct"
 
+using TestLibrary;
 #pragma warning disable 0414
 using System;
+
+using Xunit;
 
 struct MyStruct
 {
@@ -20,23 +23,14 @@ class M
    public virtual U GenericMethod<U>(U x1) {  return x1; }
 }
 
-class Test
+public class Test_bug
 {
-  
-    static int Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static void TestEntryPoint()
     {
         M obj = new M();
         MyStruct myStruct = new MyStruct("obj", 787980);
-        if(obj.GenericMethod<MyStruct>(myStruct).Equals(myStruct)){
-            Console.WriteLine("PASS");
-            return 100;
-        }
-        else{
-            Console.WriteLine("FAIL");
-            return 101;
-        }      
+        Assert.True(obj.GenericMethod<MyStruct>(myStruct).Equals(myStruct));
     }
-    
 }
-
-

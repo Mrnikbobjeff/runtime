@@ -3,15 +3,20 @@
 //
 
 //COMMAND LINE: csc /nologo /optimize+ /debug- /w:0 bug.cs
+
+namespace b91230;
+
 using System;
+using Xunit;
 public struct AA
 {
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         sbyte local2 = 0;
         while (
             (new bool[5, 5])[Math.Max(local2, local2), local2]
             ) { }
-        return 100;
     }
 }

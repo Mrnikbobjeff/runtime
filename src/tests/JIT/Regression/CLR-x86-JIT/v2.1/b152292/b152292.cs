@@ -10,11 +10,15 @@
  much smaller, 0-4 KB, and if the field offset is above 2 KB we are adding this additional code again.
 */
 
+
+namespace b152292;
+
 using System;
+using Xunit;
 
 #pragma warning disable 0649
 
-sealed class C
+public sealed class C
 {
     public int i0;
     public int i1;
@@ -4117,7 +4121,8 @@ sealed class C
         return c.i4094;
     }
 
-    static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

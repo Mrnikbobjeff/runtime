@@ -42,8 +42,11 @@ https://raw.githubusercontent.com/Cyan4973/xxHash/5c174cfa4e45a42f94082dc0d4539b
 
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+
+#pragma warning disable CA1066 // Implement IEquatable when overriding Object.Equals
 
 namespace System
 {
@@ -303,6 +306,75 @@ namespace System
         public void Add<T>(T value, IEqualityComparer<T>? comparer)
         {
             Add(value is null ? 0 : (comparer?.GetHashCode(value) ?? value.GetHashCode()));
+        }
+
+        /// <summary>Adds a span of bytes to the hash code.</summary>
+        /// <param name="value">The span.</param>
+        /// <remarks>
+        /// This method does not guarantee that the result of adding a span of bytes will match
+        /// the result of adding the same bytes individually.
+        /// </remarks>
+        public void AddBytes(ReadOnlySpan<byte> value)
+        {
+            if (value.Length < (sizeof(int) * 4))
+            {
+                goto Small;
+            }
+
+            // Usually Add calls Initialize but if we haven't used HashCode before it won't have been called.
+            if (_length == 0)
+            {
+                Initialize(out _v1, out _v2, out _v3, out _v4);
+            }
+            else
+            {
+                // If we have at least 16 bytes to hash, we can add them in 16-byte batches,
+                // but we first have to add enough data to flush any queued values.
+                switch (_length % 4)
+                {
+                    case 1:
+                        Debug.Assert(value.Length >= sizeof(int));
+                        Add(BitConverter.ToInt32(value));
+                        value = value.Slice(sizeof(int));
+                        goto case 2;
+                    case 2:
+                        Debug.Assert(value.Length >= sizeof(int));
+                        Add(BitConverter.ToInt32(value));
+                        value = value.Slice(sizeof(int));
+                        goto case 3;
+                    case 3:
+                        Debug.Assert(value.Length >= sizeof(int));
+                        Add(BitConverter.ToInt32(value));
+                        value = value.Slice(sizeof(int));
+                        break;
+                }
+            }
+
+            // With the queue clear, we add sixteen bytes at a time until the input has fewer than sixteen bytes remaining.
+            while (value.Length >= sizeof(int) * 4)
+            {
+                _v1 = Round(_v1, BitConverter.ToUInt32(value));
+                _v2 = Round(_v2, BitConverter.ToUInt32(value.Slice(sizeof(int) * 1)));
+                _v3 = Round(_v3, BitConverter.ToUInt32(value.Slice(sizeof(int) * 2)));
+                _v4 = Round(_v4, BitConverter.ToUInt32(value.Slice(sizeof(int) * 3)));
+
+                _length += 4;
+                value = value.Slice(sizeof(int) * 4);
+            }
+
+        Small:
+            // Add four bytes at a time until the input has fewer than four bytes remaining.
+            while (value.Length >= sizeof(int))
+            {
+                Add(BitConverter.ToInt32(value));
+                value = value.Slice(sizeof(int));
+            }
+
+            // Add the remaining bytes a single byte at a time.
+            foreach (byte b in value)
+            {
+                Add((int)b);
+            }
         }
 
         private void Add(int value)

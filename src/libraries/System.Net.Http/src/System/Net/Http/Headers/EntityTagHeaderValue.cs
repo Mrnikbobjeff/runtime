@@ -8,33 +8,25 @@ namespace System.Net.Http.Headers
 {
     public class EntityTagHeaderValue : ICloneable
     {
-        private static EntityTagHeaderValue? s_any;
+        public string Tag { get; private init; }
 
-        private string _tag = null!;
-        private bool _isWeak;
+        public bool IsWeak { get; private init; }
 
-        public string Tag
+        public static EntityTagHeaderValue Any { get; } = new EntityTagHeaderValue("*", isWeak: false, false);
+
+        private EntityTagHeaderValue(string tag, bool isWeak, bool _)
         {
-            get { return _tag; }
-        }
-
-        public bool IsWeak
-        {
-            get { return _isWeak; }
-        }
-
-        public static EntityTagHeaderValue Any
-        {
-            get
+#if DEBUG
+            // This constructor should only be used with already validated values.
+            // "*" is a special case that can only be created via the static Any property.
+            if (tag != "*")
             {
-                if (s_any == null)
-                {
-                    s_any = new EntityTagHeaderValue();
-                    s_any._tag = "*";
-                    s_any._isWeak = false;
-                }
-                return s_any;
+                new EntityTagHeaderValue(tag, isWeak);
             }
+#endif
+
+            Tag = tag;
+            IsWeak = isWeak;
         }
 
         public EntityTagHeaderValue(string tag)
@@ -44,64 +36,33 @@ namespace System.Net.Http.Headers
 
         public EntityTagHeaderValue(string tag, bool isWeak)
         {
-            if (string.IsNullOrEmpty(tag))
-            {
-                throw new ArgumentException(SR.net_http_argument_empty_string, nameof(tag));
-            }
-            int length = 0;
-            if ((HttpRuleParser.GetQuotedStringLength(tag, 0, out length) != HttpParseResult.Parsed) ||
-                (length != tag.Length))
-            {
-                // Note that we don't allow 'W/' prefixes for weak ETags in the 'tag' parameter. If the user wants to
-                // add a weak ETag, they can set 'isWeak' to true.
-                throw new FormatException(SR.net_http_headers_invalid_etag_name);
-            }
+            HeaderUtilities.CheckValidQuotedString(tag);
 
-            _tag = tag;
-            _isWeak = isWeak;
+            Tag = tag;
+            IsWeak = isWeak;
         }
 
         private EntityTagHeaderValue(EntityTagHeaderValue source)
         {
             Debug.Assert(source != null);
 
-            _tag = source._tag;
-            _isWeak = source._isWeak;
+            Tag = source.Tag;
+            IsWeak = source.IsWeak;
         }
 
-        private EntityTagHeaderValue()
-        {
-        }
+        public override string ToString() =>
+            IsWeak ? $"W/{Tag}" : Tag;
 
-        public override string ToString()
-        {
-            if (_isWeak)
-            {
-                return "W/" + _tag;
-            }
-            return _tag;
-        }
-
-        public override bool Equals(object? obj)
-        {
-            EntityTagHeaderValue? other = obj as EntityTagHeaderValue;
-
-            if (other == null)
-            {
-                return false;
-            }
-
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
+            obj is EntityTagHeaderValue other &&
+            IsWeak == other.IsWeak &&
             // Since the tag is a quoted-string we treat it case-sensitive.
-            return ((_isWeak == other._isWeak) && string.Equals(_tag, other._tag, StringComparison.Ordinal));
-        }
+            string.Equals(Tag, other.Tag, StringComparison.Ordinal);
 
-        public override int GetHashCode()
-        {
-            // Since the tag is a quoted-string we treat it case-sensitive.
-            return _tag.GetHashCode() ^ _isWeak.GetHashCode();
-        }
+        public override int GetHashCode() =>
+            HashCode.Combine(Tag, IsWeak);
 
-        public static EntityTagHeaderValue Parse(string? input)
+        public static EntityTagHeaderValue Parse(string input)
         {
             int index = 0;
             return (EntityTagHeaderValue)GenericHeaderParser.SingleValueEntityTagParser.ParseValue(
@@ -156,48 +117,26 @@ namespace System.Net.Http.Headers
                     }
                     isWeak = true;
                     current++; // we have a weak-entity tag.
-                    current = current + HttpRuleParser.GetWhitespaceLength(input, current);
+                    current += HttpRuleParser.GetWhitespaceLength(input, current);
                 }
 
-                int tagStartIndex = current;
-                int tagLength = 0;
-                if (HttpRuleParser.GetQuotedStringLength(input, current, out tagLength) != HttpParseResult.Parsed)
+                if (current == input.Length || HttpRuleParser.GetQuotedStringLength(input, current, out int tagLength) != HttpParseResult.Parsed)
                 {
                     return 0;
                 }
 
-                parsedValue = new EntityTagHeaderValue();
-                if (tagLength == input.Length)
-                {
-                    // Most of the time we'll have strong ETags without leading/trailing whitespace.
-                    Debug.Assert(startIndex == 0);
-                    Debug.Assert(!isWeak);
-                    parsedValue._tag = input;
-                    parsedValue._isWeak = false;
-                }
-                else
-                {
-                    parsedValue._tag = input.Substring(tagStartIndex, tagLength);
-                    parsedValue._isWeak = isWeak;
-                }
+                // Most of the time we'll have strong ETags without leading/trailing whitespace.
+                Debug.Assert(tagLength != input.Length || (startIndex == 0 && !isWeak));
 
-                current = current + tagLength;
+                parsedValue = new EntityTagHeaderValue(input.Substring(current, tagLength), isWeak, false);
+
+                current += tagLength;
             }
-            current = current + HttpRuleParser.GetWhitespaceLength(input, current);
+            current += HttpRuleParser.GetWhitespaceLength(input, current);
 
             return current - startIndex;
         }
 
-        object ICloneable.Clone()
-        {
-            if (this == s_any)
-            {
-                return s_any;
-            }
-            else
-            {
-                return new EntityTagHeaderValue(this);
-            }
-        }
+        object ICloneable.Clone() => ReferenceEquals(this, Any) ? Any : new EntityTagHeaderValue(this);
     }
 }

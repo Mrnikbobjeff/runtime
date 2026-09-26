@@ -196,7 +196,7 @@ namespace System.Threading.Tasks.Dataflow.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task TestInputCount()
         {
             foreach (bool sync in DataflowTestHelpers.BooleanValues)
@@ -253,7 +253,7 @@ namespace System.Threading.Tasks.Dataflow.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task TestNonGreedy()
         {
             foreach (bool sync in DataflowTestHelpers.BooleanValues)
@@ -332,7 +332,10 @@ namespace System.Threading.Tasks.Dataflow.Tests
         [Fact]
         public async Task TestPrecanceledToken()
         {
-            var options = new ExecutionDataflowBlockOptions { CancellationToken = new CancellationToken(true) };
+            var cts = new CancellationTokenSource();
+            cts.Cancel();
+
+            var options = new ExecutionDataflowBlockOptions { CancellationToken = cts.Token };
             var blocks = new []
             {
                 new ActionBlock<int>(i => { }, options),
@@ -348,7 +351,7 @@ namespace System.Threading.Tasks.Dataflow.Tests
                 ab.Complete();
                 ((IDataflowBlock)ab).Fault(new Exception());
 
-                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => ab.Completion);
+                await AssertExtensions.CanceledAsync(cts.Token, ab.Completion);
             }
         }
 
@@ -416,7 +419,7 @@ namespace System.Threading.Tasks.Dataflow.Tests
                 actual: sumOfOdds);
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task TestParallelExecution()
         {
             int dop = 2;
@@ -436,7 +439,7 @@ namespace System.Threading.Tasks.Dataflow.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task TestReleasingOfPostponedMessages()
         {
             foreach (bool sync in DataflowTestHelpers.BooleanValues)

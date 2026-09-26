@@ -5,6 +5,8 @@
 // we used to get System.Security.VerificationException when invoking Meth2<GenS<C>>()
 
 using System;
+using Xunit;
+using TestLibrary;
 
 public interface GenI<T> { }
 public struct GenS<T> : GenI<T> { }
@@ -14,7 +16,7 @@ public class C
 	public void Meth2<T>() where T : GenI<C> { }
 }	 
 
-public class Test
+public class Test_vsw515341
 {
 	public static void RunTest()
 	{
@@ -22,7 +24,9 @@ public class Test
 		c.Meth2<GenS<C>>();	
 	}
 	
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		try
 		{

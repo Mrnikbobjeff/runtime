@@ -1,39 +1,64 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Xunit;
 namespace ComWrappersTests.GlobalInstance
 {
     using System;
 
     using ComWrappersTests.Common;
     using TestLibrary;
+    using Xunit;
 
-    partial class Program
+    public partial class Program
     {
         private static void ValidateNotRegisteredForTrackerSupport()
         {
             Console.WriteLine($"Running {nameof(ValidateNotRegisteredForTrackerSupport)}...");
 
             int hr = MockReferenceTrackerRuntime.Trigger_NotifyEndOfReferenceTrackingOnThread();
-            Assert.AreNotEqual(GlobalComWrappers.ReleaseObjectsCallAck, hr);
+            Assert.NotEqual(GlobalComWrappers.ReleaseObjectsCallAck, hr);
         }
 
-        static int Main(string[] doNotUse)
+        [ActiveIssue("Not supported on Mono", TestRuntimes.Mono)]
+        [Fact]
+        [Xunit.SkipOnCoreClrAttribute("Depends on windows-only COM->CLR transitions flowing hidden parameter", RuntimeTestModes.InterpreterActive)]
+        public static int TestEntryPoint()
         {
             try
             {
+                bool builtInComDisabled=false;
+                var comConfig = AppContext.GetData("System.Runtime.InteropServices.BuiltInComInterop.IsSupported");
+                if(comConfig != null && !bool.Parse(comConfig.ToString()))
+                {
+                    builtInComDisabled=true;
+                }
+                Console.WriteLine($"Built-in COM Disabled?: {builtInComDisabled}");
+
+
                 // The first test registers a global ComWrappers instance for marshalling
                 // Subsequents tests assume the global instance has already been registered.
                 ValidateRegisterForMarshalling();
 
                 ValidateMarshalAPIs(validateUseRegistered: true);
-                ValidateMarshalAPIs(validateUseRegistered: false);
+                if(!builtInComDisabled)
+                {
+                    ValidateMarshalAPIs(validateUseRegistered: false);
+                }
 
                 ValidatePInvokes(validateUseRegistered: true);
-                ValidatePInvokes(validateUseRegistered: false);
+                if(!builtInComDisabled)
+                {
+                    ValidatePInvokes(validateUseRegistered: false);
+                }
 
-                ValidateComActivation(validateUseRegistered: true);
-                ValidateComActivation(validateUseRegistered: false);
+                // RegFree COM is not supported on Windows Nano Server
+                if(!builtInComDisabled && !Utilities.IsWindowsNanoServer)
+                {
+                    // This calls ValidateNativeServerActivation which calls Marshal.GetTypeFromCLSID that is not supported
+                    ValidateComActivation(validateUseRegistered: true);
+                    ValidateComActivation(validateUseRegistered: false);
+                }
 
                 ValidateNotRegisteredForTrackerSupport();
 

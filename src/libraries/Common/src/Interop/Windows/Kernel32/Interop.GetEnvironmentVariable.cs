@@ -8,15 +8,8 @@ internal static partial class Interop
 {
     internal static partial class Kernel32
     {
-        internal static unsafe int GetEnvironmentVariable(string lpName, Span<char> buffer)
-        {
-            fixed (char* bufferPtr = &MemoryMarshal.GetReference(buffer))
-            {
-                return GetEnvironmentVariable(lpName, bufferPtr, buffer.Length);
-            }
-        }
-
-        [DllImport(Libraries.Kernel32, EntryPoint = "GetEnvironmentVariableW", SetLastError = true, CharSet = CharSet.Unicode, ExactSpelling = true)]
-        private static extern unsafe int GetEnvironmentVariable(string lpName, char* lpBuffer, int nSize);
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [LibraryImport(Libraries.Kernel32, EntryPoint = "GetEnvironmentVariableW", SetLastError = true, StringMarshalling = StringMarshalling.Utf16)]
+        internal static partial uint GetEnvironmentVariable(string lpName, ref char lpBuffer, uint nSize);
     }
 }

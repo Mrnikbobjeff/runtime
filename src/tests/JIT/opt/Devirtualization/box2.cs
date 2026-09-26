@@ -4,20 +4,24 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Xunit;
+using TestLibrary;
 
-class Program
+public class Program
 {
-    static async Task<int> Main()
+    static async Task TestTask()
     {
         for (int i = 0; i < 10; i++)
         {
-            // In the associated AwaitUnsafeOnCompleted, the 
+            // In the associated AwaitUnsafeOnCompleted, the
             // jit should devirtualize, remove the box,
             // and change to call unboxed entry, passing
             // extra context argument.
             await new ValueTask<string>(Task.Delay(1).ContinueWith(_ => default(string))).ConfigureAwait(false);
         }
-
-        return 100;
     }
+
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/41472", typeof(PlatformDetection), nameof(PlatformDetection.IsNotMultithreadingSupported))]
+    [Fact]
+    public static Task TestEntryPoint() => Task.Run(TestTask);
 }

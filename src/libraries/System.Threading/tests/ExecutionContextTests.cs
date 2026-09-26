@@ -10,7 +10,7 @@ namespace System.Threading.Tests
 {
     public static class ExecutionContextTests
     {
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void CreateCopyTest()
         {
             ThreadTestHelpers.RunTestInBackgroundThread(() =>
@@ -61,7 +61,7 @@ namespace System.Threading.Tests
             executionContext.CreateCopy().Dispose();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void FlowTest()
         {
             ThreadTestHelpers.RunTestInBackgroundThread(() =>
@@ -96,9 +96,18 @@ namespace System.Threading.Tests
                     () => ExecutionContext.SuppressFlow(),
                     () => ExecutionContext.RestoreFlow());
 
+                Assert.False(ExecutionContext.IsFlowSuppressed());
                 Assert.Throws<InvalidOperationException>(() => ExecutionContext.RestoreFlow());
+
+                Assert.False(ExecutionContext.IsFlowSuppressed());
                 asyncFlowControl = ExecutionContext.SuppressFlow();
-                Assert.Throws<InvalidOperationException>(() => ExecutionContext.SuppressFlow());
+                Assert.True(ExecutionContext.IsFlowSuppressed());
+
+                Assert.Equal(default, ExecutionContext.SuppressFlow());
+                Assert.True(ExecutionContext.IsFlowSuppressed());
+
+                ExecutionContext.SuppressFlow().Dispose();
+                Assert.True(ExecutionContext.IsFlowSuppressed());
 
                 ThreadTestHelpers.RunTestInBackgroundThread(() =>
                 {
@@ -109,8 +118,9 @@ namespace System.Threading.Tests
                 });
 
                 asyncFlowControl.Undo();
-                Assert.Throws<InvalidOperationException>(() => asyncFlowControl.Undo());
-                Assert.Throws<InvalidOperationException>(() => asyncFlowControl.Dispose());
+
+                asyncFlowControl.Undo();
+                asyncFlowControl.Dispose();
 
                 // Changing an async local value does not prevent undoing a flow-suppressed execution context. In .NET Core, the
                 // execution context is immutable, so changing an async local value changes the execution context instance,
@@ -168,7 +178,7 @@ namespace System.Threading.Tests
             });
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void CaptureThenSuppressThenRunFlowTest()
         {
             ThreadTestHelpers.RunTestInBackgroundThread(() =>
@@ -237,19 +247,24 @@ namespace System.Threading.Tests
             }
             VerifyExecutionContext(ExecutionContext.Capture(), asyncLocal, expectedValue);
 
+            // Creating a thread flows context if and only if flow is not suppressed
             int asyncLocalValue = -1;
-            var done = new ManualResetEvent(false);
-            ThreadPool.QueueUserWorkItem(
-                state =>
-                {
-                    asyncLocalValue = asyncLocal.Value;
-                    done.Set();
-                });
+            ThreadTestHelpers.RunTestInBackgroundThread(() => asyncLocalValue = asyncLocal.Value);
+            Assert.Equal(expectedValue, asyncLocalValue);
+
+            // Queueing a thread pool work item flows context if and only if flow is not suppressed
+            asyncLocalValue = -1;
+            var done = new AutoResetEvent(false);
+            ThreadPool.QueueUserWorkItem(state =>
+            {
+                asyncLocalValue = asyncLocal.Value;
+                done.Set();
+            });
             done.CheckedWait();
             Assert.Equal(expectedValue, asyncLocalValue);
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void AsyncFlowControlTest()
         {
             ThreadTestHelpers.RunTestInBackgroundThread(() =>

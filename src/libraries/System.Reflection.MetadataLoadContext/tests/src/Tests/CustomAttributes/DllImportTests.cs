@@ -48,6 +48,7 @@ namespace System.Reflection.Tests
 
         [Theory]
         [ActiveIssue("https://github.com/mono/mono/issues/15340", TestRuntimes.Mono)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/124344", typeof(PlatformDetection), nameof(PlatformDetection.IsAppleMobile), nameof(PlatformDetection.IsCoreCLR))]
         [MemberData(nameof(MarshalAsTheoryData))]
         public static void TestMarshalAsPseudoCustomAttribute(string fieldName, MarshalAsAttribute expected)
         {
@@ -230,6 +231,14 @@ namespace System.Reflection.Tests
                     {
                         MarshalCookie = "YumYum",
                         MarshalType = "Blah",
+                    },
+                };
+                yield return new object[]
+                {
+                     "F21",
+                    new MarshalAsAttribute(UnmanagedType.ByValTStr)
+                    {
+                        SizeConst = 65
                     },
                 };
             }

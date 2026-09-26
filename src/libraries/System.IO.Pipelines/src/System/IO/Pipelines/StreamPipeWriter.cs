@@ -3,12 +3,13 @@
 
 using System.Buffers;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace System.IO.Pipelines
 {
-    internal class StreamPipeWriter : PipeWriter
+    internal sealed class StreamPipeWriter : PipeWriter
     {
         internal const int InitialSegmentPoolSize = 4; // 16K
         internal const int MaxSegmentPoolSize = 256; // 1MB
@@ -19,9 +20,10 @@ namespace System.IO.Pipelines
         private BufferSegment? _tail;
         private Memory<byte> _tailMemory;
         private int _tailBytesBuffered;
-        private int _bytesBuffered;
+        private long _bytesBuffered;
 
         private readonly MemoryPool<byte>? _pool;
+        private readonly int _maxPooledBufferSize;
 
         private CancellationTokenSource? _internalTokenSource;
         private bool _isCompleted;
@@ -36,26 +38,26 @@ namespace System.IO.Pipelines
             {
                 lock (_lockObject)
                 {
-                    if (_internalTokenSource == null)
-                    {
-                        _internalTokenSource = new CancellationTokenSource();
-                    }
-                    return _internalTokenSource;
+                    return _internalTokenSource ??= new CancellationTokenSource();
                 }
             }
         }
 
         public StreamPipeWriter(Stream writingStream, StreamPipeWriterOptions options)
         {
-            InnerStream = writingStream ?? throw new ArgumentNullException(nameof(writingStream));
-
-            if (options == null)
+            if (writingStream is null)
             {
-                throw new ArgumentNullException(nameof(options));
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.writingStream);
+            }
+            if (options is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.options);
             }
 
+            InnerStream = writingStream;
             _minimumBufferSize = options.MinimumBufferSize;
             _pool = options.Pool == MemoryPool<byte>.Shared ? null : options.Pool;
+            _maxPooledBufferSize = _pool?.MaxBufferSize ?? -1;
             _bufferSegmentPool = new BufferSegmentStack(InitialSegmentPoolSize);
             _leaveOpen = options.LeaveOpen;
         }
@@ -149,18 +151,20 @@ namespace System.IO.Pipelines
 
         private BufferSegment AllocateSegment(int sizeHint)
         {
+            Debug.Assert(sizeHint >= 0);
             BufferSegment newSegment = CreateSegmentUnsynchronized();
 
-            if (_pool is null || sizeHint > _pool.MaxBufferSize)
+            int maxSize = _maxPooledBufferSize;
+            if (sizeHint <= maxSize)
+            {
+                // Use the specified pool as it fits. Specified pool is not null as maxSize == -1 if _pool is null.
+                newSegment.SetOwnedMemory(_pool!.Rent(GetSegmentSize(sizeHint, maxSize)));
+            }
+            else
             {
                 // Use the array pool
                 int sizeToRequest = GetSegmentSize(sizeHint);
                 newSegment.SetOwnedMemory(ArrayPool<byte>.Shared.Rent(sizeToRequest));
-            }
-            else
-            {
-                // Use the specified pool as it fits
-                newSegment.SetOwnedMemory(_pool.Rent(GetSegmentSize(sizeHint, _pool.MaxBufferSize)));
             }
 
             _tailMemory = newSegment.AvailableMemory;
@@ -189,6 +193,7 @@ namespace System.IO.Pipelines
 
         private void ReturnSegmentUnsynchronized(BufferSegment segment)
         {
+            segment.Reset();
             if (_bufferSegmentPool.Count < MaxSegmentPoolSize)
             {
                 _bufferSegmentPool.Push(segment);
@@ -202,6 +207,9 @@ namespace System.IO.Pipelines
         }
 
         /// <inheritdoc />
+        public override bool CanGetUnflushedBytes => true;
+
+        /// <inheritdoc />
         public override void Complete(Exception? exception = null)
         {
             if (_isCompleted)
@@ -211,13 +219,18 @@ namespace System.IO.Pipelines
 
             _isCompleted = true;
 
-            FlushInternal(writeToStream: exception == null);
-
-            _internalTokenSource?.Dispose();
-
-            if (!_leaveOpen)
+            try
             {
-                InnerStream.Dispose();
+                FlushInternal(writeToStream: exception == null);
+            }
+            finally
+            {
+                _internalTokenSource?.Dispose();
+
+                if (!_leaveOpen)
+                {
+                    InnerStream.Dispose();
+                }
             }
         }
 
@@ -230,17 +243,22 @@ namespace System.IO.Pipelines
 
             _isCompleted = true;
 
-            await FlushAsyncInternal(writeToStream: exception == null).ConfigureAwait(false);
-
-            _internalTokenSource?.Dispose();
-
-            if (!_leaveOpen)
+            try
             {
+                await FlushAsyncInternal(writeToStream: exception == null, data: Memory<byte>.Empty).ConfigureAwait(false);
+            }
+            finally
+            {
+                _internalTokenSource?.Dispose();
+
+                if (!_leaveOpen)
+                {
 #if (!NETSTANDARD2_0 && !NETFRAMEWORK)
-                await InnerStream.DisposeAsync().ConfigureAwait(false);
+                    await InnerStream.DisposeAsync().ConfigureAwait(false);
 #else
-                InnerStream.Dispose();
+                    InnerStream.Dispose();
 #endif
+                }
             }
         }
 
@@ -252,7 +270,15 @@ namespace System.IO.Pipelines
                 return new ValueTask<FlushResult>(new FlushResult(isCanceled: false, isCompleted: false));
             }
 
-            return FlushAsyncInternal(writeToStream: true, cancellationToken);
+            return FlushAsyncInternal(writeToStream: true, data: Memory<byte>.Empty, cancellationToken);
+        }
+
+        /// <inheritdoc />
+        public override long UnflushedBytes => _bytesBuffered;
+
+        public override ValueTask<FlushResult> WriteAsync(ReadOnlyMemory<byte> source, CancellationToken cancellationToken = default)
+        {
+            return FlushAsyncInternal(writeToStream: true, data: source, cancellationToken);
         }
 
         private void Cancel()
@@ -260,7 +286,11 @@ namespace System.IO.Pipelines
             InternalTokenSource.Cancel();
         }
 
-        private async ValueTask<FlushResult> FlushAsyncInternal(bool writeToStream, CancellationToken cancellationToken = default)
+#if NET
+        [AsyncMethodBuilder(typeof(PoolingAsyncValueTaskMethodBuilder<>))]
+        [RuntimeAsyncMethodGeneration(false)]
+#endif
+        private async ValueTask<FlushResult> FlushAsyncInternal(bool writeToStream, ReadOnlyMemory<byte> data, CancellationToken cancellationToken = default)
         {
             // Write all completed segments and whatever remains in the current segment
             // and flush the result.
@@ -295,21 +325,30 @@ namespace System.IO.Pipelines
                             await InnerStream.WriteAsync(returnSegment.Memory, localToken).ConfigureAwait(false);
                         }
 
-                        returnSegment.ResetMemory();
                         ReturnSegmentUnsynchronized(returnSegment);
 
                         // Update the head segment after we return the current segment
                         _head = segment;
                     }
 
-                    if (_bytesBuffered > 0 && writeToStream)
+                    if (writeToStream)
                     {
-                        await InnerStream.FlushAsync(localToken).ConfigureAwait(false);
+                        // Write data after the buffered data
+                        if (data.Length > 0)
+                        {
+                            await InnerStream.WriteAsync(data, localToken).ConfigureAwait(false);
+                        }
+
+                        if (_bytesBuffered > 0 || data.Length > 0)
+                        {
+                            await InnerStream.FlushAsync(localToken).ConfigureAwait(false);
+                        }
                     }
 
                     // Mark bytes as written *after* flushing
                     _head = null;
                     _tail = null;
+                    _tailMemory = default;
                     _bytesBuffered = 0;
 
                     return new FlushResult(isCanceled: false, isCompleted: false);
@@ -362,7 +401,6 @@ namespace System.IO.Pipelines
 #endif
                 }
 
-                returnSegment.ResetMemory();
                 ReturnSegmentUnsynchronized(returnSegment);
 
                 // Update the head segment after we return the current segment
@@ -377,6 +415,7 @@ namespace System.IO.Pipelines
             // Mark bytes as written *after* flushing
             _head = null;
             _tail = null;
+            _tailMemory = default;
             _bytesBuffered = 0;
         }
     }

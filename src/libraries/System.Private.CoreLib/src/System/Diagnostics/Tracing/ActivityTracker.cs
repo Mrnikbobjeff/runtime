@@ -1,19 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#if ES_BUILD_STANDALONE
-using System;
-using System.Diagnostics;
-#else
-using System.Threading.Tasks;
-#endif
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
+using System.Threading.Tasks;
 
-#if ES_BUILD_STANDALONE
-namespace Microsoft.Diagnostics.Tracing
-#else
 namespace System.Diagnostics.Tracing
-#endif
 {
     /// <summary>
     /// Tracks activities.  This is meant to be a singleton (accessed by the ActivityTracer.Instance static property)
@@ -38,7 +30,7 @@ namespace System.Diagnostics.Tracing
     ///
     /// On any normal event log the event with activityTracker.CurrentActivityId
     /// </summary>
-    internal class ActivityTracker
+    internal sealed class ActivityTracker
     {
         /// <summary>
         /// Called on work item begins.  The activity name = providerName + activityName without 'Start' suffix.
@@ -77,7 +69,7 @@ namespace System.Diagnostics.Tracing
             if (tplDebug)
             {
                 log!.DebugFacilityMessage("OnStartEnter", fullActivityName);
-                log!.DebugFacilityMessage("OnStartEnterActivityState", ActivityInfo.LiveActivities(currentActivity));
+                log.DebugFacilityMessage("OnStartEnterActivityState", ActivityInfo.LiveActivities(currentActivity));
             }
 
             if (currentActivity != null)
@@ -123,7 +115,7 @@ namespace System.Diagnostics.Tracing
             if (tplDebug)
             {
                 log!.DebugFacilityMessage("OnStartRetActivityState", ActivityInfo.LiveActivities(newActivity));
-                log!.DebugFacilityMessage1("OnStartRet", activityId.ToString(), relatedActivityId.ToString());
+                log.DebugFacilityMessage1("OnStartRet", activityId.ToString(), relatedActivityId.ToString());
             }
         }
 
@@ -145,7 +137,7 @@ namespace System.Diagnostics.Tracing
             if (tplDebug)
             {
                 log!.DebugFacilityMessage("OnStopEnter", fullActivityName);
-                log!.DebugFacilityMessage("OnStopEnterActivityState", ActivityInfo.LiveActivities(m_current.Value));
+                log.DebugFacilityMessage("OnStopEnterActivityState", ActivityInfo.LiveActivities(m_current.Value));
             }
 
             while (true) // This is a retry loop.
@@ -153,7 +145,7 @@ namespace System.Diagnostics.Tracing
                 ActivityInfo? currentActivity = m_current.Value;
                 ActivityInfo? newCurrentActivity = null;               // if we have seen any live activities (orphans), at he first one we have seen.
 
-                // Search to find the activity to stop in one pass.   This insures that we don't let one mistake
+                // Search to find the activity to stop in one pass.   This ensures that we don't let one mistake
                 // (stopping something that was not started) cause all active starts to be stopped
                 // By first finding the target start to stop we are more robust.
                 ActivityInfo? activityToStop = FindActiveActivity(fullActivityName, currentActivity);
@@ -174,7 +166,7 @@ namespace System.Diagnostics.Tracing
                 ActivityInfo? orphan = currentActivity;
                 while (orphan != activityToStop && orphan != null)
                 {
-                    if (orphan.m_stopped != 0)      // Skip dead activities.
+                    if (orphan.m_stopped)      // Skip dead activities.
                     {
                         orphan = orphan.m_creator;
                         continue;
@@ -186,14 +178,13 @@ namespace System.Diagnostics.Tracing
                     }
                     else
                     {
-                        orphan.m_stopped = 1;
-                        Debug.Assert(orphan.m_stopped != 0);
+                        orphan.m_stopped = true;
                     }
                     orphan = orphan.m_creator;
                 }
 
                 // try to Stop the activity atomically.  Other threads may be trying to do this as well.
-                if (Interlocked.CompareExchange(ref activityToStop.m_stopped, 1, 0) == 0)
+                if (!Interlocked.Exchange(ref activityToStop.m_stopped, true))
                 {
                     // I succeeded stopping this activity. Now we update our m_current pointer
 
@@ -205,7 +196,7 @@ namespace System.Diagnostics.Tracing
                     if (tplDebug)
                     {
                         log!.DebugFacilityMessage("OnStopRetActivityState", ActivityInfo.LiveActivities(newCurrentActivity));
-                        log!.DebugFacilityMessage("OnStopRet", activityId.ToString());
+                        log.DebugFacilityMessage("OnStopRet", activityId.ToString());
                     }
                     return;
                 }
@@ -228,7 +219,7 @@ namespace System.Diagnostics.Tracing
                 catch (NotImplementedException)
                 {
                     // send message to debugger without delay
-                    System.Diagnostics.Debugger.Log(0, null, "Activity Enabled() called but AsyncLocals Not Supported (pre V4.6).  Ignoring Enable");
+                    Debugger.Log(0, null, "Activity Enabled() called but AsyncLocals Not Supported (pre V4.6).  Ignoring Enable");
                 }
             }
         }
@@ -248,7 +239,7 @@ namespace System.Diagnostics.Tracing
             ActivityInfo? activity = startLocation;
             while (activity != null)
             {
-                if (name == activity.m_name && activity.m_stopped == 0)
+                if (name == activity.m_name && !activity.m_stopped)
                     return activity;
                 activity = activity.m_creator;
             }
@@ -263,25 +254,17 @@ namespace System.Diagnostics.Tracing
         {
             // We use provider name to distinguish between activities from different providers.
 
-            if (activityName.EndsWith(EventSource.s_ActivityStartSuffix, StringComparison.Ordinal))
+            if (activityName.EndsWith(EventSource.ActivityStartSuffix, StringComparison.Ordinal))
             {
-#if ES_BUILD_STANDALONE
-                return string.Concat(providerName, activityName.Substring(0, activityName.Length - EventSource.s_ActivityStartSuffix.Length));
-#else
-                return string.Concat(providerName, activityName.AsSpan(0, activityName.Length - EventSource.s_ActivityStartSuffix.Length));
-#endif
+                return string.Concat(providerName, activityName.AsSpan()[..^EventSource.ActivityStartSuffix.Length]);
             }
-            else if (activityName.EndsWith(EventSource.s_ActivityStopSuffix, StringComparison.Ordinal))
+            else if (activityName.EndsWith(EventSource.ActivityStopSuffix, StringComparison.Ordinal))
             {
-#if ES_BUILD_STANDALONE
-                return string.Concat(providerName, activityName.Substring(0, activityName.Length - EventSource.s_ActivityStopSuffix.Length));
-#else
-                return string.Concat(providerName, activityName.AsSpan(0, activityName.Length - EventSource.s_ActivityStopSuffix.Length));
-#endif
+                return string.Concat(providerName, activityName.AsSpan()[..^EventSource.ActivityStopSuffix.Length]);
             }
             else if (task != 0)
             {
-                return providerName + "task" + task.ToString();
+                return $"{providerName}task{task}";
             }
             else
             {
@@ -300,7 +283,7 @@ namespace System.Diagnostics.Tracing
         /// the 'list of live parents' which indicate of those ancestors, which are alive (if they
         /// are not marked dead they are alive).
         /// </summary>
-        private class ActivityInfo
+        private sealed class ActivityInfo
         {
             public ActivityInfo(string name, long uniqueId, ActivityInfo? creator, Guid activityIDToRestore, EventActivityOptions options)
             {
@@ -321,12 +304,12 @@ namespace System.Diagnostics.Tracing
             {
                 if (activityInfo == null)
                     return "";
-                return Path(activityInfo.m_creator) + "/" + activityInfo.m_uniqueId.ToString();
+                return $"{Path(activityInfo.m_creator)}/{activityInfo.m_uniqueId}";
             }
 
             public override string ToString()
             {
-                return m_name + "(" + Path(this) + (m_stopped != 0 ? ",DEAD)" : ")");
+                return m_name + "(" + Path(this) + (m_stopped ? ",DEAD)" : ")");
             }
 
             public static string LiveActivities(ActivityInfo? list)
@@ -376,11 +359,7 @@ namespace System.Diagnostics.Tracing
                     }
                     else
                     {
-                        // TODO FIXME - differentiate between AD inside PCL
-                        int appDomainID = 0;
-#if (!ES_BUILD_STANDALONE)
-                        appDomainID = System.Threading.Thread.GetDomainID();
-#endif
+                        int appDomainID = Thread.GetDomainID();
                         // We start with the appdomain number to make this unique among appdomains.
                         activityPathGuidOffsetStart = AddIdToGuid(outPtr, activityPathGuidOffsetStart, (uint)appDomainID);
                     }
@@ -486,6 +465,7 @@ namespace System.Diagnostics.Tracing
                         {
                             // Indicate this is a 1 byte multicode with 4 high order bits in the lower nibble.
                             *ptr = (byte)(((uint)NumberListCodes.MultiByte1 << 4) + (id >> 8));
+                            len--;          // The id's 4 high order bits were written into the multicode byte, so update the length.
                             id &= 0xFF;     // Now we only want the low order bits.
                         }
                         ptr++;
@@ -541,7 +521,7 @@ namespace System.Diagnostics.Tracing
             internal readonly int m_level;                          // current depth of the Path() of the activity (used to keep recursion under control)
             internal readonly EventActivityOptions m_eventOptions;  // Options passed to start.
             internal long m_lastChildID;                            // used to create a unique ID for my children activities
-            internal int m_stopped;                                 // This work item has stopped
+            internal bool m_stopped;                                 // This work item has stopped
             internal readonly ActivityInfo? m_creator;               // My parent (creator).  Forms the Path() for the activity.
             internal readonly Guid m_activityIdToRestore;           // The Guid to restore after a stop.
             #endregion
@@ -550,12 +530,36 @@ namespace System.Diagnostics.Tracing
         // This callback is used to initialize the m_current AsyncLocal Variable.
         // Its job is to keep the ETW Activity ID (part of thread local storage) in sync
         // with m_current.ActivityID
+        //
+        // WARNING: When mixing manual usage of EventSource.SetCurrentThreadActivityID
+        // and Start/Stop EventSource events I can't identify a clear design how this
+        // synchronization is intended to work. For example code that changes
+        // SetCurrentThreadActivityID after a FooStart() event will not flow the
+        // explicit ID with the async work, but if FooStart() event is called after
+        // SetCurrentThreadActivityID then the explicit ID change does flow.
+        // For now I've adopted the approach:
+        // Priority 1: Make the API predictable/sensible when only Start/Stop events
+        // are in use.
+        // Priority 2: If users aren't complaining and it doesn't interfere with
+        // goal #1, try to preserve the arbitrary/buggy? existing behavior
+        // for mixed usage of SetActivityID + events.
+        //
+        // For scenarios that only use start/stop events this is what we expect:
+        // calling start -> push new ID on stack and update thread-local to match new ID
+        // calling stop -> pop ID from stack and update thread-local to match new topmost
+        //                 still active ID. If there is none, set ID to zero
+        // thread swap -> update thread-local to match topmost active ID.
+        //                 If there is none, set ID to zero.
         private void ActivityChanging(AsyncLocalValueChangedArgs<ActivityInfo?> args)
         {
             ActivityInfo? cur = args.CurrentValue;
             ActivityInfo? prev = args.PreviousValue;
 
-            // Are we popping off a value?   (we have a prev, and it creator is cur)
+            // Special case only relevant for mixed SetActivityID usage:
+            //
+            // Are we MAYBE popping off a value?   (we have a prev, and it creator is cur)
+            // We can't be certain this is a pop because a thread swapping between two
+            // ExecutionContexts can also appear the same way.
             // Then check if we should use the GUID at the time of the start event
             if (prev != null && prev.m_creator == cur)
             {
@@ -569,22 +573,23 @@ namespace System.Diagnostics.Tracing
                 }
             }
 
-            // OK we did not have an explicit SetActivityID set.   Then we should be
-            // setting the activity to current ActivityInfo.  However that activity
+            // Set the activity to current ActivityInfo.  However that activity
             // might be dead, in which case we should skip it, so we never set
             // the ID to dead things.
             while (cur != null)
             {
                 // We found a live activity (typically the first time), set it to that.
-                if (cur.m_stopped == 0)
+                if (!cur.m_stopped)
                 {
                     EventSource.SetCurrentThreadActivityId(cur.ActivityId);
                     return;
                 }
                 cur = cur.m_creator;
             }
+
             // we can get here if there is no information on our activity stack (everything is dead)
-            // currently we do nothing, as that seems better than setting to Guid.Emtpy.
+            // Set ActivityID to zero
+            EventSource.SetCurrentThreadActivityId(Guid.Empty);
         }
 
         /// <summary>
@@ -607,31 +612,4 @@ namespace System.Diagnostics.Tracing
 
         #endregion
     }
-
-#if ES_BUILD_STANDALONE
-    /******************************** SUPPORT *****************************/
-    /// <summary>
-    /// This is supplied by the framework.   It is has the semantics that the value is copied to any new Tasks that is created
-    /// by the current task.   Thus all causally related code gets this value.    Note that reads and writes to this VARIABLE
-    /// (not what it points it) to this does not need to be protected by locks because it is inherently thread local (you always
-    /// only get your thread local copy which means that you never have races.
-    /// </summary>
-    ///
-    [EventSource(Name = "Microsoft.Tasks.Nuget")]
-    internal class TplEventSource : EventSource
-    {
-        public class Keywords
-        {
-            public const EventKeywords TasksFlowActivityIds = (EventKeywords)0x80;
-            public const EventKeywords Debug = (EventKeywords)0x20000;
-        }
-
-        public static TplEventSource Log = new TplEventSource();
-        public bool Debug { get { return IsEnabled(EventLevel.Verbose, Keywords.Debug); } }
-
-        public void DebugFacilityMessage(string Facility, string Message) { WriteEvent(1, Facility, Message); }
-        public void DebugFacilityMessage1(string Facility, string Message, string Arg) { WriteEvent(2, Facility, Message, Arg); }
-        public void SetActivityId(Guid Id) { WriteEvent(3, Id); }
-    }
-#endif
 }

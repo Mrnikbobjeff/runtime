@@ -5,6 +5,7 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 public class Point
 {
@@ -21,7 +22,7 @@ public class Point
   public int DistanceSquared(Point p) { return (x-p.x)*(x-p.x) + (y-p.y)*(y-p.y); }
 }
 
-public class BringUpTest
+public class BringUpTest_ObjAlloc
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -39,7 +40,8 @@ public class BringUpTest
     }
 
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         Point obj = ObjAlloc();
         if (obj == null) return Fail;

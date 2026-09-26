@@ -10,9 +10,9 @@
 #define FASTLOOP
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-
-using Internal.Runtime.CompilerServices;
 
 namespace System.Text
 {
@@ -84,12 +84,10 @@ namespace System.Text
 
         public override unsafe int GetByteCount(char[] chars, int index, int count)
         {
-            // Validate input parameters
-            if (chars == null)
-                throw new ArgumentNullException(nameof(chars), SR.ArgumentNull_Array);
+            ArgumentNullException.ThrowIfNull(chars);
 
-            if (index < 0 || count < 0)
-                throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
 
             if (chars.Length - index < count)
                 throw new ArgumentOutOfRangeException(nameof(chars), SR.ArgumentOutOfRange_IndexCountBuffer);
@@ -110,9 +108,10 @@ namespace System.Text
 
         public override unsafe int GetByteCount(string s)
         {
-            // Validate input
-            if (s == null)
-                throw new ArgumentNullException(nameof(s));
+            if (s is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
+            }
 
             fixed (char* pChars = s)
                 return GetByteCount(pChars, s.Length, null);
@@ -125,12 +124,9 @@ namespace System.Text
         [CLSCompliant(false)]
         public override unsafe int GetByteCount(char* chars, int count)
         {
-            // Validate Parameters
-            if (chars == null)
-                throw new ArgumentNullException(nameof(chars), SR.ArgumentNull_Array);
+            ArgumentNullException.ThrowIfNull(chars);
 
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
 
             // Call it with empty encoder
             return GetByteCount(chars, count, null);
@@ -142,24 +138,27 @@ namespace System.Text
         // EncodingNLS, UTF7Encoding, UTF8Encoding, UTF32Encoding, ASCIIEncoding, UnicodeEncoding
 
         public override unsafe int GetBytes(string s, int charIndex, int charCount,
-                                              byte[] bytes, int byteIndex)
+                                            byte[] bytes, int byteIndex)
         {
-            if (s == null || bytes == null)
-                throw new ArgumentNullException(s == null ? nameof(s) : nameof(bytes), SR.ArgumentNull_Array);
+            ArgumentNullException.ThrowIfNull(s);
+            ArgumentNullException.ThrowIfNull(bytes);
 
-            if (charIndex < 0 || charCount < 0)
-                throw new ArgumentOutOfRangeException(charIndex < 0 ? nameof(charIndex) : nameof(charCount), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(charIndex);
+            ArgumentOutOfRangeException.ThrowIfNegative(charCount);
 
             if (s.Length - charIndex < charCount)
                 throw new ArgumentOutOfRangeException(nameof(s), SR.ArgumentOutOfRange_IndexCount);
 
             if (byteIndex < 0 || byteIndex > bytes.Length)
-                throw new ArgumentOutOfRangeException(nameof(byteIndex), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(byteIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
 
             int byteCount = bytes.Length - byteIndex;
 
-            fixed (char* pChars = s) fixed (byte* pBytes = &MemoryMarshal.GetReference((Span<byte>)bytes))
+            fixed (char* pChars = s)
+            fixed (byte* pBytes = &MemoryMarshal.GetArrayDataReference(bytes))
+            {
                 return GetBytes(pChars + charIndex, charCount, pBytes + byteIndex, byteCount, null);
+            }
         }
 
         // Encodes a range of characters in a character array into a range of bytes
@@ -177,20 +176,19 @@ namespace System.Text
         // parent method is safe
 
         public override unsafe int GetBytes(char[] chars, int charIndex, int charCount,
-                                               byte[] bytes, int byteIndex)
+                                            byte[] bytes, int byteIndex)
         {
-            // Validate parameters
-            if (chars == null || bytes == null)
-                throw new ArgumentNullException(chars == null ? nameof(chars) : nameof(bytes), SR.ArgumentNull_Array);
+            ArgumentNullException.ThrowIfNull(chars);
+            ArgumentNullException.ThrowIfNull(bytes);
 
-            if (charIndex < 0 || charCount < 0)
-                throw new ArgumentOutOfRangeException(charIndex < 0 ? nameof(charIndex) : nameof(charCount), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(charIndex);
+            ArgumentOutOfRangeException.ThrowIfNegative(charCount);
 
             if (chars.Length - charIndex < charCount)
                 throw new ArgumentOutOfRangeException(nameof(chars), SR.ArgumentOutOfRange_IndexCountBuffer);
 
             if (byteIndex < 0 || byteIndex > bytes.Length)
-                throw new ArgumentOutOfRangeException(nameof(byteIndex), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(byteIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
 
             // If nothing to encode return 0, avoid fixed problem
             if (charCount == 0)
@@ -199,9 +197,12 @@ namespace System.Text
             // Just call pointer version
             int byteCount = bytes.Length - byteIndex;
 
-            fixed (char* pChars = chars) fixed (byte* pBytes = &MemoryMarshal.GetReference((Span<byte>)bytes))
+            fixed (char* pChars = chars)
+            fixed (byte* pBytes = &MemoryMarshal.GetArrayDataReference(bytes))
+            {
                 // Remember that byteCount is # to decode, not size of array.
                 return GetBytes(pChars + charIndex, charCount, pBytes + byteIndex, byteCount, null);
+            }
         }
 
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
@@ -211,12 +212,11 @@ namespace System.Text
         [CLSCompliant(false)]
         public override unsafe int GetBytes(char* chars, int charCount, byte* bytes, int byteCount)
         {
-            // Validate Parameters
-            if (bytes == null || chars == null)
-                throw new ArgumentNullException(bytes == null ? nameof(bytes) : nameof(chars), SR.ArgumentNull_Array);
+            ArgumentNullException.ThrowIfNull(chars);
+            ArgumentNullException.ThrowIfNull(bytes);
 
-            if (charCount < 0 || byteCount < 0)
-                throw new ArgumentOutOfRangeException(charCount < 0 ? nameof(charCount) : nameof(byteCount), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(charCount);
+            ArgumentOutOfRangeException.ThrowIfNegative(byteCount);
 
             return GetBytes(chars, charCount, bytes, byteCount, null);
         }
@@ -231,12 +231,10 @@ namespace System.Text
 
         public override unsafe int GetCharCount(byte[] bytes, int index, int count)
         {
-            // Validate Parameters
-            if (bytes == null)
-                throw new ArgumentNullException(nameof(bytes), SR.ArgumentNull_Array);
+            ArgumentNullException.ThrowIfNull(bytes);
 
-            if (index < 0 || count < 0)
-                throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
 
             if (bytes.Length - index < count)
                 throw new ArgumentOutOfRangeException(nameof(bytes), SR.ArgumentOutOfRange_IndexCountBuffer);
@@ -257,12 +255,9 @@ namespace System.Text
         [CLSCompliant(false)]
         public override unsafe int GetCharCount(byte* bytes, int count)
         {
-            // Validate Parameters
-            if (bytes == null)
-                throw new ArgumentNullException(nameof(bytes), SR.ArgumentNull_Array);
+            ArgumentNullException.ThrowIfNull(bytes);
 
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
 
             return GetCharCount(bytes, count, null);
         }
@@ -273,20 +268,19 @@ namespace System.Text
         // parent method is safe
 
         public override unsafe int GetChars(byte[] bytes, int byteIndex, int byteCount,
-                                              char[] chars, int charIndex)
+                                            char[] chars, int charIndex)
         {
-            // Validate Parameters
-            if (bytes == null || chars == null)
-                throw new ArgumentNullException(bytes == null ? nameof(bytes) : nameof(chars), SR.ArgumentNull_Array);
+            ArgumentNullException.ThrowIfNull(bytes);
+            ArgumentNullException.ThrowIfNull(chars);
 
-            if (byteIndex < 0 || byteCount < 0)
-                throw new ArgumentOutOfRangeException(byteIndex < 0 ? nameof(byteIndex) : nameof(byteCount), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(byteIndex);
+            ArgumentOutOfRangeException.ThrowIfNegative(byteCount);
 
             if (bytes.Length - byteIndex < byteCount)
                 throw new ArgumentOutOfRangeException(nameof(bytes), SR.ArgumentOutOfRange_IndexCountBuffer);
 
             if (charIndex < 0 || charIndex > chars.Length)
-                throw new ArgumentOutOfRangeException(nameof(charIndex), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(charIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
 
             // If no input, return 0 & avoid fixed problem
             if (byteCount == 0)
@@ -295,9 +289,12 @@ namespace System.Text
             // Just call pointer version
             int charCount = chars.Length - charIndex;
 
-            fixed (byte* pBytes = bytes) fixed (char* pChars = &MemoryMarshal.GetReference((Span<char>)chars))
+            fixed (byte* pBytes = bytes)
+            fixed (char* pChars = &MemoryMarshal.GetArrayDataReference(chars))
+            {
                 // Remember that charCount is # to decode, not size of array
                 return GetChars(pBytes + byteIndex, byteCount, pChars + charIndex, charCount, null);
+            }
         }
 
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
@@ -307,12 +304,11 @@ namespace System.Text
         [CLSCompliant(false)]
         public override unsafe int GetChars(byte* bytes, int byteCount, char* chars, int charCount)
         {
-            // Validate Parameters
-            if (bytes == null || chars == null)
-                throw new ArgumentNullException(bytes == null ? nameof(bytes) : nameof(chars), SR.ArgumentNull_Array);
+            ArgumentNullException.ThrowIfNull(bytes);
+            ArgumentNullException.ThrowIfNull(chars);
 
-            if (charCount < 0 || byteCount < 0)
-                throw new ArgumentOutOfRangeException(charCount < 0 ? nameof(charCount) : nameof(byteCount), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(charCount);
+            ArgumentOutOfRangeException.ThrowIfNegative(byteCount);
 
             return GetChars(bytes, byteCount, chars, charCount, null);
         }
@@ -327,12 +323,10 @@ namespace System.Text
 
         public override unsafe string GetString(byte[] bytes, int index, int count)
         {
-            // Validate Parameters
-            if (bytes == null)
-                throw new ArgumentNullException(nameof(bytes), SR.ArgumentNull_Array);
+            ArgumentNullException.ThrowIfNull(bytes);
 
-            if (index < 0 || count < 0)
-                throw new ArgumentOutOfRangeException(index < 0 ? nameof(index) : nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
 
             if (bytes.Length - index < count)
                 throw new ArgumentOutOfRangeException(nameof(bytes), SR.ArgumentOutOfRange_IndexCountBuffer);
@@ -350,7 +344,7 @@ namespace System.Text
         //
         internal sealed override unsafe int GetByteCount(char* chars, int count, EncoderNLS? encoder)
         {
-            Debug.Assert(chars != null, "[UnicodeEncoding.GetByteCount]chars!=null");
+            Debug.Assert(chars is not null, "[UnicodeEncoding.GetByteCount]chars!=null");
             Debug.Assert(count >= 0, "[UnicodeEncoding.GetByteCount]count >=0");
 
             // Start by assuming each char gets 2 bytes
@@ -372,7 +366,7 @@ namespace System.Text
             EncoderFallbackBuffer? fallbackBuffer = null;
             char* charsForFallback;
 
-            if (encoder != null)
+            if (encoder is not null)
             {
                 charLeftOver = encoder._charLeftOver;
 
@@ -395,14 +389,14 @@ namespace System.Text
             char ch;
         TryAgain:
 
-            while (((ch = (fallbackBuffer == null) ? (char)0 : fallbackBuffer.InternalGetNextChar()) != 0) || chars < charEnd)
+            while (((ch = (fallbackBuffer is null) ? (char)0 : fallbackBuffer.InternalGetNextChar()) != 0) || chars < charEnd)
             {
                 // First unwind any fallback
                 if (ch == 0)
                 {
                     // No fallback, maybe we can do it fast
 #if FASTLOOP
-                    // If endianess is backwards then each pair of bytes would be backwards.
+                    // If endianness is backwards then each pair of bytes would be backwards.
                     if ((bigEndian ^ BitConverter.IsLittleEndian) &&
 #if TARGET_64BIT
                         (unchecked((long)chars) & 7) == 0 &&
@@ -503,12 +497,11 @@ namespace System.Text
 
                             // Fallback the previous surrogate
                             // Need to initialize fallback buffer?
-                            if (fallbackBuffer == null)
+                            if (fallbackBuffer is null)
                             {
-                                if (encoder == null)
-                                    fallbackBuffer = this.encoderFallback.CreateFallbackBuffer();
-                                else
-                                    fallbackBuffer = encoder.FallbackBuffer;
+                                fallbackBuffer = encoder is null ?
+                                    this.encoderFallback.CreateFallbackBuffer() :
+                                    encoder.FallbackBuffer;
 
                                 // Set our internal fallback interesting things.
                                 fallbackBuffer.InternalInitialize(charStart, charEnd, encoder, false);
@@ -537,12 +530,11 @@ namespace System.Text
 
                         // fallback this one
                         // Need to initialize fallback buffer?
-                        if (fallbackBuffer == null)
+                        if (fallbackBuffer is null)
                         {
-                            if (encoder == null)
-                                fallbackBuffer = this.encoderFallback.CreateFallbackBuffer();
-                            else
-                                fallbackBuffer = encoder.FallbackBuffer;
+                            fallbackBuffer = encoder is null ?
+                                this.encoderFallback.CreateFallbackBuffer() :
+                                encoder.FallbackBuffer;
 
                             // Set our internal fallback interesting things.
                             fallbackBuffer.InternalInitialize(charStart, charEnd, encoder, false);
@@ -570,12 +562,11 @@ namespace System.Text
 
                     // fallback previous chars
                     // Need to initialize fallback buffer?
-                    if (fallbackBuffer == null)
+                    if (fallbackBuffer is null)
                     {
-                        if (encoder == null)
-                            fallbackBuffer = this.encoderFallback.CreateFallbackBuffer();
-                        else
-                            fallbackBuffer = encoder.FallbackBuffer;
+                        fallbackBuffer = encoder is null ?
+                            this.encoderFallback.CreateFallbackBuffer() :
+                            encoder.FallbackBuffer;
 
                         // Set our internal fallback interesting things.
                         fallbackBuffer.InternalInitialize(charStart, charEnd, encoder, false);
@@ -600,7 +591,7 @@ namespace System.Text
                 byteCount -= 2;
 
                 // If we have to flush, stick it in fallback and try again
-                if (encoder == null || encoder.MustFlush)
+                if (encoder is null || encoder.MustFlush)
                 {
                     if (wasHereBefore)
                     {
@@ -611,12 +602,11 @@ namespace System.Text
                     else
                     {
                         // Need to initialize fallback buffer?
-                        if (fallbackBuffer == null)
+                        if (fallbackBuffer is null)
                         {
-                            if (encoder == null)
-                                fallbackBuffer = this.encoderFallback.CreateFallbackBuffer();
-                            else
-                                fallbackBuffer = encoder.FallbackBuffer;
+                            fallbackBuffer = encoder is null ?
+                                this.encoderFallback.CreateFallbackBuffer() :
+                                encoder.FallbackBuffer;
 
                             // Set our internal fallback interesting things.
                             fallbackBuffer.InternalInitialize(charStart, charEnd, encoder, false);
@@ -633,7 +623,7 @@ namespace System.Text
 
             // Shouldn't have anything in fallback buffer for GetByteCount
             // (don't have to check _throwOnOverflow for count)
-            Debug.Assert(fallbackBuffer == null || fallbackBuffer.Remaining == 0,
+            Debug.Assert(fallbackBuffer is null || fallbackBuffer.Remaining == 0,
                 "[UnicodeEncoding.GetByteCount]Expected empty fallback buffer at end");
 
             // Don't remember fallbackBuffer.encoder for counting
@@ -643,10 +633,10 @@ namespace System.Text
         internal sealed override unsafe int GetBytes(
             char* chars, int charCount, byte* bytes, int byteCount, EncoderNLS? encoder)
         {
-            Debug.Assert(chars != null, "[UnicodeEncoding.GetBytes]chars!=null");
+            Debug.Assert(chars is not null, "[UnicodeEncoding.GetBytes]chars!=null");
             Debug.Assert(byteCount >= 0, "[UnicodeEncoding.GetBytes]byteCount >=0");
             Debug.Assert(charCount >= 0, "[UnicodeEncoding.GetBytes]charCount >=0");
-            Debug.Assert(bytes != null, "[UnicodeEncoding.GetBytes]bytes!=null");
+            Debug.Assert(bytes is not null, "[UnicodeEncoding.GetBytes]bytes!=null");
 
             char charLeftOver = (char)0;
             char ch;
@@ -662,7 +652,7 @@ namespace System.Text
             char* charsForFallback;
 
             // Get our encoder, but don't clear it yet.
-            if (encoder != null)
+            if (encoder is not null)
             {
                 charLeftOver = encoder._charLeftOver;
 
@@ -680,7 +670,7 @@ namespace System.Text
             }
 
         TryAgain:
-            while (((ch = (fallbackBuffer == null) ?
+            while (((ch = (fallbackBuffer is null) ?
                         (char)0 : fallbackBuffer.InternalGetNextChar()) != 0) ||
                     chars < charEnd)
             {
@@ -689,7 +679,7 @@ namespace System.Text
                 {
                     // No fallback, maybe we can do it fast
 #if FASTLOOP
-                    // If endianess is backwards then each pair of bytes would be backwards.
+                    // If endianness is backwards then each pair of bytes would be backwards.
                     if ((bigEndian ^ BitConverter.IsLittleEndian) &&
 #if TARGET_64BIT
                         (unchecked((long)chars) & 7) == 0 &&
@@ -753,7 +743,7 @@ namespace System.Text
                             // else all < 0x8000 so we can use them
 
                             // We can use these 4 chars.
-                            Unsafe.WriteUnaligned<ulong>(longBytes, *longChars);
+                            Unsafe.WriteUnaligned(longBytes, *longChars);
                             longChars++;
                             longBytes++;
                         }
@@ -789,12 +779,11 @@ namespace System.Text
 
                             // Fallback the previous surrogate
                             // Might need to create our fallback buffer
-                            if (fallbackBuffer == null)
+                            if (fallbackBuffer is null)
                             {
-                                if (encoder == null)
-                                    fallbackBuffer = this.encoderFallback.CreateFallbackBuffer();
-                                else
-                                    fallbackBuffer = encoder.FallbackBuffer;
+                                fallbackBuffer = encoder is null ?
+                                    this.encoderFallback.CreateFallbackBuffer() :
+                                    encoder.FallbackBuffer;
 
                                 // Set our internal fallback interesting things.
                                 fallbackBuffer.InternalInitialize(charStart, charEnd, encoder, true);
@@ -818,12 +807,11 @@ namespace System.Text
                     {
                         // We'll fall back this one
                         // Might need to create our fallback buffer
-                        if (fallbackBuffer == null)
+                        if (fallbackBuffer is null)
                         {
-                            if (encoder == null)
-                                fallbackBuffer = this.encoderFallback.CreateFallbackBuffer();
-                            else
-                                fallbackBuffer = encoder.FallbackBuffer;
+                            fallbackBuffer = encoder is null ?
+                                this.encoderFallback.CreateFallbackBuffer() :
+                                encoder.FallbackBuffer;
 
                             // Set our internal fallback interesting things.
                             fallbackBuffer.InternalInitialize(charStart, charEnd, encoder, true);
@@ -839,7 +827,7 @@ namespace System.Text
                     if (bytes + 3 >= byteEnd)
                     {
                         // Not enough room to add this surrogate pair
-                        if (fallbackBuffer != null && fallbackBuffer.bFallingBack)
+                        if (fallbackBuffer is not null && fallbackBuffer.bFallingBack)
                         {
                             // These must have both been from the fallbacks.
                             // Both of these MUST have been from a fallback because if the 1st wasn't
@@ -888,12 +876,11 @@ namespace System.Text
 
                     // fallback previous chars
                     // Might need to create our fallback buffer
-                    if (fallbackBuffer == null)
+                    if (fallbackBuffer is null)
                     {
-                        if (encoder == null)
-                            fallbackBuffer = this.encoderFallback.CreateFallbackBuffer();
-                        else
-                            fallbackBuffer = encoder.FallbackBuffer;
+                        fallbackBuffer = encoder is null ?
+                            this.encoderFallback.CreateFallbackBuffer() :
+                            encoder.FallbackBuffer;
 
                         // Set our internal fallback interesting things.
                         fallbackBuffer.InternalInitialize(charStart, charEnd, encoder, true);
@@ -912,7 +899,7 @@ namespace System.Text
                 if (bytes + 1 >= byteEnd)
                 {
                     // Couldn't add this char
-                    if (fallbackBuffer != null && fallbackBuffer.bFallingBack)
+                    if (fallbackBuffer is not null && fallbackBuffer.bFallingBack)
                         fallbackBuffer.MovePrevious();                     // Not using this fallback char
                     else
                     {
@@ -942,7 +929,7 @@ namespace System.Text
             if (charLeftOver > 0)
             {
                 // If we aren't flushing we need to fall this back
-                if (encoder == null || encoder.MustFlush)
+                if (encoder is null || encoder.MustFlush)
                 {
                     if (wasHereBefore)
                     {
@@ -954,12 +941,11 @@ namespace System.Text
                     {
                         // If we have to flush, stick it in fallback and try again
                         // Might need to create our fallback buffer
-                        if (fallbackBuffer == null)
+                        if (fallbackBuffer is null)
                         {
-                            if (encoder == null)
-                                fallbackBuffer = this.encoderFallback.CreateFallbackBuffer();
-                            else
-                                fallbackBuffer = encoder.FallbackBuffer;
+                            fallbackBuffer = encoder is null ?
+                                this.encoderFallback.CreateFallbackBuffer() :
+                                encoder.FallbackBuffer;
 
                             // Set our internal fallback interesting things.
                             fallbackBuffer.InternalInitialize(charStart, charEnd, encoder, true);
@@ -978,7 +964,7 @@ namespace System.Text
             }
 
             // Not flushing, remember it in the encoder
-            if (encoder != null)
+            if (encoder is not null)
             {
                 encoder._charLeftOver = charLeftOver;
                 encoder._charsUsed = (int)(chars - charStart);
@@ -986,11 +972,11 @@ namespace System.Text
 
             // Remember charLeftOver if we must, or clear it if we're flushing
             // (charLeftOver should be 0 if we're flushing)
-            Debug.Assert((encoder != null && !encoder.MustFlush) || charLeftOver == (char)0,
+            Debug.Assert((encoder is not null && !encoder.MustFlush) || charLeftOver == (char)0,
                 "[UnicodeEncoding.GetBytes] Expected no left over characters if flushing");
 
-            Debug.Assert(fallbackBuffer == null || fallbackBuffer.Remaining == 0 ||
-                encoder == null || !encoder._throwOnOverflow,
+            Debug.Assert(fallbackBuffer is null || fallbackBuffer.Remaining == 0 ||
+                encoder is null || !encoder._throwOnOverflow,
                 "[UnicodeEncoding.GetBytes]Expected empty fallback buffer if not converting");
 
             return (int)(bytes - byteStart);
@@ -998,10 +984,10 @@ namespace System.Text
 
         internal sealed override unsafe int GetCharCount(byte* bytes, int count, DecoderNLS? baseDecoder)
         {
-            Debug.Assert(bytes != null, "[UnicodeEncoding.GetCharCount]bytes!=null");
+            Debug.Assert(bytes is not null, "[UnicodeEncoding.GetCharCount]bytes!=null");
             Debug.Assert(count >= 0, "[UnicodeEncoding.GetCharCount]count >=0");
 
-            UnicodeEncoding.Decoder? decoder = (UnicodeEncoding.Decoder?)baseDecoder;
+            Decoder? decoder = (Decoder?)baseDecoder;
 
             byte* byteEnd = bytes + count;
             byte* byteStart = bytes;
@@ -1016,7 +1002,7 @@ namespace System.Text
             // For fallback we may need a fallback buffer
             DecoderFallbackBuffer? fallbackBuffer = null;
 
-            if (decoder != null)
+            if (decoder is not null)
             {
                 lastByte = decoder.lastByte;
                 lastChar = decoder.lastChar;
@@ -1147,21 +1133,18 @@ namespace System.Text
                             byte[]? byteBuffer = null;
                             if (bigEndian)
                             {
-                                byteBuffer = new byte[]
-                                    { unchecked((byte)(lastChar >> 8)), unchecked((byte)lastChar) };
+                                byteBuffer = [unchecked((byte)(lastChar >> 8)), unchecked((byte)lastChar)];
                             }
                             else
                             {
-                                byteBuffer = new byte[]
-                                    { unchecked((byte)lastChar), unchecked((byte)(lastChar >> 8)) };
+                                byteBuffer = [unchecked((byte)lastChar), unchecked((byte)(lastChar >> 8))];
                             }
 
-                            if (fallbackBuffer == null)
+                            if (fallbackBuffer is null)
                             {
-                                if (decoder == null)
-                                    fallbackBuffer = this.decoderFallback.CreateFallbackBuffer();
-                                else
-                                    fallbackBuffer = decoder.FallbackBuffer;
+                                fallbackBuffer = decoder is null ?
+                                    this.decoderFallback.CreateFallbackBuffer() :
+                                    decoder.FallbackBuffer;
 
                                 // Set our internal fallback interesting things.
                                 fallbackBuffer.InternalInitialize(byteStart, null);
@@ -1188,21 +1171,18 @@ namespace System.Text
                         byte[]? byteBuffer = null;
                         if (bigEndian)
                         {
-                            byteBuffer = new byte[]
-                                { unchecked((byte)(ch >> 8)), unchecked((byte)ch) };
+                            byteBuffer = [unchecked((byte)(ch >> 8)), unchecked((byte)ch)];
                         }
                         else
                         {
-                            byteBuffer = new byte[]
-                                { unchecked((byte)ch), unchecked((byte)(ch >> 8)) };
+                            byteBuffer = [unchecked((byte)ch), unchecked((byte)(ch >> 8))];
                         }
 
-                        if (fallbackBuffer == null)
+                        if (fallbackBuffer is null)
                         {
-                            if (decoder == null)
-                                fallbackBuffer = this.decoderFallback.CreateFallbackBuffer();
-                            else
-                                fallbackBuffer = decoder.FallbackBuffer;
+                            fallbackBuffer = decoder is null ?
+                                this.decoderFallback.CreateFallbackBuffer() :
+                                decoder.FallbackBuffer;
 
                             // Set our internal fallback interesting things.
                             fallbackBuffer.InternalInitialize(byteStart, null);
@@ -1227,21 +1207,18 @@ namespace System.Text
                     byte[]? byteBuffer = null;
                     if (bigEndian)
                     {
-                        byteBuffer = new byte[]
-                            { unchecked((byte)(lastChar >> 8)), unchecked((byte)lastChar) };
+                        byteBuffer = [unchecked((byte)(lastChar >> 8)), unchecked((byte)lastChar)];
                     }
                     else
                     {
-                        byteBuffer = new byte[]
-                            { unchecked((byte)lastChar), unchecked((byte)(lastChar >> 8)) };
+                        byteBuffer = [unchecked((byte)lastChar), unchecked((byte)(lastChar >> 8))];
                     }
 
-                    if (fallbackBuffer == null)
+                    if (fallbackBuffer is null)
                     {
-                        if (decoder == null)
-                            fallbackBuffer = this.decoderFallback.CreateFallbackBuffer();
-                        else
-                            fallbackBuffer = decoder.FallbackBuffer;
+                        fallbackBuffer = decoder is null ?
+                            this.decoderFallback.CreateFallbackBuffer() :
+                            decoder.FallbackBuffer;
 
                         // Set our internal fallback interesting things.
                         fallbackBuffer.InternalInitialize(byteStart, null);
@@ -1258,7 +1235,7 @@ namespace System.Text
             }
 
             // Extra space if we can't use decoder
-            if (decoder == null || decoder.MustFlush)
+            if (decoder is null || decoder.MustFlush)
             {
                 if (lastChar > 0)
                 {
@@ -1267,21 +1244,18 @@ namespace System.Text
                     byte[]? byteBuffer = null;
                     if (bigEndian)
                     {
-                        byteBuffer = new byte[]
-                            { unchecked((byte)(lastChar >> 8)), unchecked((byte)lastChar) };
+                        byteBuffer = [unchecked((byte)(lastChar >> 8)), unchecked((byte)lastChar)];
                     }
                     else
                     {
-                        byteBuffer = new byte[]
-                            { unchecked((byte)lastChar), unchecked((byte)(lastChar >> 8)) };
+                        byteBuffer = [unchecked((byte)lastChar), unchecked((byte)(lastChar >> 8))];
                     }
 
-                    if (fallbackBuffer == null)
+                    if (fallbackBuffer is null)
                     {
-                        if (decoder == null)
-                            fallbackBuffer = this.decoderFallback.CreateFallbackBuffer();
-                        else
-                            fallbackBuffer = decoder.FallbackBuffer;
+                        fallbackBuffer = decoder is null ?
+                            this.decoderFallback.CreateFallbackBuffer() :
+                            decoder.FallbackBuffer;
 
                         // Set our internal fallback interesting things.
                         fallbackBuffer.InternalInitialize(byteStart, null);
@@ -1294,19 +1268,18 @@ namespace System.Text
 
                 if (lastByte >= 0)
                 {
-                    if (fallbackBuffer == null)
+                    if (fallbackBuffer is null)
                     {
-                        if (decoder == null)
-                            fallbackBuffer = this.decoderFallback.CreateFallbackBuffer();
-                        else
-                            fallbackBuffer = decoder.FallbackBuffer;
+                        fallbackBuffer = decoder is null ?
+                            this.decoderFallback.CreateFallbackBuffer() :
+                            decoder.FallbackBuffer;
 
                         // Set our internal fallback interesting things.
                         fallbackBuffer.InternalInitialize(byteStart, null);
                     }
 
                     // No hanging odd bytes allowed if must flush
-                    charCount += fallbackBuffer.InternalFallback(new byte[] { unchecked((byte)lastByte) }, bytes);
+                    charCount += fallbackBuffer.InternalFallback([unchecked((byte)lastByte)], bytes);
                     lastByte = -1;
                 }
             }
@@ -1317,7 +1290,7 @@ namespace System.Text
 
             // Shouldn't have anything in fallback buffer for GetCharCount
             // (don't have to check _throwOnOverflow for count)
-            Debug.Assert(fallbackBuffer == null || fallbackBuffer.Remaining == 0,
+            Debug.Assert(fallbackBuffer is null || fallbackBuffer.Remaining == 0,
                 "[UnicodeEncoding.GetCharCount]Expected empty fallback buffer at end");
 
             return charCount;
@@ -1326,19 +1299,19 @@ namespace System.Text
         internal sealed override unsafe int GetChars(
             byte* bytes, int byteCount, char* chars, int charCount, DecoderNLS? baseDecoder)
         {
-            Debug.Assert(chars != null, "[UnicodeEncoding.GetChars]chars!=null");
+            Debug.Assert(chars is not null, "[UnicodeEncoding.GetChars]chars!=null");
             Debug.Assert(byteCount >= 0, "[UnicodeEncoding.GetChars]byteCount >=0");
             Debug.Assert(charCount >= 0, "[UnicodeEncoding.GetChars]charCount >=0");
-            Debug.Assert(bytes != null, "[UnicodeEncoding.GetChars]bytes!=null");
+            Debug.Assert(bytes is not null, "[UnicodeEncoding.GetChars]bytes!=null");
 
-            UnicodeEncoding.Decoder? decoder = (UnicodeEncoding.Decoder?)baseDecoder;
+            Decoder? decoder = (Decoder?)baseDecoder;
 
             // Need last vars
             int lastByte = -1;
             char lastChar = (char)0;
 
             // Get our decoder (but don't clear it yet)
-            if (decoder != null)
+            if (decoder is not null)
             {
                 lastByte = decoder.lastByte;
                 lastChar = decoder.lastChar;
@@ -1426,7 +1399,7 @@ namespace System.Text
                         // else all < 0x8000 so we can use them
 
                         // We can use these 4 chars.
-                        Unsafe.WriteUnaligned<ulong>(longChars, *longBytes);
+                        Unsafe.WriteUnaligned(longChars, *longBytes);
                         longBytes++;
                         longChars++;
                     }
@@ -1472,21 +1445,18 @@ namespace System.Text
                             byte[]? byteBuffer = null;
                             if (bigEndian)
                             {
-                                byteBuffer = new byte[]
-                                    { unchecked((byte)(lastChar >> 8)), unchecked((byte)lastChar) };
+                                byteBuffer = [unchecked((byte)(lastChar >> 8)), unchecked((byte)lastChar)];
                             }
                             else
                             {
-                                byteBuffer = new byte[]
-                                    { unchecked((byte)lastChar), unchecked((byte)(lastChar >> 8)) };
+                                byteBuffer = [unchecked((byte)lastChar), unchecked((byte)(lastChar >> 8))];
                             }
 
-                            if (fallbackBuffer == null)
+                            if (fallbackBuffer is null)
                             {
-                                if (decoder == null)
-                                    fallbackBuffer = this.decoderFallback.CreateFallbackBuffer();
-                                else
-                                    fallbackBuffer = decoder.FallbackBuffer;
+                                fallbackBuffer = decoder is null ?
+                                    this.decoderFallback.CreateFallbackBuffer() :
+                                    decoder.FallbackBuffer;
 
                                 // Set our internal fallback interesting things.
                                 fallbackBuffer.InternalInitialize(byteStart, charEnd);
@@ -1524,21 +1494,18 @@ namespace System.Text
                         byte[]? byteBuffer = null;
                         if (bigEndian)
                         {
-                            byteBuffer = new byte[]
-                                { unchecked((byte)(ch >> 8)), unchecked((byte)ch) };
+                            byteBuffer = [unchecked((byte)(ch >> 8)), unchecked((byte)ch)];
                         }
                         else
                         {
-                            byteBuffer = new byte[]
-                                { unchecked((byte)ch), unchecked((byte)(ch >> 8)) };
+                            byteBuffer = [unchecked((byte)ch), unchecked((byte)(ch >> 8))];
                         }
 
-                        if (fallbackBuffer == null)
+                        if (fallbackBuffer is null)
                         {
-                            if (decoder == null)
-                                fallbackBuffer = this.decoderFallback.CreateFallbackBuffer();
-                            else
-                                fallbackBuffer = decoder.FallbackBuffer;
+                            fallbackBuffer = decoder is null ?
+                                this.decoderFallback.CreateFallbackBuffer() :
+                                decoder.FallbackBuffer;
 
                             // Set our internal fallback interesting things.
                             fallbackBuffer.InternalInitialize(byteStart, charEnd);
@@ -1565,7 +1532,7 @@ namespace System.Text
                     }
 
                     // Valid surrogate pair, add our lastChar (will need 2 chars)
-                    if (chars >= charEnd - 1)
+                    if (charEnd - chars < 2)
                     {
                         // couldn't find room for this surrogate pair
                         // We either advanced bytes or chars should == charStart and throw below
@@ -1586,21 +1553,18 @@ namespace System.Text
                     byte[]? byteBuffer = null;
                     if (bigEndian)
                     {
-                        byteBuffer = new byte[]
-                            { unchecked((byte)(lastChar >> 8)), unchecked((byte)lastChar) };
+                        byteBuffer = [unchecked((byte)(lastChar >> 8)), unchecked((byte)lastChar)];
                     }
                     else
                     {
-                        byteBuffer = new byte[]
-                            { unchecked((byte)lastChar), unchecked((byte)(lastChar >> 8)) };
+                        byteBuffer = [unchecked((byte)lastChar), unchecked((byte)(lastChar >> 8))];
                     }
 
-                    if (fallbackBuffer == null)
+                    if (fallbackBuffer is null)
                     {
-                        if (decoder == null)
-                            fallbackBuffer = this.decoderFallback.CreateFallbackBuffer();
-                        else
-                            fallbackBuffer = decoder.FallbackBuffer;
+                        fallbackBuffer = decoder is null ?
+                            this.decoderFallback.CreateFallbackBuffer() :
+                            decoder.FallbackBuffer;
 
                         // Set our internal fallback interesting things.
                         fallbackBuffer.InternalInitialize(byteStart, charEnd);
@@ -1643,7 +1607,7 @@ namespace System.Text
             }
 
             // Remember our decoder if we must
-            if (decoder == null || decoder.MustFlush)
+            if (decoder is null || decoder.MustFlush)
             {
                 if (lastChar > 0)
                 {
@@ -1651,21 +1615,18 @@ namespace System.Text
                     byte[]? byteBuffer = null;
                     if (bigEndian)
                     {
-                        byteBuffer = new byte[]
-                            { unchecked((byte)(lastChar >> 8)), unchecked((byte)lastChar) };
+                        byteBuffer = [unchecked((byte)(lastChar >> 8)), unchecked((byte)lastChar)];
                     }
                     else
                     {
-                        byteBuffer = new byte[]
-                            { unchecked((byte)lastChar), unchecked((byte)(lastChar >> 8)) };
+                        byteBuffer = [unchecked((byte)lastChar), unchecked((byte)(lastChar >> 8))];
                     }
 
-                    if (fallbackBuffer == null)
+                    if (fallbackBuffer is null)
                     {
-                        if (decoder == null)
-                            fallbackBuffer = this.decoderFallback.CreateFallbackBuffer();
-                        else
-                            fallbackBuffer = decoder.FallbackBuffer;
+                        fallbackBuffer = decoder is null ?
+                            this.decoderFallback.CreateFallbackBuffer() :
+                            decoder.FallbackBuffer;
 
                         // Set our internal fallback interesting things.
                         fallbackBuffer.InternalInitialize(byteStart, charEnd);
@@ -1699,12 +1660,11 @@ namespace System.Text
 
                 if (lastByte >= 0)
                 {
-                    if (fallbackBuffer == null)
+                    if (fallbackBuffer is null)
                     {
-                        if (decoder == null)
-                            fallbackBuffer = this.decoderFallback.CreateFallbackBuffer();
-                        else
-                            fallbackBuffer = decoder.FallbackBuffer;
+                        fallbackBuffer = decoder is null ?
+                            this.decoderFallback.CreateFallbackBuffer() :
+                            decoder.FallbackBuffer;
 
                         // Set our internal fallback interesting things.
                         fallbackBuffer.InternalInitialize(byteStart, charEnd);
@@ -1712,7 +1672,7 @@ namespace System.Text
 
                     // No hanging odd bytes allowed if must flush
                     charsForFallback = chars; // Avoid passing chars by reference to allow it to be en-registered
-                    bool fallbackResult = fallbackBuffer.InternalFallback(new byte[] { unchecked((byte)lastByte) }, bytes, ref charsForFallback);
+                    bool fallbackResult = fallbackBuffer.InternalFallback([unchecked((byte)lastByte)], bytes, ref charsForFallback);
                     chars = charsForFallback;
 
                     if (!fallbackResult)
@@ -1734,12 +1694,10 @@ namespace System.Text
         End:
 
             // Remember our decoder if we must
-            if (decoder != null)
+            if (decoder is not null)
             {
                 Debug.Assert(!decoder.MustFlush || ((lastChar == (char)0) && (lastByte == -1)),
-                    "[UnicodeEncoding.GetChars] Expected no left over chars or bytes if flushing"
-                    // + " " + ((int)lastChar).ToString("X4") + " " + lastByte.ToString("X2")
-                    );
+                    "[UnicodeEncoding.GetChars] Expected no left over chars or bytes if flushing");
 
                 decoder._bytesUsed = (int)(bytes - byteStart);
                 decoder.lastChar = lastChar;
@@ -1748,20 +1706,20 @@ namespace System.Text
 
             // Shouldn't have anything in fallback buffer for GetChars
             // (don't have to check _throwOnOverflow for count or chars)
-            Debug.Assert(fallbackBuffer == null || fallbackBuffer.Remaining == 0,
+            Debug.Assert(fallbackBuffer is null || fallbackBuffer.Remaining == 0,
                 "[UnicodeEncoding.GetChars]Expected empty fallback buffer at end");
 
             return (int)(chars - charStart);
         }
 
-        public override System.Text.Encoder GetEncoder()
+        public override Encoder GetEncoder()
         {
             return new EncoderNLS(this);
         }
 
-        public override System.Text.Decoder GetDecoder()
+        public override Text.Decoder GetDecoder()
         {
-            return new UnicodeEncoding.Decoder(this);
+            return new Decoder(this);
         }
 
         public override byte[] GetPreamble()
@@ -1771,24 +1729,22 @@ namespace System.Text
                 // Note - we must allocate new byte[]'s here to prevent someone
                 // from modifying a cached byte[].
                 if (bigEndian)
-                    return new byte[2] { 0xfe, 0xff };
+                    return [0xfe, 0xff];
                 else
-                    return new byte[2] { 0xff, 0xfe };
+                    return [0xff, 0xfe];
             }
-            return Array.Empty<byte>();
+            return [];
         }
 
         public override ReadOnlySpan<byte> Preamble =>
             GetType() != typeof(UnicodeEncoding) ? new ReadOnlySpan<byte>(GetPreamble()) : // in case a derived UnicodeEncoding overrode GetPreamble
             !byteOrderMark ? default :
-            bigEndian ? (ReadOnlySpan<byte>)new byte[2] { 0xfe, 0xff } : // uses C# compiler's optimization for static byte[] data
-            (ReadOnlySpan<byte>)new byte[2] { 0xff, 0xfe };
+            bigEndian ? [0xfe, 0xff] :
+            [0xff, 0xfe];
 
         public override int GetMaxByteCount(int charCount)
         {
-            if (charCount < 0)
-                throw new ArgumentOutOfRangeException(nameof(charCount),
-                     SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(charCount);
 
             // Characters would be # of characters + 1 in case left over high surrogate is ? * max fallback
             long byteCount = (long)charCount + 1;
@@ -1807,9 +1763,7 @@ namespace System.Text
 
         public override int GetMaxCharCount(int byteCount)
         {
-            if (byteCount < 0)
-                throw new ArgumentOutOfRangeException(nameof(byteCount),
-                     SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(byteCount);
 
             // long because byteCount could be biggest int.
             // 1 char per 2 bytes.  Round up in case 1 left over in decoder.
@@ -1827,7 +1781,7 @@ namespace System.Text
             return (int)charCount;
         }
 
-        public override bool Equals(object? value)
+        public override bool Equals([NotNullWhen(true)] object? value)
         {
             if (value is UnicodeEncoding that)
             {
@@ -1851,7 +1805,7 @@ namespace System.Text
                    (byteOrderMark ? 4 : 0) + (bigEndian ? 8 : 0);
         }
 
-        private sealed class Decoder : System.Text.DecoderNLS
+        private sealed class Decoder : DecoderNLS
         {
             internal int lastByte = -1;
             internal char lastChar;
@@ -1865,8 +1819,7 @@ namespace System.Text
             {
                 lastByte = -1;
                 lastChar = '\0';
-                if (_fallbackBuffer != null)
-                    _fallbackBuffer.Reset();
+                _fallbackBuffer?.Reset();
             }
 
             // Anything left in our decoder?

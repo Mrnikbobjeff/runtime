@@ -18,7 +18,7 @@ namespace System.IO.Ports.Tests
 
         #region Test Cases
         [KnownFailure]
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReceivedEvent), nameof(HasNullModem))]
         public void ReceivedEvent_Chars()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -54,7 +54,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReceivedEvent), nameof(HasNullModem))]
         public void ReceivedEvent_NoDuplicateEvents()
         {
             using (var com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -83,7 +83,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReceivedEvent), nameof(HasNullModem))]
         public void ReceivedEvent_OneEventPerByte()
         {
             using (var com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -112,7 +112,7 @@ namespace System.IO.Ports.Tests
         }
 
         [KnownFailure]
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReceivedEvent), nameof(HasNullModem))]
         public void ReceivedEvent_Eof()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -153,7 +153,7 @@ namespace System.IO.Ports.Tests
         }
 
         [KnownFailure]
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReceivedEvent), nameof(HasNullModem))]
         public void ReceivedEvent_CharsEof()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -195,7 +195,7 @@ namespace System.IO.Ports.Tests
         }
 
         [KnownFailure]
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReceivedEvent), nameof(HasNullModem))]
         public void ReceivedEvent_CharsEof_ReadAllChars()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -343,7 +343,7 @@ namespace System.IO.Ports.Tests
                         }
                     }
 
-                    Assert.True(false, "Wait for event failure");
+                    Assert.Fail("Wait for event failure");
                 }
             }
 
@@ -368,7 +368,7 @@ namespace System.IO.Ports.Tests
                     }
                 }
 
-                Assert.True(false, $"Validate {eventType} failed");
+                Assert.Fail($"Validate {eventType} failed");
             }
 
             public int NumberOfOccurrencesOfType(SerialData eventType)

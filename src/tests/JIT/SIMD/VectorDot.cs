@@ -4,8 +4,11 @@
 
 using System;
 using System.Numerics;
+using Xunit;
 
-internal partial class VectorTest
+namespace SIMDTests.VectorDotTests;
+
+public partial class VectorTest : VectorTestBase
 {
     private const int Pass = 100;
     private const int Fail = -1;
@@ -94,7 +97,8 @@ internal partial class VectorTest
         }
     }
 
-    private static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int returnVal = Pass;
         if (VectorDotTest<float>.VectorDot(3f, 2f, 6f * Vector<float>.Count) != Pass) returnVal = Fail;
@@ -110,6 +114,8 @@ internal partial class VectorTest
         if (VectorDotTest<sbyte>.VectorDot(3, 2, (sbyte)(6 * Vector<sbyte>.Count)) != Pass) returnVal = Fail;
         if (VectorDotTest<uint>.VectorDot(3u, 2u, (uint)(6 * Vector<uint>.Count)) != Pass) returnVal = Fail;
         if (VectorDotTest<ulong>.VectorDot(3ul, 2ul, 6ul * (ulong)Vector<ulong>.Count) != Pass) returnVal = Fail;
+        if (VectorDotTest<nint>.VectorDot(3, 2, 6 * Vector<nint>.Count) != Pass) returnVal = Fail;
+        if (VectorDotTest<nuint>.VectorDot(3u, 2u, (nuint)(6 * Vector<nuint>.Count)) != Pass) returnVal = Fail;
 
         JitLog jitLog = new JitLog();
         // Dot is only recognized as an intrinsic for floating point element types

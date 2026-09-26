@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 
 namespace System.Collections.Immutable
 {
@@ -18,7 +19,7 @@ namespace System.Collections.Immutable
         /// </summary>
         /// <remarks>
         /// <para>
-        /// While <see cref="ImmutableList{T}.AddRange"/> and other bulk change methods
+        /// While <see cref="M:ImmutableList{T}.AddRange"/> and other bulk change methods
         /// already provide fast bulk change operations on the collection, this class allows
         /// multiple combinations of changes to be made to a set with equal efficiency.
         /// </para>
@@ -28,7 +29,7 @@ namespace System.Collections.Immutable
         /// </remarks>
         [DebuggerDisplay("Count = {Count}")]
         [DebuggerTypeProxy(typeof(ImmutableListBuilderDebuggerProxy<>))]
-        public sealed class Builder : IList<T>, IList, IOrderedCollection<T>, IImmutableListQueries<T>, IReadOnlyList<T>
+        public sealed class Builder : IList<T>, IList, IReadOnlyList<T>
         {
             /// <summary>
             /// The binary tree used to store the contents of the list.  Contents are typically not entirely frozen.
@@ -45,11 +46,6 @@ namespace System.Collections.Immutable
             /// A number that increments every time the builder changes its contents.
             /// </summary>
             private int _version;
-
-            /// <summary>
-            /// The object callers may use to synchronize access to this collection.
-            /// </summary>
-            private object? _syncRoot;
 
             /// <summary>
             /// Initializes a new instance of the <see cref="Builder"/> class.
@@ -129,31 +125,14 @@ namespace System.Collections.Immutable
             {
                 get
                 {
-#if !NETSTANDARD1_0
                     return this.Root.ItemRef(index);
-#else
-                    return this.Root[index];
-#endif
                 }
-
                 set
                 {
                     this.Root = this.Root.ReplaceAt(index, value);
                 }
             }
 
-            /// <summary>
-            /// Gets the element in the collection at a given index.
-            /// </summary>
-            T IOrderedCollection<T>.this[int index]
-            {
-                get
-                {
-                    return this[index];
-                }
-            }
-
-#if !NETSTANDARD1_0
             /// <summary>
             /// Gets a read-only reference to the value for a given index into the list.
             /// </summary>
@@ -163,7 +142,6 @@ namespace System.Collections.Immutable
             {
                 return ref this.Root.ItemRef(index);
             }
-#endif
 
             #endregion
 
@@ -758,6 +736,107 @@ namespace System.Collections.Immutable
             }
 
             /// <summary>
+            /// Removes the first occurrence matching the specified value from this list.
+            /// </summary>
+            /// <param name="item">The item to remove.</param>
+            /// <param name="equalityComparer">
+            /// The equality comparer to use in the search.
+            /// If <c>null</c>, <see cref="EqualityComparer{T}.Default"/> is used.
+            /// </param>
+            /// <returns>A value indicating whether the specified element was found and removed from the collection.</returns>
+            public bool Remove(T item, IEqualityComparer<T>? equalityComparer)
+            {
+                int index = this.IndexOf(item, 0, this.Count, equalityComparer);
+                if (index >= 0)
+                {
+                    this.RemoveAt(index);
+                    return true;
+                }
+
+                return false;
+            }
+
+            /// <summary>
+            /// Removes the specified range of values from this list.
+            /// </summary>
+            /// <param name="index">The starting index to begin removal.</param>
+            /// <param name="count">The number of elements to remove.</param>
+            public void RemoveRange(int index, int count)
+            {
+                Requires.Range(index >= 0 && index <= this.Count, nameof(index));
+                Requires.Range(count >= 0 && index <= this.Count - count, nameof(count));
+
+                int remaining = count;
+                while (remaining-- > 0)
+                {
+                    this.RemoveAt(index);
+                }
+            }
+
+            /// <summary>
+            /// Removes any first occurrences of the specified values from this list.
+            /// </summary>
+            /// <param name="items">The items to remove if matches are found in this list.</param>
+            /// <param name="equalityComparer">
+            /// The equality comparer to use in the search.
+            /// If <c>null</c>, <see cref="EqualityComparer{T}.Default"/> is used.
+            /// </param>
+            public void RemoveRange(IEnumerable<T> items, IEqualityComparer<T>? equalityComparer)
+            {
+                Requires.NotNull(items, nameof(items));
+
+                foreach (T item in items.GetEnumerableDisposable<T, Enumerator>())
+                {
+                    int index = this.Root.IndexOf(item, equalityComparer);
+                    if (index >= 0)
+                    {
+                        this.RemoveAt(index);
+                    }
+                }
+            }
+
+            /// <summary>
+            /// Removes any first occurrences of the specified values from this list.
+            /// </summary>
+            /// <param name="items">The items to remove if matches are found in this list.</param>
+            public void RemoveRange(IEnumerable<T> items)
+            {
+                this.RemoveRange(items, EqualityComparer<T>.Default);
+            }
+
+            /// <summary>
+            /// Replaces the first equal element in the list with the specified element.
+            /// </summary>
+            /// <param name="oldValue">The element to replace.</param>
+            /// <param name="newValue">The element to replace the old element with.</param>
+            /// <exception cref="ArgumentException">Thrown when the old value does not exist in the list.</exception>
+            public void Replace(T oldValue, T newValue)
+            {
+                this.Replace(oldValue, newValue, EqualityComparer<T>.Default);
+            }
+
+            /// <summary>
+            /// Replaces the first equal element in the list with the specified element.
+            /// </summary>
+            /// <param name="oldValue">The element to replace.</param>
+            /// <param name="newValue">The element to replace the old element with.</param>
+            /// <param name="equalityComparer">
+            /// The equality comparer to use in the search.
+            /// If <c>null</c>, <see cref="EqualityComparer{T}.Default"/> is used.
+            /// </param>
+            /// <exception cref="ArgumentException">Thrown when the old value does not exist in the list.</exception>
+            public void Replace(T oldValue, T newValue, IEqualityComparer<T>? equalityComparer)
+            {
+                int index = this.IndexOf(oldValue, 0, this.Count, equalityComparer);
+                if (index < 0)
+                {
+                    throw new ArgumentException(SR.CannotFindOldValue, nameof(oldValue));
+                }
+
+                this.Root = this.Root.ReplaceAt(index, newValue);
+            }
+
+            /// <summary>
             /// Reverses the order of the elements in the entire ImmutableList&lt;T&gt;.
             /// </summary>
             public void Reverse()
@@ -930,12 +1009,7 @@ namespace System.Collections.Immutable
                 // Creating an instance of ImmutableList<T> with our root node automatically freezes our tree,
                 // ensuring that the returned instance is immutable.  Any further mutations made to this builder
                 // will clone (and unfreeze) the spine of modified nodes until the next time this method is invoked.
-                if (_immutable == null)
-                {
-                    _immutable = ImmutableList<T>.WrapNode(this.Root);
-                }
-
-                return _immutable;
+                return _immutable ??= ImmutableList<T>.WrapNode(this.Root);
             }
 
             #endregion
@@ -1081,18 +1155,8 @@ namespace System.Collections.Immutable
             /// </summary>
             /// <returns>An object that can be used to synchronize access to the <see cref="ICollection"/>.</returns>
             [DebuggerBrowsable(DebuggerBrowsableState.Never)]
-            object ICollection.SyncRoot
-            {
-                get
-                {
-                    if (_syncRoot == null)
-                    {
-                        System.Threading.Interlocked.CompareExchange<object?>(ref _syncRoot, new object(), null);
-                    }
-
-                    return _syncRoot;
-                }
-            }
+            object ICollection.SyncRoot =>
+                 field ?? Interlocked.CompareExchange(ref field, new object(), null) ?? field;
             #endregion
         }
     }
@@ -1100,17 +1164,12 @@ namespace System.Collections.Immutable
     /// <summary>
     /// A simple view of the immutable list that the debugger can show to the developer.
     /// </summary>
-    internal class ImmutableListBuilderDebuggerProxy<T>
+    internal sealed class ImmutableListBuilderDebuggerProxy<T>
     {
         /// <summary>
         /// The collection to be enumerated.
         /// </summary>
         private readonly ImmutableList<T>.Builder _list;
-
-        /// <summary>
-        /// The simple view of the collection.
-        /// </summary>
-        private T[]? _cachedContents;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ImmutableListBuilderDebuggerProxy{T}"/> class.
@@ -1126,17 +1185,6 @@ namespace System.Collections.Immutable
         /// Gets a simple debugger-viewable list.
         /// </summary>
         [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
-        public T[] Contents
-        {
-            get
-            {
-                if (_cachedContents == null)
-                {
-                    _cachedContents = _list.ToArray(_list.Count);
-                }
-
-                return _cachedContents;
-            }
-        }
+        public T[] Contents => field ??= _list.ToArray(_list.Count);
     }
 }

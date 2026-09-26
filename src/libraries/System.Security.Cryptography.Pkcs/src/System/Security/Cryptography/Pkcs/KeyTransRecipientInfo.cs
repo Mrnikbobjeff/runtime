@@ -27,7 +27,7 @@ namespace System.Security.Cryptography.Pkcs
         {
             get
             {
-                return _lazyRecipientIdentifier ?? (_lazyRecipientIdentifier = Pal.RecipientIdentifier);
+                return _lazyRecipientIdentifier ??= Pal.RecipientIdentifier;
             }
         }
 
@@ -35,7 +35,7 @@ namespace System.Security.Cryptography.Pkcs
         {
             get
             {
-                return _lazyKeyEncryptionAlgorithm ?? (_lazyKeyEncryptionAlgorithm = Pal.KeyEncryptionAlgorithm);
+                return _lazyKeyEncryptionAlgorithm ??= Pal.KeyEncryptionAlgorithm;
             }
         }
 
@@ -43,7 +43,7 @@ namespace System.Security.Cryptography.Pkcs
         {
             get
             {
-                return _lazyEncryptedKey ?? (_lazyEncryptedKey = Pal.EncryptedKey);
+                return _lazyEncryptedKey ??= Pal.EncryptedKey;
             }
         }
 
@@ -55,8 +55,8 @@ namespace System.Security.Cryptography.Pkcs
             }
         }
 
-        private volatile SubjectIdentifier? _lazyRecipientIdentifier;
-        private volatile AlgorithmIdentifier? _lazyKeyEncryptionAlgorithm;
-        private volatile byte[]? _lazyEncryptedKey;
+        private SubjectIdentifier? _lazyRecipientIdentifier;
+        private AlgorithmIdentifier? _lazyKeyEncryptionAlgorithm;
+        private byte[]? _lazyEncryptedKey;
     }
 }

@@ -6,7 +6,7 @@
 - An implementation of the Common Language Infrastructure [ECMA 335]
   - Supports multiple languages, including C#, F# and VB
 - RyuJIT is the "next generation" just in time compiler for .NET
-- Sources are at https://github.com/dotnet/runtime/tree/master/src/coreclr/src/jit
+- Sources are at https://github.com/dotnet/runtime/tree/main/src/coreclr/jit
 
 #### Notes
 For context, the .NET runtime has been around since about the turn of the millennium. It is a virtual machine that supports the execution of a number of languages, primarily C#, Visual Basic, and F#.
@@ -49,14 +49,13 @@ Finally, while the original JIT was quite x86-oriented, we now have a broader se
 
 ### Execution Environment & External Interface
 - RyuJIT provides just-in-time compilation for the .NET runtime (aka EE or VM or CLR)
-  - It is currently "single-tier" – no interpreter or higher-level optimizer, though multi-tier support is in the works
+  - Supports "tiering", where code can be compiled with most optimizations turned off (Tier 0), and the VM can later request the same method be recompiled with optimizations turned on (Tier 1).
 - ICorJitCompiler – this is the interface that the JIT compiler implements, and includes compileMethod (corjit.h)
 - ICorJitInfo – this is the interface that the EE implements to provide type & method info
   - Inherits from ICorDynamicInfo (corinfo.h)
 
 #### Notes
-In this talk and elsewhere, you will see the .NET runtime often refered to as the VM, for virtual machine, the EE, for execution engine, or the CLR, for common language runtime. They are largely used interchangeably, though some might argue the terms have subtle differences.
-.NET is somewhat unique in that it currently has a single-tier JIT – no interpreter, and no re-optimizing JIT. While an interpreter exists, and experimentation has been done on re-jitting, the current model remains single-tier.
+In this document and elsewhere, you will see the .NET runtime often referred to as the VM, for virtual machine, the EE, for execution engine, or the CLR, for common language runtime. They are largely used interchangeably, though some might argue the terms have subtle differences.
 
 The JIT and the VM each implement an interface that abstracts the dependencies they share. The VM invokes methods on the ICorJitCompiler interface to compile methods, and the JIT calls back on the ICorJitInfo interface to get information about types and methods.
 
@@ -68,6 +67,10 @@ The JIT and the VM each implement an interface that abstracts the dependencies t
 This is the 10,000 foot view of RyuJIT. It takes in MSIL (aka CIL) in the form of byte codes, and the Importer phase transforms these to the intermediate representation used in the JIT. The IR operations are called "GenTrees", as in "trees for code generation". This format is preserved across the bulk of the JIT, with some changes in form and invariants along the way. Eventually, the code generator produces a low-level intermediate called InstrDescs, which simply capture the instruction encodings while the final mappings are done to produce the actual native code and associated tables.
 
 ### RyuJIT Phases
+
+Note: Various details in what follows are outdated and should be mostly taken to be of historical interest.
+For more up-to-date information about the phases and their details, please see [the overview document](ryujit-overview.md).
+
 ![RyuJIT Phases](images/ryujit-phase-diagram.png)
 
 #### Notes
@@ -447,6 +450,10 @@ This is the same diagram as before, but with additional links to indicate execut
   - Determine initial value for dependent phis
 - Eliminate checks where the range of the index is within the check range
 
+### Induction Variable Optimization
+- Perform scalar evolution analysis to describe values of IR nodes inside loops
+- Perform IV widening on x64 to avoid unnecessary zero extensions for array/span indexing
+
 ## RyuJIT Back-End
 
 ### Rationalization
@@ -622,12 +629,12 @@ Note that this is not necessarily the approach one would take, because the loop 
 
 ### Getting Dumps
 ```
-set COMPlus_JitDump=Main
-set COMPlus_JitDumpAscii=0
-set COMPlus_JitDumpFg=Main
-set COMPlus_JitDumpFgDot=1
-set COMPlus_JitDumpFgFile=Main
-set COMPlus_JitDumpFgPhase=OPT-CHK
+set DOTNET_JitDump=Main
+set DOTNET_JitDumpAscii=0
+set DOTNET_JitDumpFg=Main
+set DOTNET_JitDumpFgDot=1
+set DOTNET_JitDumpFgFile=Main
+set DOTNET_JitDumpFgPhase=OPT-CHK
 ```
 {BinaryDir}\CoreRun.exe PopCount.exe 1122334455667788 > jitdump.out.0
 
@@ -650,8 +657,8 @@ I added/changed some foundational stuff:
   - unsigned optIsLclVarUpdateTree(GenTreePtr tree, GenTreePtr* otherTree, genTreeOps *updateOper);
 
 Getting Ready
-- Set COMPlus_JitDump=Main
-- Set COMPlus_AltJit=*
+- Set DOTNET_JitDump=Main
+- Set DOTNET_AltJit=*
 - Run and capture jitdump1.out
 - Examine the IR for the loop just prior to optCloneLoops
 
@@ -661,13 +668,13 @@ Recognize "Intrinsic" (SampleStep1 shelveset)
   - instrsxarch.h: encoding
   - codegenxarch.cpp: generate instruction
   - importer.cpp: name recognition
-- set COMPLUS_JitDump
+- set DOTNET_JitDump
 - Run & capture jitdump2.out, search for CountBits, then look at disassembly
 
 Add Pattern Recognition (SampleStep2 shelveset):
 - ifdef out the name recognition
 - Go back to jitdump1.out and look at IR just prior to optCloneLoops
-- Let's assume we're going to eventually add more than one instrinsic that implements a loop, so we'll add a method that looks for simple loops we can turn into intrinsics.
+- Let's assume we're going to eventually add more than one intrinsic that implements a loop, so we'll add a method that looks for simple loops we can turn into intrinsics.
 - Unshelve SampleStep2:
 - Add optFindLoopIntrinsics() to compCompile after optOptimizeLoops()
 - compiler.h, compiler.cpp
@@ -678,19 +685,19 @@ Add Pattern Recognition (SampleStep2 shelveset):
 
 ## Backup
 
-### COMPlus Variables
-- COMPlus_JitDump={method-list} – lots of info about what the JIT is doing
-- COMPlus_JitDisasm={method-list} – disassembly listing of each method
-- COMPlus_JitDiffableDasm – avoid printing pointer values that can change from one invocation to the next, so that the disassembly can be more easily diffed.
-- COMPlus_JITGCDump={method-list} – this dumps the GC information.
-- COMPlus_JitUnwindDump={method-list} – dumps the unwind tables.
-- COMPlus_JitEHDump={method-list} – dumps the exception handling tables.
-- COMPlus_JitTimeLogFile – a log file for timing information (dbg or chk builds)
-- COMPlus_JitTimeLogCsv – a log file for timing information in csv form (all builds)
+### Environment Variables
+- DOTNET_JitDump={method-list} – lots of info about what the JIT is doing
+- DOTNET_JitDisasm={method-list} – disassembly listing of each method
+- DOTNET_JitDisasmDiffable – avoid printing pointer values that can change from one invocation to the next, so that the disassembly can be more easily diffed.
+- DOTNET_JITGCDump={method-list} – this dumps the GC information.
+- DOTNET_JitUnwindDump={method-list} – dumps the unwind tables.
+- DOTNET_JitEHDump={method-list} – dumps the exception handling tables.
+- DOTNET_JitTimeLogFile – a log file for timing information (dbg or chk builds)
+- DOTNET_JitTimeLogCsv – a log file for timing information in csv form (all builds)
 - {method-list} can be a space-separated list of method names or * for all methods
 
 ### IR Dump: Front-end
-Here is an example dump in tree order (shown with COMPlus_JitDumpAscii=0)
+Here is an example dump in tree order (shown with DOTNET_JitDumpAscii=0)
 ```
 STMT00000 (IL   ???...  ???)
 [000067] -AC-G-------      ▌  call help void   HELPER.CORINFO_HELP_ARRADDR_ST

@@ -49,7 +49,7 @@ namespace System.Configuration
 
             // Don't bother to look around if we've already got something that
             // is clearly not a simple type name.
-            if (string.IsNullOrEmpty(typeString) || typeString.IndexOf(',') != -1) // string.Contains(char) is .NetCore2.1+ specific
+            if (string.IsNullOrEmpty(typeString) || typeString.Contains(','))
                 return null;
 
             // Ignore all exceptions, otherwise callers will get unexpected
@@ -100,12 +100,7 @@ namespace System.Configuration
                 }
             }
 
-            if (type == null)
-            {
-                type = GetImplicitType(typeString);
-            }
-
-            return type;
+            return type ?? GetImplicitType(typeString);
         }
 
         // Ask the host to get the type specified by typeString. If it fails, try to retrieve it
@@ -127,12 +122,7 @@ namespace System.Configuration
                 }
             }
 
-            if (type == null)
-            {
-                type = GetImplicitType(typeString);
-            }
-
-            return type;
+            return type ?? GetImplicitType(typeString);
         }
 
         internal static T CreateInstance<T>(string typeString)

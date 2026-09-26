@@ -15,9 +15,6 @@ namespace System.Reflection.Metadata
 
         internal TypeReference(MetadataReader reader, uint treatmentAndRowId)
         {
-            Debug.Assert(reader != null);
-            Debug.Assert(treatmentAndRowId != 0);
-
             _reader = reader;
             _treatmentAndRowId = treatmentAndRowId;
         }
@@ -109,7 +106,7 @@ namespace System.Reflection.Metadata
                     return MetadataReader.GetProjectedAssemblyRef(RowId);
             }
 
-            Debug.Assert(false, "Unknown TypeRef treatment");
+            Debug.Fail("Unknown TypeRef treatment");
             return default(AssemblyReferenceHandle);
         }
 
@@ -137,7 +134,7 @@ namespace System.Reflection.Metadata
                     return MetadataReader.GetProjectedNamespace(RowId);
             }
 
-            Debug.Assert(false, "Unknown TypeRef treatment");
+            Debug.Fail("Unknown TypeRef treatment");
             return default(StringHandle);
         }
 

@@ -3,11 +3,17 @@
 //
 
 // Compute distance light travels using long variables.
+
+namespace b15797;
+
 using System;
-class Light
+using Xunit;
+public class Light
 {
 
-    public static int Main(String[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int lightspeed;
         long days;

@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b38403
 {
     using System;
 
@@ -16,7 +17,7 @@ namespace Test
         public static AA[] m_axStatic4 = new AA[7];
     }
 
-    class JJ
+    public class JJ
     {
         static CC m_xStatic2 = new CC();
 
@@ -25,14 +26,15 @@ namespace Test
             while (AA.m_bStatic1) ;
         }
 
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             CC local5 = new CC();
             do
             {
                 Static1(0.0f, CC.m_axStatic4[2]);
             } while (AA.m_bStatic1);
-            return 100;
         }
     }
 }

@@ -1,11 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 
-internal class Test
+namespace b14077;
+
+using System;
+using Xunit;
+
+public class Test
 {
-    static public int Main(string[] args)
+    [OuterLoop]
+    [Fact]
+    static public int TestEntryPoint()
     {
         bool b1 = Double.IsPositiveInfinity(Math.Exp(Double.PositiveInfinity));
         bool b2 = 0 == Math.Exp(Double.NegativeInfinity);

@@ -1,14 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.IO;
-using System.Globalization;
 using System.Collections;
-using System.Reflection;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.IO;
 
 namespace System.Runtime.Serialization
 {
     [CLSCompliant(false)]
+    [Obsolete(Obsoletions.BinaryFormatterMessage, DiagnosticId = Obsoletions.BinaryFormatterDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
     public abstract class Formatter : IFormatter
     {
         protected ObjectIDGenerator m_idGenerator;
@@ -20,7 +21,8 @@ namespace System.Runtime.Serialization
             m_idGenerator = new ObjectIDGenerator();
         }
 
-        [Obsolete(Obsoletions.BinaryFormatterMessage, DiagnosticId = Obsoletions.BinaryFormatterDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [RequiresDynamicCode(IFormatter.RequiresDynamicCodeMessage)]
+        [RequiresUnreferencedCode(IFormatter.RequiresUnreferencedCodeMessage)]
         public abstract object Deserialize(Stream serializationStream);
 
         protected virtual object? GetNext(out long objID)
@@ -60,7 +62,7 @@ namespace System.Runtime.Serialization
             return id;
         }
 
-        [Obsolete(Obsoletions.BinaryFormatterMessage, DiagnosticId = Obsoletions.BinaryFormatterDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [RequiresUnreferencedCode(IFormatter.RequiresUnreferencedCodeMessage)]
         public abstract void Serialize(Stream serializationStream, object graph);
 
         protected abstract void WriteArray(object obj, string name, Type memberType);

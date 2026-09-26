@@ -1,10 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <GCStressIncompatible>true</GCStressIncompatible>
-    <CLRTestPriority>1</CLRTestPriority>
-    <!-- ilasm round-trip test failure, see https://github.com/dotnet/runtime/issues/38529 -->
-    <IlasmRoundTripIncompatible>true</IlasmRoundTripIncompatible>
+    <MonoAotIncompatible>true</MonoAotIncompatible>
   </PropertyGroup>
   <PropertyGroup>
     <DebugType>Full</DebugType>
@@ -12,5 +8,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="HugeField2.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(TestLibraryProjectPath)" />
   </ItemGroup>
 </Project>

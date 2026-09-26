@@ -1,14 +1,20 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b604247;
+
 using System;
 using System.Threading;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 public class Test
 {
-    public static int Main(String[] arguments)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         bool testCaseSucceeded = false;
         string[] theArray = { "Wrong =0", "Correct =1", "Wrong =2", "Wrong =3" };

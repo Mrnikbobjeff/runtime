@@ -16,7 +16,7 @@ namespace System.Net.Http.Tests
             Assert.Equal("token", value.Value);
             Assert.Null(value.Quality);
 
-            AssertExtensions.Throws<ArgumentException>("value", () => { new StringWithQualityHeaderValue(null); });
+            AssertExtensions.Throws<ArgumentNullException>("value", () => { new StringWithQualityHeaderValue(null); });
             AssertExtensions.Throws<ArgumentException>("value", () => { new StringWithQualityHeaderValue(""); });
             Assert.Throws<FormatException>(() => { new StringWithQualityHeaderValue("in valid"); });
         }
@@ -28,7 +28,7 @@ namespace System.Net.Http.Tests
             Assert.Equal("token", value.Value);
             Assert.Equal(0.5, value.Quality);
 
-            AssertExtensions.Throws<ArgumentException>("value", () => { new StringWithQualityHeaderValue(null, 0.1); });
+            AssertExtensions.Throws<ArgumentNullException>("value", () => { new StringWithQualityHeaderValue(null, 0.1); });
             AssertExtensions.Throws<ArgumentException>("value", () => { new StringWithQualityHeaderValue("", 0.1); });
             Assert.Throws<FormatException>(() => { new StringWithQualityHeaderValue("in valid", 0.1); });
 
@@ -176,9 +176,9 @@ namespace System.Net.Http.Tests
             CheckValidParse("text", new StringWithQualityHeaderValue("text"));
             CheckValidParse("text;q=0.5", new StringWithQualityHeaderValue("text", 0.5));
             CheckValidParse("text ; q = 0.5", new StringWithQualityHeaderValue("text", 0.5));
-            CheckValidParse("\r\n text ; q = 0.5 ", new StringWithQualityHeaderValue("text", 0.5));
+            CheckValidParse(" text ; q = 0.5 ", new StringWithQualityHeaderValue("text", 0.5));
             CheckValidParse("  text  ", new StringWithQualityHeaderValue("text"));
-            CheckValidParse(" \r\n text \r\n ; \r\n q = 0.123", new StringWithQualityHeaderValue("text", 0.123));
+            CheckValidParse("  text  ;  q = 0.123", new StringWithQualityHeaderValue("text", 0.123));
         }
 
         [Fact]
@@ -207,67 +207,31 @@ namespace System.Net.Http.Tests
             CheckInvalidParse("  ,,");
         }
 
-        [Fact]
-        public void TryParse_SetOfValidValueStrings_ParsedCorrectly()
-        {
-            CheckValidTryParse("text", new StringWithQualityHeaderValue("text"));
-            CheckValidTryParse("text;q=0.5", new StringWithQualityHeaderValue("text", 0.5));
-            CheckValidTryParse("text ; q = 0.5", new StringWithQualityHeaderValue("text", 0.5));
-            CheckValidTryParse("\r\n text ; q = 0.5 ", new StringWithQualityHeaderValue("text", 0.5));
-            CheckValidTryParse("  text  ", new StringWithQualityHeaderValue("text"));
-            CheckValidTryParse(" \r\n text \r\n ; \r\n q = 0.123", new StringWithQualityHeaderValue("text", 0.123));
-        }
-
-        [Fact]
-        public void TryParse_SetOfInvalidValueStrings_ReturnsFalse()
-        {
-            CheckInvalidTryParse("text,");
-            CheckInvalidTryParse("\r\n text ; q = 0.5, next_text  ");
-            CheckInvalidTryParse("  text,next_text  ");
-            CheckInvalidTryParse(" ,, text, , ,next");
-            CheckInvalidTryParse(" ,, text, , ,");
-            CheckInvalidTryParse(", \r\n text \r\n ; \r\n q = 0.123");
-            CheckInvalidTryParse("te\u00E4xt");
-            CheckInvalidTryParse("text\u4F1A");
-            CheckInvalidTryParse("\u4F1A");
-            CheckInvalidTryParse("t;q=\u4F1A");
-            CheckInvalidTryParse("t;q=");
-            CheckInvalidTryParse("t;q");
-            CheckInvalidTryParse("t;\u4F1A=1");
-            CheckInvalidTryParse("t;q\u4F1A=1");
-            CheckInvalidTryParse("t y");
-            CheckInvalidTryParse("t;q=1 y");
-
-            CheckInvalidTryParse(null);
-            CheckInvalidTryParse(string.Empty);
-            CheckInvalidTryParse("  ");
-            CheckInvalidTryParse("  ,,");
-        }
-
         #region Helper methods
 
         private void CheckValidParse(string input, StringWithQualityHeaderValue expectedResult)
         {
             StringWithQualityHeaderValue result = StringWithQualityHeaderValue.Parse(input);
             Assert.Equal(expectedResult, result);
+
+            Assert.True(StringWithQualityHeaderValue.TryParse(input, out result));
+            Assert.Equal(expectedResult, result);
+
+            // New lines are never allowed
+            for (int i = 0; i < input.Length; i++)
+            {
+                CheckInvalidParse(input.Insert(i, "\r"));
+                CheckInvalidParse(input.Insert(i, "\n"));
+                CheckInvalidParse(input.Insert(i, "\r\n"));
+                CheckInvalidParse(input.Insert(i, "\r\n "));
+            }
         }
 
         private void CheckInvalidParse(string input)
         {
             Assert.Throws<FormatException>(() => { StringWithQualityHeaderValue.Parse(input); });
-        }
 
-        private void CheckValidTryParse(string input, StringWithQualityHeaderValue expectedResult)
-        {
-            StringWithQualityHeaderValue result = null;
-            Assert.True(StringWithQualityHeaderValue.TryParse(input, out result));
-            Assert.Equal(expectedResult, result);
-        }
-
-        private void CheckInvalidTryParse(string input)
-        {
-            StringWithQualityHeaderValue result = null;
-            Assert.False(StringWithQualityHeaderValue.TryParse(input, out result));
+            Assert.False(StringWithQualityHeaderValue.TryParse(input, out StringWithQualityHeaderValue result));
             Assert.Null(result);
         }
 

@@ -2,8 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b02345;
+
 using System;
 using System.Collections;
+using Xunit;
 
 public enum TestEnum
 {
@@ -76,9 +80,10 @@ public class AA
     }
 }
 
-class App
+public class App
 {
-    static int Main()
+    [Fact]
+    public static void TestEntryPoint()
     {
         try
         {
@@ -99,6 +104,5 @@ class App
             Console.WriteLine("Exception handled: " + x.ToString());
         }
         Console.WriteLine("Passed.");
-        return 100;
     }
 }

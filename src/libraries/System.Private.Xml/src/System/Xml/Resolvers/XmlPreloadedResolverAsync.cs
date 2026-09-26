@@ -2,26 +2,20 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.IO;
-using System.Xml;
 using System.Threading.Tasks;
+using System.Xml;
 
 namespace System.Xml.Resolvers
 {
-    //
-    // XmlPreloadedResolver is an XmlResolver that which can be pre-loaded with data.
-    // By default it contains well-known DTDs for XHTML 1.0 and RSS 0.91.
-    // Custom mappings of URIs to data can be added with the Add method.
-    //
+#pragma warning disable PLATDOC002 // Async partial uses established TypeNameAsync.cs naming convention
     public partial class XmlPreloadedResolver : XmlResolver
+#pragma warning restore PLATDOC002
     {
         public override Task<object> GetEntityAsync(Uri absoluteUri,
                                              string? role,
                                              Type? ofObjectToReturn)
         {
-            if (absoluteUri == null)
-            {
-                throw new ArgumentNullException(nameof(absoluteUri));
-            }
+            ArgumentNullException.ThrowIfNull(absoluteUri);
 
             PreloadedData? data;
             if (!_mappings.TryGetValue(absoluteUri, out data))

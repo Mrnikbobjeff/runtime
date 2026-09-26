@@ -1,9 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Threading;
 using System.ComponentModel;
 using System.ComponentModel.Design;
+using System.Diagnostics;
+using System.Threading;
 
 namespace System.Timers
 {
@@ -17,13 +18,13 @@ namespace System.Timers
         private bool _enabled;
         private bool _initializing;
         private bool _delayedEnable;
-        private ElapsedEventHandler _onIntervalElapsed;
+        private ElapsedEventHandler? _onIntervalElapsed;
         private bool _autoReset;
-        private ISynchronizeInvoke _synchronizingObject;
+        private ISynchronizeInvoke? _synchronizingObject;
         private bool _disposed;
-        private Threading.Timer _timer;
+        private Threading.Timer? _timer;
         private readonly TimerCallback _callback;
-        private object _cookie;
+        private object? _cookie;
 
         /// <summary>
         /// Initializes a new instance of the <see cref='System.Timers.Timer'/> class, with the properties
@@ -42,6 +43,9 @@ namespace System.Timers
         /// <summary>
         /// Initializes a new instance of the <see cref='System.Timers.Timer'/> class, setting the <see cref='System.Timers.Timer.Interval'/> property to the specified period.
         /// </summary>
+        /// <param name="interval">
+        /// The time, in milliseconds, between events. The value must be greater than zero and less than or equal to <see cref="int.MaxValue"/>.
+        /// </param>
         public Timer(double interval) : this()
         {
             if (interval <= 0)
@@ -59,10 +63,20 @@ namespace System.Timers
         }
 
         /// <summary>
+        /// Initializes a new instance of the <see cref='Timer'/> class, setting the <see cref='Interval'/> property to the specified period.
+        /// </summary>
+        /// <param name="interval">
+        /// The time between events. The value in milliseconds must be greater than zero and less than or equal to <see cref="int.MaxValue"/>.
+        /// </param>
+        public Timer(TimeSpan interval) : this(interval.TotalMilliseconds)
+        {
+        }
+
+        /// <summary>
         /// Gets or sets a value indicating whether the Timer raises the Tick event each time the specified
         /// Interval has elapsed, when Enabled is set to true.
         /// </summary>
-        [TimersDescription(nameof(SR.TimerAutoReset), null), DefaultValue(true)]
+        [TimersDescription(TimersDescriptionStringId.TimerAutoReset), DefaultValue(true)]
         public bool AutoReset
         {
             get => _autoReset;
@@ -75,10 +89,7 @@ namespace System.Timers
                 else if (_autoReset != value)
                 {
                     _autoReset = value;
-                    if (_timer != null)
-                    {
-                        UpdateTimer();
-                    }
+                    UpdateTimer();
                 }
             }
         }
@@ -88,7 +99,7 @@ namespace System.Timers
         /// is able to raise events at a defined interval.
         /// The default value by design is false, don't change it.
         /// </summary>
-        [TimersDescription(nameof(SR.TimerEnabled), null), DefaultValue(false)]
+        [TimersDescription(TimersDescriptionStringId.TimerEnabled), DefaultValue(false)]
         public bool Enabled
         {
             get => _enabled;
@@ -120,10 +131,7 @@ namespace System.Timers
                         _enabled = value;
                         if (_timer == null)
                         {
-                            if (_disposed)
-                            {
-                                throw new ObjectDisposedException(GetType().Name);
-                            }
+                            ObjectDisposedException.ThrowIf(_disposed, this);
 
                             int i = (int)Math.Ceiling(_interval);
                             _cookie = new object();
@@ -141,6 +149,11 @@ namespace System.Timers
 
         private void UpdateTimer()
         {
+            if (_timer is null || !_enabled)
+            {
+                return;
+            }
+
             int i = (int)Math.Ceiling(_interval);
             _timer.Change(i, _autoReset ? i : Timeout.Infinite);
         }
@@ -148,7 +161,7 @@ namespace System.Timers
         /// <summary>
         /// Gets or sets the interval on which to raise events.
         /// </summary>
-        [TimersDescription(nameof(SR.TimerInterval), null), DefaultValue(100d)]
+        [TimersDescription(TimersDescriptionStringId.TimerInterval), DefaultValue(100d)]
         public double Interval
         {
             get => _interval;
@@ -160,10 +173,7 @@ namespace System.Timers
                 }
 
                 _interval = value;
-                if (_timer != null)
-                {
-                    UpdateTimer();
-                }
+                UpdateTimer();
             }
         }
 
@@ -172,7 +182,7 @@ namespace System.Timers
         /// Occurs when the <see cref='System.Timers.Timer.Interval'/> has
         /// elapsed.
         /// </summary>
-        [TimersDescription(nameof(SR.TimerIntervalElapsed), null)]
+        [TimersDescription(TimersDescriptionStringId.TimerIntervalElapsed)]
         public event ElapsedEventHandler Elapsed
         {
             add => _onIntervalElapsed += value;
@@ -182,7 +192,7 @@ namespace System.Timers
         /// <summary>
         /// Sets the enable property in design mode to true by default.
         /// </summary>
-        public override ISite Site
+        public override ISite? Site
         {
             get => base.Site;
             set
@@ -200,15 +210,15 @@ namespace System.Timers
         /// Gets or sets the object used to marshal event-handler calls that are issued when
         /// an interval has elapsed.
         /// </summary>
-        [DefaultValue(null), TimersDescription(nameof(SR.TimerSynchronizingObject), null)]
-        public ISynchronizeInvoke SynchronizingObject
+        [DefaultValue(null), TimersDescription(TimersDescriptionStringId.TimerSynchronizingObject)]
+        public ISynchronizeInvoke? SynchronizingObject
         {
             get
             {
                 if (_synchronizingObject == null && DesignMode)
                 {
-                    IDesignerHost host = (IDesignerHost)GetService(typeof(IDesignerHost));
-                    object baseComponent = host?.RootComponent;
+                    IDesignerHost? host = (IDesignerHost?)GetService(typeof(IDesignerHost));
+                    object? baseComponent = host?.RootComponent;
                     if (baseComponent != null && baseComponent is ISynchronizeInvoke)
                     {
                         _synchronizingObject = (ISynchronizeInvoke)baseComponent;
@@ -276,7 +286,7 @@ namespace System.Timers
             Enabled = false;
         }
 
-        private void MyTimerCallback(object state)
+        private void MyTimerCallback(object? state)
         {
             // System.Threading.Timer will not cancel the work item queued before the timer is stopped.
             // We don't want to handle the callback after a timer is stopped.
@@ -290,11 +300,11 @@ namespace System.Timers
                 _enabled = false;
             }
 
-            ElapsedEventArgs elapsedEventArgs = new ElapsedEventArgs(DateTime.UtcNow.ToFileTime());
+            ElapsedEventArgs elapsedEventArgs = new ElapsedEventArgs(DateTime.Now);
             try
             {
                 // To avoid race between remove handler and raising the event
-                ElapsedEventHandler intervalElapsed = _onIntervalElapsed;
+                ElapsedEventHandler? intervalElapsed = _onIntervalElapsed;
                 if (intervalElapsed != null)
                 {
                     if (SynchronizingObject != null && SynchronizingObject.InvokeRequired)

@@ -208,7 +208,7 @@ namespace SerializationTestTypes
     public class DataContract
     {
         static Dictionary<RuntimeTypeHandle, DataContract> cache = new Dictionary<RuntimeTypeHandle, DataContract>(RuntimeTypeHandleEqualityComparer.Comparer);
-        static MD5CryptoServiceProvider md5 = null;
+        static MD5 md5 = null;
 
         Type underlyingType;
         bool isValueType;
@@ -267,7 +267,7 @@ namespace SerializationTestTypes
         private static string GetNamespacesDigest(string namespaces)
         {
             if (md5 == null)
-                md5 = new MD5CryptoServiceProvider();
+                md5 = MD5.Create();
             byte[] namespaceBytes = Encoding.UTF8.GetBytes(namespaces);
             byte[] digestBytes = md5.ComputeHash(namespaceBytes);
             char[] digestChars = new char[24];
@@ -533,9 +533,9 @@ namespace SerializationTestTypes
             return Globals.DefaultNamespace + clrNs.Replace('.', '/');
         }
 
-        static string GetGlobalContractNamespace(string clrNs, ICustomAttributeProvider customAttribuetProvider)
+        static string GetGlobalContractNamespace(string clrNs, ICustomAttributeProvider customAttributeProvider)
         {
-            object[] nsAttributes = customAttribuetProvider.GetCustomAttributes(typeof(ContractNamespaceAttribute), false);
+            object[] nsAttributes = customAttributeProvider.GetCustomAttributes(typeof(ContractNamespaceAttribute), false);
             string dataContractNs = null;
             for (int i = 0; i < nsAttributes.Length; i++)
             {
@@ -656,26 +656,16 @@ namespace SerializationTestTypes
             get { return GetIsReferenceValue(); }
         }
 
-        static bool IsAlpha(char ch)
-        {
-            return (ch >= 'A' && ch <= 'Z' || ch >= 'a' && ch <= 'z');
-        }
-
-        static bool IsDigit(char ch)
-        {
-            return (ch >= '0' && ch <= '9');
-        }
-
         static bool IsAsciiLocalName(string localName)
         {
             if (string.IsNullOrEmpty(localName) || localName.Length == 0)
                 return false;
-            if (!IsAlpha(localName[0]))
+            if (!char.IsAsciiLetter(localName[0]))
                 return false;
             for (int i = 1; i < localName.Length; i++)
             {
                 char ch = localName[i];
-                if (!IsAlpha(ch) && !IsDigit(ch))
+                if (!char.IsAsciiLetterOrDigit(ch))
                     return false;
             }
             return true;
@@ -1067,9 +1057,9 @@ namespace SerializationTestTypes
         {
             get
             {
-                FieldInfo field = MemberInfo as FieldInfo;
-                if (field != null)
-                    return field.FieldType;
+                FieldInfo fieldInfo = MemberInfo as FieldInfo;
+                if (fieldInfo != null)
+                    return fieldInfo.FieldType;
                 return ((PropertyInfo)MemberInfo).PropertyType;
             }
         }
@@ -1403,7 +1393,7 @@ namespace SerializationTestTypes
                             throw new Exception("TooManyDataMembers :" + field.DeclaringType.FullName + " :: " + field.Name);
                         DataMemberAttribute memberAttribute = (DataMemberAttribute)memberAttributes[0];
                         DataMember memberContract = new DataMember(field);
-                        if (memberAttribute.Name == null || memberAttribute.Name.Length == 0)
+                        if (string.IsNullOrEmpty(memberAttribute.Name))
                             memberContract.Name = field.Name;
                         else
                             memberContract.Name = memberAttribute.Name;

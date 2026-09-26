@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -10,259 +10,326 @@ namespace System.Net.Sockets
 {
     internal sealed class DynamicWinsockMethods
     {
-        // In practice there will never be more than four of these, so its not worth a complicated
-        // hash table structure.  Store them in a list and search through it.
-        private static readonly List<DynamicWinsockMethods> s_methodTable = new List<DynamicWinsockMethods>();
+        // In practice there will rarely be more than four of these, so it's not worth a complicated
+        // hash table structure. Store them in an array and search through it. The array is replaced
+        // copy-on-write under s_methodTableLock, so reads always see a consistent, immutable snapshot.
+        private static DynamicWinsockMethods[] s_methodTable = [];
+        private static readonly Lock s_methodTableLock = new();
+
+        private bool Matches(AddressFamily addressFamily, SocketType socketType, ProtocolType protocolType) =>
+            _addressFamily == addressFamily && _socketType == socketType && _protocolType == protocolType;
 
         public static DynamicWinsockMethods GetMethods(AddressFamily addressFamily, SocketType socketType, ProtocolType protocolType)
         {
-            lock (s_methodTable)
+            foreach (DynamicWinsockMethods methods in s_methodTable)
             {
-                DynamicWinsockMethods methods;
-
-                for (int i = 0; i < s_methodTable.Count; i++)
+                if (methods.Matches(addressFamily, socketType, protocolType))
                 {
-                    methods = s_methodTable[i];
-                    if (methods._addressFamily == addressFamily && methods._socketType == socketType && methods._protocolType == protocolType)
+                    return methods;
+                }
+            }
+
+            return GetMethodsSlow(addressFamily, socketType, protocolType);
+        }
+
+        private static DynamicWinsockMethods GetMethodsSlow(AddressFamily addressFamily, SocketType socketType, ProtocolType protocolType)
+        {
+            lock (s_methodTableLock)
+            {
+                DynamicWinsockMethods[] methodTable = s_methodTable;
+                foreach (DynamicWinsockMethods methods in methodTable)
+                {
+                    if (methods.Matches(addressFamily, socketType, protocolType))
                     {
                         return methods;
                     }
                 }
 
-                methods = new DynamicWinsockMethods(addressFamily, socketType, protocolType);
-                s_methodTable.Add(methods);
-                return methods;
+                var newMethods = new DynamicWinsockMethods(addressFamily, socketType, protocolType);
+                s_methodTable = [.. methodTable, newMethods];
+
+                return newMethods;
             }
         }
 
         private readonly AddressFamily _addressFamily;
         private readonly SocketType _socketType;
         private readonly ProtocolType _protocolType;
-        private readonly object _lockObject;
 
         private AcceptExDelegate? _acceptEx;
         private GetAcceptExSockaddrsDelegate? _getAcceptExSockaddrs;
         private ConnectExDelegate? _connectEx;
         private TransmitPacketsDelegate? _transmitPackets;
-
         private DisconnectExDelegate? _disconnectEx;
-        private DisconnectExDelegateBlocking? _disconnectExBlocking;
-
         private WSARecvMsgDelegate? _recvMsg;
-        private WSARecvMsgDelegateBlocking? _recvMsgBlocking;
 
         private DynamicWinsockMethods(AddressFamily addressFamily, SocketType socketType, ProtocolType protocolType)
         {
             _addressFamily = addressFamily;
             _socketType = socketType;
             _protocolType = protocolType;
-            _lockObject = new object();
         }
 
-        public T GetDelegate<T>(SafeSocketHandle socketHandle)
-            where T : class
+        private static T CreateDelegate<T>(Func<IntPtr, T> functionPointerWrapper, [NotNull] ref T? cache, SafeSocketHandle socketHandle, string guidString) where T : Delegate
         {
-            if (typeof(T) == typeof(AcceptExDelegate))
-            {
-                EnsureAcceptEx(socketHandle);
-                Debug.Assert(_acceptEx != null);
-                return (T)(object)_acceptEx;
-            }
-            else if (typeof(T) == typeof(GetAcceptExSockaddrsDelegate))
-            {
-                EnsureGetAcceptExSockaddrs(socketHandle);
-                Debug.Assert(_getAcceptExSockaddrs != null);
-                return (T)(object)_getAcceptExSockaddrs;
-            }
-            else if (typeof(T) == typeof(ConnectExDelegate))
-            {
-                EnsureConnectEx(socketHandle);
-                Debug.Assert(_connectEx != null);
-                return (T)(object)_connectEx;
-            }
-            else if (typeof(T) == typeof(DisconnectExDelegate))
-            {
-                EnsureDisconnectEx(socketHandle);
-                Debug.Assert(_disconnectEx != null);
-                return (T)(object)_disconnectEx;
-            }
-            else if (typeof(T) == typeof(DisconnectExDelegateBlocking))
-            {
-                EnsureDisconnectEx(socketHandle);
-                Debug.Assert(_disconnectExBlocking != null);
-                return (T)(object)_disconnectExBlocking;
-            }
-            else if (typeof(T) == typeof(WSARecvMsgDelegate))
-            {
-                EnsureWSARecvMsg(socketHandle);
-                Debug.Assert(_recvMsg != null);
-                return (T)(object)_recvMsg;
-            }
-            else if (typeof(T) == typeof(WSARecvMsgDelegateBlocking))
-            {
-                EnsureWSARecvMsgBlocking(socketHandle);
-                Debug.Assert(_recvMsgBlocking != null);
-                return (T)(object)_recvMsgBlocking;
-            }
-            else if (typeof(T) == typeof(TransmitPacketsDelegate))
-            {
-                EnsureTransmitPackets(socketHandle);
-                Debug.Assert(_transmitPackets != null);
-                return (T)(object)_transmitPackets;
-            }
-
-            Debug.Fail("Invalid type passed to DynamicWinsockMethods.GetDelegate");
-            return null;
-        }
-
-        // Private methods that actually load the function pointers.
-        private IntPtr LoadDynamicFunctionPointer(SafeSocketHandle socketHandle, ref Guid guid)
-        {
-            IntPtr ptr = IntPtr.Zero;
-            int length;
+            Guid guid = new Guid(guidString);
+            IntPtr ptr;
             SocketError errorCode;
 
-            unsafe
-            {
-                errorCode = Interop.Winsock.WSAIoctl(
-                   socketHandle,
-                   Interop.Winsock.IoctlSocketConstants.SIOGETEXTENSIONFUNCTIONPOINTER,
-                   ref guid,
-                   sizeof(Guid),
-                   out ptr,
-                   sizeof(IntPtr),
-                   out length,
-                   IntPtr.Zero,
-                   IntPtr.Zero);
-            }
+            errorCode = Interop.Winsock.WSAIoctl(
+               socketHandle,
+               Interop.Winsock.IoctlSocketConstants.SIOGETEXTENSIONFUNCTIONPOINTER,
+               ref guid,
+               sizeof(Guid),
+               out ptr,
+               sizeof(IntPtr),
+               out _,
+               IntPtr.Zero,
+               IntPtr.Zero);
 
             if (errorCode != SocketError.Success)
             {
                 throw new SocketException();
             }
 
-            return ptr;
+            Interlocked.CompareExchange(ref cache, functionPointerWrapper(ptr), null);
+            return cache;
         }
 
-        // NOTE: the volatile writes in the functions below are necessary to ensure that all writes
-        //       to the fields of the delegate instances are visible before the write to the field
-        //       that holds the reference to the delegate instance.
+        internal unsafe AcceptExDelegate GetAcceptExDelegate(SafeSocketHandle socketHandle)
+            => _acceptEx ?? CreateDelegate(ptr => new SocketDelegateHelper(ptr).AcceptEx, ref _acceptEx, socketHandle, "b5367df1cbac11cf95ca00805f48a192");
 
-        private void EnsureAcceptEx(SafeSocketHandle socketHandle)
+        internal GetAcceptExSockaddrsDelegate GetGetAcceptExSockaddrsDelegate(SafeSocketHandle socketHandle)
+            => _getAcceptExSockaddrs ?? CreateDelegate<GetAcceptExSockaddrsDelegate>(ptr => new SocketDelegateHelper(ptr).GetAcceptExSockaddrs, ref _getAcceptExSockaddrs, socketHandle, "b5367df2cbac11cf95ca00805f48a192");
+
+        internal unsafe ConnectExDelegate GetConnectExDelegate(SafeSocketHandle socketHandle)
+            => _connectEx ?? CreateDelegate(ptr => new SocketDelegateHelper(ptr).ConnectEx, ref _connectEx, socketHandle, "25a207b9ddf346608ee976e58c74063e");
+
+        internal unsafe DisconnectExDelegate GetDisconnectExDelegate(SafeSocketHandle socketHandle)
+            => _disconnectEx ?? CreateDelegate(ptr => new SocketDelegateHelper(ptr).DisconnectEx, ref _disconnectEx, socketHandle, "7fda2e118630436fa031f536a6eec157");
+
+        internal unsafe WSARecvMsgDelegate GetWSARecvMsgDelegate(SafeSocketHandle socketHandle)
+            => _recvMsg ?? CreateDelegate(ptr => new SocketDelegateHelper(ptr).WSARecvMsg, ref _recvMsg, socketHandle, "f689d7c86f1f436b8a53e54fe351c322");
+
+        internal unsafe TransmitPacketsDelegate GetTransmitPacketsDelegate(SafeSocketHandle socketHandle)
+            => _transmitPackets ?? CreateDelegate(ptr => new SocketDelegateHelper(ptr).TransmitPackets, ref _transmitPackets, socketHandle, "d9689da01f9011d3997100c04f68c876");
+
+        /// <summary>
+        /// The SocketDelegateHelper implements manual marshalling wrappers for the various delegates used for the dynamic Winsock methods.
+        /// These wrappers were generated with LibraryImportGenerator and then manually converted to use function pointers as the target instead of a P/Invoke.
+        /// </summary>
+        private readonly struct SocketDelegateHelper
         {
-            if (_acceptEx == null)
+            private readonly IntPtr _target;
+
+            public SocketDelegateHelper(IntPtr target)
             {
-                lock (_lockObject)
-                {
-                    if (_acceptEx == null)
-                    {
-                        Guid guid = new Guid("{0xb5367df1,0xcbac,0x11cf,{0x95, 0xca, 0x00, 0x80, 0x5f, 0x48, 0xa1, 0x92}}");
-                        IntPtr ptrAcceptEx = LoadDynamicFunctionPointer(socketHandle, ref guid);
-                        Volatile.Write(ref _acceptEx, Marshal.GetDelegateForFunctionPointer<AcceptExDelegate>(ptrAcceptEx));
-                    }
-                }
+                _target = target;
             }
-        }
 
-        private void EnsureGetAcceptExSockaddrs(SafeSocketHandle socketHandle)
-        {
-            if (_getAcceptExSockaddrs == null)
+            internal unsafe bool AcceptEx(SafeSocketHandle listenSocketHandle, SafeSocketHandle acceptSocketHandle, IntPtr buffer, int len, int localAddressLength, int remoteAddressLength, out int bytesReceived, NativeOverlapped* overlapped)
             {
-                lock (_lockObject)
+                IntPtr __listenSocketHandle_gen_native = default;
+                IntPtr __acceptSocketHandle_gen_native = default;
+                bytesReceived = default;
+                bool __retVal;
+                int __retVal_gen_native = default;
+                //
+                // Setup
+                //
+                bool listenSocketHandle__addRefd = false;
+                bool acceptSocketHandle__addRefd = false;
+                try
                 {
-                    if (_getAcceptExSockaddrs == null)
+                    //
+                    // Marshal
+                    //
+                    listenSocketHandle.DangerousAddRef(ref listenSocketHandle__addRefd);
+                    __listenSocketHandle_gen_native = listenSocketHandle.DangerousGetHandle();
+                    acceptSocketHandle.DangerousAddRef(ref acceptSocketHandle__addRefd);
+                    __acceptSocketHandle_gen_native = acceptSocketHandle.DangerousGetHandle();
+                    fixed (int* __bytesReceived_gen_native = &bytesReceived)
                     {
-                        Guid guid = new Guid("{0xb5367df2,0xcbac,0x11cf,{0x95, 0xca, 0x00, 0x80, 0x5f, 0x48, 0xa1, 0x92}}");
-                        IntPtr ptrGetAcceptExSockaddrs = LoadDynamicFunctionPointer(socketHandle, ref guid);
-                        Volatile.Write(ref _getAcceptExSockaddrs, Marshal.GetDelegateForFunctionPointer<GetAcceptExSockaddrsDelegate>(ptrGetAcceptExSockaddrs));
+                        __retVal_gen_native = ((delegate* unmanaged<IntPtr, IntPtr, IntPtr, int, int, int, int*, NativeOverlapped*, int>)_target)(__listenSocketHandle_gen_native, __acceptSocketHandle_gen_native, buffer, len, localAddressLength, remoteAddressLength, __bytesReceived_gen_native, overlapped);
                     }
+                    Marshal.SetLastPInvokeError(Marshal.GetLastSystemError());
+                    //
+                    // Unmarshal
+                    //
+                    __retVal = __retVal_gen_native != 0;
                 }
-            }
-        }
+                finally
+                {
+                    //
+                    // Cleanup
+                    //
+                    if (listenSocketHandle__addRefd)
+                        listenSocketHandle.DangerousRelease();
+                    if (acceptSocketHandle__addRefd)
+                        acceptSocketHandle.DangerousRelease();
+                }
 
-        private void EnsureConnectEx(SafeSocketHandle socketHandle)
-        {
-            if (_connectEx == null)
-            {
-                lock (_lockObject)
-                {
-                    if (_connectEx == null)
-                    {
-                        Guid guid = new Guid("{0x25a207b9,0x0ddf3,0x4660,{0x8e,0xe9,0x76,0xe5,0x8c,0x74,0x06,0x3e}}");
-                        IntPtr ptrConnectEx = LoadDynamicFunctionPointer(socketHandle, ref guid);
-                        Volatile.Write(ref _connectEx, Marshal.GetDelegateForFunctionPointer<ConnectExDelegate>(ptrConnectEx));
-                    }
-                }
+                return __retVal;
             }
-        }
+            internal unsafe void GetAcceptExSockaddrs(IntPtr buffer, int receiveDataLength, int localAddressLength, int remoteAddressLength, out IntPtr localSocketAddress, out int localSocketAddressLength, out IntPtr remoteSocketAddress, out int remoteSocketAddressLength)
+            {
+                localSocketAddress = default;
+                localSocketAddressLength = default;
+                remoteSocketAddress = default;
+                remoteSocketAddressLength = default;
+                fixed (IntPtr* __localSocketAddress_gen_native = &localSocketAddress)
+                fixed (int* __localSocketAddressLength_gen_native = &localSocketAddressLength)
+                fixed (IntPtr* __remoteSocketAddress_gen_native = &remoteSocketAddress)
+                fixed (int* __remoteSocketAddressLength_gen_native = &remoteSocketAddressLength)
+                {
+                    ((delegate* unmanaged<IntPtr, int, int, int, IntPtr*, int*, IntPtr*, int*, void>)_target)(buffer, receiveDataLength, localAddressLength, remoteAddressLength, __localSocketAddress_gen_native, __localSocketAddressLength_gen_native, __remoteSocketAddress_gen_native, __remoteSocketAddressLength_gen_native);
+                }
+                Marshal.SetLastPInvokeError(Marshal.GetLastSystemError());
 
-        private void EnsureDisconnectEx(SafeSocketHandle socketHandle)
-        {
-            if (_disconnectEx == null)
-            {
-                lock (_lockObject)
-                {
-                    if (_disconnectEx == null)
-                    {
-                        Guid guid = new Guid("{0x7fda2e11,0x8630,0x436f,{0xa0, 0x31, 0xf5, 0x36, 0xa6, 0xee, 0xc1, 0x57}}");
-                        IntPtr ptrDisconnectEx = LoadDynamicFunctionPointer(socketHandle, ref guid);
-                        _disconnectExBlocking = Marshal.GetDelegateForFunctionPointer<DisconnectExDelegateBlocking>(ptrDisconnectEx);
-                        Volatile.Write(ref _disconnectEx, Marshal.GetDelegateForFunctionPointer<DisconnectExDelegate>(ptrDisconnectEx));
-                    }
-                }
             }
-        }
-        private void EnsureWSARecvMsg(SafeSocketHandle socketHandle)
-        {
-            if (_recvMsg == null)
+            internal unsafe bool ConnectEx(SafeSocketHandle socketHandle, ReadOnlySpan<byte> socketAddress, IntPtr buffer, int dataLength, out int bytesSent, NativeOverlapped* overlapped)
             {
-                lock (_lockObject)
+                IntPtr __socketHandle_gen_native = default;
+                bytesSent = default;
+                bool __retVal;
+                int __retVal_gen_native = default;
+                //
+                // Setup
+                //
+                bool socketHandle__addRefd = false;
+                try
                 {
-                    if (_recvMsg == null)
+                    //
+                    // Marshal
+                    //
+                    socketHandle.DangerousAddRef(ref socketHandle__addRefd);
+                    __socketHandle_gen_native = socketHandle.DangerousGetHandle();
+                    fixed (int* __bytesSent_gen_native = &bytesSent)
+                    fixed (void* socketAddressPtr = &MemoryMarshal.GetReference(socketAddress))
                     {
-                        Guid guid = new Guid("{0xf689d7c8,0x6f1f,0x436b,{0x8a,0x53,0xe5,0x4f,0xe3,0x51,0xc3,0x22}}");
-                        IntPtr ptrWSARecvMsg = LoadDynamicFunctionPointer(socketHandle, ref guid);
-                        _recvMsgBlocking = Marshal.GetDelegateForFunctionPointer<WSARecvMsgDelegateBlocking>(ptrWSARecvMsg);
-                        Volatile.Write(ref _recvMsg, Marshal.GetDelegateForFunctionPointer<WSARecvMsgDelegate>(ptrWSARecvMsg));
+                        __retVal_gen_native = ((delegate* unmanaged<IntPtr, void*, int, IntPtr, int, int*, NativeOverlapped*, int>)_target)(__socketHandle_gen_native, socketAddressPtr, socketAddress.Length, buffer, dataLength, __bytesSent_gen_native, overlapped);
                     }
+                    Marshal.SetLastPInvokeError(Marshal.GetLastSystemError());
+                    //
+                    // Unmarshal
+                    //
+                    __retVal = __retVal_gen_native != 0;
                 }
-            }
-        }
+                finally
+                {
+                    //
+                    // Cleanup
+                    //
+                    if (socketHandle__addRefd)
+                        socketHandle.DangerousRelease();
+                }
 
-        private void EnsureWSARecvMsgBlocking(SafeSocketHandle socketHandle)
-        {
-            if (_recvMsgBlocking == null)
-            {
-                lock (_lockObject)
-                {
-                    if (_recvMsgBlocking == null)
-                    {
-                        Guid guid = new Guid("{0xf689d7c8,0x6f1f,0x436b,{0x8a,0x53,0xe5,0x4f,0xe3,0x51,0xc3,0x22}}");
-                        IntPtr ptrWSARecvMsg = LoadDynamicFunctionPointer(socketHandle, ref guid);
-                        Volatile.Write(ref _recvMsgBlocking, Marshal.GetDelegateForFunctionPointer<WSARecvMsgDelegateBlocking>(ptrWSARecvMsg));
-                    }
-                }
+                return __retVal;
             }
-        }
-
-        private void EnsureTransmitPackets(SafeSocketHandle socketHandle)
-        {
-            if (_transmitPackets == null)
+            internal unsafe bool DisconnectEx(SafeSocketHandle socketHandle, NativeOverlapped* overlapped, int flags, int reserved)
             {
-                lock (_lockObject)
+                IntPtr __socketHandle_gen_native;
+                bool __retVal;
+                int __retVal_gen_native;
+                //
+                // Setup
+                //
+                bool socketHandle__addRefd = false;
+                try
                 {
-                    if (_transmitPackets == null)
-                    {
-                        Guid guid = new Guid("{0xd9689da0,0x1f90,0x11d3,{0x99,0x71,0x00,0xc0,0x4f,0x68,0xc8,0x76}}");
-                        IntPtr ptrTransmitPackets = LoadDynamicFunctionPointer(socketHandle, ref guid);
-                        Volatile.Write(ref _transmitPackets, Marshal.GetDelegateForFunctionPointer<TransmitPacketsDelegate>(ptrTransmitPackets));
-                    }
+                    //
+                    // Marshal
+                    //
+                    socketHandle.DangerousAddRef(ref socketHandle__addRefd);
+                    __socketHandle_gen_native = socketHandle.DangerousGetHandle();
+                    __retVal_gen_native = ((delegate* unmanaged<IntPtr, NativeOverlapped*, int, int, int>)_target)(__socketHandle_gen_native, overlapped, flags, reserved);
+                    Marshal.SetLastPInvokeError(Marshal.GetLastSystemError());
+                    //
+                    // Unmarshal
+                    //
+                    __retVal = __retVal_gen_native != 0;
                 }
+                finally
+                {
+                    //
+                    // Cleanup
+                    //
+                    if (socketHandle__addRefd)
+                        socketHandle.DangerousRelease();
+                }
+
+                return __retVal;
+            }
+            internal unsafe SocketError WSARecvMsg(SafeSocketHandle socketHandle, IntPtr msg, out int bytesTransferred, NativeOverlapped* overlapped, IntPtr completionRoutine)
+            {
+                IntPtr __socketHandle_gen_native = default;
+                bytesTransferred = default;
+                SocketError __retVal;
+                //
+                // Setup
+                //
+                bool socketHandle__addRefd = false;
+                try
+                {
+                    //
+                    // Marshal
+                    //
+                    socketHandle.DangerousAddRef(ref socketHandle__addRefd);
+                    __socketHandle_gen_native = socketHandle.DangerousGetHandle();
+                    fixed (int* __bytesTransferred_gen_native = &bytesTransferred)
+                    {
+                        __retVal = ((delegate* unmanaged<IntPtr, IntPtr, int*, NativeOverlapped*, IntPtr, SocketError>)_target)(__socketHandle_gen_native, msg, __bytesTransferred_gen_native, overlapped, completionRoutine);
+                    }
+                    Marshal.SetLastPInvokeError(Marshal.GetLastSystemError());
+                }
+                finally
+                {
+                    //
+                    // Cleanup
+                    //
+                    if (socketHandle__addRefd)
+                        socketHandle.DangerousRelease();
+                }
+
+                return __retVal;
+            }
+            internal unsafe bool TransmitPackets(SafeSocketHandle socketHandle, IntPtr packetArray, int elementCount, int sendSize, NativeOverlapped* overlapped, TransmitFileOptions flags)
+            {
+                IntPtr __socketHandle_gen_native;
+                bool __retVal;
+                int __retVal_gen_native;
+                //
+                // Setup
+                //
+                bool socketHandle__addRefd = false;
+                try
+                {
+                    //
+                    // Marshal
+                    //
+                    socketHandle.DangerousAddRef(ref socketHandle__addRefd);
+                    __socketHandle_gen_native = socketHandle.DangerousGetHandle();
+                    __retVal_gen_native = ((delegate* unmanaged<IntPtr, IntPtr, int, int, NativeOverlapped*, TransmitFileOptions, int>)_target)(__socketHandle_gen_native, packetArray, elementCount, sendSize, overlapped, flags);
+                    Marshal.SetLastPInvokeError(Marshal.GetLastSystemError());
+                    //
+                    // Unmarshal
+                    //
+                    __retVal = __retVal_gen_native != 0;
+                }
+                finally
+                {
+                    //
+                    // Cleanup
+                    //
+                    if (socketHandle__addRefd)
+                        socketHandle.DangerousRelease();
+                }
+
+                return __retVal;
             }
         }
     }
 
-    [UnmanagedFunctionPointer(CallingConvention.StdCall, SetLastError = true)]
     internal unsafe delegate bool AcceptExDelegate(
                 SafeSocketHandle listenSocketHandle,
                 SafeSocketHandle acceptSocketHandle,
@@ -273,7 +340,6 @@ namespace System.Net.Sockets
                 out int bytesReceived,
                 NativeOverlapped* overlapped);
 
-    [UnmanagedFunctionPointer(CallingConvention.StdCall, SetLastError = true)]
     internal delegate void GetAcceptExSockaddrsDelegate(
                 IntPtr buffer,
                 int receiveDataLength,
@@ -284,32 +350,20 @@ namespace System.Net.Sockets
                 out IntPtr remoteSocketAddress,
                 out int remoteSocketAddressLength);
 
-
-    [UnmanagedFunctionPointer(CallingConvention.StdCall, SetLastError = true)]
     internal unsafe delegate bool ConnectExDelegate(
                 SafeSocketHandle socketHandle,
-                IntPtr socketAddress,
-                int socketAddressSize,
+                ReadOnlySpan<byte> socketAddress,
                 IntPtr buffer,
                 int dataLength,
                 out int bytesSent,
                 NativeOverlapped* overlapped);
 
-    [UnmanagedFunctionPointer(CallingConvention.StdCall, SetLastError = true)]
     internal unsafe delegate bool DisconnectExDelegate(
                 SafeSocketHandle socketHandle,
                 NativeOverlapped* overlapped,
                 int flags,
                 int reserved);
 
-    [UnmanagedFunctionPointer(CallingConvention.StdCall, SetLastError = true)]
-    internal delegate bool DisconnectExDelegateBlocking(
-                SafeSocketHandle socketHandle,
-                IntPtr overlapped,
-                int flags,
-                int reserved);
-
-    [UnmanagedFunctionPointer(CallingConvention.StdCall, SetLastError = true)]
     internal unsafe delegate SocketError WSARecvMsgDelegate(
                 SafeSocketHandle socketHandle,
                 IntPtr msg,
@@ -317,15 +371,6 @@ namespace System.Net.Sockets
                 NativeOverlapped* overlapped,
                 IntPtr completionRoutine);
 
-    [UnmanagedFunctionPointer(CallingConvention.StdCall, SetLastError = true)]
-    internal delegate SocketError WSARecvMsgDelegateBlocking(
-                SafeSocketHandle socketHandle,
-                IntPtr msg,
-                out int bytesTransferred,
-                IntPtr overlapped,
-                IntPtr completionRoutine);
-
-    [UnmanagedFunctionPointer(CallingConvention.StdCall, SetLastError = true)]
     internal unsafe delegate bool TransmitPacketsDelegate(
                 SafeSocketHandle socketHandle,
                 IntPtr packetArray,

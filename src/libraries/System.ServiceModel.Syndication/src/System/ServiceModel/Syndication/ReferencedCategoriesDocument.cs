@@ -11,7 +11,9 @@ namespace System.ServiceModel.Syndication
 
         public ReferencedCategoriesDocument(Uri link) : base()
         {
-            Link = link ?? throw new ArgumentNullException(nameof(link));
+            ArgumentNullException.ThrowIfNull(link);
+
+            Link = link;
         }
 
         public Uri Link { get; set; }

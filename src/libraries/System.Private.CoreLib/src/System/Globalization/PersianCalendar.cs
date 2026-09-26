@@ -21,7 +21,7 @@ namespace System.Globalization
     {
         public static readonly int PersianEra = 1;
 
-        private static readonly long s_persianEpoch = new DateTime(622, 3, 22).Ticks / GregorianCalendar.TicksPerDay;
+        private static readonly long s_persianEpoch = new DateTime(622, 3, 22).Ticks / TimeSpan.TicksPerDay;
         private const int ApproximateHalfYear = 180;
 
         private const int DatePartYear = 0;
@@ -30,7 +30,7 @@ namespace System.Globalization
         private const int DatePartDay = 3;
         private const int MonthsPerYear = 12;
 
-        private static readonly int[] s_daysToMonth = { 0, 31, 62, 93, 124, 155, 186, 216, 246, 276, 306, 336, 366 };
+        private static ReadOnlySpan<int> DaysToMonth => [0, 31, 62, 93, 124, 155, 186, 216, 246, 276, 306, 336, 366];
 
         private const int MaxCalendarYear = 9378;
         private const int MaxCalendarMonth = 10;
@@ -55,7 +55,7 @@ namespace System.Globalization
 
         internal override CalendarId ID => CalendarId.PERSIAN;
 
-        private long GetAbsoluteDatePersian(int year, int month, int day)
+        private static long GetAbsoluteDatePersian(int year, int month, int day)
         {
             if (year < 1 || year > MaxCalendarYear || month < 1 || month > 12)
             {
@@ -117,7 +117,7 @@ namespace System.Globalization
 
             if (month < 1 || month > 12)
             {
-                throw new ArgumentOutOfRangeException(nameof(month), month, SR.ArgumentOutOfRange_Month);
+                ThrowHelper.ThrowArgumentOutOfRange_Month(month);
             }
         }
 
@@ -125,7 +125,7 @@ namespace System.Globalization
         {
             Debug.Assert(ordinalDay <= 366);
             int index = 0;
-            while (ordinalDay > s_daysToMonth[index])
+            while (ordinalDay > DaysToMonth[index])
             {
                 index++;
             }
@@ -138,16 +138,16 @@ namespace System.Globalization
             Debug.Assert(1 <= month && month <= 12);
             // months are one based but for calculations use 0 based
             --month;
-            return s_daysToMonth[month];
+            return DaysToMonth[month];
         }
 
-        internal int GetDatePart(long ticks, int part)
+        private int GetDatePart(long ticks, int part)
         {
             CheckTicksRange(ticks);
 
             // Get the absolute date. The absolute date is the number of days from January 1st, 1 A.D.
             // 1/1/0001 is absolute date 1.
-            long numDays = ticks / GregorianCalendar.TicksPerDay + 1;
+            long numDays = ticks / TimeSpan.TicksPerDay + 1;
 
             // Calculate the appromixate Persian Year.
             long yearStart = CalendricalCalculationsHelper.PersianNewYearOnOrBefore(numDays);
@@ -188,6 +188,34 @@ namespace System.Globalization
             throw new InvalidOperationException(SR.InvalidOperation_DateTimeParsing);
         }
 
+        // Exactly the same as GetDatePart, except computing all of
+        // year/month/day rather than just one of them. Used when all three
+        // are needed rather than redoing the computations for each.
+        internal void GetDate(long ticks, out int year, out int month, out int day)
+        {
+            CheckTicksRange(ticks);
+
+            // Get the absolute date. The absolute date is the number of days from January 1st, 1 A.D.
+            // 1/1/0001 is absolute date 1.
+            long numDays = ticks / TimeSpan.TicksPerDay + 1;
+
+            // Calculate the appromixate Persian Year.
+            long yearStart = CalendricalCalculationsHelper.PersianNewYearOnOrBefore(numDays);
+            year = (int)(Math.Floor(((yearStart - s_persianEpoch) / CalendricalCalculationsHelper.MeanTropicalYearInDays) + 0.5)) + 1;
+            Debug.Assert(year >= 1);
+
+            // Calculate the Persian Month.
+            int ordinalDay = (int)(numDays - CalendricalCalculationsHelper.GetNumberOfDays(this.ToDateTime(year, 1, 1, 0, 0, 0, 0, 1)));
+
+            month = MonthFromOrdinalDay(ordinalDay);
+            Debug.Assert(ordinalDay >= 1);
+            Debug.Assert(month >= 1 && month <= 12);
+
+            day = ordinalDay - DaysInPreviousMonths(month);
+            Debug.Assert(1 <= day);
+            Debug.Assert(day <= 31);
+        }
+
         public override DateTime AddMonths(DateTime time, int months)
         {
             if (months < -120000 || months > 120000)
@@ -199,9 +227,7 @@ namespace System.Globalization
             }
 
             // Get the date in Persian calendar.
-            int y = GetDatePart(time.Ticks, DatePartYear);
-            int m = GetDatePart(time.Ticks, DatePartMonth);
-            int d = GetDatePart(time.Ticks, DatePartDay);
+            GetDate(time.Ticks, out int y, out int m, out int d);
             int i = m - 1 + months;
             if (i >= 0)
             {
@@ -219,8 +245,8 @@ namespace System.Globalization
                 d = days;
             }
 
-            long ticks = GetAbsoluteDatePersian(y, m, d) * TicksPerDay + time.Ticks % TicksPerDay;
-            Calendar.CheckAddResult(ticks, MinSupportedDateTime, MaxSupportedDateTime);
+            long ticks = GetAbsoluteDatePersian(y, m, d) * TimeSpan.TicksPerDay + time.Ticks % TimeSpan.TicksPerDay;
+            CheckAddResult(ticks, MinSupportedDateTime, MaxSupportedDateTime);
             return new DateTime(ticks);
         }
 
@@ -234,10 +260,7 @@ namespace System.Globalization
             return GetDatePart(time.Ticks, DatePartDay);
         }
 
-        public override DayOfWeek GetDayOfWeek(DateTime time)
-        {
-            return (DayOfWeek)((int)(time.Ticks / TicksPerDay + 1) % 7);
-        }
+        public override DayOfWeek GetDayOfWeek(DateTime time) => time.DayOfWeek;
 
         public override int GetDayOfYear(DateTime time)
         {
@@ -253,7 +276,7 @@ namespace System.Globalization
                 return MaxCalendarDay;
             }
 
-            int daysInMonth = s_daysToMonth[month] - s_daysToMonth[month - 1];
+            int daysInMonth = DaysToMonth[month] - DaysToMonth[month - 1];
             if ((month == MonthsPerYear) && !IsLeapYear(year))
             {
                 Debug.Assert(daysInMonth == 30);
@@ -268,7 +291,7 @@ namespace System.Globalization
             CheckYearRange(year, era);
             if (year == MaxCalendarYear)
             {
-                return s_daysToMonth[MaxCalendarMonth - 1] + MaxCalendarDay;
+                return DaysToMonth[MaxCalendarMonth - 1] + MaxCalendarDay;
             }
 
             return IsLeapYear(year, CurrentEra) ? 366 : 365;
@@ -280,7 +303,7 @@ namespace System.Globalization
             return PersianEra;
         }
 
-        public override int[] Eras => new int[] { PersianEra };
+        public override int[] Eras => [PersianEra];
 
         public override int GetMonth(DateTime time)
         {
@@ -361,7 +384,7 @@ namespace System.Globalization
                 throw new ArgumentOutOfRangeException(null, SR.ArgumentOutOfRange_BadYearMonthDay);
             }
 
-            return new DateTime(lDate * GregorianCalendar.TicksPerDay + TimeToTicks(hour, minute, second, millisecond));
+            return new DateTime(lDate * TimeSpan.TicksPerDay + TimeToTicks(hour, minute, second, millisecond));
         }
 
         private const int DefaultTwoDigitYearMax = 1410;
@@ -394,10 +417,7 @@ namespace System.Globalization
 
         public override int ToFourDigitYear(int year)
         {
-            if (year < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(year), year, SR.ArgumentOutOfRange_NeedNonNegNum);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(year);
             if (year < 100)
             {
                 return base.ToFourDigitYear(year);

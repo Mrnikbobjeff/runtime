@@ -1,15 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
+using System.Collections;
+using System.Diagnostics;
+using System.Xml;
+using System.Xml.XPath;
+
 namespace System.Xml.Xsl.XsltOld
 {
-    using System;
-    using System.Diagnostics;
-    using System.Xml;
-    using System.Xml.XPath;
-    using System.Collections;
-
-    internal class CopyCodeAction : Action
+    internal sealed class CopyCodeAction : Action
     {
         // Execution states:
         private const int Outputting = 2;
@@ -61,7 +61,7 @@ namespace System.Xml.Xsl.XsltOld
                         Debug.Assert(frame.Counter < _copyEvents.Count);
                         Event copyEvent = (Event)_copyEvents[frame.Counter]!;
 
-                        if (copyEvent.Output(processor, frame) == false)
+                        if (!copyEvent.Output(processor, frame))
                         {
                             // This event wasn't processed
                             break;

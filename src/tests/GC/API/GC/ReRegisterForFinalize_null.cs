@@ -4,8 +4,9 @@
 // Tests ReRegisterForFinalize()
 
 using System;
+using Xunit;
 
-public class Test
+public class Test_ReRegisterForFinalize_null
 {
     public bool RunTest()
     {
@@ -26,9 +27,10 @@ public class Test
     }
 
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
-        Test t = new Test();
+        Test_ReRegisterForFinalize_null t = new Test_ReRegisterForFinalize_null();
         if (t.RunTest())
         {
             Console.WriteLine("Null Test for ReRegisterForFinalize() passed!");

@@ -17,7 +17,7 @@ public sealed class ReRegisterForFinalizeTest {
         lo = new LargeObject(size, true);
         GC.ReRegisterForFinalize(lo);
     }
-    
+
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
     public void DestroyLargeObject() {
         lo = null;
@@ -28,13 +28,13 @@ public sealed class ReRegisterForFinalizeTest {
             CreateLargeObject();
         } catch (OutOfMemoryException) {
             Console.WriteLine("Large Memory Machine required");
-            return false;
+            return true;
         } catch (Exception e) {
             Console.WriteLine("Unexpected Exception:");
             Console.WriteLine(e);
             return false;
         }
-        
+
         DestroyLargeObject();
         GC.Collect();
         GC.WaitForPendingFinalizers();

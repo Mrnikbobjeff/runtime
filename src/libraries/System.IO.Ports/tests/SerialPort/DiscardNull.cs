@@ -1,7 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO.PortsTests;
 using System.Text;
@@ -29,7 +29,7 @@ namespace System.IO.Ports.Tests
 
         #region Test Cases
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_Default_Read_byte_int_int()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -49,7 +49,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_Default_Read_char_int_int()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -69,7 +69,7 @@ namespace System.IO.Ports.Tests
         }
 
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_Default_ReadByte()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -88,7 +88,7 @@ namespace System.IO.Ports.Tests
         }
 
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_Default_ReadChar()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -108,7 +108,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_Default_ReadLine()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -128,7 +128,7 @@ namespace System.IO.Ports.Tests
         }
 
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_Default_ReadTo()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -147,49 +147,49 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_true_Read_byte_int_int_Before()
         {
             Debug.WriteLine("Verifying true DiscardNull with Read_byte_int_int before open");
             VerifyDiscardNullBeforeOpen(true, Read_byte_int_int, false);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_true_Read_char_int_int_After()
         {
             Debug.WriteLine("Verifying true DiscardNull with Read_char_int_int after open");
             VerifyDiscardNullAfterOpen(true, Read_char_int_int, false);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_true_ReadByte_Before()
         {
             Debug.WriteLine("Verifying true DiscardNull with ReadByte before open");
             VerifyDiscardNullBeforeOpen(true, ReadByte, false);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_true_ReadChar_After()
         {
             Debug.WriteLine("Verifying true DiscardNull with ReadChar after open");
             VerifyDiscardNullAfterOpen(true, ReadChar, false);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_true_ReadLine_Before()
         {
             Debug.WriteLine("Verifying true DiscardNull with ReadLine before open");
             VerifyDiscardNullBeforeOpen(true, ReadLine, true);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_true_ReadTo_After()
         {
             Debug.WriteLine("Verifying true DiscardNull with ReadTo after open");
             VerifyDiscardNullAfterOpen(true, ReadTo, true);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_true_false_Read_byte_int_int_Before()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -212,7 +212,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_true_true_Read_char_int_int_After()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -235,7 +235,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardNull_Property), nameof(HasNullModem))]
         public void DiscardNull_false_flase_Default_ReadByte()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -380,8 +380,8 @@ namespace System.IO.Ports.Tests
 
         private char[] Read_byte_int_int(SerialPort com)
         {
-            ArrayList receivedBytes = new ArrayList();
-            byte[] buffer = new byte[DEFAULT_READ_BYTE_ARRAY_SIZE];
+            var receivedBytes = new List<byte>();
+            var buffer = new byte[DEFAULT_READ_BYTE_ARRAY_SIZE];
             int totalBytesRead = 0;
             int numBytes;
 
@@ -403,14 +403,14 @@ namespace System.IO.Ports.Tests
             if (totalBytesRead < receivedBytes.Count)
                 receivedBytes.RemoveRange(totalBytesRead, receivedBytes.Count - totalBytesRead);
 
-            return com.Encoding.GetChars((byte[])receivedBytes.ToArray(typeof(byte)));
+            return com.Encoding.GetChars(receivedBytes.ToArray());
         }
 
 
         private char[] Read_char_int_int(SerialPort com)
         {
-            ArrayList receivedChars = new ArrayList();
-            char[] buffer = new char[DEFAULT_READ_CHAR_ARRAY_SIZE];
+            var receivedChars = new List<char>();
+            var buffer = new char[DEFAULT_READ_CHAR_ARRAY_SIZE];
             int totalCharsRead = 0;
             int numChars;
 
@@ -432,13 +432,13 @@ namespace System.IO.Ports.Tests
             if (totalCharsRead < receivedChars.Count)
                 receivedChars.RemoveRange(totalCharsRead, receivedChars.Count - totalCharsRead);
 
-            return (char[])receivedChars.ToArray(typeof(char));
+            return receivedChars.ToArray();
         }
 
 
         private char[] ReadByte(SerialPort com)
         {
-            ArrayList receivedBytes = new ArrayList();
+            var receivedBytes = new List<byte>();
             int rcvByte;
 
             while (true)
@@ -455,13 +455,13 @@ namespace System.IO.Ports.Tests
                 receivedBytes.Add((byte)rcvByte);
             }
 
-            return com.Encoding.GetChars((byte[])receivedBytes.ToArray(typeof(byte)));
+            return com.Encoding.GetChars(receivedBytes.ToArray());
         }
 
 
         private char[] ReadChar(SerialPort com)
         {
-            ArrayList receivedChars = new ArrayList();
+            var receivedChars = new List<char>();
             int rcvChar;
 
             while (true)
@@ -477,13 +477,13 @@ namespace System.IO.Ports.Tests
                 receivedChars.Add((char)rcvChar);
             }
 
-            return (char[])receivedChars.ToArray(typeof(char));
+            return receivedChars.ToArray();
         }
 
 
         private char[] ReadLine(SerialPort com)
         {
-            StringBuilder rcvStringBuilder = new StringBuilder();
+            var rcvStringBuilder = new StringBuilder();
             string rcvString;
 
             while (true)
@@ -506,7 +506,7 @@ namespace System.IO.Ports.Tests
 
         private char[] ReadTo(SerialPort com)
         {
-            StringBuilder rcvStringBuilder = new StringBuilder();
+            var rcvStringBuilder = new StringBuilder();
             string rcvString;
 
             while (true)

@@ -2,13 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b77713
 {
     using System;
 
     public class BB
     {
-        public static void Main1()
+        internal static void Main1()
         {
             bool local2 = false;
             try
@@ -21,7 +22,9 @@ namespace Test
                 throw new Exception();
             }
         }
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

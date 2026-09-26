@@ -1,15 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.Text;
-using System.Collections;
-using System.IO;
-using System.Globalization;
 using System.Diagnostics;
-using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Text;
 
 namespace System.Xml.Serialization
 {
@@ -31,6 +26,7 @@ namespace System.Xml.Serialization
         /// </devdoc>
         public static string MakePascal(string identifier)
         {
+            ArgumentNullException.ThrowIfNull(identifier);
             identifier = MakeValid(identifier);
             if (identifier.Length <= 2)
             {
@@ -38,8 +34,11 @@ namespace System.Xml.Serialization
             }
             else if (char.IsLower(identifier[0]))
             {
-                char upper = char.ToUpperInvariant(identifier[0]);
-                return string.Concat(MemoryMarshal.CreateReadOnlySpan(ref upper, 1), identifier.AsSpan(1));
+                return string.Create(identifier.Length, identifier, static (buffer, identifier) =>
+                {
+                    identifier.CopyTo(buffer);
+                    buffer[0] = char.ToUpperInvariant(buffer[0]); // convert only first char to uppercase; leave all else as-is
+                });
             }
             else
             {
@@ -52,6 +51,7 @@ namespace System.Xml.Serialization
         /// </devdoc>
         public static string MakeCamel(string identifier)
         {
+            ArgumentNullException.ThrowIfNull(identifier);
             identifier = MakeValid(identifier);
             if (identifier.Length <= 2)
             {
@@ -59,8 +59,11 @@ namespace System.Xml.Serialization
             }
             else if (char.IsUpper(identifier[0]))
             {
-                char lower = char.ToLowerInvariant(identifier[0]);
-                return string.Concat(MemoryMarshal.CreateReadOnlySpan(ref lower, 1), identifier.AsSpan(1));
+                return string.Create(identifier.Length, identifier, static (buffer, identifier) =>
+                {
+                    identifier.CopyTo(buffer);
+                    buffer[0] = char.ToLowerInvariant(buffer[0]); // convert only first char to lowercase; leave all else as-is
+                });
             }
             else
             {
@@ -73,7 +76,8 @@ namespace System.Xml.Serialization
         /// </devdoc>
         public static string MakeValid(string identifier)
         {
-            StringBuilder builder = new StringBuilder();
+            ArgumentNullException.ThrowIfNull(identifier);
+            var builder = new ValueStringBuilder(stackalloc char[MaxIdentifierLength]);
             for (int i = 0; i < identifier.Length && builder.Length < MaxIdentifierLength; i++)
             {
                 char c = identifier[i];
@@ -233,7 +237,7 @@ namespace System.Xml.Serialization
                 }
             }
 
-            Type[] arguments = t.IsGenericType || t.ContainsGenericParameters ? t.GetGenericArguments() : Array.Empty<Type>();
+            Type[] arguments = t.IsGenericType || t.ContainsGenericParameters ? t.GetGenericArguments() : Type.EmptyTypes;
             GetCSharpName(t, arguments, 0, sb);
             for (int i = 0; i < rank; i++)
             {
@@ -250,7 +254,7 @@ namespace System.Xml.Serialization
 
         private static void EscapeKeywords(string identifier, StringBuilder sb)
         {
-            if (identifier == null || identifier.Length == 0)
+            if (string.IsNullOrEmpty(identifier))
                 return;
             int arrayCount = 0;
             while (identifier.EndsWith("[]", StringComparison.Ordinal))
@@ -270,19 +274,21 @@ namespace System.Xml.Serialization
             }
         }
 
-        [return: NotNullIfNotNull("identifier")]
+        private static readonly char[] s_identifierSeparators = new char[] { '.', ',', '<', '>' };
+
+        [return: NotNullIfNotNull(nameof(identifier))]
         private static string? EscapeKeywords(string? identifier)
         {
-            if (identifier == null || identifier.Length == 0) return identifier;
+            if (string.IsNullOrEmpty(identifier)) return identifier;
             string originalIdentifier = identifier;
-            string[] names = identifier.Split(new char[] { '.', ',', '<', '>' });
+            string[] names = identifier.Split(s_identifierSeparators);
             StringBuilder sb = new StringBuilder();
             int separator = -1;
             for (int i = 0; i < names.Length; i++)
             {
                 if (separator >= 0)
                 {
-                    sb.Append(originalIdentifier.Substring(separator, 1));
+                    sb.Append(originalIdentifier[separator]);
                 }
                 separator++;
                 separator += names[i].Length;

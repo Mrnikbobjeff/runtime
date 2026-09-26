@@ -2,14 +2,24 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
 
 namespace JitInliningTest
 {
-    internal class MathFunc
+    public class MathFunc
     {
-        public static int Main()
+        public const int DefaultSeed = 20010415;
+        public static int Seed = Environment.GetEnvironmentVariable("CORECLR_SEED") switch
         {
-            Random r = new Random();
+            string seedStr when seedStr.Equals("random", StringComparison.OrdinalIgnoreCase) => new Random().Next(),
+            string seedStr when int.TryParse(seedStr, out int envSeed) => envSeed,
+            _ => DefaultSeed
+        };
+
+        [Fact]
+        public static void TestEntryPoint()
+        {
+            Random r = new Random(Seed);
 
             int a = Math.Abs(r.Next(100) - r.Next(100));
             a += Math.Max(r.Next(100), r.Next(100));
@@ -34,7 +44,6 @@ namespace JitInliningTest
             b += Math.Tanh(r.Next(1, 5));
 
             Console.WriteLine(b);
-            return 100;
         }
     }
 }

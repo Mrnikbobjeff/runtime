@@ -64,8 +64,8 @@ namespace System.Threading.Tests
             Assert.False(Monitor.IsEntered(obj));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
-        public static void IsEntered_WhenHeldBySomeoneElse_ThrowsSynchronizationLockException()
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        public static void IsEntered_WhenHeldBySomeoneElse()
         {
             var obj = new object();
             var b = new Barrier(2);
@@ -126,7 +126,7 @@ namespace System.Threading.Tests
             Assert.Throws<SynchronizationLockException>(() => Monitor.Exit(valueType));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void Exit_WhenHeldBySomeoneElse_ThrowsSynchronizationLockException()
         {
             var obj = new object();
@@ -196,8 +196,16 @@ namespace System.Threading.Tests
 
             Assert.Throws<ArgumentOutOfRangeException>(() => Monitor.TryEnter(obj, -2));
             Assert.Throws<ArgumentOutOfRangeException>(() => Monitor.TryEnter(obj, -2, ref lockTaken));
-            AssertExtensions.Throws<ArgumentOutOfRangeException>("timeout", () => Monitor.TryEnter(obj, TimeSpan.FromMilliseconds(-2)));
-            AssertExtensions.Throws<ArgumentOutOfRangeException>("timeout", () => Monitor.TryEnter(obj, TimeSpan.FromMilliseconds(-2), ref lockTaken));
+            AssertExtensions.Throws<ArgumentOutOfRangeException>(
+                "timeout", () => Monitor.TryEnter(obj, TimeSpan.FromMilliseconds(-2)));
+            AssertExtensions.Throws<ArgumentOutOfRangeException>(
+                "timeout", () => Monitor.TryEnter(obj, TimeSpan.FromMilliseconds(-2), ref lockTaken));
+            AssertExtensions.Throws<ArgumentOutOfRangeException>(
+                "timeout",
+                () => Monitor.TryEnter(obj, TimeSpan.FromMilliseconds((double)int.MaxValue + 1)));
+            AssertExtensions.Throws<ArgumentOutOfRangeException>(
+                "timeout",
+                () => Monitor.TryEnter(obj, TimeSpan.FromMilliseconds((double)int.MaxValue + 1), ref lockTaken));
 
             lockTaken = true;
             AssertExtensions.Throws<ArgumentException>("lockTaken", () => Monitor.TryEnter(obj, ref lockTaken));
@@ -207,7 +215,7 @@ namespace System.Threading.Tests
             AssertExtensions.Throws<ArgumentException>("lockTaken", () => Monitor.TryEnter(obj, TimeSpan.Zero, ref lockTaken));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void Enter_HasToWait()
         {
             var thinLock = new object();
@@ -389,7 +397,7 @@ namespace System.Threading.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void Wait_Invalid()
         {
             var obj = new object();
@@ -397,10 +405,15 @@ namespace System.Threading.Tests
             Assert.Throws<ArgumentNullException>(() => Monitor.Wait(null, 1));
             Assert.Throws<ArgumentNullException>(() => Monitor.Wait(null, TimeSpan.Zero));
             Assert.Throws<ArgumentOutOfRangeException>(() => Monitor.Wait(obj, -2));
-            AssertExtensions.Throws<ArgumentOutOfRangeException>("timeout", () => Monitor.Wait(obj, TimeSpan.FromMilliseconds(-2)));
+            AssertExtensions.Throws<ArgumentOutOfRangeException>(
+                "timeout",
+                () => Monitor.Wait(obj, TimeSpan.FromMilliseconds(-2)));
+            AssertExtensions.Throws<ArgumentOutOfRangeException>(
+                "timeout",
+                () => Monitor.Wait(obj, TimeSpan.FromMilliseconds((double)int.MaxValue + 1)));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void WaitTest()
         {
             var obj = new object();
@@ -434,14 +447,134 @@ namespace System.Threading.Tests
                 Monitor.Pulse(obj);
             }
             Monitor.Exit(obj);
+            t.Join(500);
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void Enter_HasToWait_LockContentionCountTest()
         {
             long initialLockContentionCount = Monitor.LockContentionCount;
             Enter_HasToWait();
             Assert.True(Monitor.LockContentionCount - initialLockContentionCount >= 2);
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        public static void ObjectHeaderSyncBlockTransitionTryEnterRaceTest()
+        {
+            var threadStarted = new AutoResetEvent(false);
+            var startTest = new AutoResetEvent(false);
+            var obj = new object();
+            var t = ThreadTestHelpers.CreateGuardedThread(out _, () =>
+            {
+                threadStarted.Set();
+                startTest.CheckedWait();
+                Monitor.TryEnter(obj, 100); // likely to perform a full wait, which may involve some sort of transition
+            });
+            t.IsBackground = true;
+            t.Start();
+            threadStarted.CheckedWait();
+
+            lock (obj)
+            {
+                startTest.Set();
+                do
+                {
+                    for (int i = 0; i < 1000; i++)
+                    {
+                        Assert.True(Monitor.TryEnter(obj)); // this could race with the transition happening on the other thread
+                        Monitor.Exit(obj);
+                    }
+                } while (!t.Join(0));
+            }
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/49521", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/87718", TestRuntimes.Mono)]
+        public static void InterruptWaitTest()
+        {
+            object obj = new();
+            lock (obj)
+            {
+                var threadReady = new AutoResetEvent(false);
+                var t =
+                    ThreadTestHelpers.CreateGuardedThread(out Action waitForThread, () =>
+                    {
+                        threadReady.Set();
+                        Assert.Throws<ThreadInterruptedException>(() => Monitor.Enter(obj));
+                    });
+                t.IsBackground = true;
+                t.Start();
+                threadReady.CheckedWait();
+                t.Interrupt();
+                waitForThread();
+            }
+        }
+
+        // Validates that reentrant Monitor.Wait calls from a SynchronizationContext
+        // message pump do not steal each other's pulse signals.
+        // The test is not applicable to Mono. Monitor.Wait is implemented natively and doesn't end up
+        // forwarding to SynchronizationContext.Wait, the reentrancy this test covers cannot occur.
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported), nameof(PlatformDetection.IsNotMonoRuntime))]
+        public static void ReentrantWaitFromSyncContextTest()
+        {
+            // Since we set the SynchronizationContext for the current thread, we run
+            // this test in a background thread to avoid affecting other tests.
+            ThreadTestHelpers.RunTestInBackgroundThread(() =>
+            {
+                object lockA = new();
+                object lockB = new();
+                bool innerWaitResult = true; // should become false (lockB is never pulsed)
+
+                var pumpCtx = new ReentrantWaitSyncContext(() =>
+                {
+                    lock (lockB)
+                    {
+                        innerWaitResult = Monitor.Wait(lockB, 500);
+                    }
+                });
+                SynchronizationContext.SetSynchronizationContext(pumpCtx);
+
+                var t = new Thread(() =>
+                {
+                    Thread.Sleep(100);
+                    lock (lockA) { Monitor.Pulse(lockA); }
+                }) { IsBackground = true };
+                t.Start();
+
+                bool outerResult;
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                lock (lockA)
+                {
+                    outerResult = Monitor.Wait(lockA, FailTimeoutMilliseconds);
+                }
+                long elapsed = sw.ElapsedMilliseconds;
+
+                Assert.True(outerResult, "Outer Monitor.Wait should have been pulsed");
+                Assert.True(elapsed < FailTimeoutMilliseconds / 2,
+                    $"Outer Monitor.Wait took {elapsed}ms — signal was likely stolen by inner wait");
+                Assert.False(innerWaitResult,
+                    "Inner Monitor.Wait(lockB) should return false (lockB was never pulsed)");
+
+                t.Join(FailTimeoutMilliseconds);
+            });
+        }
+
+        private sealed class ReentrantWaitSyncContext : SynchronizationContext
+        {
+            private Action? _callback;
+
+            public ReentrantWaitSyncContext(Action callback)
+            {
+                _callback = callback;
+                SetWaitNotificationRequired();
+            }
+
+            public override int Wait(IntPtr[] waitHandles, bool waitAll, int millisecondsTimeout)
+            {
+                Interlocked.Exchange(ref _callback, null)?.Invoke();
+                return base.Wait(waitHandles, waitAll, millisecondsTimeout);
+            }
         }
     }
 }

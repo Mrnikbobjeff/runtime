@@ -12,10 +12,11 @@ done outside of trybody
     }
 */
 using System;
+using Xunit;
 
-namespace hello
+namespace hello_tryfinallythrow_nonlocalexit_finallyexec_cs
 {
-    class Class1
+    public class Class1
     {
 
         private static TestUtil.TestLog testLog;
@@ -53,14 +54,16 @@ namespace hello
 
         }
 
-        static public int Main(string[] args)
+        [Fact]
+        [OuterLoop]
+        static public int TestEntryPoint()
         {
             //Start recording
             testLog.StartRecording();
             try
             {
                 Console.WriteLine("In main's try");
-                Middle(args.Length);
+                Middle(0);
             }
             catch
             {

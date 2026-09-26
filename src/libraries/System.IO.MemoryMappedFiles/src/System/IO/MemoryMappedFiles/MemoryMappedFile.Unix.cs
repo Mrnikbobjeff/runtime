@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
+using System.Text;
 using Microsoft.Win32.SafeHandles;
 
 namespace System.IO.MemoryMappedFiles
@@ -8,41 +10,27 @@ namespace System.IO.MemoryMappedFiles
     public partial class MemoryMappedFile
     {
         // This will verify file access and return file size. fileSize will return -1 for special devices.
-        private static void VerifyMemoryMappedFileAccess(MemoryMappedFileAccess access, long capacity, FileStream? fileStream, out long fileSize)
+        private static void VerifyMemoryMappedFileAccess(MemoryMappedFileAccess access, long capacity, SafeFileHandle? fileHandle, long fileSize, out bool isRegularFile)
         {
-            fileSize = -1;
+            // if the length has already been fetched and it's more than 0 it's a regular file and there is no need for the FStat sys-call
+            isRegularFile = fileHandle is not null && (fileSize > 0 || fileHandle.Type is FileHandleType.RegularFile);
 
-            if (fileStream != null)
+            if (isRegularFile)
             {
-                Interop.Sys.FileStatus status;
-
-                int result = Interop.Sys.FStat(fileStream.SafeFileHandle, out status);
-                if (result != 0)
+                if (access == MemoryMappedFileAccess.Read && capacity > fileSize)
                 {
-                    Interop.ErrorInfo errorInfo = Interop.Sys.GetLastErrorInfo();
-                    throw Interop.GetExceptionForIoErrno(errorInfo);
+                    throw new ArgumentException(SR.Argument_ReadAccessWithLargeCapacity);
                 }
 
-                bool isRegularFile = (status.Mode & Interop.Sys.FileTypes.S_IFCHR) == 0;
-
-                if (isRegularFile)
+                // one can always create a small view if they do not want to map an entire file
+                if (fileSize > capacity)
                 {
-                    fileSize = status.Size;
-                    if (access == MemoryMappedFileAccess.Read && capacity > status.Size)
-                    {
-                        throw new ArgumentException(SR.Argument_ReadAccessWithLargeCapacity);
-                    }
+                    throw new ArgumentOutOfRangeException(nameof(capacity), SR.ArgumentOutOfRange_CapacityGEFileSizeRequired);
+                }
 
-                    // one can always create a small view if they do not want to map an entire file
-                    if (fileStream.Length > capacity)
-                    {
-                        throw new ArgumentOutOfRangeException(nameof(capacity), SR.ArgumentOutOfRange_CapacityGEFileSizeRequired);
-                    }
-
-                    if (access == MemoryMappedFileAccess.Write)
-                    {
-                        throw new ArgumentException(SR.Argument_NewMMFWriteAccessNotAllowed, nameof(access));
-                    }
+                if (access == MemoryMappedFileAccess.Write)
+                {
+                    throw new ArgumentException(SR.Argument_NewMMFWriteAccessNotAllowed, nameof(access));
                 }
             }
         }
@@ -52,12 +40,12 @@ namespace System.IO.MemoryMappedFiles
         /// memory mapped file should not be associated with an existing file on disk (i.e. start
         /// out empty).
         /// </summary>
-        private static unsafe SafeMemoryMappedFileHandle CreateCore(
-            FileStream? fileStream, string? mapName,
+        private static SafeMemoryMappedFileHandle CreateCore(
+            SafeFileHandle? fileHandle, string? mapName,
             HandleInheritability inheritability, MemoryMappedFileAccess access,
-            MemoryMappedFileOptions options, long capacity)
+            MemoryMappedFileOptions options, long capacity, long fileSize)
         {
-            VerifyMemoryMappedFileAccess(access, capacity, fileStream, out long fileSize);
+            VerifyMemoryMappedFileAccess(access, capacity, fileHandle, fileSize, out bool isRegularFile);
 
             if (mapName != null)
             {
@@ -74,15 +62,15 @@ namespace System.IO.MemoryMappedFiles
             }
 
             bool ownsFileStream = false;
-            if (fileStream != null)
+            if (fileHandle != null)
             {
-                if (fileSize >= 0 && capacity > fileSize)
+                if (isRegularFile && fileSize >= 0 && capacity > fileSize)
                 {
                     // This map is backed by a file.  Make sure the file's size is increased to be
                     // at least as big as the requested capacity of the map for Write* access.
                     try
                     {
-                        fileStream.SetLength(capacity);
+                        Interop.CheckIo(Interop.Sys.FTruncate(fileHandle, capacity));
                     }
                     catch (ArgumentException exc)
                     {
@@ -108,11 +96,11 @@ namespace System.IO.MemoryMappedFiles
                 if ((protections & Interop.Sys.MemoryMappedProtections.PROT_WRITE) != 0 && capacity > 0)
                 {
                     ownsFileStream = true;
-                    fileStream = CreateSharedBackingObject(protections, capacity, inheritability);
+                    fileHandle = CreateSharedBackingObject(protections, capacity, inheritability);
                 }
             }
 
-            return new SafeMemoryMappedFileHandle(fileStream, ownsFileStream, inheritability, access, options, capacity);
+            return new SafeMemoryMappedFileHandle(fileHandle, ownsFileStream, inheritability, access, options, capacity);
         }
 
         /// <summary>
@@ -125,9 +113,10 @@ namespace System.IO.MemoryMappedFiles
         {
             // Since we don't support mapName != null, CreateOrOpenCore can't
             // be used to Open an existing map, and thus is identical to CreateCore.
-            return CreateCore(null, mapName, inheritability, access, options, capacity);
+            return CreateCore(null, mapName, inheritability, access, options, capacity, -1);
         }
 
+#pragma warning disable IDE0060
         /// <summary>
         /// Used by the OpenExisting factory method group and by CreateOrOpen if access is write.
         /// We'll throw an ArgumentException if the file mapping object didn't exist and the
@@ -149,9 +138,10 @@ namespace System.IO.MemoryMappedFiles
         {
             throw CreateNamedMapsNotSupportedException();
         }
+#pragma warning restore IDE0060
 
         /// <summary>Gets an exception indicating that named maps are not supported on this platform.</summary>
-        private static Exception CreateNamedMapsNotSupportedException()
+        private static PlatformNotSupportedException CreateNamedMapsNotSupportedException()
         {
             return new PlatformNotSupportedException(SR.PlatformNotSupported_NamedMaps);
         }
@@ -164,18 +154,17 @@ namespace System.IO.MemoryMappedFiles
                 FileAccess.Read;
         }
 
-        private static FileStream CreateSharedBackingObject(Interop.Sys.MemoryMappedProtections protections, long capacity, HandleInheritability inheritability)
+        private static SafeFileHandle CreateSharedBackingObject(Interop.Sys.MemoryMappedProtections protections, long capacity, HandleInheritability inheritability)
         {
-            return CreateSharedBackingObjectUsingMemory(protections, capacity, inheritability)
-                ?? CreateSharedBackingObjectUsingFile(protections, capacity, inheritability);
+            return Interop.Sys.IsMemfdSupported ?
+                CreateSharedBackingObjectUsingMemoryMemfdCreate(protections, capacity, inheritability) :
+                CreateSharedBackingObjectUsingMemoryShmOpen(protections, capacity, inheritability)
+                    ?? CreateSharedBackingObjectUsingFile(protections, capacity, inheritability);
         }
 
-        private static FileStream? CreateSharedBackingObjectUsingMemory(
+        private static SafeFileHandle? CreateSharedBackingObjectUsingMemoryShmOpen(
            Interop.Sys.MemoryMappedProtections protections, long capacity, HandleInheritability inheritability)
         {
-            // The POSIX shared memory object name must begin with '/'.  After that we just want something short and unique.
-            string mapName = "/corefx_map_" + Guid.NewGuid().ToString("N");
-
             // Determine the flags to use when creating the shared memory object
             Interop.Sys.OpenFlags flags = (protections & Interop.Sys.MemoryMappedProtections.PROT_WRITE) != 0 ?
                 Interop.Sys.OpenFlags.O_RDWR :
@@ -183,30 +172,46 @@ namespace System.IO.MemoryMappedFiles
             flags |= Interop.Sys.OpenFlags.O_CREAT | Interop.Sys.OpenFlags.O_EXCL; // CreateNew
 
             // Determine the permissions with which to create the file
-            Interop.Sys.Permissions perms = default(Interop.Sys.Permissions);
+            var perms = UnixFileMode.None;
             if ((protections & Interop.Sys.MemoryMappedProtections.PROT_READ) != 0)
-                perms |= Interop.Sys.Permissions.S_IRUSR;
+                perms |= UnixFileMode.UserRead;
             if ((protections & Interop.Sys.MemoryMappedProtections.PROT_WRITE) != 0)
-                perms |= Interop.Sys.Permissions.S_IWUSR;
+                perms |= UnixFileMode.UserWrite;
             if ((protections & Interop.Sys.MemoryMappedProtections.PROT_EXEC) != 0)
-                perms |= Interop.Sys.Permissions.S_IXUSR;
+                perms |= UnixFileMode.UserExecute;
 
-            // Create the shared memory object.
-            SafeFileHandle fd = Interop.Sys.ShmOpen(mapName, flags, (int)perms);
-            if (fd.IsInvalid)
+            string mapName;
+            SafeFileHandle fd;
+
+            do
             {
-                Interop.ErrorInfo errorInfo = Interop.Sys.GetLastErrorInfo();
-                if (errorInfo.Error == Interop.Error.ENOTSUP)
-                {
-                    // If ShmOpen is not supported, fall back to file backing object.
-                    // Note that the System.Native shim will force this failure on platforms where
-                    // the result of native shm_open does not work well with our subsequent call
-                    // to mmap.
-                    return null;
-                }
+                mapName = GenerateMapName();
+                fd = Interop.Sys.ShmOpen(mapName, flags, (int)perms); // Create the shared memory object.
 
-                throw Interop.GetExceptionForIoErrno(errorInfo);
-            }
+                if (fd.IsInvalid)
+                {
+                    Interop.ErrorInfo errorInfo = Interop.Sys.GetLastErrorInfo();
+                    fd.Dispose();
+
+                    if (errorInfo.Error == Interop.Error.ENOTSUP)
+                    {
+                        // If ShmOpen is not supported, fall back to file backing object.
+                        // Note that the System.Native shim will force this failure on platforms where
+                        // the result of native shm_open does not work well with our subsequent call to mmap.
+                        return null;
+                    }
+                    else if (errorInfo.Error == Interop.Error.ENAMETOOLONG)
+                    {
+                        Debug.Fail($"shm_open failed with ENAMETOOLONG for {Encoding.UTF8.GetByteCount(mapName)} byte long name.");
+                        // in theory it should not happen anymore, but just to be extra safe we use the fallback
+                        return null;
+                    }
+                    else if (errorInfo.Error != Interop.Error.EEXIST) // map with same name already existed
+                    {
+                        throw Interop.GetExceptionForIoErrno(errorInfo);
+                    }
+                }
+            } while (fd.IsInvalid);
 
             try
             {
@@ -228,8 +233,7 @@ namespace System.IO.MemoryMappedFiles
                     throw Interop.GetExceptionForIoErrno(Interop.Sys.GetLastErrorInfo());
                 }
 
-                // Wrap the file descriptor in a stream and return it.
-                return new FileStream(fd, TranslateProtectionsToFileAccess(protections));
+                return fd;
             }
             catch
             {
@@ -238,7 +242,68 @@ namespace System.IO.MemoryMappedFiles
             }
         }
 
-        private static FileStream CreateSharedBackingObjectUsingFile(Interop.Sys.MemoryMappedProtections protections, long capacity, HandleInheritability inheritability)
+        private static unsafe string GenerateMapName()
+        {
+            // macOS shm_open documentation says that the sys-call can fail with ENAMETOOLONG if the name exceeds SHM_NAME_MAX characters.
+            // The problem is that SHM_NAME_MAX is not defined anywhere and is not consistent amongst macOS versions (arm64 vs x64 for example).
+            // It was reported in 2008 (https://lists.apple.com/archives/xcode-users/2008/Apr/msg00523.html),
+            // but considered to be by design (http://web.archive.org/web/20140109200632/http://lists.apple.com/archives/darwin-development/2003/Mar/msg00244.html).
+            // According to https://github.com/qt/qtbase/blob/1ed449e168af133184633d174fd7339a13d1d595/src/corelib/kernel/qsharedmemory.cpp#L53-L56 the actual value is 30.
+            // Some other OSS libs use 32 (we did as well, but it was not enough) or 31, but we prefer 30 just to be extra safe.
+            const int MaxNameLength = 30;
+            // The POSIX shared memory object name must begin with '/'.  After that we just want something short (30) and unique.
+            const string NamePrefix = "/dotnet_";
+            return string.Create(MaxNameLength, 0, (span, state) =>
+            {
+                Span<char> guid = stackalloc char[32];
+                Guid.NewGuid().TryFormat(guid, out int charsWritten, "N");
+                Debug.Assert(charsWritten == 32);
+                NamePrefix.CopyTo(span);
+                guid.Slice(0, MaxNameLength - NamePrefix.Length).CopyTo(span.Slice(NamePrefix.Length));
+                Debug.Assert(Encoding.UTF8.GetByteCount(span) <= MaxNameLength); // the standard uses Utf8
+            });
+        }
+
+        private static SafeFileHandle CreateSharedBackingObjectUsingMemoryMemfdCreate(
+           Interop.Sys.MemoryMappedProtections protections, long capacity, HandleInheritability inheritability)
+        {
+            int isReadonly = ((protections & Interop.Sys.MemoryMappedProtections.PROT_READ) != 0 &&
+                    (protections & Interop.Sys.MemoryMappedProtections.PROT_WRITE) == 0) ? 1 : 0;
+
+            SafeFileHandle fd = Interop.Sys.MemfdCreate(GenerateMapName(), isReadonly);
+            if (fd.IsInvalid)
+            {
+                Interop.ErrorInfo errorInfo = Interop.Sys.GetLastErrorInfo();
+                fd.Dispose();
+
+                throw Interop.GetExceptionForIoErrno(errorInfo);
+            }
+
+            try
+            {
+                // Give it the right capacity.  We do this directly with ftruncate rather
+                // than via FileStream.SetLength after the FileStream is created because, on some systems,
+                // lseek fails on shared memory objects, causing the FileStream to think it's unseekable,
+                // causing it to preemptively throw from SetLength.
+                Interop.CheckIo(Interop.Sys.FTruncate(fd, capacity));
+
+                // SystemNative_MemfdCreate sets CLOEXEC implicitly.  If the inheritability requested is Inheritable, remove CLOEXEC.
+                if (inheritability == HandleInheritability.Inheritable &&
+                    Interop.Sys.Fcntl.SetFD(fd, 0) == -1)
+                {
+                    throw Interop.GetExceptionForIoErrno(Interop.Sys.GetLastErrorInfo());
+                }
+
+                return fd;
+            }
+            catch
+            {
+                fd.Dispose();
+                throw;
+            }
+        }
+
+        private static SafeFileHandle CreateSharedBackingObjectUsingFile(Interop.Sys.MemoryMappedProtections protections, long capacity, HandleInheritability inheritability)
         {
             // We create a temporary backing file in TMPDIR.  We don't bother putting it into subdirectories as the file exists
             // extremely briefly: it's opened/created and then immediately unlinked.
@@ -250,19 +315,18 @@ namespace System.IO.MemoryMappedFiles
 
             // Create the backing file, then immediately unlink it so that it'll be cleaned up when no longer in use.
             // Then enlarge it to the requested capacity.
-            const int DefaultBufferSize = 0x1000;
-            var fs = new FileStream(path, FileMode.CreateNew, TranslateProtectionsToFileAccess(protections), share, DefaultBufferSize);
+            SafeFileHandle fileHandle = File.OpenHandle(path, FileMode.CreateNew, TranslateProtectionsToFileAccess(protections), share);
             try
             {
                 Interop.CheckIo(Interop.Sys.Unlink(path));
-                fs.SetLength(capacity);
+                Interop.CheckIo(Interop.Sys.FTruncate(fileHandle, capacity), path);
             }
             catch
             {
-                fs.Dispose();
+                fileHandle.Dispose();
                 throw;
             }
-            return fs;
+            return fileHandle;
         }
     }
 }

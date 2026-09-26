@@ -8,6 +8,9 @@ namespace System.Reflection.Context.Tests
     {
         private const string Root = "System.Reflection.Context";
 
+        private const string Tests = Root + ".Tests";
+        public const string SecondTestObject = Tests + ".SecondTestObject";
+
         private const string RootCustom = Root + ".Custom";
         public const string CustomAssembly = RootCustom + ".CustomAssembly";
         public const string CustomModule = RootCustom + ".CustomModule";
@@ -17,6 +20,8 @@ namespace System.Reflection.Context.Tests
         private const string RootProjection = Root + ".Projection";
         public const string ProjectingCustomAttributeData = RootProjection + ".ProjectingCustomAttributeData";
         public const string ProjectingManifestResourceInfo = RootProjection + ".ProjectingManifestResourceInfo";
+        public const string ProjectingConstructorInfo = RootProjection + ".ProjectingConstructorInfo";
+        public const string ProjectingMethodInfo = RootProjection + ".ProjectingMethodInfo";
 
         private const string RootVirtual = Root + ".Virtual";
         public const string VirtualPropertyInfo = RootVirtual + ".VirtualPropertyInfo";

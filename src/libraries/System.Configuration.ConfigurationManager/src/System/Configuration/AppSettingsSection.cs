@@ -9,9 +9,9 @@ namespace System.Configuration
 {
     public sealed class AppSettingsSection : ConfigurationSection
     {
-        private static volatile ConfigurationPropertyCollection s_properties;
-        private static volatile ConfigurationProperty s_propAppSettings;
-        private static volatile ConfigurationProperty s_propFile;
+        private static ConfigurationPropertyCollection s_properties;
+        private static ConfigurationProperty s_propAppSettings;
+        private static ConfigurationProperty s_propFile;
 
         private KeyValueInternalCollection _keyValueCollection;
 
@@ -23,7 +23,7 @@ namespace System.Configuration
         protected internal override ConfigurationPropertyCollection Properties => EnsureStaticPropertyBag();
 
         internal NameValueCollection InternalSettings
-            => _keyValueCollection ?? (_keyValueCollection = new KeyValueInternalCollection(this));
+            => _keyValueCollection ??= new KeyValueInternalCollection(this);
 
         [ConfigurationProperty("", IsDefaultCollection = true)]
         public KeyValueConfigurationCollection Settings => (KeyValueConfigurationCollection)base[s_propAppSettings];
@@ -127,7 +127,7 @@ namespace System.Configuration
                 }
             }
 
-            ConfigXmlReader internalReader = new ConfigXmlReader(rawXml, sourceFileFullPath, lineOffset);
+            using ConfigXmlReader internalReader = new ConfigXmlReader(rawXml, sourceFileFullPath, lineOffset);
             internalReader.Read();
 
             if (internalReader.MoveToNextAttribute())

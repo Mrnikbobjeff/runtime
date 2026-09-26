@@ -2,13 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections;
 using System.Diagnostics;
 using System.Xml;
-using System.Collections;
 
 namespace System.Xml.Xsl.Xslt
 {
-    internal class OutputScopeManager
+    internal sealed class OutputScopeManager
     {
         public struct ScopeReord
         {

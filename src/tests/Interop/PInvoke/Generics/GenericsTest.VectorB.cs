@@ -4,39 +4,39 @@
 using System;
 using System.Numerics;
 using System.Runtime.InteropServices;
-using TestLibrary;
+using Xunit;
 
 unsafe partial class GenericsNative
 {
     [DllImport(nameof(GenericsNative))]
-    public static extern Vector<bool> GetVectorB128(bool e00, bool e01, bool e02, bool e03, bool e04, bool e05, bool e06, bool e07, bool e08, bool e09, bool e10, bool e11, bool e12, bool e13, bool e14, bool e15);
+    public static extern Vector<bool> GetVectorB128([MarshalAs(UnmanagedType.U1)]bool e00, [MarshalAs(UnmanagedType.U1)]bool e01, [MarshalAs(UnmanagedType.U1)]bool e02, [MarshalAs(UnmanagedType.U1)]bool e03, [MarshalAs(UnmanagedType.U1)]bool e04, [MarshalAs(UnmanagedType.U1)]bool e05, [MarshalAs(UnmanagedType.U1)]bool e06, [MarshalAs(UnmanagedType.U1)]bool e07, [MarshalAs(UnmanagedType.U1)]bool e08, [MarshalAs(UnmanagedType.U1)]bool e09, [MarshalAs(UnmanagedType.U1)]bool e10, [MarshalAs(UnmanagedType.U1)]bool e11, [MarshalAs(UnmanagedType.U1)]bool e12, [MarshalAs(UnmanagedType.U1)]bool e13, [MarshalAs(UnmanagedType.U1)]bool e14, [MarshalAs(UnmanagedType.U1)]bool e15);
 
     [DllImport(nameof(GenericsNative))]
-    public static extern Vector<bool> GetVectorB256(bool e00, bool e01, bool e02, bool e03, bool e04, bool e05, bool e06, bool e07, bool e08, bool e09, bool e10, bool e11, bool e12, bool e13, bool e14, bool e15, bool e16, bool e17, bool e18, bool e19, bool e20, bool e21, bool e22, bool e23, bool e24, bool e25, bool e26, bool e27, bool e28, bool e29, bool e30, bool e31);
+    public static extern Vector<bool> GetVectorB256([MarshalAs(UnmanagedType.U1)]bool e00, [MarshalAs(UnmanagedType.U1)]bool e01, [MarshalAs(UnmanagedType.U1)]bool e02, [MarshalAs(UnmanagedType.U1)]bool e03, [MarshalAs(UnmanagedType.U1)]bool e04, [MarshalAs(UnmanagedType.U1)]bool e05, [MarshalAs(UnmanagedType.U1)]bool e06, [MarshalAs(UnmanagedType.U1)]bool e07, [MarshalAs(UnmanagedType.U1)]bool e08, [MarshalAs(UnmanagedType.U1)]bool e09, [MarshalAs(UnmanagedType.U1)]bool e10, [MarshalAs(UnmanagedType.U1)]bool e11, [MarshalAs(UnmanagedType.U1)]bool e12, [MarshalAs(UnmanagedType.U1)]bool e13, [MarshalAs(UnmanagedType.U1)]bool e14, [MarshalAs(UnmanagedType.U1)]bool e15, [MarshalAs(UnmanagedType.U1)]bool e16, [MarshalAs(UnmanagedType.U1)]bool e17, [MarshalAs(UnmanagedType.U1)]bool e18, [MarshalAs(UnmanagedType.U1)]bool e19, [MarshalAs(UnmanagedType.U1)]bool e20, [MarshalAs(UnmanagedType.U1)]bool e21, [MarshalAs(UnmanagedType.U1)]bool e22, [MarshalAs(UnmanagedType.U1)]bool e23, [MarshalAs(UnmanagedType.U1)]bool e24, [MarshalAs(UnmanagedType.U1)]bool e25, [MarshalAs(UnmanagedType.U1)]bool e26, [MarshalAs(UnmanagedType.U1)]bool e27, [MarshalAs(UnmanagedType.U1)]bool e28, [MarshalAs(UnmanagedType.U1)]bool e29, [MarshalAs(UnmanagedType.U1)]bool e30, [MarshalAs(UnmanagedType.U1)]bool e31);
 
     [DllImport(nameof(GenericsNative))]
-    public static extern void GetVectorB128Out(bool e00, bool e01, bool e02, bool e03, bool e04, bool e05, bool e06, bool e07, bool e08, bool e09, bool e10, bool e11, bool e12, bool e13, bool e14, bool e15, Vector<bool>* value);
+    public static extern void GetVectorB128Out([MarshalAs(UnmanagedType.U1)]bool e00, [MarshalAs(UnmanagedType.U1)]bool e01, [MarshalAs(UnmanagedType.U1)]bool e02, [MarshalAs(UnmanagedType.U1)]bool e03, [MarshalAs(UnmanagedType.U1)]bool e04, [MarshalAs(UnmanagedType.U1)]bool e05, [MarshalAs(UnmanagedType.U1)]bool e06, [MarshalAs(UnmanagedType.U1)]bool e07, [MarshalAs(UnmanagedType.U1)]bool e08, [MarshalAs(UnmanagedType.U1)]bool e09, [MarshalAs(UnmanagedType.U1)]bool e10, [MarshalAs(UnmanagedType.U1)]bool e11, [MarshalAs(UnmanagedType.U1)]bool e12, [MarshalAs(UnmanagedType.U1)]bool e13, [MarshalAs(UnmanagedType.U1)]bool e14, [MarshalAs(UnmanagedType.U1)]bool e15, Vector<bool>* value);
 
     [DllImport(nameof(GenericsNative))]
-    public static extern void GetVectorB256Out(bool e00, bool e01, bool e02, bool e03, bool e04, bool e05, bool e06, bool e07, bool e08, bool e09, bool e10, bool e11, bool e12, bool e13, bool e14, bool e15, bool e16, bool e17, bool e18, bool e19, bool e20, bool e21, bool e22, bool e23, bool e24, bool e25, bool e26, bool e27, bool e28, bool e29, bool e30, bool e31, Vector<bool>* value);
+    public static extern void GetVectorB256Out([MarshalAs(UnmanagedType.U1)]bool e00, [MarshalAs(UnmanagedType.U1)]bool e01, [MarshalAs(UnmanagedType.U1)]bool e02, [MarshalAs(UnmanagedType.U1)]bool e03, [MarshalAs(UnmanagedType.U1)]bool e04, [MarshalAs(UnmanagedType.U1)]bool e05, [MarshalAs(UnmanagedType.U1)]bool e06, [MarshalAs(UnmanagedType.U1)]bool e07, [MarshalAs(UnmanagedType.U1)]bool e08, [MarshalAs(UnmanagedType.U1)]bool e09, [MarshalAs(UnmanagedType.U1)]bool e10, [MarshalAs(UnmanagedType.U1)]bool e11, [MarshalAs(UnmanagedType.U1)]bool e12, [MarshalAs(UnmanagedType.U1)]bool e13, [MarshalAs(UnmanagedType.U1)]bool e14, [MarshalAs(UnmanagedType.U1)]bool e15, [MarshalAs(UnmanagedType.U1)]bool e16, [MarshalAs(UnmanagedType.U1)]bool e17, [MarshalAs(UnmanagedType.U1)]bool e18, [MarshalAs(UnmanagedType.U1)]bool e19, [MarshalAs(UnmanagedType.U1)]bool e20, [MarshalAs(UnmanagedType.U1)]bool e21, [MarshalAs(UnmanagedType.U1)]bool e22, [MarshalAs(UnmanagedType.U1)]bool e23, [MarshalAs(UnmanagedType.U1)]bool e24, [MarshalAs(UnmanagedType.U1)]bool e25, [MarshalAs(UnmanagedType.U1)]bool e26, [MarshalAs(UnmanagedType.U1)]bool e27, [MarshalAs(UnmanagedType.U1)]bool e28, [MarshalAs(UnmanagedType.U1)]bool e29, [MarshalAs(UnmanagedType.U1)]bool e30, [MarshalAs(UnmanagedType.U1)]bool e31, Vector<bool>* value);
 
     [DllImport(nameof(GenericsNative))]
-    public static extern void GetVectorB128Out(bool e00, bool e01, bool e02, bool e03, bool e04, bool e05, bool e06, bool e07, bool e08, bool e09, bool e10, bool e11, bool e12, bool e13, bool e14, bool e15, out Vector<bool> value);
+    public static extern void GetVectorB128Out([MarshalAs(UnmanagedType.U1)]bool e00, [MarshalAs(UnmanagedType.U1)]bool e01, [MarshalAs(UnmanagedType.U1)]bool e02, [MarshalAs(UnmanagedType.U1)]bool e03, [MarshalAs(UnmanagedType.U1)]bool e04, [MarshalAs(UnmanagedType.U1)]bool e05, [MarshalAs(UnmanagedType.U1)]bool e06, [MarshalAs(UnmanagedType.U1)]bool e07, [MarshalAs(UnmanagedType.U1)]bool e08, [MarshalAs(UnmanagedType.U1)]bool e09, [MarshalAs(UnmanagedType.U1)]bool e10, [MarshalAs(UnmanagedType.U1)]bool e11, [MarshalAs(UnmanagedType.U1)]bool e12, [MarshalAs(UnmanagedType.U1)]bool e13, [MarshalAs(UnmanagedType.U1)]bool e14, [MarshalAs(UnmanagedType.U1)]bool e15, out Vector<bool> value);
 
     [DllImport(nameof(GenericsNative))]
-    public static extern void GetVectorB256Out(bool e00, bool e01, bool e02, bool e03, bool e04, bool e05, bool e06, bool e07, bool e08, bool e09, bool e10, bool e11, bool e12, bool e13, bool e14, bool e15, bool e16, bool e17, bool e18, bool e19, bool e20, bool e21, bool e22, bool e23, bool e24, bool e25, bool e26, bool e27, bool e28, bool e29, bool e30, bool e31, out Vector<bool> value);
+    public static extern void GetVectorB256Out([MarshalAs(UnmanagedType.U1)]bool e00, [MarshalAs(UnmanagedType.U1)]bool e01, [MarshalAs(UnmanagedType.U1)]bool e02, [MarshalAs(UnmanagedType.U1)]bool e03, [MarshalAs(UnmanagedType.U1)]bool e04, [MarshalAs(UnmanagedType.U1)]bool e05, [MarshalAs(UnmanagedType.U1)]bool e06, [MarshalAs(UnmanagedType.U1)]bool e07, [MarshalAs(UnmanagedType.U1)]bool e08, [MarshalAs(UnmanagedType.U1)]bool e09, [MarshalAs(UnmanagedType.U1)]bool e10, [MarshalAs(UnmanagedType.U1)]bool e11, [MarshalAs(UnmanagedType.U1)]bool e12, [MarshalAs(UnmanagedType.U1)]bool e13, [MarshalAs(UnmanagedType.U1)]bool e14, [MarshalAs(UnmanagedType.U1)]bool e15, [MarshalAs(UnmanagedType.U1)]bool e16, [MarshalAs(UnmanagedType.U1)]bool e17, [MarshalAs(UnmanagedType.U1)]bool e18, [MarshalAs(UnmanagedType.U1)]bool e19, [MarshalAs(UnmanagedType.U1)]bool e20, [MarshalAs(UnmanagedType.U1)]bool e21, [MarshalAs(UnmanagedType.U1)]bool e22, [MarshalAs(UnmanagedType.U1)]bool e23, [MarshalAs(UnmanagedType.U1)]bool e24, [MarshalAs(UnmanagedType.U1)]bool e25, [MarshalAs(UnmanagedType.U1)]bool e26, [MarshalAs(UnmanagedType.U1)]bool e27, [MarshalAs(UnmanagedType.U1)]bool e28, [MarshalAs(UnmanagedType.U1)]bool e29, [MarshalAs(UnmanagedType.U1)]bool e30, [MarshalAs(UnmanagedType.U1)]bool e31, out Vector<bool> value);
 
     [DllImport(nameof(GenericsNative))]
-    public static extern Vector<bool>* GetVectorB128Ptr(bool e00, bool e01, bool e02, bool e03, bool e04, bool e05, bool e06, bool e07, bool e08, bool e09, bool e10, bool e11, bool e12, bool e13, bool e14, bool e15);
+    public static extern Vector<bool>* GetVectorB128Ptr([MarshalAs(UnmanagedType.U1)]bool e00, [MarshalAs(UnmanagedType.U1)]bool e01, [MarshalAs(UnmanagedType.U1)]bool e02, [MarshalAs(UnmanagedType.U1)]bool e03, [MarshalAs(UnmanagedType.U1)]bool e04, [MarshalAs(UnmanagedType.U1)]bool e05, [MarshalAs(UnmanagedType.U1)]bool e06, [MarshalAs(UnmanagedType.U1)]bool e07, [MarshalAs(UnmanagedType.U1)]bool e08, [MarshalAs(UnmanagedType.U1)]bool e09, [MarshalAs(UnmanagedType.U1)]bool e10, [MarshalAs(UnmanagedType.U1)]bool e11, [MarshalAs(UnmanagedType.U1)]bool e12, [MarshalAs(UnmanagedType.U1)]bool e13, [MarshalAs(UnmanagedType.U1)]bool e14, [MarshalAs(UnmanagedType.U1)]bool e15);
 
     [DllImport(nameof(GenericsNative))]
-    public static extern Vector<bool>* GetVectorB256Ptr(bool e00, bool e01, bool e02, bool e03, bool e04, bool e05, bool e06, bool e07, bool e08, bool e09, bool e10, bool e11, bool e12, bool e13, bool e14, bool e15, bool e16, bool e17, bool e18, bool e19, bool e20, bool e21, bool e22, bool e23, bool e24, bool e25, bool e26, bool e27, bool e28, bool e29, bool e30, bool e31);
+    public static extern Vector<bool>* GetVectorB256Ptr([MarshalAs(UnmanagedType.U1)]bool e00, [MarshalAs(UnmanagedType.U1)]bool e01, [MarshalAs(UnmanagedType.U1)]bool e02, [MarshalAs(UnmanagedType.U1)]bool e03, [MarshalAs(UnmanagedType.U1)]bool e04, [MarshalAs(UnmanagedType.U1)]bool e05, [MarshalAs(UnmanagedType.U1)]bool e06, [MarshalAs(UnmanagedType.U1)]bool e07, [MarshalAs(UnmanagedType.U1)]bool e08, [MarshalAs(UnmanagedType.U1)]bool e09, [MarshalAs(UnmanagedType.U1)]bool e10, [MarshalAs(UnmanagedType.U1)]bool e11, [MarshalAs(UnmanagedType.U1)]bool e12, [MarshalAs(UnmanagedType.U1)]bool e13, [MarshalAs(UnmanagedType.U1)]bool e14, [MarshalAs(UnmanagedType.U1)]bool e15, [MarshalAs(UnmanagedType.U1)]bool e16, [MarshalAs(UnmanagedType.U1)]bool e17, [MarshalAs(UnmanagedType.U1)]bool e18, [MarshalAs(UnmanagedType.U1)]bool e19, [MarshalAs(UnmanagedType.U1)]bool e20, [MarshalAs(UnmanagedType.U1)]bool e21, [MarshalAs(UnmanagedType.U1)]bool e22, [MarshalAs(UnmanagedType.U1)]bool e23, [MarshalAs(UnmanagedType.U1)]bool e24, [MarshalAs(UnmanagedType.U1)]bool e25, [MarshalAs(UnmanagedType.U1)]bool e26, [MarshalAs(UnmanagedType.U1)]bool e27, [MarshalAs(UnmanagedType.U1)]bool e28, [MarshalAs(UnmanagedType.U1)]bool e29, [MarshalAs(UnmanagedType.U1)]bool e30, [MarshalAs(UnmanagedType.U1)]bool e31);
 
     [DllImport(nameof(GenericsNative), EntryPoint = "GetVectorB128Ptr")]
-    public static extern ref readonly Vector<bool> GetVectorB128Ref(bool e00, bool e01, bool e02, bool e03, bool e04, bool e05, bool e06, bool e07, bool e08, bool e09, bool e10, bool e11, bool e12, bool e13, bool e14, bool e15);
+    public static extern ref readonly Vector<bool> GetVectorB128Ref([MarshalAs(UnmanagedType.U1)]bool e00, [MarshalAs(UnmanagedType.U1)]bool e01, [MarshalAs(UnmanagedType.U1)]bool e02, [MarshalAs(UnmanagedType.U1)]bool e03, [MarshalAs(UnmanagedType.U1)]bool e04, [MarshalAs(UnmanagedType.U1)]bool e05, [MarshalAs(UnmanagedType.U1)]bool e06, [MarshalAs(UnmanagedType.U1)]bool e07, [MarshalAs(UnmanagedType.U1)]bool e08, [MarshalAs(UnmanagedType.U1)]bool e09, [MarshalAs(UnmanagedType.U1)]bool e10, [MarshalAs(UnmanagedType.U1)]bool e11, [MarshalAs(UnmanagedType.U1)]bool e12, [MarshalAs(UnmanagedType.U1)]bool e13, [MarshalAs(UnmanagedType.U1)]bool e14, [MarshalAs(UnmanagedType.U1)]bool e15);
 
     [DllImport(nameof(GenericsNative), EntryPoint = "GetVectorB256Ptr")]
-    public static extern ref readonly Vector<bool> GetVectorB256Ref(bool e00, bool e01, bool e02, bool e03, bool e04, bool e05, bool e06, bool e07, bool e08, bool e09, bool e10, bool e11, bool e12, bool e13, bool e14, bool e15, bool e16, bool e17, bool e18, bool e19, bool e20, bool e21, bool e22, bool e23, bool e24, bool e25, bool e26, bool e27, bool e28, bool e29, bool e30, bool e31);
+    public static extern ref readonly Vector<bool> GetVectorB256Ref([MarshalAs(UnmanagedType.U1)]bool e00, [MarshalAs(UnmanagedType.U1)]bool e01, [MarshalAs(UnmanagedType.U1)]bool e02, [MarshalAs(UnmanagedType.U1)]bool e03, [MarshalAs(UnmanagedType.U1)]bool e04, [MarshalAs(UnmanagedType.U1)]bool e05, [MarshalAs(UnmanagedType.U1)]bool e06, [MarshalAs(UnmanagedType.U1)]bool e07, [MarshalAs(UnmanagedType.U1)]bool e08, [MarshalAs(UnmanagedType.U1)]bool e09, [MarshalAs(UnmanagedType.U1)]bool e10, [MarshalAs(UnmanagedType.U1)]bool e11, [MarshalAs(UnmanagedType.U1)]bool e12, [MarshalAs(UnmanagedType.U1)]bool e13, [MarshalAs(UnmanagedType.U1)]bool e14, [MarshalAs(UnmanagedType.U1)]bool e15, [MarshalAs(UnmanagedType.U1)]bool e16, [MarshalAs(UnmanagedType.U1)]bool e17, [MarshalAs(UnmanagedType.U1)]bool e18, [MarshalAs(UnmanagedType.U1)]bool e19, [MarshalAs(UnmanagedType.U1)]bool e20, [MarshalAs(UnmanagedType.U1)]bool e21, [MarshalAs(UnmanagedType.U1)]bool e22, [MarshalAs(UnmanagedType.U1)]bool e23, [MarshalAs(UnmanagedType.U1)]bool e24, [MarshalAs(UnmanagedType.U1)]bool e25, [MarshalAs(UnmanagedType.U1)]bool e26, [MarshalAs(UnmanagedType.U1)]bool e27, [MarshalAs(UnmanagedType.U1)]bool e28, [MarshalAs(UnmanagedType.U1)]bool e29, [MarshalAs(UnmanagedType.U1)]bool e30, [MarshalAs(UnmanagedType.U1)]bool e31);
 
     [DllImport(nameof(GenericsNative))]
     public static extern Vector<bool> AddVectorB128(Vector<bool> lhs, Vector<bool> rhs);
@@ -63,65 +63,71 @@ unsafe partial class GenericsNative
     public static extern Vector<bool> AddVectorB256s(in Vector<bool> pValues, int count);
 }
 
-unsafe partial class GenericsTest
+public unsafe partial class GenericsTest
 {
-    private static void TestVectorB()
+    [Fact]
+    public static void TestVectorB()
     {
-        if (Vector<byte>.Count == 32)
+        if (Vector<byte>.Count == 64)
+        {
+            // TODO: P/Invoke tests do not yet handle 512-bit Vector<T>
+            return;
+        }
+        else if (Vector<byte>.Count == 32)
         {
             TestVectorB256();
         }
         else
         {
-            Assert.AreEqual(Vector<byte>.Count, 16);
+            Assert.Equal(16, Vector<byte>.Count);
             TestVectorB128();
         }
     }
 
-    private static void TestVectorB128()
+    public static void TestVectorB128()
     {
         Assert.Throws<MarshalDirectiveException>(() => GenericsNative.GetVectorB128(true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false));
 
         Vector<bool> value2;
         GenericsNative.GetVectorB128Out(true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, &value2);
         Vector<byte> tValue2 = *(Vector<byte>*)&value2;
-        Assert.AreEqual(tValue2[0], 1);
-        Assert.AreEqual(tValue2[1], 0);
-        Assert.AreEqual(tValue2[2], 1);
-        Assert.AreEqual(tValue2[3], 0);
-        Assert.AreEqual(tValue2[4], 1);
-        Assert.AreEqual(tValue2[5], 0);
-        Assert.AreEqual(tValue2[6], 1);
-        Assert.AreEqual(tValue2[7], 0);
-        Assert.AreEqual(tValue2[8], 1);
-        Assert.AreEqual(tValue2[9], 0);
-        Assert.AreEqual(tValue2[10], 1);
-        Assert.AreEqual(tValue2[11], 0);
-        Assert.AreEqual(tValue2[12], 1);
-        Assert.AreEqual(tValue2[13], 0);
-        Assert.AreEqual(tValue2[14], 1);
-        Assert.AreEqual(tValue2[15], 0);
+        Assert.Equal(1, tValue2[0]);
+        Assert.Equal(0, tValue2[1]);
+        Assert.Equal(1, tValue2[2]);
+        Assert.Equal(0, tValue2[3]);
+        Assert.Equal(1, tValue2[4]);
+        Assert.Equal(0, tValue2[5]);
+        Assert.Equal(1, tValue2[6]);
+        Assert.Equal(0, tValue2[7]);
+        Assert.Equal(1, tValue2[8]);
+        Assert.Equal(0, tValue2[9]);
+        Assert.Equal(1, tValue2[10]);
+        Assert.Equal(0, tValue2[11]);
+        Assert.Equal(1, tValue2[12]);
+        Assert.Equal(0, tValue2[13]);
+        Assert.Equal(1, tValue2[14]);
+        Assert.Equal(0, tValue2[15]);
 
         Assert.Throws<MarshalDirectiveException>(() => GenericsNative.GetVectorB128Out(true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, out Vector<bool> value3));
 
         Vector<bool>* value4 = GenericsNative.GetVectorB128Ptr(true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false);
         Vector<byte>* tValue4 = (Vector<byte>*)value4;
-        Assert.AreEqual((*tValue4)[0], 1);
-        Assert.AreEqual((*tValue4)[1], 0);
-        Assert.AreEqual((*tValue4)[2], 1);
-        Assert.AreEqual((*tValue4)[3], 0);
-        Assert.AreEqual((*tValue4)[4], 1);
-        Assert.AreEqual((*tValue4)[5], 0);
-        Assert.AreEqual((*tValue4)[6], 1);
-        Assert.AreEqual((*tValue4)[7], 0);
-        Assert.AreEqual((*tValue4)[8], 1);
-        Assert.AreEqual((*tValue4)[9], 0);
-        Assert.AreEqual((*tValue4)[10], 1);
-        Assert.AreEqual((*tValue4)[11], 0);
-        Assert.AreEqual((*tValue4)[12], 1);
-        Assert.AreEqual((*tValue4)[13], 0);
-        Assert.AreEqual((*tValue4)[14], 1);
-        Assert.AreEqual((*tValue4)[15], 0);
+        Assert.Equal(1, (*tValue4)[0]);
+        Assert.Equal(0, (*tValue4)[1]);
+        Assert.Equal(1, (*tValue4)[2]);
+        Assert.Equal(0, (*tValue4)[3]);
+        Assert.Equal(1, (*tValue4)[4]);
+        Assert.Equal(0, (*tValue4)[5]);
+        Assert.Equal(1, (*tValue4)[6]);
+        Assert.Equal(0, (*tValue4)[7]);
+        Assert.Equal(1, (*tValue4)[8]);
+        Assert.Equal(0, (*tValue4)[9]);
+        Assert.Equal(1, (*tValue4)[10]);
+        Assert.Equal(0, (*tValue4)[11]);
+        Assert.Equal(1, (*tValue4)[12]);
+        Assert.Equal(0, (*tValue4)[13]);
+        Assert.Equal(1, (*tValue4)[14]);
+        Assert.Equal(0, (*tValue4)[15]);
 
         Assert.Throws<MarshalDirectiveException>(() => GenericsNative.GetVectorB128Ref(true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false));
 
@@ -147,82 +153,82 @@ unsafe partial class GenericsTest
         Assert.Throws<MarshalDirectiveException>(() => GenericsNative.AddVectorB128s(in values[0], values.Length));
     }
 
-    private static void TestVectorB256()
+    public static void TestVectorB256()
     {
         Assert.Throws<MarshalDirectiveException>(() => GenericsNative.GetVectorB256(true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false));
 
         Vector<bool> value2;
         GenericsNative.GetVectorB256Out(true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, &value2);
         Vector<byte> tValue2 = *(Vector<byte>*)&value2;
-        Assert.AreEqual(tValue2[0], 1);
-        Assert.AreEqual(tValue2[1], 0);
-        Assert.AreEqual(tValue2[2], 1);
-        Assert.AreEqual(tValue2[3], 0);
-        Assert.AreEqual(tValue2[4], 1);
-        Assert.AreEqual(tValue2[5], 0);
-        Assert.AreEqual(tValue2[6], 1);
-        Assert.AreEqual(tValue2[7], 0);
-        Assert.AreEqual(tValue2[8], 1);
-        Assert.AreEqual(tValue2[9], 0);
-        Assert.AreEqual(tValue2[10], 1);
-        Assert.AreEqual(tValue2[11], 0);
-        Assert.AreEqual(tValue2[12], 1);
-        Assert.AreEqual(tValue2[13], 0);
-        Assert.AreEqual(tValue2[14], 1);
-        Assert.AreEqual(tValue2[15], 0);
-        Assert.AreEqual(tValue2[16], 1);
-        Assert.AreEqual(tValue2[17], 0);
-        Assert.AreEqual(tValue2[18], 1);
-        Assert.AreEqual(tValue2[19], 0);
-        Assert.AreEqual(tValue2[20], 1);
-        Assert.AreEqual(tValue2[21], 0);
-        Assert.AreEqual(tValue2[22], 1);
-        Assert.AreEqual(tValue2[23], 0);
-        Assert.AreEqual(tValue2[24], 1);
-        Assert.AreEqual(tValue2[25], 0);
-        Assert.AreEqual(tValue2[26], 1);
-        Assert.AreEqual(tValue2[27], 0);
-        Assert.AreEqual(tValue2[28], 1);
-        Assert.AreEqual(tValue2[29], 0);
-        Assert.AreEqual(tValue2[30], 1);
-        Assert.AreEqual(tValue2[31], 0);
+        Assert.Equal(1, tValue2[0]);
+        Assert.Equal(0, tValue2[1]);
+        Assert.Equal(1, tValue2[2]);
+        Assert.Equal(0, tValue2[3]);
+        Assert.Equal(1, tValue2[4]);
+        Assert.Equal(0, tValue2[5]);
+        Assert.Equal(1, tValue2[6]);
+        Assert.Equal(0, tValue2[7]);
+        Assert.Equal(1, tValue2[8]);
+        Assert.Equal(0, tValue2[9]);
+        Assert.Equal(1, tValue2[10]);
+        Assert.Equal(0, tValue2[11]);
+        Assert.Equal(1, tValue2[12]);
+        Assert.Equal(0, tValue2[13]);
+        Assert.Equal(1, tValue2[14]);
+        Assert.Equal(0, tValue2[15]);
+        Assert.Equal(1, tValue2[16]);
+        Assert.Equal(0, tValue2[17]);
+        Assert.Equal(1, tValue2[18]);
+        Assert.Equal(0, tValue2[19]);
+        Assert.Equal(1, tValue2[20]);
+        Assert.Equal(0, tValue2[21]);
+        Assert.Equal(1, tValue2[22]);
+        Assert.Equal(0, tValue2[23]);
+        Assert.Equal(1, tValue2[24]);
+        Assert.Equal(0, tValue2[25]);
+        Assert.Equal(1, tValue2[26]);
+        Assert.Equal(0, tValue2[27]);
+        Assert.Equal(1, tValue2[28]);
+        Assert.Equal(0, tValue2[29]);
+        Assert.Equal(1, tValue2[30]);
+        Assert.Equal(0, tValue2[31]);
 
         Assert.Throws<MarshalDirectiveException>(() => GenericsNative.GetVectorB256Out(true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, out Vector<bool> value3));
 
         Vector<bool>* value4 = GenericsNative.GetVectorB256Ptr(true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false);
         Vector<byte>* tValue4 = (Vector<byte>*)value4;
-        Assert.AreEqual((*tValue4)[0], 1);
-        Assert.AreEqual((*tValue4)[1], 0);
-        Assert.AreEqual((*tValue4)[2], 1);
-        Assert.AreEqual((*tValue4)[3], 0);
-        Assert.AreEqual((*tValue4)[4], 1);
-        Assert.AreEqual((*tValue4)[5], 0);
-        Assert.AreEqual((*tValue4)[6], 1);
-        Assert.AreEqual((*tValue4)[7], 0);
-        Assert.AreEqual((*tValue4)[8], 1);
-        Assert.AreEqual((*tValue4)[9], 0);
-        Assert.AreEqual((*tValue4)[10], 1);
-        Assert.AreEqual((*tValue4)[11], 0);
-        Assert.AreEqual((*tValue4)[12], 1);
-        Assert.AreEqual((*tValue4)[13], 0);
-        Assert.AreEqual((*tValue4)[14], 1);
-        Assert.AreEqual((*tValue4)[15], 0);
-        Assert.AreEqual((*tValue4)[16], 1);
-        Assert.AreEqual((*tValue4)[17], 0);
-        Assert.AreEqual((*tValue4)[18], 1);
-        Assert.AreEqual((*tValue4)[19], 0);
-        Assert.AreEqual((*tValue4)[20], 1);
-        Assert.AreEqual((*tValue4)[21], 0);
-        Assert.AreEqual((*tValue4)[22], 1);
-        Assert.AreEqual((*tValue4)[23], 0);
-        Assert.AreEqual((*tValue4)[24], 1);
-        Assert.AreEqual((*tValue4)[25], 0);
-        Assert.AreEqual((*tValue4)[26], 1);
-        Assert.AreEqual((*tValue4)[27], 0);
-        Assert.AreEqual((*tValue4)[28], 1);
-        Assert.AreEqual((*tValue4)[29], 0);
-        Assert.AreEqual((*tValue4)[30], 1);
-        Assert.AreEqual((*tValue4)[31], 0);
+        Assert.Equal(1, (*tValue4)[0]);
+        Assert.Equal(0, (*tValue4)[1]);
+        Assert.Equal(1, (*tValue4)[2]);
+        Assert.Equal(0, (*tValue4)[3]);
+        Assert.Equal(1, (*tValue4)[4]);
+        Assert.Equal(0, (*tValue4)[5]);
+        Assert.Equal(1, (*tValue4)[6]);
+        Assert.Equal(0, (*tValue4)[7]);
+        Assert.Equal(1, (*tValue4)[8]);
+        Assert.Equal(0, (*tValue4)[9]);
+        Assert.Equal(1, (*tValue4)[10]);
+        Assert.Equal(0, (*tValue4)[11]);
+        Assert.Equal(1, (*tValue4)[12]);
+        Assert.Equal(0, (*tValue4)[13]);
+        Assert.Equal(1, (*tValue4)[14]);
+        Assert.Equal(0, (*tValue4)[15]);
+        Assert.Equal(1, (*tValue4)[16]);
+        Assert.Equal(0, (*tValue4)[17]);
+        Assert.Equal(1, (*tValue4)[18]);
+        Assert.Equal(0, (*tValue4)[19]);
+        Assert.Equal(1, (*tValue4)[20]);
+        Assert.Equal(0, (*tValue4)[21]);
+        Assert.Equal(1, (*tValue4)[22]);
+        Assert.Equal(0, (*tValue4)[23]);
+        Assert.Equal(1, (*tValue4)[24]);
+        Assert.Equal(0, (*tValue4)[25]);
+        Assert.Equal(1, (*tValue4)[26]);
+        Assert.Equal(0, (*tValue4)[27]);
+        Assert.Equal(1, (*tValue4)[28]);
+        Assert.Equal(0, (*tValue4)[29]);
+        Assert.Equal(1, (*tValue4)[30]);
+        Assert.Equal(0, (*tValue4)[31]);
 
         Assert.Throws<MarshalDirectiveException>(() => GenericsNative.GetVectorB256Ref(true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false, true, false));
 

@@ -1,11 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using EventMetadata = System.Diagnostics.Tracing.EventSource.EventMetadata;
 
 namespace System.Diagnostics.Tracing
 {
-#if FEATURE_PERFTRACING
     internal sealed class EventPipeMetadataGenerator
     {
         private enum MetadataTag
@@ -14,7 +14,7 @@ namespace System.Diagnostics.Tracing
             ParameterPayload = 2
         }
 
-        public static EventPipeMetadataGenerator Instance = new EventPipeMetadataGenerator();
+        public static readonly EventPipeMetadataGenerator Instance = new EventPipeMetadataGenerator();
 
         private EventPipeMetadataGenerator() { }
 
@@ -91,7 +91,7 @@ namespace System.Diagnostics.Tracing
                 // type NullTypeInfo which is serialized as nothing.
                 if ((parameters.Length == 1) && (parameters[0].ParameterType == typeof(EmptyStruct)))
                 {
-                    parameters = Array.Empty<EventParameterInfo>();
+                    parameters = [];
                 }
 
                 // Increase the metadataLength for parameters.
@@ -122,7 +122,7 @@ namespace System.Diagnostics.Tracing
                         if (!parameter.GetMetadataLengthV2(out pMetadataLength))
                         {
                             // We ran in to an unsupported type, return empty event metadata
-                            parameters = Array.Empty<EventParameterInfo>();
+                            parameters = [];
                             v1MetadataLength = defaultV1MetadataLength;
                             v2MetadataLength = 0;
                             hasV2ParameterTypes = false;
@@ -170,7 +170,7 @@ namespace System.Diagnostics.Tracing
                             if (!parameter.GenerateMetadata(pMetadata, ref offset, totalMetadataLength))
                             {
                                 // If we fail to generate metadata for any parameter, we should return the "default" metadata without any parameters
-                                return GenerateMetadata(eventId, eventName, keywords, level, version, opcode, Array.Empty<EventParameterInfo>());
+                                return GenerateMetadata(eventId, eventName, keywords, level, version, opcode, []);
                             }
                         }
                     }
@@ -200,7 +200,7 @@ namespace System.Diagnostics.Tracing
                             if (!parameter.GenerateMetadataV2(pMetadata, ref offset, totalMetadataLength))
                             {
                                 // If we fail to generate metadata for any parameter, we should return the "default" metadata without any parameters
-                                return GenerateMetadata(eventId, eventName, keywords, level, version, opcode, Array.Empty<EventParameterInfo>());
+                                return GenerateMetadata(eventId, eventName, keywords, level, version, opcode, []);
                             }
                         }
                     }
@@ -264,7 +264,7 @@ namespace System.Diagnostics.Tracing
                 //     Nested struct property name  : NULL-terminated string.
                 EventPipeMetadataGenerator.WriteToBuffer(pMetadataBlob, blobSize, ref offset, (uint)TypeCode.Object);
 
-                if (!(TypeInfo is InvokeTypeInfo invokeTypeInfo))
+                if (TypeInfo is not InvokeTypeInfo invokeTypeInfo)
                 {
                     return false;
                 }
@@ -395,7 +395,7 @@ namespace System.Diagnostics.Tracing
             // Write the property name.
             fixed (char *pPropertyName = name)
             {
-                EventPipeMetadataGenerator.WriteToBuffer(pMetadataBlob, blobSize, ref offset, (byte *)pPropertyName, ((uint)name.Length + 1) * 2);
+                EventPipeMetadataGenerator.WriteToBuffer(pMetadataBlob, blobSize, ref offset, (byte*)pPropertyName, ((uint)name.Length + 1) * 2);
             }
 
             return GenerateMetadataForTypeV2(typeInfo, pMetadataBlob, ref offset, blobSize);
@@ -572,7 +572,7 @@ namespace System.Diagnostics.Tracing
             TypeCode typeCode = GetTypeCodeExtended(ParameterType);
             if (typeCode == TypeCode.Object)
             {
-                if (!(TypeInfo is InvokeTypeInfo typeInfo))
+                if (TypeInfo is not InvokeTypeInfo typeInfo)
                 {
                     return false;
                 }
@@ -761,6 +761,4 @@ namespace System.Diagnostics.Tracing
             return true;
         }
     }
-
-#endif // FEATURE_PERFTRACING
 }

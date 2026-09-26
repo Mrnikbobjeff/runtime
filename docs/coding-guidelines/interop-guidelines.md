@@ -1,6 +1,8 @@
 Interop Guidelines
 ==================
 
+We follow the [best practices for native interop](https://learn.microsoft.com/dotnet/standard/native-interop/best-practices) with the additional guidelines below that are specific to this repo.
+
 ## Goals
 We have the following goals related to interop code being used in dotnet/runtime:
 
@@ -32,7 +34,7 @@ internal static partial class Interop
 ...
 internal static partial class Interop
 {
-    internal static partial class mincore { ... }
+    internal static partial class Mincore { ... }
 }
 ```
 - With few exceptions, the only methods that should be defined in these interop types are DllImports.
@@ -41,15 +43,17 @@ internal static partial class Interop
 ### File organization
 
 - The Interop partial class definitions should live in Interop.*.cs files. These Interop.*.cs files should all live under Common rather than within a given assembly's folder.
- - The only exception to this should be when an assembly P/Invokes to its own native library that isn't available to or consumed by anyone else, e.g. System.IO.Compression P/Invoking to clrcompression.dll. In such cases, System.IO.Compression should have its own Interop folder which follows a similar scheme as outlined in this proposal, but just for these private P/Invokes.
+ - The only exception to this should be when an assembly P/Invokes to its own native library that isn't available to or consumed by anyone else, e.g. System.IO.Compression P/Invoking to System.IO.Compression.Native.dll. In such cases, System.IO.Compression should have its own Interop folder which follows a similar scheme as outlined in this proposal, but just for these private P/Invokes.
 - Under Common\src\Interop, we'll have a folder for each target platform, and within each platform, for each library from which functionality is being consumed. The Interop.*.cs files will live within those library folders, e.g.
 
 ```
 \Common\src\Interop
     \Windows
-        \mincore
+        \Kernel32
             ... interop files
-	\Unix
+        \Mincore
+            ... interop files
+    \Unix
         \libc
             ... interop files
     \Linux
@@ -69,8 +73,8 @@ As shown above, platforms may be additive, in that an assembly may use functiona
         \libc
             \Interop.strerror.cs
     \Windows
-        \mincore
-            \Interop.OutputDebugString.cs
+        \Mincore
+            \Interop.WaitOnAddress.cs    <-- Also contains WakeByAddressSingle
 ```
 
 - If structs/constants will be used on their own without an associated DllImport, or if they may be used with multiple DllImports not in the same file, they should be declared in a separate file.
@@ -79,9 +83,9 @@ As shown above, platforms may be additive, in that an assembly may use functiona
 ```
 \Common\src\Interop
     \Windows
-        \mincore
-            \Interop.DuplicateHandle_SafeTokenHandle.cs
-            \Interop.DuplicateHandle_IntPtr.cs
+        \Kernel32
+            \Interop.DuplicateHandle_SafeFileHandle.cs
+            \Interop.DuplicateHandle_SafePipeHandle.cs
 ```
 
 - The library names used per-platform are stored in internal constants in the Interop class in a private Libraries class in a per-platform file named Interop.Libraries.cs. These constants are then used for all DllImports to that library, rather than having the string duplicated each time, e.g.
@@ -92,12 +96,9 @@ internal static partial class Interop // contents of Common\src\Interop\Windows\
     private static class Libraries
     {
         internal const string Kernel32 = "kernel32.dll";
+        internal const string OleAut32 = "oleaut32.dll";
         internal const string Localization = "api-ms-win-core-localization-l1-2-0.dll";
-        internal const string Handle = "api-ms-win-core-handle-l1-1-0.dll";
-        internal const string ProcessThreads = "api-ms-win-core-processthreads-l1-1-0.dll";
-        internal const string File = "api-ms-win-core-file-l1-1-0.dll";
-        internal const string NamedPipe = "api-ms-win-core-namedpipe-l1-1-0.dll";
-        internal const string IO = "api-ms-win-core-io-l1-1-0.dll";
+        internal const string Synch = "api-ms-win-core-synch-l1-2-0.dll";
         ...
     }
 }
@@ -120,10 +121,10 @@ internal static partial class Interop // contents of Common\src\Interop\Windows\
 ```
 
 ### Build System
-When building dotnet/runtime, we use the "TargetOS" property to control what target platform we are building for. The valid values for this property are Windows_NT (which is the default value from MSBuild when running on Windows), Linux and OSX.
+When building dotnet/runtime, we use the "TargetOS" property to control what target platform we are building for. The valid values for this property are windows (which is the default value from MSBuild when running on Windows), linux and osx.
 
 #### Project Files
-Whenever possible, a single .csproj should be used per assembly, spanning all target platforms, e.g. System.Console.csproj includes conditional entries for when targeting Windows vs when targeting Linux. A property can be passed to dotnet build to control which flavor is built, e.g. `dotnet build /p:TargetOS=OSX System.Console.csproj`.
+Whenever possible, a single .csproj should be used per assembly, spanning all target platforms, e.g. System.Console.csproj includes conditional entries for when targeting Windows vs when targeting Linux. A property can be passed to dotnet build to control which flavor is built, e.g. `dotnet build /p:TargetOS=osx System.Console.csproj`.
 
 ### Constants
 - Wherever possible, constants should be defined as "const". Only if the data type doesn't support this (e.g. IntPtr) should they instead be static readonly fields.
@@ -158,7 +159,17 @@ Using enums instead of partial, static classes can lead to needing lots of casts
 
 ## P/Invoke Definitions
 
-When defining the P/Invoke signatures and structs, we follow the guidelines in the [interop best practices documentation](https://docs.microsoft.com/en-us/dotnet/standard/native-interop/best-practices).
+When defining the P/Invoke signatures and structs, we follow the guidelines in the [interop best practices documentation](https://learn.microsoft.com/dotnet/standard/native-interop/best-practices).
+
+The runtime repo makes use of [source-generated p/invokes](../design/features/source-generator-pinvokes.md) whenever possible (see [the compatibility doc](../design/libraries/LibraryImportGenerator/Compatibility.md) for unsupported scenarios). Methods should be marked `LibraryImport` and be `static` and `partial`.
+
+If implicit framework references are disabled (as is the case for most libraries projects), explicit references to the below are required for marshalling arrays:
+  - `System.Memory`
+  - `System.Runtime.CompilerServices.Unsafe`
+
+### Search paths
+
+System.Private.CoreLib and libraries assemblies all set `DefaultDllImportSearchPaths` to `DllImportSearchPath.Assembly | DllImportSearchPath.System32` at the module level. This first looks in the assembly directory (application directory for single-file), then system directory on Windows or default search on non-Windows. For Windows P/Invokes that should only ever load from the system directory, this can be narrowed with `[DefaultDllImportSearchPaths(DllImportSearchPath.System32)]` on the P/Invoke.
 
 ## UNIX shims
 
@@ -167,6 +178,8 @@ Often, various UNIX flavors offer the same API from the point-of-view of compati
 This leaves us with a situation where we can't write portable P/Invoke declarations that will work on all flavors, and writing separate declarations per flavor is quite fragile and won't scale.
 
 To address this, we're moving to a model where all UNIX interop from dotnet/runtime starts with a P/Invoke to a C++ lib written specifically for dotnet/runtime. These libs -- System.*.Native.so (aka "shims") -- are intended to be very thin layers over underlying platform libraries. Generally, they are not there to add any significant abstraction, but to create a stable ABI such that the same IL assembly can work across UNIX flavors.
+
+The System.Native shims are a private implementation detail of the Microsoft.NETCore.App shared framework and are intended only for use by code inside of the shared framework. Calling into the shims from external to Microsoft.NETCore.App has similar risks to using private reflection, with no guarantees from version to version or even patch to patch of stable exports. Assemblies that ship outside of the shared framework (e.g. Microsoft.Extensions.*) must not directly access the shims.
 
 Guidelines for shim C++ API:
 
@@ -178,7 +191,7 @@ Guidelines for shim C++ API:
   - If an export point has a 1:1 correspondence to the platform API, then name it after the platform API in PascalCase (e.g. stat -> Stat, fstat -> FStat).
   - If an export is not 1:1, then spell things out as we typically would in dotnet/runtime code (i.e. don't use abbreviations unless they come from the underlying API.
   - At first, it seemed that we'd want to use 1:1 names throughout, but it turns out there are many cases where being strictly 1:1 isn't practical.
-  - In order to reduce the chance of collisions when linking with CoreRT, all exports should have a prefix that corresponds to the Libraries' name, e.g. "SystemNative_" or "CryptoNative_" to make the method name more unique. See https://github.com/dotnet/runtime/issues/15854.
+  - In order to reduce the chance of collisions when linking single-file form factors, all exports should have a prefix that corresponds to the Libraries' name, e.g. "SystemNative_" or "CryptoNative_" to make the method name more unique.
 - Stick to data types which are guaranteed not to vary in size across flavors.
   - Use int32_t, int64_t, etc. from stdint.h and not int, long, etc.
   - Use char* for ASCII or UTF-8 strings and uint8_t* for byte buffers.

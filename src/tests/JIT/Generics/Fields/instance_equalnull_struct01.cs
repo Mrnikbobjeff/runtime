@@ -2,7 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Generics_Fields_instance_equalnull_struct01;
+
 using System;
+using Xunit;
 
 public struct ValX0 { }
 public struct ValY0 { }
@@ -33,7 +36,7 @@ public struct Gen<T>
     }
 }
 
-public class Test
+public class Test_instance_equalnull_struct01
 {
     public static int counter = 0;
     public static bool result = true;
@@ -48,7 +51,9 @@ public class Test
 
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
 
         int _int = 0;

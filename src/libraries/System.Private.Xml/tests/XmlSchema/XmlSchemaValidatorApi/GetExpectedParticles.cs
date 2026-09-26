@@ -6,7 +6,7 @@ using System.Xml.Schema;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlSchemaValidatorApiTests
 {
     // ===================== GetExpectedParticles =====================
 
@@ -576,7 +576,6 @@ namespace System.Xml.Tests
         {
             XmlSchemaValidator val;
             XmlSchemaInfo info = new XmlSchemaInfo();
-            XmlSchemaSet schemas = new XmlSchemaSet();
             XmlSchemaParticle[] result;
 
             val = CreateValidator(XSDFILE_GET_EXPECTED_PARTICLES);

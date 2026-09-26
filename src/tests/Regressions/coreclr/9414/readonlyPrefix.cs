@@ -1,7 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-class Program
+using Xunit;
+using TestLibrary;
+public class Program
 {
     interface IFrobber
     {
@@ -27,9 +29,10 @@ class Program
         }
     }
 
-    private static int Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static void TestEntryPoint()
     {
         Foo<IFrobber>.FrobAll(new Frobber[,] { { new Frobber() } });
-        return 100;
     }
 }

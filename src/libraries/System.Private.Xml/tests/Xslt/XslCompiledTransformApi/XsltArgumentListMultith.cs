@@ -1,14 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Xunit;
-using Xunit.Abstractions;
 using System.IO;
+using System.Xml.Tests;
 using System.Xml.XPath;
 using System.Xml.Xsl;
 using XmlCoreTest.Common;
+using Xunit;
+using Xunit.Abstractions;
 
-namespace System.Xml.Tests
+namespace System.Xml.XslCompiledTransformApiTests
 {
     public class CSameInstanceXsltArgTestCase2 : XsltApiTestCaseBase2
     {
@@ -54,6 +55,7 @@ namespace System.Xml.Tests
     }
 
     //[TestCase(Name = "Same instance testing: XsltArgList - GetParam", Desc = "GetParam test cases")]
+    [ConditionalClass(typeof(XsltApiTestRequirements), nameof(XsltApiTestRequirements.IsSupported))]
     public class CSameInstanceXsltArgumentListGetParam : CSameInstanceXsltArgTestCase2
     {
         private ITestOutputHelper _output;
@@ -102,7 +104,7 @@ namespace System.Xml.Tests
         }
 
         //[Variation("Multiple GetParam for same parameter name")]
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void proc1()
         {
             CThreads rThreads = new CThreads(_output);
@@ -120,7 +122,7 @@ namespace System.Xml.Tests
         }
 
         //[Variation("Multiple GetParam for different parameter name")]
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void proc2()
         {
             CThreads rThreads = new CThreads(_output);
@@ -139,6 +141,7 @@ namespace System.Xml.Tests
     }
 
     //[TestCase(Name = "Same instance testing: XsltArgList - GetExtensionObject", Desc = "GetExtensionObject test cases")]
+    [ConditionalClass(typeof(XsltApiTestRequirements), nameof(XsltApiTestRequirements.IsSupported))]
     public class CSameInstanceXsltArgumentListGetExtnObject : CSameInstanceXsltArgTestCase2
     {
         private ITestOutputHelper _output;
@@ -186,7 +189,7 @@ namespace System.Xml.Tests
         }
 
         //[Variation("Multiple GetExtensionObject for same namespace System.Xml.Tests")]
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void proc1()
         {
             CThreads rThreads = new CThreads(_output);
@@ -204,7 +207,7 @@ namespace System.Xml.Tests
         }
 
         //[Variation("Multiple GetExtensionObject for different namespace System.Xml.Tests")]
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void proc2()
         {
             CThreads rThreads = new CThreads(_output);
@@ -223,6 +226,7 @@ namespace System.Xml.Tests
     }
 
     //[TestCase(Name = "Same instance testing: XsltArgList - Transform", Desc = "Multiple transforms")]
+    [ConditionalClass(typeof(XsltApiTestRequirements), nameof(XsltApiTestRequirements.IsSupported))]
     public class CSameInstanceXsltArgumentListTransform : CSameInstanceXsltArgTestCase2
     {
         private ITestOutputHelper _output;
@@ -271,7 +275,7 @@ namespace System.Xml.Tests
         // Multiple Transform() using shared ArgumentList
         ////////////////////////////////////////////////////////////////
         //[Variation("Multiple transforms using shared ArgumentList")]
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void proc1()
         {
             CThreads rThreads = new CThreads(_output);

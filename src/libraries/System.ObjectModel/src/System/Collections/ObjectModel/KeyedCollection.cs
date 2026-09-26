@@ -8,10 +8,10 @@ using System.Diagnostics.CodeAnalysis;
 namespace System.Collections.ObjectModel
 {
     [Serializable]
-    [DebuggerTypeProxy(typeof(CollectionDebugView<>))]
+    [DebuggerTypeProxy(typeof(KeyedCollection<,>.KeyedCollectionDebugView))]
     [DebuggerDisplay("Count = {Count}")]
     [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public abstract class KeyedCollection<TKey, TItem> : Collection<TItem> where TKey: notnull
+    public abstract class KeyedCollection<TKey, TItem> : Collection<TItem> where TKey : notnull
     {
         private const int DefaultThreshold = 0;
 
@@ -71,10 +71,7 @@ namespace System.Collections.ObjectModel
 
         public bool Contains(TKey key)
         {
-            if (key == null)
-            {
-                throw new ArgumentNullException(nameof(key));
-            }
+            ArgumentNullException.ThrowIfNull(key);
 
             if (dict != null)
             {
@@ -94,10 +91,7 @@ namespace System.Collections.ObjectModel
 
         public bool TryGetValue(TKey key, [MaybeNullWhen(false)] out TItem item)
         {
-            if (key == null)
-            {
-                throw new ArgumentNullException(nameof(key));
-            }
+            ArgumentNullException.ThrowIfNull(key);
 
             if (dict != null)
             {
@@ -137,10 +131,7 @@ namespace System.Collections.ObjectModel
 
         public bool Remove(TKey key)
         {
-            if (key == null)
-            {
-                throw new ArgumentNullException(nameof(key));
-            }
+            ArgumentNullException.ThrowIfNull(key);
 
             if (dict != null)
             {
@@ -287,6 +278,48 @@ namespace System.Collections.ObjectModel
             else
             {
                 keyCount--;
+            }
+        }
+
+        private sealed class KeyedCollectionDebugView
+        {
+            private readonly KeyedCollection<TKey, TItem> _collection;
+
+            public KeyedCollectionDebugView(KeyedCollection<TKey, TItem> collection)
+            {
+                ArgumentNullException.ThrowIfNull(collection);
+                _collection = collection;
+            }
+
+            [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
+            public KeyedCollectionDebugViewItem[] Items
+            {
+                get
+                {
+                    var items = new KeyedCollectionDebugViewItem[_collection.Count];
+                    for (int i = 0; i < items.Length; i++)
+                    {
+                        TItem item = _collection[i];
+                        items[i] = new KeyedCollectionDebugViewItem(_collection.GetKeyForItem(item), item);
+                    }
+                    return items;
+                }
+            }
+
+            [DebuggerDisplay("{Value}", Name = "[{Key}]")]
+            internal readonly struct KeyedCollectionDebugViewItem
+            {
+                public KeyedCollectionDebugViewItem(TKey key, TItem value)
+                {
+                    Key = key;
+                    Value = value;
+                }
+
+                [DebuggerBrowsable(DebuggerBrowsableState.Collapsed)]
+                public TKey Key { get; }
+
+                [DebuggerBrowsable(DebuggerBrowsableState.Collapsed)]
+                public TItem Value { get; }
             }
         }
     }

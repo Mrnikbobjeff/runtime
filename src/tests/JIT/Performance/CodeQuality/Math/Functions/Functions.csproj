@@ -1,7 +1,4 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <PropertyGroup>
-    <OutputType>Exe</OutputType>
-  </PropertyGroup>
   <ItemGroup>
     <Compile Include="Functions.cs" />
     <Compile Include="MathTests.cs" />
@@ -43,5 +40,8 @@
     <Compile Include="Single\SqrtSingle.cs" />
     <Compile Include="Single\TanSingle.cs" />
     <Compile Include="Single\TanhSingle.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(TestLibraryProjectPath)" />
   </ItemGroup>
 </Project>

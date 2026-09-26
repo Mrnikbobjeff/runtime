@@ -2,10 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Directed_cmov_Float_No_Op;
+
 #pragma warning disable
 
 using System;
-class testout1
+using Xunit;
+public class testout1
 {
     static float static_field_float;
     static bool sfb_false;
@@ -1847,7 +1850,9 @@ class testout1
         Sum += (ab_false[index] ? ab[index - 1] : ab[index - 1]);
         return Sum;
     }
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         float Sum = 0.0F;
         Sum += Sub_Funclet_0();

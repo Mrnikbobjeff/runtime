@@ -2,9 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b320147;
+
 using System;
 using System.Collections;
 using System.Runtime.InteropServices;
+using Xunit;
 
 public struct AA
 {
@@ -30,7 +34,9 @@ public struct AA
 [StructLayout(LayoutKind.Sequential)]
 public class App
 {
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         try
         {
@@ -44,6 +50,5 @@ public class App
 
         // JIT Stress test... if jitted it passes
         Console.WriteLine("Passed.");
-        return 100;
     }
 }

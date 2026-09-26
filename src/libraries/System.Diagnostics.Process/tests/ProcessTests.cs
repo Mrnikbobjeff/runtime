@@ -3,11 +3,15 @@
 
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.DirectoryServices.ActiveDirectory;
 using System.IO;
 using System.IO.Pipes;
 using System.Linq;
 using System.Net;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Security;
 using System.Text;
 using System.Threading;
@@ -22,10 +26,16 @@ namespace System.Diagnostics.Tests
 {
     public partial class ProcessTests : ProcessTestBase
     {
+        // -rwxr-xr-x (755 octal)
+        const UnixFileMode ExecutablePermissions = UnixFileMode.UserRead | UnixFileMode.UserExecute | UnixFileMode.UserWrite |
+                                                   UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
+                                                   UnixFileMode.OtherRead | UnixFileMode.OtherExecute;
+
         private class FinalizingProcess : Process
         {
             public static volatile bool WasFinalized;
 
+            [MethodImpl(MethodImplOptions.NoInlining)]
             public static void CreateAndRelease()
             {
                 new FinalizingProcess();
@@ -73,6 +83,324 @@ namespace System.Diagnostics.Tests
             }
         }
 
+        private static void AssertRemoteProcessStandardOutputLine(RemoteInvokeHandle remoteHandle, string expectedMessage, int timeout)
+        {
+            using CancellationTokenSource cts = new(timeout);
+
+            Task<string?> readTask = remoteHandle.Process.StandardOutput.ReadLineAsync(cts.Token).AsTask();
+            string? line;
+            try
+            {
+                line = readTask.ConfigureAwait(false).GetAwaiter().GetResult();
+            }
+            catch (OperationCanceledException)
+            {
+                throw new XunitException($"Expected message '{expectedMessage}' was not observed on remote process within specified time.");
+            }
+
+            if (line != null)
+            {
+                Assert.Equal(expectedMessage, line);
+            }
+            else
+            {
+                throw new XunitException($"StandardOutput was closed before observing expected message '{expectedMessage}'");
+            }
+        }
+
+        public static IEnumerable<object[]> SignalTestData()
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                // GenerateConsoleCtrlEvent only supports sending CTRL_C_EVENT and CTRL_BREAK_EVENT
+                yield return new object[] { PosixSignal.SIGINT };
+                yield return new object[] { PosixSignal.SIGQUIT };
+            }
+            else
+            {
+                foreach (PosixSignal signal in Enum.GetValues<PosixSignal>())
+                {
+                    if (signal == PosixSignal.SIGKILL)
+                    {
+                        continue; // SIGKILL cannot be caught or ignored
+                    }
+                    yield return new object[] { signal };
+                }
+                // Test a few raw signals.
+                yield return new object[] { (PosixSignal)3 }; // SIGQUIT
+                yield return new object[] { (PosixSignal)15 }; // SIGTERM
+            }
+        }
+
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [MemberData(nameof(SignalTestData))]
+        public void TestCreateNewProcessGroup_HandlerReceivesExpectedSignal(PosixSignal signal)
+        {
+            const string PosixSignalRegistrationCreatedMessage = "PosixSignalRegistration created...";
+
+            var remoteInvokeOptions = new RemoteInvokeOptions { CheckExitCode = false };
+            remoteInvokeOptions.StartInfo.RedirectStandardOutput = true;
+            if (OperatingSystem.IsWindows())
+            {
+                remoteInvokeOptions.StartInfo.CreateNewProcessGroup = true;
+            }
+
+            using RemoteInvokeHandle remoteHandle = RemoteExecutor.Invoke(
+                (signalStr) =>
+                {
+                    PosixSignal expectedSignal = Enum.Parse<PosixSignal>(signalStr);
+                    using ManualResetEvent receivedSignalEvent = new ManualResetEvent(false);
+                    ReEnableCtrlCHandlerIfNeeded(expectedSignal);
+
+                    using PosixSignalRegistration p = PosixSignalRegistration.Create(expectedSignal, (ctx) =>
+                    {
+                        Assert.Equal(expectedSignal, ctx.Signal);
+                        receivedSignalEvent.Set();
+                        ctx.Cancel = true;
+                    });
+
+                    Console.WriteLine(PosixSignalRegistrationCreatedMessage);
+
+                    Assert.True(receivedSignalEvent.WaitOne(WaitInMS));
+
+                    return 0;
+                },
+                arg: $"{signal}",
+                remoteInvokeOptions);
+
+            AssertRemoteProcessStandardOutputLine(remoteHandle, PosixSignalRegistrationCreatedMessage, WaitInMS);
+
+            try
+            {
+                SendSignal(signal, remoteHandle.Process);
+
+                Assert.True(remoteHandle.Process.WaitForExit(WaitInMS));
+                Assert.Equal(0, remoteHandle.Process.ExitCode);
+            }
+            finally
+            {
+                // If sending the signal fails, we want to kill the process ASAP
+                // to prevent RemoteExecutor's timeout from hiding it.
+                remoteHandle.Process.Kill();
+            }
+        }
+
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        // Limited only to signals which terminates process by default, and are supported on all platforms by SendSignal
+        [InlineData(PosixSignal.SIGINT)]
+        [InlineData(PosixSignal.SIGQUIT)]
+        public void SignalHandler_CanDisposeInHandler(PosixSignal signal)
+        {
+            const string PosixSignalRegistrationCreatedMessage = "PosixSignalRegistration created.";
+            const string PosixSignalHandlerStartedMessage = "PosixSignalRegistration handler started.";
+            const string PosixSignalHandlerDisposedMessage = "PosixSignalRegistration disposed.";
+            const int UnterminatedExitCode = -1;
+
+            var remoteInvokeOptions = new RemoteInvokeOptions { CheckExitCode = false };
+            remoteInvokeOptions.StartInfo.RedirectStandardOutput = true;
+            if (OperatingSystem.IsWindows())
+            {
+                remoteInvokeOptions.StartInfo.CreateNewProcessGroup = true;
+            }
+
+            using RemoteInvokeHandle remoteHandle = RemoteExecutor.Invoke(
+                (signalStr) =>
+                {
+                    PosixSignal expectedSignal = Enum.Parse<PosixSignal>(signalStr);
+                    using ManualResetEvent receivedSignalEvent = new ManualResetEvent(false);
+                    ReEnableCtrlCHandlerIfNeeded(expectedSignal);
+
+                    PosixSignalRegistration? p = null;
+                    p = PosixSignalRegistration.Create(expectedSignal, (ctx) =>
+                    {
+                        Console.WriteLine(PosixSignalHandlerStartedMessage);
+                        Assert.Equal(expectedSignal, ctx.Signal);
+
+                        Assert.NotNull(p);
+                        p?.Dispose();
+
+                        // Used for checking that Dispose returned and did not get stuck
+                        Console.WriteLine(PosixSignalHandlerDisposedMessage);
+
+                        receivedSignalEvent.Set();
+                        ctx.Cancel = true;
+                    });
+
+                    Console.WriteLine(PosixSignalRegistrationCreatedMessage);
+
+                    // Wait for signal which unregisters itself
+                    Assert.True(receivedSignalEvent.WaitOne(WaitInMS));
+
+                    // Wait for second signal which should terminate process by default system handler
+                    Thread.Sleep(WaitInMS);
+
+                    // If we did not terminated yet, return failure exit code
+                    return UnterminatedExitCode;
+                },
+                arg: $"{signal}",
+                remoteInvokeOptions);
+
+
+            try
+            {
+                AssertRemoteProcessStandardOutputLine(remoteHandle, PosixSignalRegistrationCreatedMessage, WaitInMS);
+
+                SendSignal(signal, remoteHandle.Process);
+
+                AssertRemoteProcessStandardOutputLine(remoteHandle, PosixSignalHandlerStartedMessage, WaitInMS);
+                AssertRemoteProcessStandardOutputLine(remoteHandle, PosixSignalHandlerDisposedMessage, WaitInMS);
+
+                // https://github.com/dotnet/runtime/issues/125733
+                // Mono prints running threads stack trace listings and does not quit on receiving SIGQUIT
+                if (PlatformDetection.IsMonoRuntime && signal == PosixSignal.SIGQUIT && !PlatformDetection.IsWindows)
+                {
+                    // Terminate process using SIGTERM instead.
+                    SendSignal(PosixSignal.SIGTERM, remoteHandle.Process);
+                }
+                else
+                {
+                    SendSignal(signal, remoteHandle.Process);
+                }
+
+                Assert.True(remoteHandle.Process.WaitForExit(WaitInMS));
+                Assert.True(remoteHandle.Process.StandardOutput.EndOfStream);
+
+                if (OperatingSystem.IsWindows())
+                {
+                    Assert.Equal(unchecked((int)0xC000013A), remoteHandle.Process.ExitCode); // STATUS_CONTROL_C_EXIT
+                }
+                else
+                {
+                    // Signal numbers are platform dependent, so we can't check exact exit code
+                    Assert.NotEqual(0, remoteHandle.Process.ExitCode);
+                    Assert.NotEqual(UnterminatedExitCode, remoteHandle.Process.ExitCode);
+                }
+            }
+            finally
+            {
+                // If sending the signal fails or process did not exit on its own, we want to kill the process ASAP
+                // to prevent RemoteExecutor's timeout from hiding it.
+                remoteHandle.Process.Kill();
+            }
+        }
+
+        private static bool IsNotNanoServerAndRemoteExecutorSupported =>
+            PlatformDetection.IsNotWindowsNanoServer &&
+            RemoteExecutor.IsSupported;
+
+        [ConditionalTheory(typeof(ProcessTests), nameof(IsNotNanoServerAndRemoteExecutorSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/126936", TestPlatforms.Windows)]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void StartDetached_GrandchildSurvivesSignalingParent(bool enable)
+        {
+            // Verify that a grandchild started with StartDetached=true survives terminating signal sent to the child's
+            // process group, whereas a non-detached grandchild (which inherits the child's process group) is killed.
+            int grandchildPid = -1;
+
+            // Start the child in its own group/session (process group leader) so killing the group
+            // targets only the child's process group, not the test runner's process group.
+            ProcessStartInfo childStartInfo = new()
+            {
+                RedirectStandardOutput = true,
+            };
+
+            if (OperatingSystem.IsWindows())
+            {
+                // We need to be able to send the signal to the child process group.
+                childStartInfo.CreateNewProcessGroup = true;
+            }
+            else
+            {
+                childStartInfo.StartDetached = true;
+            }
+
+            using (RemoteInvokeHandle childHandle = RemoteExecutor.Invoke(static (arg) =>
+            {
+                using RemoteInvokeHandle grandchildHandle = RemoteExecutor.Invoke(
+                    static () => { Thread.Sleep(Timeout.Infinite); return RemoteExecutor.SuccessExitCode; },
+                    new RemoteInvokeOptions { Start = false, CheckExitCode = false });
+
+                grandchildHandle.Process.StartInfo.StartDetached = bool.Parse(arg);
+                grandchildHandle.Process.Start();
+
+                Console.WriteLine(grandchildHandle.Process.Id);
+
+                // Transfer ownership.
+                grandchildHandle.Process = null;
+
+                // Keep the child alive so the test can kill the process group.
+                Thread.Sleep(Timeout.Infinite);
+
+                return RemoteExecutor.SuccessExitCode;
+            },
+            enable.ToString(),
+            new RemoteInvokeOptions { StartInfo = childStartInfo, CheckExitCode = false }))
+            {
+                string pidLine = childHandle.Process.StandardOutput.ReadLine();
+                Assert.True(int.TryParse(pidLine, out grandchildPid), $"Could not parse grandchild PID from: '{pidLine}'");
+
+                // Obtain a Process instance before the child is killed to avoid PID reuse issues.
+                using Process grandchild = Process.GetProcessById(grandchildPid);
+
+                try
+                {
+                    Assert.False(grandchild.HasExited);
+
+                    // Kill the child's entire process group
+                    PosixSignal signal = OperatingSystem.IsWindows() ? PosixSignal.SIGQUIT : PosixSignal.SIGKILL;
+                    SendSignal(signal, childHandle.Process, entireProcessGroup: true);
+
+                    Assert.True(childHandle.Process.WaitForExit(WaitInMS));
+                    // Use shorter wait time when the process is expected to survive
+                    Assert.Equal(enable, !grandchild.WaitForExit(enable ? 300 : WaitInMS));
+                }
+                finally
+                {
+                    grandchild.Kill();
+                }
+            }
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void StartDetached_StartsAndExitsSuccessfully()
+        {
+            // Simple smoke test: a process started with StartDetached=true should run and exit normally.
+            RemoteInvokeOptions options = new()
+            {
+                StartInfo = new ProcessStartInfo { StartDetached = true }
+            };
+            using RemoteInvokeHandle handle = RemoteExecutor.Invoke(static () => RemoteExecutor.SuccessExitCode, options);
+            Assert.True(handle.Process.WaitForExit(WaitInMS));
+            Assert.Equal(RemoteExecutor.SuccessExitCode, handle.Process.ExitCode);
+        }
+
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [InlineData(-2)]
+        [InlineData((long)int.MaxValue + 1)]
+        public void TestWaitForExitValidation(long milliseconds)
+        {
+            CreateDefaultProcess();
+            Assert.Throws<ArgumentOutOfRangeException>("timeout", () => _process.WaitForExit(TimeSpan.FromMilliseconds(milliseconds)));
+        }
+
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [InlineData(-2)]
+        [InlineData(-10)]
+        [InlineData(int.MinValue)]
+        public void TestWaitForExitInt_Validation(int milliseconds)
+        {
+            Process process = CreateDefaultProcess();
+            try
+            {
+                Assert.Throws<ArgumentOutOfRangeException>("milliseconds", () => process.WaitForExit(milliseconds));
+            }
+            finally
+            {
+                process.Kill();
+            }
+        }
+
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
         [PlatformSpecific(TestPlatforms.Windows)]  // Expected behavior varies on Windows and Unix
         public void TestBasePriorityOnWindows()
@@ -80,7 +408,7 @@ namespace System.Diagnostics.Tests
             CreateDefaultProcess();
 
             ProcessPriorityClass originalPriority = _process.PriorityClass;
-            Assert.Equal(ProcessPriorityClass.Normal, originalPriority);
+            Assert.Equal(Process.GetCurrentProcess().PriorityClass, originalPriority);
 
             try
             {
@@ -147,7 +475,8 @@ namespace System.Diagnostics.Tests
                 BeginInvokeDelegate = (d, args) =>
                 {
                     Assert.Null(beginInvokeTask);
-                    beginInvokeTask = Task.Run(() => d.DynamicInvoke(args));
+                    beginInvokeTask = new Task(() => d.DynamicInvoke(args));
+                    beginInvokeTask.Start(TaskScheduler.Default);
                     return beginInvokeTask;
                 }
             };
@@ -169,25 +498,28 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "Not supported on iOS and tvOS.")]
         public void ProcessStart_TryExitCommandAsFileName_ThrowsWin32Exception()
         {
             Assert.Throws<Win32Exception>(() => Process.Start(new ProcessStartInfo { UseShellExecute = false, FileName = "exit", Arguments = "42" }));
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "Not supported on iOS and tvOS.")]
         public void ProcessStart_UseShellExecuteFalse_FilenameIsUrl_ThrowsWin32Exception()
         {
             Assert.Throws<Win32Exception>(() => Process.Start(new ProcessStartInfo { UseShellExecute = false, FileName = "https://www.github.com/corefx" }));
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst, "Not supported on iOS, tvOS, and MacCatalyst.")]
         public void ProcessStart_TryOpenFolder_UseShellExecuteIsFalse_ThrowsWin32Exception()
         {
             Assert.Throws<Win32Exception>(() => Process.Start(new ProcessStartInfo { UseShellExecute = false, FileName = Path.GetTempPath() }));
         }
 
         [Fact]
-        [PlatformSpecific(~TestPlatforms.OSX)] // OSX doesn't support throwing on Process.Start
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst, "Not supported on iOS, tvOS, and MacCatalyst.")]
         public void TestStartWithBadWorkingDirectory()
         {
             string program;
@@ -214,6 +546,8 @@ namespace System.Diagnostics.Tests
 
                 Win32Exception e = Assert.Throws<Win32Exception>(() => Process.Start(psi));
                 Assert.NotEqual(0, e.NativeErrorCode);
+                Assert.Contains(program, e.Message);
+                Assert.Contains(workingDirectory, e.Message);
             }
             else
             {
@@ -223,16 +557,20 @@ namespace System.Diagnostics.Tests
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.HasWindowsShell))]
         [OuterLoop("Launches File Explorer")]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/34685", TestRuntimes.Mono)]
         public void ProcessStart_UseShellExecute_OnWindows_OpenMissingFile_Throws()
         {
             string fileToOpen = Path.Combine(Environment.CurrentDirectory, "_no_such_file.TXT");
-            Assert.Throws<Win32Exception>(() => Process.Start(new ProcessStartInfo { UseShellExecute = true, FileName = fileToOpen }));
+            AssertExtensions.ThrowsContains<Win32Exception>(
+                () => Process.Start(new ProcessStartInfo { UseShellExecute = true, FileName = fileToOpen }),
+                fileToOpen);
         }
 
         [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.HasWindowsShell))]
         [InlineData(true)]
         [InlineData(false)]
         [OuterLoop("Launches File Explorer")]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/34685", TestRuntimes.Mono)]
         public void ProcessStart_UseShellExecute_OnWindows_DoesNotThrow(bool isFolder)
         {
             string fileToOpen;
@@ -256,20 +594,28 @@ namespace System.Diagnostics.Tests
                 {
                     if (px != null) // sometimes process is null
                     {
-                        Assert.Equal("notepad", px.ProcessName);
-
-                        px.Kill();
-                        Assert.True(px.WaitForExit(WaitInMS));
-                        px.WaitForExit(); // wait for event handlers to complete
+                        try
+                        {
+                            Assert.Equal("notepad", px.ProcessName.ToLower());
+                        }
+                        finally
+                        {
+                            px.Kill();
+                            Assert.True(px.WaitForExit(WaitInMS));
+                            px.WaitForExit(); // wait for event handlers to complete
+                        }
                     }
                 }
             }
         }
 
         [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsServerCore),
-            nameof(PlatformDetection.IsNotWindowsNanoServer), nameof(PlatformDetection.IsNotWindowsIoTCore))]
+            nameof(PlatformDetection.IsNotWindowsNanoServer), nameof(PlatformDetection.IsNotWindowsIoTCore),
+            nameof(PlatformDetection.IsNotAppSandbox))]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/34685", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         [InlineData(true), InlineData(false)]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst, "Not supported on iOS, tvOS and MacCatalyst.")]
+        [SkipOnPlatform(TestPlatforms.Android, "Android doesn't allow executing custom shell scripts")]
         public void ProcessStart_UseShellExecute_Executes(bool filenameAsUrl)
         {
             string filename = WriteScriptFile(TestDirectory, GetTestFileName(), returnValue: 42);
@@ -292,7 +638,9 @@ namespace System.Diagnostics.Tests
             PlatformDetection.IsNotWindowsIoTCore &&
             RemoteExecutor.IsSupported;
 
-        [ConditionalFact(nameof(UseShellExecuteExecuteOrderIsRunnablePlatform))]
+        private static bool IsNotAppSandbox => PlatformDetection.IsNotAppSandbox;
+
+        [ConditionalFact(typeof(ProcessTests), nameof(UseShellExecuteExecuteOrderIsRunnablePlatform), nameof(IsNotAppSandbox))]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/34685", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         public void ProcessStart_UseShellExecute_ExecuteOrder()
         {
@@ -336,8 +684,11 @@ namespace System.Diagnostics.Tests
         }
 
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsServerCore),
-            nameof(PlatformDetection.IsNotWindowsNanoServer), nameof(PlatformDetection.IsNotWindowsIoTCore))]
+            nameof(PlatformDetection.IsNotWindowsNanoServer), nameof(PlatformDetection.IsNotWindowsIoTCore),
+            nameof(PlatformDetection.IsNotAppSandbox))]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/34685", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst, "Not supported on iOS, tvOS and MacCatalyst.")]
+        [SkipOnPlatform(TestPlatforms.Android, "Android doesn't allow executing custom shell scripts")]
         public void ProcessStart_UseShellExecute_WorkingDirectory()
         {
             // Create a directory that will ProcessStartInfo.WorkingDirectory
@@ -400,7 +751,51 @@ namespace System.Diagnostics.Tests
             Assert.InRange(p.ExitTime.ToUniversalTime(), timeBeforeProcessStart, DateTime.MaxValue);
         }
 
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TimingProperties_AfterProcessExit()
+        {
+            using Process process = CreateProcess(static () => RemoteExecutor.SuccessExitCode);
+            process.Start();
+            Assert.True(process.WaitForExit(WaitInMS));
+
+            Assert.Equal(RemoteExecutor.SuccessExitCode, process.ExitCode);
+            Assert.NotEqual(default, process.ExitTime);
+
+            if (OperatingSystem.IsWindows())
+            {
+                // Windows process handles retain timing information after the process exits.
+                Assert.NotEqual(default, process.StartTime);
+                Assert.InRange(process.PrivilegedProcessorTime, TimeSpan.Zero, TimeSpan.MaxValue);
+                Assert.InRange(process.TotalProcessorTime, TimeSpan.Zero, TimeSpan.MaxValue);
+                Assert.InRange(process.UserProcessorTime, TimeSpan.Zero, TimeSpan.MaxValue);
+            }
+            else
+            {
+                // Unix reaps child processes after exit. Processor times are unavailable, and StartTime was not
+                // accessed before exit and therefore was not cached.
+                Assert.Throws<InvalidOperationException>(() => process.StartTime);
+                Assert.Throws<InvalidOperationException>(() => process.PrivilegedProcessorTime);
+                Assert.Throws<InvalidOperationException>(() => process.TotalProcessorTime);
+                Assert.Throws<InvalidOperationException>(() => process.UserProcessorTime);
+            }
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void StartTime_AfterProcessExit_WhenCachedBeforeExit_IsAvailable()
+        {
+            using Process process = CreateProcessLong();
+            process.Start();
+            DateTime startTime = process.StartTime;
+
+            process.Kill();
+            Assert.True(process.WaitForExit(WaitInMS));
+
+            Assert.NotEqual(default, startTime);
+            Assert.Equal(startTime, process.StartTime);
+        }
+
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void StartTime_GetNotStarted_ThrowsInvalidOperationException()
         {
             var process = new Process();
@@ -459,6 +854,27 @@ namespace System.Diagnostics.Tests
             }
         }
 
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TestToString_OnRunningProcess()
+        {
+            Process p = CreateDefaultProcess();
+            var name = p.ProcessName;
+            Assert.Equal($"System.Diagnostics.Process ({name})", p.ToString());
+
+            KillWait(p);
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TestToString_OnExitedProcess()
+        {
+            Process p = CreateDefaultProcess();
+            KillWait(p);
+
+            // Ensure ToString does not throw an exception, but still returns
+            // a representation of the object.
+            Assert.Contains("System.Diagnostics.Process", p.ToString());
+        }
+
         [Fact]
         public void HasExited_GetNotStarted_ThrowsInvalidOperationException()
         {
@@ -467,6 +883,7 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "Not supported on iOS and tvOS.")]
         public void Kill_NotStarted_ThrowsInvalidOperationException()
         {
             var process = new Process();
@@ -489,23 +906,20 @@ namespace System.Diagnostics.Tests
             Assert.Throws<InvalidOperationException>(() => process.MachineName);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void TestMainModule()
         {
             Process p = Process.GetCurrentProcess();
 
-            // On UAP casing may not match - we use Path.GetFileName(exePath) instead of kernel32!GetModuleFileNameEx which is not available on UAP
-            Func<string, string> normalize = PlatformDetection.IsInAppContainer ?
-                (Func<string, string>)((s) => s.ToLowerInvariant()) :
-                (s) => s;
-
             Assert.InRange(p.Modules.Count, 1, int.MaxValue);
-            Assert.Equal(normalize(RemoteExecutor.HostRunnerName), normalize(p.MainModule.ModuleName));
-            Assert.EndsWith(normalize(RemoteExecutor.HostRunnerName), normalize(p.MainModule.FileName));
-            Assert.Equal(normalize(string.Format("System.Diagnostics.ProcessModule ({0})", RemoteExecutor.HostRunnerName)), normalize(p.MainModule.ToString()));
+            Assert.Equal(RemoteExecutor.HostRunnerName, p.MainModule.ModuleName);
+            Assert.EndsWith(RemoteExecutor.HostRunnerName, p.MainModule.FileName);
+            Assert.Equal(string.Format("System.Diagnostics.ProcessModule ({0})", RemoteExecutor.HostRunnerName), p.MainModule.ToString());
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/105686", typeof(PlatformDetection), nameof(PlatformDetection.IsQemuLinux))]
         public void TestMaxWorkingSet()
         {
             CreateDefaultProcess();
@@ -516,7 +930,7 @@ namespace System.Diagnostics.Tests
                 Assert.InRange((long)p.MinWorkingSet, 0, long.MaxValue);
             }
 
-            if (OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD()) {
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD() || PlatformDetection.IsOpenBSD || PlatformDetection.IsSunOS) {
                 return; // doesn't support getting/setting working set for other processes
             }
 
@@ -544,23 +958,16 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
-        [PlatformSpecific(~(TestPlatforms.OSX | TestPlatforms.FreeBSD))] // Getting MaxWorkingSet is not supported on OSX and BSD.
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.MacCatalyst | TestPlatforms.tvOS, "Getting MaxWorkingSet is not supported on iOS, MacCatalyst, and tvOS.")]
         public void MaxWorkingSet_GetNotStarted_ThrowsInvalidOperationException()
         {
             var process = new Process();
             Assert.Throws<InvalidOperationException>(() => process.MaxWorkingSet);
-        }
-
-        [Fact]
-        [PlatformSpecific(TestPlatforms.OSX | TestPlatforms.FreeBSD)]
-        public void MaxValueWorkingSet_GetSetMacos_ThrowsPlatformSupportedException()
-        {
-            var process = new Process();
-            Assert.Throws<PlatformNotSupportedException>(() => process.MaxWorkingSet);
-            Assert.Throws<PlatformNotSupportedException>(() => process.MaxWorkingSet = (IntPtr)1);
+            Assert.Throws<InvalidOperationException>(() => process.MaxWorkingSet = (IntPtr)1);
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/105686", typeof(PlatformDetection), nameof(PlatformDetection.IsQemuLinux))]
         public void TestMinWorkingSet()
         {
             CreateDefaultProcess();
@@ -571,7 +978,7 @@ namespace System.Diagnostics.Tests
                 Assert.InRange((long)p.MinWorkingSet, 0, long.MaxValue);
             }
 
-            if (OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD()) {
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsFreeBSD() || PlatformDetection.IsOpenBSD || PlatformDetection.IsSunOS) {
                 return; // doesn't support getting/setting working set for other processes
             }
 
@@ -599,19 +1006,11 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
-        [PlatformSpecific(~(TestPlatforms.OSX | TestPlatforms.FreeBSD))] // Getting MinWorkingSet is not supported on OSX and BSD.
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.MacCatalyst | TestPlatforms.tvOS, "Getting MinWorkingSet is not supported on iOS, MacCatalyst, and tvOS.")]
         public void MinWorkingSet_GetNotStarted_ThrowsInvalidOperationException()
         {
             var process = new Process();
             Assert.Throws<InvalidOperationException>(() => process.MinWorkingSet);
-        }
-
-        [Fact]
-        [PlatformSpecific(TestPlatforms.OSX | TestPlatforms.FreeBSD)]
-        public void MinWorkingSet_GetMacos_ThrowsPlatformSupportedException()
-        {
-            var process = new Process();
-            Assert.Throws<PlatformNotSupportedException>(() => process.MinWorkingSet);
         }
 
         [Fact]
@@ -712,7 +1111,25 @@ namespace System.Diagnostics.Tests
         {
             CreateDefaultProcess();
 
-            AssertNonZeroAllZeroDarwin(_process.PeakWorkingSet64);
+            if (OperatingSystem.IsMacOS())
+            {
+                Assert.Equal(0, _process.PeakWorkingSet64);
+                return;
+            }
+
+            // On recent Linux kernels (6.2+) working set can be zero just after the process started.
+            ExecuteWithRetryOnLinux(() =>
+            {
+                try
+                {
+                    Assert.NotEqual(0, _process.PeakWorkingSet64);
+                }
+                catch
+                {
+                    _process.Refresh();
+                    throw;
+                }
+            });
         }
 
         [Fact]
@@ -723,11 +1140,15 @@ namespace System.Diagnostics.Tests
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
-        public void TestPrivateMemorySize64()
+        public void TestPrivateMemorySize64AndPrivateMemorySize()
         {
             CreateDefaultProcess();
 
-            AssertNonZeroAllZeroDarwin(_process.PrivateMemorySize64);
+            Assert.InRange(_process.PrivateMemorySize64, 1, long.MaxValue);
+
+#pragma warning disable CS0618
+            Assert.Equal(unchecked((int)_process.PrivateMemorySize64), _process.PrivateMemorySize);
+#pragma warning restore CS0618
         }
 
         [Fact]
@@ -738,6 +1159,7 @@ namespace System.Diagnostics.Tests
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/49107", typeof(PlatformDetection), nameof(PlatformDetection.IsMacOsAppleSilicon))]
         public void TestVirtualMemorySize64()
         {
             CreateDefaultProcess();
@@ -764,7 +1186,19 @@ namespace System.Diagnostics.Tests
                 return;
             }
 
-            Assert.InRange(_process.WorkingSet64, 1, long.MaxValue);
+            // On recent Linux kernels (6.2+) working set can be zero just after the process started.
+            ExecuteWithRetryOnLinux(() =>
+            {
+                try
+                {
+                    Assert.InRange(_process.WorkingSet64, 1, long.MaxValue);
+                }
+                catch
+                {
+                    _process.Refresh();
+                    throw;
+                }
+            });
         }
 
         [Fact]
@@ -801,28 +1235,41 @@ namespace System.Diagnostics.Tests
         {
             CreateDefaultProcess();
 
-            DateTime startTime = DateTime.UtcNow;
+            Stopwatch timer = Stopwatch.StartNew();
             TimeSpan processorTimeBeforeSpin = Process.GetCurrentProcess().TotalProcessorTime;
 
             // Perform loop to occupy cpu, takes less than a second.
-            int i = int.MaxValue / 16;
+            int i = int.MaxValue / 8;
             while (i > 0)
             {
                 i--;
             }
 
             TimeSpan processorTimeAfterSpin = Process.GetCurrentProcess().TotalProcessorTime;
-            DateTime endTime = DateTime.UtcNow;
 
-            double timeDiff = (endTime - startTime).TotalMilliseconds;
+            double timeDiff = timer.Elapsed.TotalMilliseconds;
             double cpuTimeDiff = (processorTimeAfterSpin - processorTimeBeforeSpin).TotalMilliseconds;
 
             double cpuUsage = cpuTimeDiff / (timeDiff * Environment.ProcessorCount);
 
-            Assert.InRange(cpuUsage, 0, 1);
+            try
+            {
+                Assert.InRange(cpuUsage, 0, 1); // InRange is an inclusive test
+            }
+            catch (InRangeException)
+            {
+                string msg = $"Assertion failed. {cpuUsage} is not in range [0,1]. " +
+                             $"proc time before:{processorTimeBeforeSpin.TotalMilliseconds} " +
+                             $"proc time after:{processorTimeAfterSpin.TotalMilliseconds} " +
+                             $"timeDiff:{timeDiff} " +
+                             $"cpuTimeDiff:{cpuTimeDiff} " +
+                             $"Environment.ProcessorCount:{Environment.ProcessorCount}";
+                throw new XunitException(msg);
+            }
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void UserProcessorTime_GetNotStarted_ThrowsInvalidOperationException()
         {
             var process = new Process();
@@ -830,13 +1277,15 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
-        public void PriviledgedProcessorTime_GetNotStarted_ThrowsInvalidOperationException()
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
+        public void PrivilegedProcessorTime_GetNotStarted_ThrowsInvalidOperationException()
         {
             var process = new Process();
             Assert.Throws<InvalidOperationException>(() => process.PrivilegedProcessorTime);
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void TotalProcessorTime_GetNotStarted_ThrowsInvalidOperationException()
         {
             var process = new Process();
@@ -897,7 +1346,7 @@ namespace System.Diagnostics.Tests
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
-        [PlatformSpecific(~(TestPlatforms.OSX | TestPlatforms.FreeBSD))] // getting/setting affinity not supported on OSX and BSD
+        [SkipOnPlatform(TestPlatforms.OSX | TestPlatforms.FreeBSD | TestPlatforms.OpenBSD, "getting/setting affinity not supported on OSX and BSD")]
         public void TestProcessorAffinity()
         {
             CreateDefaultProcess();
@@ -1064,29 +1513,34 @@ namespace System.Diagnostics.Tests
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
-        public void TestGetProcessById()
+        public void GetProcessById_KilledProcess_ThrowsArgumentException()
         {
-            CreateDefaultProcess();
+            Process process = CreateDefaultProcess();
+            SafeProcessHandle handle = process.SafeHandle;
+            int processId = process.Id;
 
-            Process p = Process.GetProcessById(_process.Id);
-            Assert.Equal(_process.Id, p.Id);
-            Assert.Equal(_process.ProcessName, p.ProcessName);
+            process.Kill();
+            process.WaitForExit(WaitInMS);
+
+            Assert.Throws<ArgumentException>(() => Process.GetProcessById(processId));
+            GC.KeepAlive(handle);
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void TestGetProcesses()
         {
             Process currentProcess = Process.GetCurrentProcess();
 
             // Get all the processes running on the machine, and check if the current process is one of them.
             var foundCurrentProcess = (from p in Process.GetProcesses()
-                                       where (p.Id == currentProcess.Id) && (p.ProcessName.Equals(currentProcess.ProcessName))
+                                       where (p.Id == currentProcess.Id) && (p.ProcessName.Equals(currentProcess.ProcessName)) && (p.StartTime == currentProcess.StartTime)
                                        select p).Any();
 
             Assert.True(foundCurrentProcess, "TestGetProcesses001 failed");
 
             foundCurrentProcess = (from p in Process.GetProcesses(currentProcess.MachineName)
-                                   where (p.Id == currentProcess.Id) && (p.ProcessName.Equals(currentProcess.ProcessName))
+                                   where (p.Id == currentProcess.Id) && (p.ProcessName.Equals(currentProcess.ProcessName)) && (p.StartTime == currentProcess.StartTime)
                                    select p).Any();
 
             Assert.True(foundCurrentProcess, "TestGetProcesses002 failed");
@@ -1101,7 +1555,7 @@ namespace System.Diagnostics.Tests
         [Fact]
         public void GetProcesses_EmptyMachineName_ThrowsArgumentException()
         {
-            AssertExtensions.Throws<ArgumentException>(null, () => Process.GetProcesses(""));
+            AssertExtensions.Throws<ArgumentException>("machineName", () => Process.GetProcesses(""));
         }
 
         [Fact]
@@ -1138,7 +1592,23 @@ namespace System.Diagnostics.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))] // ActiveIssue: https://github.com/dotnet/runtime/issues/27615
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
+        public void GetProcessesByName_NullEmpty_ReturnsAllProcesses(string? name)
+        {
+            Process currentProcess = Process.GetCurrentProcess();
+            Process[] processes = Process.GetProcessesByName(name);
+
+            int expectedCount = (PlatformDetection.IsMobile) ? 1 : 2;
+
+            Assert.Contains(processes, process => process.ProcessName == currentProcess.ProcessName);
+            Assert.InRange(processes.Length, expectedCount, int.MaxValue); // should contain current process and some number of additional processes
+        }
+
+        [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void GetProcessesByName_ProcessName_ReturnsExpected()
         {
             // Get the current process using its name
@@ -1146,18 +1616,21 @@ namespace System.Diagnostics.Tests
             Assert.NotNull(currentProcess.ProcessName);
             Assert.NotEmpty(currentProcess.ProcessName);
 
-            Process[] processes = Process.GetProcessesByName(currentProcess.ProcessName);
-            try
+            foreach (string processName in new[] { currentProcess.ProcessName, currentProcess.ProcessName.ToLowerInvariant(), currentProcess.ProcessName.ToUpperInvariant() })
             {
-                Assert.NotEmpty(processes);
-            }
-            catch (NotEmptyException)
-            {
-                throw new TrueException(PrintProcesses(currentProcess), false);
-            }
+                Process[] processes = Process.GetProcessesByName(processName);
+                try
+                {
+                    Assert.NotEmpty(processes);
+                }
+                catch (NotEmptyException)
+                {
+                    throw TrueException.ForNonTrueValue(PrintProcesses(currentProcess), false);
+                }
 
-            Assert.All(processes, process => Assert.Equal(".", process.MachineName));
-            return;
+                Assert.All(processes, process => Assert.Equal(currentProcess.ProcessName, process.ProcessName));
+                Assert.All(processes, process => Assert.Equal(".", process.MachineName));
+            }
 
             // Outputs a list of active processes in case of failure: https://github.com/dotnet/runtime/issues/28874
             string PrintProcesses(Process currentProcess)
@@ -1165,10 +1638,10 @@ namespace System.Diagnostics.Tests
                 StringBuilder builder = new StringBuilder();
                 foreach (Process process in Process.GetProcesses())
                 {
-                    builder.AppendFormat("Pid: '{0}' Name: '{1}'", process.Id, process.ProcessName);
+                    builder.Append($"Pid: '{process.Id}' Name: '{process.ProcessName}'");
                     try
                     {
-                        builder.AppendFormat(" Main module: '{0}'", process.MainModule.FileName);
+                        builder.Append($" Main module: '{process.MainModule.FileName}'");
                     }
                     catch
                     {
@@ -1177,7 +1650,7 @@ namespace System.Diagnostics.Tests
                     builder.AppendLine();
                 }
 
-                builder.AppendFormat("Current process id: {0} Process name: '{1}'", currentProcess.Id, currentProcess.ProcessName);
+                builder.Append($"Current process id: {currentProcess.Id} Process name: '{currentProcess.ProcessName}'");
                 return builder.ToString();
             }
         }
@@ -1198,6 +1671,7 @@ namespace System.Diagnostics.Tests
 
         [Theory]
         [MemberData(nameof(MachineName_TestData))]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void GetProcessesByName_ProcessNameMachineName_ReturnsExpected(string machineName)
         {
             Process currentProcess = Process.GetCurrentProcess();
@@ -1224,6 +1698,7 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void GetProcessesByName_NoSuchProcess_ReturnsEmpty()
         {
             string processName = Guid.NewGuid().ToString("N");
@@ -1231,6 +1706,7 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void GetProcessesByName_NullMachineName_ThrowsArgumentNullException()
         {
             Process currentProcess = Process.GetCurrentProcess();
@@ -1238,23 +1714,24 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void GetProcessesByName_EmptyMachineName_ThrowsArgumentException()
         {
             Process currentProcess = Process.GetCurrentProcess();
-            AssertExtensions.Throws<ArgumentException>(null, () => Process.GetProcessesByName(currentProcess.ProcessName, ""));
+            AssertExtensions.Throws<ArgumentException>("machineName", () => Process.GetProcessesByName(currentProcess.ProcessName, ""));
         }
 
         [Fact]
         [PlatformSpecific(TestPlatforms.Windows)]  // Behavior differs on Windows and Unix
         public void TestProcessOnRemoteMachineWindows()
         {
-            Process currentProccess = Process.GetCurrentProcess();
+            Process currentProcess = Process.GetCurrentProcess();
 
-            void TestRemoteProccess(Process remoteProcess)
+            void TestRemoteProcess(Process remoteProcess)
             {
-                Assert.Equal(currentProccess.Id, remoteProcess.Id);
-                Assert.Equal(currentProccess.BasePriority, remoteProcess.BasePriority);
-                Assert.Equal(currentProccess.EnableRaisingEvents, remoteProcess.EnableRaisingEvents);
+                Assert.Equal(currentProcess.Id, remoteProcess.Id);
+                Assert.Equal(currentProcess.BasePriority, remoteProcess.BasePriority);
+                Assert.Equal(currentProcess.EnableRaisingEvents, remoteProcess.EnableRaisingEvents);
                 Assert.Equal("127.0.0.1", remoteProcess.MachineName);
                 // This property throws exception only on remote processes.
                 Assert.Throws<NotSupportedException>(() => remoteProcess.MainModule);
@@ -1262,8 +1739,8 @@ namespace System.Diagnostics.Tests
 
             try
             {
-                TestRemoteProccess(Process.GetProcessById(currentProccess.Id, "127.0.0.1"));
-                TestRemoteProccess(Process.GetProcessesByName(currentProccess.ProcessName, "127.0.0.1").Where(p => p.Id == currentProccess.Id).Single());
+                TestRemoteProcess(Process.GetProcessById(currentProcess.Id, "127.0.0.1"));
+                TestRemoteProcess(Process.GetProcessesByName(currentProcess.ProcessName, "127.0.0.1").Where(p => p.Id == currentProcess.Id).Single());
             }
             catch (InvalidOperationException)
             {
@@ -1299,7 +1776,8 @@ namespace System.Diagnostics.Tests
             Assert.True(process.WaitForExit(WaitInMS));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void StartInfo_SetGet_ReturnsExpected()
         {
             var process = new Process() { StartInfo = new ProcessStartInfo(RemoteExecutor.HostRunner) };
@@ -1376,6 +1854,7 @@ namespace System.Diagnostics.Tests
         [Theory]
         [InlineData(false)]
         [InlineData(true)]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "Not supported on iOS and tvOS.")]
         public void TestStartWithMissingFile(bool fullPath)
         {
             string path = Guid.NewGuid().ToString("N");
@@ -1392,6 +1871,7 @@ namespace System.Diagnostics.Tests
 
             Win32Exception e = Assert.Throws<Win32Exception>(() => Process.Start(path));
             Assert.NotEqual(0, e.NativeErrorCode);
+            Assert.Contains(path, e.Message);
         }
 
         [Fact]
@@ -1461,6 +1941,7 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst, "Process.Start() is not supported on iOS, tvOS, and MacCatalyst.")]
         public void Start_Disposed_ThrowsObjectDisposedException()
         {
             var process = new Process();
@@ -1468,6 +1949,56 @@ namespace System.Diagnostics.Tests
             process.Dispose();
 
             Assert.Throws<ObjectDisposedException>(() => process.Start());
+        }
+
+        [Fact]
+        public void StandardInput_Disposed_ThrowsObjectDisposedException()
+        {
+            var process = new Process();
+            process.StartInfo.FileName = "Nothing";
+            process.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => process.StandardInput);
+        }
+
+        [Fact]
+        public void StandardError_Disposed_ThrowsObjectDisposedException()
+        {
+            var process = new Process();
+            process.StartInfo.FileName = "Nothing";
+            process.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => process.StandardError);
+        }
+
+        [Fact]
+        public void StandardOutput_Disposed_ThrowsObjectDisposedException()
+        {
+            var process = new Process();
+            process.StartInfo.FileName = "Nothing";
+            process.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => process.StandardOutput);
+        }
+
+        [Fact]
+        public void CancelOutputRead_Disposed_ThrowsObjectDisposedException()
+        {
+            var process = new Process();
+            process.StartInfo.FileName = "Nothing";
+            process.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => process.CancelOutputRead());
+        }
+
+        [Fact]
+        public void CancelErrorRead_Disposed_ThrowsObjectDisposedException()
+        {
+            var process = new Process();
+            process.StartInfo.FileName = "Nothing";
+            process.Dispose();
+
+            Assert.Throws<ObjectDisposedException>(() => process.CancelErrorRead());
         }
 
         [Fact]
@@ -1560,75 +2091,76 @@ namespace System.Diagnostics.Tests
             var process = new Process();
             Assert.Throws<InvalidOperationException>(() => process.MainWindowHandle);
         }
-        
-        [Fact]
-        [OuterLoop]
-        [Trait(XunitConstants.Category, XunitConstants.IgnoreForCI)] // Pops UI
-        [PlatformSpecific(TestPlatforms.Windows)]
-        public void MainWindowHandle_GetWithGui_ShouldRefresh_Windows()
-        {
-            const string ExePath = "notepad.exe";
-            Assert.True(IsProgramInstalled(ExePath));
-
-            using (Process process = Process.Start(ExePath))
-            {
-                try
-                {
-                    for (int attempt = 0; attempt < 50; ++attempt)
-                    {
-                        process.Refresh();
-                        if (process.MainWindowHandle != IntPtr.Zero)
-                        {
-                            break;
-                        }
-
-                        Thread.Sleep(100);
-                    }
-
-                    Assert.NotEqual(IntPtr.Zero, process.MainWindowHandle);
-                }
-                finally
-                {
-                    process.Kill();
-                    Assert.True(process.WaitForExit(WaitInMS));
-                }
-            }
-        }
 
         [Fact]
-        [OuterLoop]
-        [Trait(XunitConstants.Category, XunitConstants.IgnoreForCI)] // Pops UI
-        [PlatformSpecific(TestPlatforms.Windows)]
-        public void MainWindowTitle_GetWithGui_ShouldRefresh_Windows()
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
+        public void RefreshResetsAllRefreshableFields()
         {
-            const string ExePath = "notepad.exe";
-            Assert.True(IsProgramInstalled(ExePath));
+            // testing Process.Responding using a real unresponsive process would be very hard to do properly
+            // instead of this, we just test the implementation to ensure that #36768 is not coming back
+            var process = new Process();
 
-            using (Process process = Process.Start(ExePath))
+            VerifyPrivateFieldsValues(process, shouldHaveDefaultValues: true);
+
+            SetPrivateFieldsToNonDefaultValues(process);
+
+            VerifyPrivateFieldsValues(process, shouldHaveDefaultValues: false);
+
+            process.Refresh();
+
+            VerifyPrivateFieldsValues(process, shouldHaveDefaultValues: true);
+
+            static void VerifyPrivateFieldsValues(Process process, bool shouldHaveDefaultValues)
             {
-                try
+                Assert.Equal(shouldHaveDefaultValues, !(bool)GetPrivateFieldValue(process, "_exited"));
+                Assert.Equal(shouldHaveDefaultValues, !(bool)GetPrivateFieldValue(process, "_haveWorkingSetLimits"));
+                Assert.Equal(shouldHaveDefaultValues, !(bool)GetPrivateFieldValue(process, "_haveProcessorAffinity"));
+                Assert.Equal(shouldHaveDefaultValues, !(bool)GetPrivateFieldValue(process, "_havePriorityClass"));
+                Assert.Equal(shouldHaveDefaultValues, !(bool)GetPrivateFieldValue(process, "_haveExitTime"));
+                Assert.Equal(shouldHaveDefaultValues, !(bool)GetPrivateFieldValue(process, "_havePriorityBoostEnabled"));
+
+                Assert.Equal(shouldHaveDefaultValues, null == GetPrivateFieldValue(process, "_processInfo"));
+                Assert.Equal(shouldHaveDefaultValues, null == GetPrivateFieldValue(process, "_threads"));
+                Assert.Equal(shouldHaveDefaultValues, null == GetPrivateFieldValue(process, "_modules"));
+
+                if (OperatingSystem.IsWindows())
                 {
-                    Assert.Equal(string.Empty, process.MainWindowTitle);
-
-                    for (int attempt = 0; attempt < 50; ++attempt)
-                    {
-                        process.Refresh();
-                        if (process.MainWindowTitle != string.Empty)
-                        {
-                            break;
-                        }
-
-                        Thread.Sleep(100);
-                    }
-
-                    Assert.NotEqual(string.Empty, process.MainWindowTitle);
-                }
-                finally
-                {
-                    process.Kill();
-                    Assert.True(process.WaitForExit(WaitInMS));
+                    Assert.Equal(shouldHaveDefaultValues, null == GetPrivateFieldValue(process, "_mainWindowTitle"));
+                    Assert.Equal(shouldHaveDefaultValues, !(bool)GetPrivateFieldValue(process, "_signaled"));
+                    Assert.Equal(shouldHaveDefaultValues, !(bool)GetPrivateFieldValue(process, "_haveMainWindow"));
+                    Assert.Equal(shouldHaveDefaultValues, !(bool)GetPrivateFieldValue(process, "_haveResponding"));
                 }
             }
+
+            static void SetPrivateFieldsToNonDefaultValues(Process process)
+            {
+                SetPrivateFieldValue(process, "_exited", true);
+                SetPrivateFieldValue(process, "_haveWorkingSetLimits", true);
+                SetPrivateFieldValue(process, "_haveProcessorAffinity", true);
+                SetPrivateFieldValue(process, "_havePriorityClass", true);
+                SetPrivateFieldValue(process, "_haveExitTime", true);
+                SetPrivateFieldValue(process, "_havePriorityBoostEnabled", true);
+
+                SetPrivateFieldValue(process, "_processInfo", Type.GetType("System.Diagnostics.ProcessInfo, System.Diagnostics.Process").GetConstructor(BindingFlags.NonPublic | BindingFlags.Instance, Array.Empty<Type>()).Invoke(null));
+                SetPrivateFieldValue(process, "_threads", new ProcessThreadCollection(Array.Empty<ProcessThread>()));
+                SetPrivateFieldValue(process, "_modules",  new ProcessModuleCollection(Array.Empty<ProcessModule>()));
+
+                if (OperatingSystem.IsWindows())
+                {
+                    SetPrivateFieldValue(process, "_signaled", true);
+                    SetPrivateFieldValue(process, "_haveMainWindow", true);
+                    SetPrivateFieldValue(process, "_mainWindowTitle", "notNull");
+                    SetPrivateFieldValue(process, "_haveResponding", true);
+                }
+            }
+
+            static object GetPrivateFieldValue(Process process, string fieldName) => typeof(Process)
+                .GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance)
+                .GetValue(process);
+
+            static void SetPrivateFieldValue(Process process, string fieldName, object value) => typeof(Process)
+                .GetField(fieldName, BindingFlags.NonPublic | BindingFlags.Instance)
+                .SetValue(process, value);
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
@@ -1793,9 +2325,29 @@ namespace System.Diagnostics.Tests
         {
             CreateDefaultProcess();
 
+            if (OperatingSystem.IsMacOS())
+            {
 #pragma warning disable 0618
-            AssertNonZeroAllZeroDarwin(_process.PeakWorkingSet);
+                Assert.Equal(0, _process.PeakWorkingSet);
 #pragma warning restore 0618
+                return;
+            }
+
+            // On recent Linux kernels (6.2+) working set can be zero just after the process started.
+            ExecuteWithRetryOnLinux(() =>
+            {
+                try
+                {
+#pragma warning disable 0618
+                    Assert.NotEqual(0, _process.PeakWorkingSet);
+#pragma warning restore 0618
+                }
+                catch
+                {
+                    _process.Refresh();
+                    throw;
+                }
+            });
         }
 
         [Fact]
@@ -1804,16 +2356,6 @@ namespace System.Diagnostics.Tests
             var process = new Process();
 #pragma warning disable 0618
             Assert.Throws<InvalidOperationException>(() => process.PeakWorkingSet);
-#pragma warning restore 0618
-        }
-
-        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
-        public void TestPrivateMemorySize()
-        {
-            CreateDefaultProcess();
-
-#pragma warning disable 0618
-            AssertNonZeroAllZeroDarwin(_process.PrivateMemorySize);
 #pragma warning restore 0618
         }
 
@@ -1859,9 +2401,21 @@ namespace System.Diagnostics.Tests
                 return;
             }
 
+            // On recent Linux kernels (6.2+) working set can be zero just after the process started.
+            ExecuteWithRetryOnLinux(() =>
+            {
+                try
+                {
 #pragma warning disable 0618
-            Assert.InRange(_process.WorkingSet, 1, int.MaxValue);
+                    Assert.InRange(_process.WorkingSet, 1, int.MaxValue);
 #pragma warning restore 0618
+                }
+                catch
+                {
+                    _process.Refresh();
+                    throw;
+                }
+            });
         }
 
         [Fact]
@@ -1882,6 +2436,7 @@ namespace System.Diagnostics.Tests
             Assert.Throws<Win32Exception>(() => Process.Start("exe", string.Empty, new SecureString(), "thisDomain"));
         }
 
+        [OuterLoop("May take many seconds the first time it's run")]
         [Fact]
         [PlatformSpecific(TestPlatforms.Windows)]  // Starting process with authentication not supported on Unix
         public void Process_StartWithInvalidUserNamePassword()
@@ -1965,30 +2520,46 @@ namespace System.Diagnostics.Tests
         }
 
         [PlatformSpecific(TestPlatforms.AnyUnix)]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/29330", TestPlatforms.OSX)]
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/52852", TestPlatforms.MacCatalyst)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/53095", TestPlatforms.Android)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/29383", TestPlatforms.OSX)]
         public void LongProcessNamesAreSupported()
         {
-            // Alpine implements sleep as a symlink to the busybox executable.
-            // If we rename it, the program will no longer sleep.
-            if (PlatformDetection.IsAlpine)
+            string sleepPath;
+            if (OperatingSystem.IsLinux())
             {
-                return;
+                // On some distros sleep is implemented using a script/symlink, which causes this test to fail.
+                // Instead of using sleep directly, we wrap it with a script.
+                sleepPath = GetTestFilePath();
+                File.WriteAllText(sleepPath, $"#!/bin/sh\nsleep 600\n"); // sleep 10 min.
+                File.SetUnixFileMode(sleepPath, ExecutablePermissions);
             }
-
-            string programPath = GetProgramPath("sleep");
-
-            if (programPath == null)
+            else
             {
-                return;
+                sleepPath = GetProgramPath("sleep");
+                if (sleepPath == null)
+                {
+                    return;
+                }
             }
 
             const string LongProcessName = "123456789012345678901234567890";
             string sleepCommandPathFileName = Path.Combine(TestDirectory, LongProcessName);
-            File.Copy(programPath, sleepCommandPathFileName);
+            File.Copy(sleepPath, sleepCommandPathFileName);
 
-            using (Process px = Process.Start(sleepCommandPathFileName, "600"))
+            using SafeFileHandle nullHandle = File.OpenNullHandle();
+            ProcessStartInfo psi = new(sleepCommandPathFileName, "600")
             {
+                StandardOutputHandle = nullHandle,
+                StandardErrorHandle= nullHandle
+            };
+            using (Process px = Process.Start(psi))
+            {
+                // Reading of long process names is flaky during process startup and shutdown.
+                // Wait a bit to skip over the period where the ProcessName is not reliable.
+                Thread.Sleep(100);
+
                 Process[] runningProcesses = Process.GetProcesses();
                 try
                 {
@@ -1996,7 +2567,7 @@ namespace System.Diagnostics.Tests
                 }
                 finally
                 {
-                    px.Kill();
+                    px.Kill(entireProcessTree: true);
                     px.WaitForExit();
                 }
             }
@@ -2052,6 +2623,18 @@ namespace System.Diagnostics.Tests
 
                 Assert.True(testProcess.WaitForExit(WaitInMS));
             }
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void ArgumentListArgumentNullThrowsOnStart()
+        {
+            ProcessStartInfo psi = new ProcessStartInfo(GetCurrentProcessName());
+            psi.ArgumentList.Add(null);
+
+            Process testProcess = CreateProcess();
+            testProcess.StartInfo = psi;
+
+            AssertExtensions.Throws<ArgumentNullException>("ArgumentList[0]", () => testProcess.Start());
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
@@ -2111,6 +2694,7 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void Kill_EntireProcessTree_True_ProcessNotStarted_ThrowsInvalidOperationException()
         {
             var process = new Process();
@@ -2140,6 +2724,7 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void Kill_EntireProcessTree_True_CalledOnCallingProcess_ThrowsInvalidOperationException()
         {
             var process = Process.GetCurrentProcess();
@@ -2164,7 +2749,7 @@ namespace System.Diagnostics.Tests
             containingProcess.WaitForExit();
 
             if (containingProcess.ExitCode != 10)
-                Assert.True(false, "attempt to terminate a process tree containing the calling process did not throw the expected exception");
+                Assert.Fail("attempt to terminate a process tree containing the calling process did not throw the expected exception");
 
             int RunProcessAttemptingToKillEntireTreeOnParent()
             {
@@ -2198,7 +2783,7 @@ namespace System.Diagnostics.Tests
             Process process = CreateProcess();
             process.Start();
 
-            Assert.True(process.WaitForExit(Helpers.PassingTestTimeoutMilliseconds), $"Proccess {process.Id} did not finish in {Helpers.PassingTestTimeoutMilliseconds}.");
+            Assert.True(process.WaitForExit(Helpers.PassingTestTimeoutMilliseconds), $"Process {process.Id} did not finish in {Helpers.PassingTestTimeoutMilliseconds}.");
 
             process.Kill(killTree);
         }
@@ -2288,7 +2873,7 @@ namespace System.Diagnostics.Tests
         {
             string folderNameWithSpaces = "folder name with spaces"; // this needs escaping
             string fullPath = Path.Combine(TestDirectory, folderNameWithSpaces);
-            string[] arguments = new string[] { "/c", "mkdir", "-p", fullPath };
+            string[] arguments = new string[] { "/c", "mkdir", fullPath };
 
             if (Directory.Exists(fullPath))
             {
@@ -2304,6 +2889,38 @@ namespace System.Diagnostics.Tests
                 Assert.True(Directory.Exists(fullPath));
                 Directory.Delete(fullPath);
             }
+        }
+
+        [PlatformSpecific(TestPlatforms.Windows)]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotPrivilegedProcess))]
+        public void NonElevatedUser_QueryProcessNameOfSystemProcess()
+        {
+            const string Services = "services";
+
+            string currentProcessUser = Helpers.GetProcessUserName(Process.GetCurrentProcess());
+            Assert.NotNull(currentProcessUser);
+
+            Process? systemOwnedServices = null;
+
+            foreach (var p in Process.GetProcessesByName(Services))
+            {
+                // returns the username of the owner of the process or null if the username can't be queried.
+                // for services.exe, this will be null.
+                string? servicesUser = Helpers.GetProcessUserName(p);
+
+                // this isn't really verifying that services.exe is owned by SYSTEM, but we are sure it is not owned by the current user.
+                if (servicesUser != currentProcessUser)
+                {
+                    systemOwnedServices = p;
+                    break;
+                }
+            }
+
+            Assert.NotNull(systemOwnedServices);
+            Assert.Equal(Services, systemOwnedServices.ProcessName);
+
+            systemOwnedServices = Process.GetProcessById(systemOwnedServices.Id);
+            Assert.Equal(Services, systemOwnedServices.ProcessName);
         }
 
         private IReadOnlyList<Process> CreateProcessTree()
@@ -2402,6 +3019,18 @@ namespace System.Diagnostics.Tests
             }
 
             return secureString;
+        }
+
+        private static void ExecuteWithRetryOnLinux(Action test)
+        {
+            if (OperatingSystem.IsLinux())
+            {
+                RetryHelper.Execute(test, retryWhen: ex => ex is XunitException);
+            }
+            else
+            {
+                test();
+            }
         }
     }
 }

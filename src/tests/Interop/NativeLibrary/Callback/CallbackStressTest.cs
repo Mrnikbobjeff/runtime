@@ -7,6 +7,8 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 [assembly: DefaultDllImportSearchPaths(DllImportSearchPath.SafeDirectories)]
 public class CallbackStressTest
@@ -35,7 +37,7 @@ public class CallbackStressTest
                         throw new ArgumentException();
                     }
 
-                    return NativeLibrary.Load(NativeLibraryToLoad.Name, asm, null);
+                    return NativeLibrary.Load(NativeLibraryToLoad.GetFullPath(), asm, null);
                 }
 
                 return IntPtr.Zero;
@@ -106,18 +108,30 @@ public class CallbackStressTest
     public static void ManualRaiseException()
     {
 #if WINDOWS
-        try
+        if (TestLibrary.PlatformDetection.IsExceptionInteropSupported)
         {
-            RaiseException(5, 0, 0, IntPtr.Zero);
+            try
+            {
+                RaiseException(5, 0, 0, IntPtr.Zero);
+            }
+            catch(SEHException ex) { GC.Collect(); s_SEHExceptionCatchCalled++; }
         }
-        catch(SEHException ex) { GC.Collect(); s_SEHExceptionCatchCalled++; }
+        else
+        {
+            // SEH exception handling is not supported on this runtime.
+            s_SEHExceptionCatchCalled++;
+        }
 #else
         // TODO: test on Unix when implementing pinvoke inlining
         s_SEHExceptionCatchCalled++;
 #endif
     }
 
-    public static int Main()
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/64127", typeof(PlatformDetection), nameof(PlatformDetection.PlatformDoesNotSupportNativeTestAssets))]
+    [ActiveIssue("Needs coreclr build", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoFULLAOT))]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/54905", TestPlatforms.Android)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         for(int i = 0; i < s_LoopCounter; i++)
         {

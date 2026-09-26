@@ -1,14 +1,16 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System.Buffers;
 using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
+#nullable enable
+
 namespace System.Text
 {
+    [DebuggerDisplay("{DebuggerDisplay,nq}")]
     internal ref partial struct ValueStringBuilder
     {
         private char[]? _arrayToReturnToPool;
@@ -44,8 +46,22 @@ namespace System.Text
 
         public void EnsureCapacity(int capacity)
         {
-            if (capacity > _chars.Length)
+            // This is not expected to be called this with negative capacity
+            Debug.Assert(capacity >= 0);
+
+            // If the caller has a bug and calls this with negative capacity, make sure to call Grow to throw an exception.
+            if ((uint)capacity > (uint)_chars.Length)
                 Grow(capacity - _pos);
+        }
+
+        /// <summary>
+        /// Ensures that the builder is terminated with a NUL character.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void NullTerminate()
+        {
+            EnsureCapacity(_pos + 1);
+            _chars[_pos] = '\0';
         }
 
         /// <summary>
@@ -59,20 +75,6 @@ namespace System.Text
             return ref MemoryMarshal.GetReference(_chars);
         }
 
-        /// <summary>
-        /// Get a pinnable reference to the builder.
-        /// </summary>
-        /// <param name="terminate">Ensures that the builder has a null char after <see cref="Length"/></param>
-        public ref char GetPinnableReference(bool terminate)
-        {
-            if (terminate)
-            {
-                EnsureCapacity(Length + 1);
-                _chars[Length] = '\0';
-            }
-            return ref MemoryMarshal.GetReference(_chars);
-        }
-
         public ref char this[int index]
         {
             get
@@ -81,6 +83,10 @@ namespace System.Text
                 return ref _chars[index];
             }
         }
+
+        // ToString() clears the builder, so we need a side-effect free debugger display.
+        [DebuggerBrowsable(DebuggerBrowsableState.Never)]
+        private string DebuggerDisplay => AsSpan().ToString();
 
         public override string ToString()
         {
@@ -92,39 +98,9 @@ namespace System.Text
         /// <summary>Returns the underlying storage of the builder.</summary>
         public Span<char> RawChars => _chars;
 
-        /// <summary>
-        /// Returns a span around the contents of the builder.
-        /// </summary>
-        /// <param name="terminate">Ensures that the builder has a null char after <see cref="Length"/></param>
-        public ReadOnlySpan<char> AsSpan(bool terminate)
-        {
-            if (terminate)
-            {
-                EnsureCapacity(Length + 1);
-                _chars[Length] = '\0';
-            }
-            return _chars.Slice(0, _pos);
-        }
-
         public ReadOnlySpan<char> AsSpan() => _chars.Slice(0, _pos);
         public ReadOnlySpan<char> AsSpan(int start) => _chars.Slice(start, _pos - start);
         public ReadOnlySpan<char> AsSpan(int start, int length) => _chars.Slice(start, length);
-
-        public bool TryCopyTo(Span<char> destination, out int charsWritten)
-        {
-            if (_chars.Slice(0, _pos).TryCopyTo(destination))
-            {
-                charsWritten = _pos;
-                Dispose();
-                return true;
-            }
-            else
-            {
-                charsWritten = 0;
-                Dispose();
-                return false;
-            }
-        }
 
         public void Insert(int index, char value, int count)
         {
@@ -155,7 +131,11 @@ namespace System.Text
 
             int remaining = _pos - index;
             _chars.Slice(index, remaining).CopyTo(_chars.Slice(index + count));
-            s.AsSpan().CopyTo(_chars.Slice(index));
+            s
+#if !NET
+                .AsSpan()
+#endif
+                .CopyTo(_chars.Slice(index));
             _pos += count;
         }
 
@@ -163,9 +143,10 @@ namespace System.Text
         public void Append(char c)
         {
             int pos = _pos;
-            if ((uint)pos < (uint)_chars.Length)
+            Span<char> chars = _chars;
+            if ((uint)pos < (uint)chars.Length)
             {
-                _chars[pos] = c;
+                chars[pos] = c;
                 _pos = pos + 1;
             }
             else
@@ -202,7 +183,11 @@ namespace System.Text
                 Grow(s.Length);
             }
 
-            s.AsSpan().CopyTo(_chars.Slice(pos));
+            s
+#if !NET
+                .AsSpan()
+#endif
+                .CopyTo(_chars.Slice(pos));
             _pos += s.Length;
         }
 
@@ -221,23 +206,7 @@ namespace System.Text
             _pos += count;
         }
 
-        public unsafe void Append(char* value, int length)
-        {
-            int pos = _pos;
-            if (pos > _chars.Length - length)
-            {
-                Grow(length);
-            }
-
-            Span<char> dst = _chars.Slice(_pos, length);
-            for (int i = 0; i < dst.Length; i++)
-            {
-                dst[i] = *value++;
-            }
-            _pos += length;
-        }
-
-        public void Append(ReadOnlySpan<char> value)
+        public void Append(scoped ReadOnlySpan<char> value)
         {
             int pos = _pos;
             if (pos > _chars.Length - value.Length)
@@ -283,7 +252,17 @@ namespace System.Text
             Debug.Assert(additionalCapacityBeyondPos > 0);
             Debug.Assert(_pos > _chars.Length - additionalCapacityBeyondPos, "Grow called incorrectly, no resize is needed.");
 
-            char[] poolArray = ArrayPool<char>.Shared.Rent(Math.Max(_pos + additionalCapacityBeyondPos, _chars.Length * 2));
+            const uint ArrayMaxLength = 0x7FFFFFC7; // same as Array.MaxLength
+
+            // Increase to at least the required size (_pos + additionalCapacityBeyondPos), but try
+            // to double the size if possible, bounding the doubling to not go beyond the max array length.
+            int newCapacity = (int)Math.Max(
+                (uint)(_pos + additionalCapacityBeyondPos),
+                Math.Min((uint)_chars.Length * 2, ArrayMaxLength));
+
+            // Make sure to let Rent throw an exception if the caller has a bug and the desired capacity is negative.
+            // This could also go negative if the actual required length wraps around.
+            char[] poolArray = ArrayPool<char>.Shared.Rent(newCapacity);
 
             _chars.Slice(0, _pos).CopyTo(poolArray);
 

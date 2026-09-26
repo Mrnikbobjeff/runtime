@@ -2,13 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b45259
 {
     using System;
 
-    class AA
+    public class AA
     {
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             try
             {
@@ -19,7 +22,6 @@ namespace Test
                 float[] af = new float[7];
                 af[0] = af[1];
             }
-            return 100;
         }
     }
 

@@ -1,9 +1,10 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Text;
 
 namespace System.Security.Cryptography.Pkcs
@@ -14,17 +15,16 @@ namespace System.Security.Cryptography.Pkcs
         private const byte IvId = 2;
         private const byte MacKeyId = 3;
 
-        // This is a dictionary representation of the table in
-        // https://tools.ietf.org/html/rfc7292#appendix-B.2
-        private static readonly Dictionary<HashAlgorithmName, Tuple<int, int>> s_uvLookup =
-            new Dictionary<HashAlgorithmName, Tuple<int, int>>
-            {
-                { HashAlgorithmName.MD5, Tuple.Create(128, 512) },
-                { HashAlgorithmName.SHA1, Tuple.Create(160, 512) },
-                { HashAlgorithmName.SHA256, Tuple.Create(256, 512) },
-                { HashAlgorithmName.SHA384, Tuple.Create(384, 1024) },
-                { HashAlgorithmName.SHA512, Tuple.Create(512, 1024) },
-            };
+        // This is based on the table in https://tools.ietf.org/html/rfc7292#appendix-B.2.
+        // It is small enough that it's cheaper to just use an array and linear search rather than dictionary lookup.
+        private static readonly (HashAlgorithmName, int, int)[] s_uvLookup = new[]
+        {
+            (HashAlgorithmName.MD5, 128, 512),
+            (HashAlgorithmName.SHA1, 160, 512),
+            (HashAlgorithmName.SHA256, 256, 512),
+            (HashAlgorithmName.SHA384, 384, 1024),
+            (HashAlgorithmName.SHA512, 512, 1024),
+        };
 
         internal static void DeriveCipherKey(
             ReadOnlySpan<char> password,
@@ -74,7 +74,7 @@ namespace System.Security.Cryptography.Pkcs
                 destination);
         }
 
-        private static void Derive(
+        private static unsafe void Derive(
             ReadOnlySpan<char> password,
             HashAlgorithmName hashAlgorithm,
             int iterationCount,
@@ -85,12 +85,21 @@ namespace System.Security.Cryptography.Pkcs
             // https://tools.ietf.org/html/rfc7292#appendix-B.2
             Debug.Assert(iterationCount >= 1);
 
-            if (!s_uvLookup.TryGetValue(hashAlgorithm, out Tuple<int, int>? uv))
+            int u = -1, v = -1;
+            foreach ((HashAlgorithmName, int, int) huv in s_uvLookup)
+            {
+                if (huv.Item1 == hashAlgorithm)
+                {
+                    u = huv.Item2;
+                    v = huv.Item3;
+                    break;
+                }
+            }
+
+            if (u == -1)
             {
                 throw new CryptographicException(SR.Cryptography_UnknownHashAlgorithm, hashAlgorithm.Name);
             }
-
-            (int u, int v) = uv;
 
             Debug.Assert(v <= 1024);
 
@@ -108,9 +117,15 @@ namespace System.Security.Cryptography.Pkcs
             // The password is a null-terminated UTF-16BE version of the input.
             int passLen = checked((password.Length + 1) * 2);
 
-            // If password == default then the span represents the null string (as opposed to
+            // If password contains a null ref then the span represents the null string (as opposed to
             // an empty string), and the P block should then have size 0 in the next step.
+#if NETSTANDARD
+#pragma warning disable CA2265 // Do not compare Span<T> to 'default'
             if (password == default)
+#pragma warning restore CA2265
+#else
+            if (Unsafe.IsNullRef(ref MemoryMarshal.GetReference(password)))
+#endif
             {
                 passLen = 0;
             }
@@ -123,14 +138,14 @@ namespace System.Security.Cryptography.Pkcs
             // (The RFC quote considers the trailing '\0' to be part of the string,
             // so "empty string" from this RFC means "null string" in C#, and C#'s
             // "empty string" is not 'empty' in this context.)
-            int PLen = ((passLen - 1 + vBytes) / vBytes) * vBytes;
+            int PLen = checked(((passLen - 1 + vBytes) / vBytes) * vBytes);
 
             // 4.  Set I=S||P to be the concatenation of S and P.
-            int ILen = SLen + PLen;
-            Span<byte> I = stackalloc byte[0];
+            int ILen = checked(SLen + PLen);
+            scoped Span<byte> I;
             byte[]? IRented = null;
 
-            if (ILen <= 1024)
+            if ((uint)ILen <= 1024)
             {
                 I = stackalloc byte[ILen];
             }
@@ -218,7 +233,7 @@ namespace System.Security.Cryptography.Pkcs
             }
         }
 
-        private static void AddPlusOne(Span<byte> into, Span<byte> addend)
+        private static void AddPlusOne(Span<byte> into, ReadOnlySpan<byte> addend)
         {
             Debug.Assert(into.Length == addend.Length);
 

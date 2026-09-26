@@ -5,8 +5,9 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-public class BringUpTest
+public class BringUpTest_StaticCalls
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -92,12 +93,6 @@ public class BringUpTest
     }
 
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
-    public static void Print(int s)
-    {
-       Console.WriteLine(s);
-    }
-
-    [MethodImplAttribute(MethodImplOptions.NoInlining)]
     public static int StaticCalls()
     {
         int a = 1;
@@ -175,7 +170,8 @@ public class BringUpTest
         return result;
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int y = StaticCalls();      
         return y;        

@@ -15,7 +15,7 @@ namespace System.DirectoryServices.AccountManagement
     /// if disposeDirEntry parameter is set to true in its constructor.
     /// </summary>
     ///
-    internal class RangeRetriever : CollectionBase, IEnumerable, IEnumerator, IDisposable
+    internal sealed class RangeRetriever : CollectionBase, IEnumerable, IEnumerator, IDisposable
     {
         ///
         /// <summary>
@@ -192,7 +192,7 @@ namespace System.DirectoryServices.AccountManagement
             }
             else
             {
-                _lowRange = _lowRange + pvc.Count;
+                _lowRange += pvc.Count;
 
                 GlobalDebug.WriteLineIf(GlobalDebug.Info,
                                         "RangeRetriever",
@@ -221,7 +221,7 @@ namespace System.DirectoryServices.AccountManagement
             {
                 // Technically, should throw an InvalidOperationException if the enumerator is positioned before
                 // the beginning or after the end, but this will only be used internally.
-                Debug.Assert(_currentResult != null && _endReached == false);
+                Debug.Assert(_currentResult != null && !_endReached);
                 GlobalDebug.WriteLineIf(GlobalDebug.Info, "RangeRetriever", "Current: currentResult={0}", _currentResult.ToString());
                 return _currentResult;
             }

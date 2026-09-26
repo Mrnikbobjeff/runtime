@@ -4,18 +4,19 @@
 
 
 .assembly extern mscorlib { }
+.assembly extern xunit.core {}
 .assembly extern System.Console
 {
   .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )
   .ver 4:0:0:0
 }
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
 
 .assembly Test_HndIndex_10_Plain
 {
-    .custom instance void [mscorlib]System.Security.SecurityTransparentAttribute::.ctor() = ( 01 00 00 00 ) 
+    .custom instance void [mscorlib]System.Security.SecurityTransparentAttribute::.ctor() = ( 01 00 00 00 )
 }
 
-.module Test_HndIndex_10_Plain.exe
 .imagebase 0x00400000
 .file alignment 0x00000200
 .stackreserve 0x00100000
@@ -24,12 +25,24 @@
 
 
 .class
-    private auto ansi beforefieldinit sealed abstract
+    public auto ansi beforefieldinit sealed abstract
     Test.App
         extends [mscorlib]System.Object
 {
-    .method private hidebysig static int32 Main() cil managed
+.class nested public auto ansi Test_Test_HndIndex_10_Plain extends [mscorlib] System.Object {
+    .method public hidebysig static int32 Main() cil managed
     {
+        .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+            01 00 00 00
+        )
+        .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, valuetype [Microsoft.DotNet.XUnitExtensions]Xunit.TestRuntimes) = {
+            string('Needs triage')
+            int32(0x2) // Mono
+        }
+        .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.SkipOnCoreClrAttribute::.ctor(string, valuetype [Microsoft.DotNet.XUnitExtensions]Xunit.RuntimeTestModes) = {
+            string('Test checks for an issue that cannot occur with the interpreter')
+            int32(0x400) // InterpreterActive
+        }
         .entrypoint
         .maxstack 8
         .locals init (class Test.DerivedClass derivedInstance, int32 exitCode)
@@ -69,6 +82,7 @@
         ldloc       exitCode
         ret
     }
+}
 
 
     .method public hidebysig static void WriteLine(string format) cil managed noinlining

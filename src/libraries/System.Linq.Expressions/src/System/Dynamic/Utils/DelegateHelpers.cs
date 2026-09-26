@@ -1,33 +1,46 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
+using System.Linq.Expressions;
 using System.Reflection;
-
-#if !FEATURE_DYNAMIC_DELEGATE
 using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
-#endif
 
 namespace System.Dynamic.Utils
 {
     internal static class DelegateHelpers
     {
+        [FeatureSwitchDefinition("System.Linq.Expressions.CanEmitObjectArrayDelegate")]
+        internal static bool CanEmitObjectArrayDelegate => true;
+
         internal static Delegate CreateObjectArrayDelegate(Type delegateType, Func<object?[], object?> handler)
         {
-#if !FEATURE_DYNAMIC_DELEGATE
-            return CreateObjectArrayDelegateRefEmit(delegateType, handler);
-#else
-            return Internal.Runtime.Augments.DynamicDelegateAugments.CreateObjectArrayDelegate(delegateType, handler);
-#endif
+            if (CanEmitObjectArrayDelegate)
+            {
+#pragma warning disable IL3050
+                // Suppress analyzer warnings since they don't currently support feature flags
+                return CreateObjectArrayDelegateRefEmit(delegateType, handler);
+#pragma warning restore IL3050
+            }
+            else
+            {
+                return CreateObjectArrayDelegate(null, delegateType, handler);
+
+                [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "CreateObjectArrayDelegate")]
+                [MethodImpl(MethodImplOptions.NoInlining)]
+                static extern Delegate CreateObjectArrayDelegate(
+                    [UnsafeAccessorType("Internal.Runtime.Augments.DynamicDelegateAugments, System.Private.CoreLib")] object? _,
+                    Type delegateType,
+                    Func<object?[], object?> invoker);
+            }
         }
-
-
-#if !FEATURE_DYNAMIC_DELEGATE
 
         private static readonly CacheDict<Type, MethodInfo> s_thunks = new CacheDict<Type, MethodInfo>(256);
         private static readonly MethodInfo s_FuncInvoke = typeof(Func<object?[], object?>).GetMethod("Invoke")!;
-        private static readonly MethodInfo s_ArrayEmpty = typeof(Array).GetMethod(nameof(Array.Empty))!.MakeGenericMethod(typeof(object));
+        private static readonly MethodInfo s_ArrayEmpty = GetEmptyObjectArrayMethod();
         private static readonly MethodInfo[] s_ActionThunks = GetActionThunks();
         private static readonly MethodInfo[] s_FuncThunks = GetFuncThunks();
         private static int s_ThunksCreated;
@@ -39,12 +52,12 @@ namespace System.Dynamic.Utils
 
         public static void ActionThunk1<T1>(Func<object?[], object?> handler, T1 t1)
         {
-            handler(new object?[]{t1});
+            handler(new object?[] { t1 });
         }
 
         public static void ActionThunk2<T1, T2>(Func<object?[], object?> handler, T1 t1, T2 t2)
         {
-            handler(new object?[]{t1, t2});
+            handler(new object?[] { t1, t2 });
         }
 
         public static TReturn FuncThunk<TReturn>(Func<object?[], object> handler)
@@ -54,13 +67,15 @@ namespace System.Dynamic.Utils
 
         public static TReturn FuncThunk1<T1, TReturn>(Func<object?[], object> handler, T1 t1)
         {
-            return (TReturn)handler(new object?[]{t1});
+            return (TReturn)handler(new object?[] { t1 });
         }
 
         public static TReturn FuncThunk2<T1, T2, TReturn>(Func<object?[], object> handler, T1 t1, T2 t2)
         {
-            return (TReturn)handler(new object?[]{t1, t2});
+            return (TReturn)handler(new object?[] { t1, t2 });
         }
+
+        private static MethodInfo GetEmptyObjectArrayMethod() => ((Func<object[]>)Array.Empty<object>).GetMethodInfo();
 
         private static MethodInfo[] GetActionThunks()
         {
@@ -78,6 +93,9 @@ namespace System.Dynamic.Utils
                                     delHelpers.GetMethod("FuncThunk2")!};
         }
 
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2060:MakeGenericMethod",
+            Justification = "The above ActionThunk and FuncThunk methods don't have trimming annotations.")]
+        [RequiresDynamicCode(Expression.GenericMethodRequiresDynamicCode)]
         private static MethodInfo? GetCSharpThunk(Type returnType, bool hasReturnValue, ParameterInfo[] parameters)
         {
             try
@@ -95,7 +113,7 @@ namespace System.Dynamic.Utils
                 foreach (ParameterInfo parameter in parameters)
                 {
                     Type parameterType = parameter.ParameterType;
-                    if  (parameterType.IsByRefLike || parameterType.IsByRef || parameterType.IsPointer)
+                    if (parameterType.IsByRefLike || parameterType.IsByRef || parameterType.IsPointer)
                     {
                         return null; // Don't use C# thunks for types that cannot be generic arguments
                     }
@@ -150,6 +168,7 @@ namespace System.Dynamic.Utils
         //      param0 = (T0)args[0];   // only generated for each byref argument
         // }
         // return (TRet)ret;
+        [RequiresDynamicCode("Ref emit requires dynamic code.")]
         private static Delegate CreateObjectArrayDelegateRefEmit(Type delegateType, Func<object?[], object?> handler)
         {
             if (!s_thunks.TryGetValue(delegateType, out MethodInfo? thunkMethod))
@@ -165,6 +184,25 @@ namespace System.Dynamic.Utils
 
                 if (thunkMethod == null)
                 {
+                    static IDisposable? CreateForceAllowDynamicCodeScope()
+                    {
+                        if (!RuntimeFeature.IsDynamicCodeSupported)
+                        {
+                            // Force 'new DynamicMethod' to not throw even though RuntimeFeature.IsDynamicCodeSupported is false.
+                            // If we are running on a runtime that supports dynamic code, even though the feature switch is off,
+                            // for example when running on CoreClr with PublishAot=true, this will allow IL to be emitted.
+                            // If we are running on a runtime that really doesn't support dynamic code, like NativeAOT,
+                            // CanEmitObjectArrayDelegate will be flipped to 'false', and this method won't be invoked.
+                            return ForceAllowDynamicCode(null);
+
+                            [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name="ForceAllowDynamicCode")]
+                            static extern IDisposable ForceAllowDynamicCode(AssemblyBuilder? _);
+                        }
+                        return null;
+                    }
+
+                    using IDisposable? forceAllowDynamicCodeScope = CreateForceAllowDynamicCodeScope();
+
                     int thunkIndex = Interlocked.Increment(ref s_ThunksCreated);
                     Type[] paramTypes = new Type[parameters.Length + 1];
                     paramTypes[0] = typeof(Func<object[], object>);
@@ -249,8 +287,8 @@ namespace System.Dynamic.Utils
                         ilgen.BeginFinallyBlock();
                         for (int i = 0; i < parameters.Length; i++)
                         {
-                           if (parameters[i].ParameterType.IsByRef)
-                           {
+                            if (parameters[i].ParameterType.IsByRef)
+                            {
                                 Type byrefToType = parameters[i].ParameterType.GetElementType()!;
 
                                 // update parameter
@@ -284,7 +322,5 @@ namespace System.Dynamic.Utils
         {
             return (t.IsPointer) ? typeof(IntPtr) : t;
         }
-
-#endif
     }
 }

@@ -71,8 +71,6 @@ HRESULT GetAppDomainStaticAddress::Initialize(IUnknown *pICorProfilerInfoUnk)
 
         while (true)
         {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-
             gcWaitEvent.Wait();
 
             if (!IsRuntimeExecutingManagedCode())
@@ -96,7 +94,6 @@ HRESULT GetAppDomainStaticAddress::Initialize(IUnknown *pICorProfilerInfoUnk)
     };
 
     gcTriggerThread = thread(gcTriggerLambda);
-    gcWaitEvent.Signal();
 
     return S_OK;
 }
@@ -104,8 +101,6 @@ HRESULT GetAppDomainStaticAddress::Initialize(IUnknown *pICorProfilerInfoUnk)
 HRESULT GetAppDomainStaticAddress::Shutdown()
 {
     Profiler::Shutdown();
-
-    gcWaitEvent.Reset();
 
     if (this->pCorProfilerInfo != nullptr)
     {
@@ -129,6 +124,8 @@ HRESULT GetAppDomainStaticAddress::Shutdown()
 
 HRESULT GetAppDomainStaticAddress::ModuleLoadFinished(ModuleID moduleId, HRESULT hrStatus)
 {
+    SHUTDOWNGUARD();
+
     constexpr size_t nameLen = 1024;
     WCHAR name[nameLen];
     HRESULT hr = pCorProfilerInfo->GetModuleInfo2(moduleId,
@@ -144,76 +141,48 @@ HRESULT GetAppDomainStaticAddress::ModuleLoadFinished(ModuleID moduleId, HRESULT
         ++failures;
     }
 
-    if (DEBUG_OUT)
-    {
-        wprintf(L"Module 0x%" PRIxPTR " (%s) loaded\n", moduleId, name);
-    }
-
+    wprintf(L"Module 0x%" PRIxPTR " (%s) loaded\n", moduleId, name);
+    
+    printf("Forcing GC due to module load\n");
+    gcWaitEvent.Signal();
+    
     return S_OK;
 }
 
 HRESULT GetAppDomainStaticAddress::ModuleUnloadStarted(ModuleID moduleId)
 {
-    lock_guard<mutex> guard(classADMapLock);
-    constexpr size_t nameLen = 1024;
-    WCHAR name[nameLen];
-    HRESULT hr = pCorProfilerInfo->GetModuleInfo2(moduleId,
-                                                 NULL,
-                                                nameLen,
-                                                NULL,
-                                                name,
-                                                NULL,
-                                                NULL);
-    if (FAILED(hr))
-    {
-        printf("GetModuleInfo2 failed with hr=0x%x\n", hr);
-        ++failures;
-        return E_FAIL;
-    }
+    SHUTDOWNGUARD();
 
-    if (DEBUG_OUT)
-    {
-        wprintf(L"Module 0x%" PRIxPTR " (%s) unload started\n", moduleId, name);
-    }
+    printf("Forcing GC due to module unload\n");
+    gcWaitEvent.Signal();
 
-    for (auto it = classADMap.begin(); it != classADMap.end(); )
     {
-        ClassID classId = it->first;
-
-        ModuleID modId;
-        hr = pCorProfilerInfo->GetClassIDInfo(classId, &modId, NULL);
+        lock_guard<mutex> guard(classADMapLock);
+        constexpr size_t nameLen = 1024;
+        WCHAR name[nameLen];
+        HRESULT hr = pCorProfilerInfo->GetModuleInfo2(moduleId,
+                                                     NULL,
+                                                    nameLen,
+                                                    NULL,
+                                                    name,
+                                                    NULL,
+                                                    NULL);
         if (FAILED(hr))
         {
-            printf("Failed to get ClassIDInfo hr=0x%x\n", hr);
+            printf("GetModuleInfo2 failed with hr=0x%x\n", hr);
             ++failures;
             return E_FAIL;
         }
 
-        if (modId == moduleId)
+
+        wprintf(L"Module 0x%" PRIxPTR " (%s) unload started\n", moduleId, name);
+
+        for (auto it = classADMap.begin(); it != classADMap.end(); )
         {
-            if (DEBUG_OUT)
-            {
-                printf("ClassID 0x%" PRIxPTR " being removed due to parent module unloading\n", classId);
-            }
+            ClassID classId = it->first;
 
-            it = classADMap.erase(it);
-            continue;
-        }
-
-        // Now check the generic arguments
-        bool shouldEraseClassId = false;
-        vector<ClassID> genericTypes = GetGenericTypeArgs(classId);
-        for (auto genericIt = genericTypes.begin(); genericIt != genericTypes.end(); ++genericIt)
-        {
-            ClassID typeArg = *genericIt;
-            ModuleID typeArgModId;
-
-            if (DEBUG_OUT)
-            {
-                printf("Checking generic argument 0x%" PRIxPTR " of class 0x%" PRIxPTR "\n", typeArg, classId);
-            }
-
-            hr = pCorProfilerInfo->GetClassIDInfo(typeArg, &typeArgModId, NULL);
+            ModuleID modId;
+            hr = pCorProfilerInfo->GetClassIDInfo(classId, &modId, NULL);
             if (FAILED(hr))
             {
                 printf("Failed to get ClassIDInfo hr=0x%x\n", hr);
@@ -221,26 +190,59 @@ HRESULT GetAppDomainStaticAddress::ModuleUnloadStarted(ModuleID moduleId)
                 return E_FAIL;
             }
 
-            if (typeArgModId == moduleId)
+            if (modId == moduleId)
             {
                 if (DEBUG_OUT)
                 {
-                    wprintf(L"ClassID 0x%" PRIxPTR " (%s) being removed due to generic argument 0x%" PRIxPTR " (%s) belonging to the parent module 0x%" PRIxPTR " unloading\n",
-                            classId, GetClassIDName(classId).ToCStr(), typeArg, GetClassIDName(typeArg).ToCStr(), typeArgModId);
+                    printf("ClassID 0x%" PRIxPTR " being removed due to parent module unloading\n", (uintptr_t)classId);
                 }
 
-                shouldEraseClassId = true;
-                break;
+                it = classADMap.erase(it);
+                continue;
             }
-        }
 
-        if (shouldEraseClassId)
-        {
-            it = classADMap.erase(it);
-        }
-        else
-        {
-            ++it;
+            // Now check the generic arguments
+            bool shouldEraseClassId = false;
+            vector<ClassID> genericTypes = GetGenericTypeArgs(classId);
+            for (auto genericIt = genericTypes.begin(); genericIt != genericTypes.end(); ++genericIt)
+            {
+                ClassID typeArg = *genericIt;
+                ModuleID typeArgModId;
+
+                if (DEBUG_OUT)
+                {
+                    printf("Checking generic argument 0x%" PRIxPTR " of class 0x%" PRIxPTR "\n", (uintptr_t)typeArg, (uintptr_t)classId);
+                }
+
+                hr = pCorProfilerInfo->GetClassIDInfo(typeArg, &typeArgModId, NULL);
+                if (FAILED(hr))
+                {
+                    printf("Failed to get ClassIDInfo hr=0x%x\n", hr);
+                    ++failures;
+                    return E_FAIL;
+                }
+
+                if (typeArgModId == moduleId)
+                {
+                    if (DEBUG_OUT)
+                    {
+                        wprintf(L"ClassID 0x%" PRIxPTR " (%s) being removed due to generic argument 0x%" PRIxPTR " (%s) belonging to the parent module 0x%" PRIxPTR " unloading\n",
+                                classId, GetClassIDName(classId).ToCStr(), typeArg, GetClassIDName(typeArg).ToCStr(), typeArgModId);
+                    }
+
+                    shouldEraseClassId = true;
+                    break;
+                }
+            }
+
+            if (shouldEraseClassId)
+            {
+                it = classADMap.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
         }
     }
 
@@ -249,10 +251,12 @@ HRESULT GetAppDomainStaticAddress::ModuleUnloadStarted(ModuleID moduleId)
 
 HRESULT GetAppDomainStaticAddress::ClassLoadFinished(ClassID classId, HRESULT hrStatus)
 {
+    SHUTDOWNGUARD();
+
     HRESULT hr = S_OK;
 
-    ThreadID threadId = NULL;
-    AppDomainID appDomainId = NULL;
+    ThreadID threadId = 0;
+    AppDomainID appDomainId = 0;
     CorElementType baseElemType;
     ClassID        baseClassId;
     ULONG          cRank;
@@ -281,7 +285,7 @@ HRESULT GetAppDomainStaticAddress::ClassLoadFinished(ClassID classId, HRESULT hr
     hr = pCorProfilerInfo->GetThreadAppDomain(threadId, &appDomainId);
     if (FAILED(hr))
     {
-        printf("GetThreadAppDomain returned 0x%x for ThreadID 0x%" PRIxPTR "\n", hr, threadId);
+        printf("GetThreadAppDomain returned 0x%x for ThreadID 0x%" PRIxPTR "\n", hr, (uintptr_t)threadId);
         ++failures;
         return hr;
     }
@@ -294,12 +298,12 @@ HRESULT GetAppDomainStaticAddress::ClassLoadFinished(ClassID classId, HRESULT hr
                                           &modId,
                                           NULL,
                                           NULL,
-                                          NULL,
+                                          0,
                                           NULL,
                                           NULL);
     if (FAILED(hr))
     {
-        printf("GetClassIDInfo2 returned 0x%x for ClassID 0x%" PRIxPTR "\n", hr, classId);
+        printf("GetClassIDInfo2 returned 0x%x for ClassID 0x%" PRIxPTR "\n", hr, (uintptr_t)classId);
         ++failures;
     }
 
@@ -315,6 +319,8 @@ HRESULT GetAppDomainStaticAddress::ClassLoadFinished(ClassID classId, HRESULT hr
 
 HRESULT GetAppDomainStaticAddress::ClassUnloadStarted(ClassID classId)
 {
+    SHUTDOWNGUARD();
+
     lock_guard<mutex> guard(classADMapLock);
 
     mdTypeDef unloadClassToken;
@@ -358,12 +364,16 @@ HRESULT GetAppDomainStaticAddress::ClassUnloadStarted(ClassID classId)
 
 HRESULT GetAppDomainStaticAddress::JITCompilationFinished(FunctionID functionId, HRESULT hrStatus, BOOL fIsSafeToBlock)
 {
+    SHUTDOWNGUARD();
+
     ++jitEventCount;
     return S_OK;
 }
 
 HRESULT GetAppDomainStaticAddress::GarbageCollectionFinished()
 {
+    SHUTDOWNGUARD();
+
     HRESULT hr = S_OK;
     lock_guard<mutex> guard(classADMapLock);
 
@@ -376,21 +386,21 @@ HRESULT GetAppDomainStaticAddress::GarbageCollectionFinished()
 
         if (DEBUG_OUT)
         {
-            printf("Calling GetClassIDInfo2 on classId 0x%" PRIxPTR "\n", classId);
+            printf("Calling GetClassIDInfo2 on classId 0x%" PRIxPTR "\n", (uintptr_t)classId);
             fflush(stdout);
         }
 
-        ModuleID classModuleId = NULL;
+        ModuleID classModuleId = 0;
         hr = pCorProfilerInfo->GetClassIDInfo2(classId,
                                     &classModuleId,
                                     NULL,
                                     NULL,
-                                    NULL,
+                                    0,
                                     NULL,
                                     NULL);
         if (FAILED(hr))
         {
-            printf("GetClassIDInfo2 returned 0x%x for ClassID 0x%" PRIxPTR "\n", hr, classId);
+            printf("GetClassIDInfo2 returned 0x%x for ClassID 0x%" PRIxPTR "\n", hr, (uintptr_t)classId);
             ++failures;
             continue;
         }
@@ -408,19 +418,19 @@ HRESULT GetAppDomainStaticAddress::GarbageCollectionFinished()
         }
         else if (FAILED(hr))
         {
-            printf("GetModuleMetaData returned 0x%x  for ModuleID 0x%" PRIxPTR "\n", hr, classModuleId);
+            printf("GetModuleMetaData returned 0x%x  for ModuleID 0x%" PRIxPTR "\n", hr, (uintptr_t)classModuleId);
             ++failures;
             continue;
         }
 
         HCORENUM hEnum = NULL;
-        mdTypeDef token = NULL;
+        mdTypeDef token = 0;
         mdFieldDef fieldTokens[SHORT_LENGTH];
-        ULONG cTokens = NULL;
+        ULONG cTokens = 0;
 
         if (DEBUG_OUT)
         {
-            printf("Calling GetClassIDInfo2 (again?) on classId 0x%" PRIxPTR "\n", classId);
+            printf("Calling GetClassIDInfo2 (again?) on classId 0x%" PRIxPTR "\n", (uintptr_t)classId);
             fflush(stdout);
         }
 
@@ -429,7 +439,7 @@ HRESULT GetAppDomainStaticAddress::GarbageCollectionFinished()
                                             NULL,
                                             &token,
                                             NULL,
-                                            NULL,
+                                            0,
                                             NULL,
                                             NULL);
         if (hr == CORPROF_E_DATAINCOMPLETE)
@@ -459,13 +469,13 @@ HRESULT GetAppDomainStaticAddress::GarbageCollectionFinished()
 
         for (ULONG i = 0; i < cTokens; i++)
         {
-            mdTypeDef fieldClassToken = NULL;
+            mdTypeDef fieldClassToken = 0;
             WCHAR tokenName[256];
-            ULONG nameLength = NULL;
-            DWORD fieldAttributes = NULL;
-            PCCOR_SIGNATURE pvSig = NULL;
-            ULONG cbSig = NULL;
-            DWORD corElementType = NULL;
+            ULONG nameLength = 0;
+            DWORD fieldAttributes = 0;
+            PCCOR_SIGNATURE pvSig = 0;
+            ULONG cbSig = 0;
+            DWORD corElementType = 0;
 
             hr = pIMDImport->GetFieldProps(fieldTokens[i],
                                             &fieldClassToken,
@@ -503,7 +513,7 @@ HRESULT GetAppDomainStaticAddress::GarbageCollectionFinished()
 
                     if (DEBUG_OUT)
                     {
-                        printf("Calling GetAppDomainStaticAddress on classId=0x%" PRIxPTR "\n", classId);
+                        printf("Calling GetAppDomainStaticAddress on classId=0x%" PRIxPTR "\n", (uintptr_t)classId);
                         fflush(stdout);
                     }
 

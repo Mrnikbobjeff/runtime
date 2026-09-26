@@ -6,9 +6,11 @@ This directory builds Profilers\Profiler.dll, which contains various implementat
 
 1) Easy to run/debug a profiler test manually simply by executing the managed test binary + setting minimal env vars:
 
-    CORECLR_ENABLE_PROFILING=1
-    CORECLR_PROFILER={CLSID_of_profiler}
-    CORECLR_PROFILER_PATH=path_to_profiler_dll
+    DOTNET_ENABLE_PROFILING=1
+    DOTNET_PROFILER={CLSID_of_profiler}
+    DOTNET_PROFILER_PATH=path_to_profiler_dll
+
+> **Note:** The `CORECLR_` prefix is still supported for backwards compatibility but may be removed in the future. Use the `DOTNET_` prefix for new projects.
 
 We should be very careful about adding any additional dependencies such as env vars or assumptions that certain files will reside in certain places. Any such dependencies need to be clearly documented.
 
@@ -33,18 +35,44 @@ When you want to test new profiler APIs you will need a new test profiler implem
 
 1) Get your new profiler building:
 
- - Copy and rename gcbasicprofiler folder.
+ - Copy and rename gcbasicprofiler folder for the native part.
  - Rename the source files and the gcbasicprofiler type within the source.
  - Add the new source files to CMakeLists.txt
+ - Copy and rename gc managed folder for the managed part.
+ - Rename the gc.cs and gc.csproj and update the profiler GUID + test name.
+   static readonly Guid YourProfilerGuid = new Guid("XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX");
+   ...
+       return ProfilerTestRunner.Run(profileePath: System.Reflection.Assembly.GetExecutingAssembly().Location,
+           testName: "YourFeature",
+           profilerClsid: YourProfilerGuid);
 
 2) Make your new profiler creatable via COM:
 
  - Create a new GUID and replace the one in YourProfiler::GetClsid()
- - Update classfactory.cpp to include your new profiler's header and update the list of profiler instances in ClassFactory::CreateInstance
+ - Update classfactory.cpp to include your new profiler's header and add its GUID to the list of profiler instances in ClassFactory::CreateInstance
 
-        Profiler* profilers[] = {
-    		new GCBasicProfiler(),
-    		// add new profilers here
-    	};
+    ...
+    else if (clsid == YourProfiler::GetClsid())
+    {
+        profiler = new YourProfiler();
+    }
+    else
+    ...
 
-3) Override the profiler callback functions that are relevant for your test and delete the rest. At minimum you will need to ensure that the test prints the phrase "PROFILER TEST PASSES" at some point to indicate this is a passing test. Typically that occurs in the Shutdown() method. It is also likely you want to override Initialize() in order to call SetEventMask so that the profiler receives events.
+3) If required, update the version of ICorProfilerInfo needed for the test
+   in profiler.h
+   protected:
+      static void NotifyManagedCodeViaCallback(ICorProfilerInfo13 *pCorProfilerInfo);
+   ...
+   public:
+      ICorProfilerInfo13* pCorProfilerInfo;
+
+   in profiler.cpp
+   HRESULT queryInterfaceResult = pICorProfilerInfoUnk->QueryInterface(__uuidof(ICorProfilerInfo13), reinterpret_cast<void **>(&this->pCorProfilerInfo));
+   ...
+   void Profiler::NotifyManagedCodeViaCallback(ICorProfilerInfo13 *pCorProfilerInfo)
+
+Also add it into profiler/native/guids.cpp if not already present
+   DEFINE_GUID(IID_ICorProfilerInfo13,                    0x6E6C7EE2,0x0701,0x4EC2,0x9D,0x29,0x2E,0x87,0x33,0xB6,0x69,0x34);
+
+4) Override the profiler callback functions that are relevant for your test and delete the rest. At minimum you will need to ensure that the test prints the phrase "PROFILER TEST PASSES" at some point to indicate this is a passing test. Typically that occurs in the Shutdown() method. It is also likely you want to override Initialize() in order to call SetEventMask so that the profiler receives events.

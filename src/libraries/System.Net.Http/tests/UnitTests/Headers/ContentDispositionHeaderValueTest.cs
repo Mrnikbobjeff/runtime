@@ -1,11 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http.Headers;
-using System.Text;
 
 using Xunit;
 
@@ -16,7 +14,7 @@ namespace System.Net.Http.Tests
         [Fact]
         public void Ctor_ContentDispositionNull_Throw()
         {
-            AssertExtensions.Throws<ArgumentException>("dispositionType", () => { new ContentDispositionHeaderValue(null); });
+            AssertExtensions.Throws<ArgumentNullException>("dispositionType", () => { new ContentDispositionHeaderValue(null); });
         }
 
         [Fact]
@@ -155,7 +153,7 @@ namespace System.Net.Http.Tests
             Assert.Equal(1, contentDisposition.Parameters.Count);
             Assert.Equal("FILENAME", contentDisposition.Parameters.First().Name);
             Assert.Equal("\"=?utf-99?Q?R=mlsZcODTmFtZS5iYXQ=?=\"", contentDisposition.Parameters.First().Value);
-            Assert.Equal("\"=?utf-99?Q?R=mlsZcODTmFtZS5iYXQ=?=\"", contentDisposition.FileName);
+            Assert.Equal("=?utf-99?Q?R=mlsZcODTmFtZS5iYXQ=?=", contentDisposition.FileName);
 
             contentDisposition.FileName = "new_name";
             Assert.Equal("new_name", contentDisposition.FileName);
@@ -487,8 +485,8 @@ namespace System.Net.Http.Tests
             Assert.Equal("custom", value.Parameters.ElementAt(0).Name);
             Assert.Null(value.Parameters.ElementAt(0).Value);
 
-            Assert.Equal(40, ContentDispositionHeaderValue.GetDispositionTypeLength(
-                "inline ; custom =\r\n \"x\" ; name = myName , next", 0, out result));
+            Assert.Equal(38, ContentDispositionHeaderValue.GetDispositionTypeLength(
+                "inline ; custom = \"x\" ; name = myName , next", 0, out result));
             value = (ContentDispositionHeaderValue)result;
             Assert.Equal("inline", value.DispositionType);
             Assert.Equal("myName", value.Name);
@@ -535,14 +533,14 @@ namespace System.Net.Http.Tests
         public void Parse_SetOfValidValueStrings_ParsedCorrectly()
         {
             ContentDispositionHeaderValue expected = new ContentDispositionHeaderValue("inline");
-            CheckValidParse("\r\n inline  ", expected);
+            CheckValidParse(" inline  ", expected);
             CheckValidParse("inline", expected);
 
             // We don't have to test all possible input strings, since most of the pieces are handled by other parsers.
             // The purpose of this test is to verify that these other parsers are combined correctly to build a
             // Content-Disposition parser.
             expected.Name = "myName";
-            CheckValidParse("\r\n inline  ;  name =   myName ", expected);
+            CheckValidParse(" inline  ;  name =   myName ", expected);
             CheckValidParse("  inline;name=myName", expected);
 
             expected.Name = null;
@@ -565,35 +563,7 @@ namespace System.Net.Http.Tests
             CheckInvalidParse("inline; name=myName,");
             CheckInvalidParse("inline; name=my\u4F1AName");
             CheckInvalidParse("inline/");
-        }
-
-        [Fact]
-        public void TryParse_SetOfValidValueStrings_ParsedCorrectly()
-        {
-            ContentDispositionHeaderValue expected = new ContentDispositionHeaderValue("inline");
-            CheckValidTryParse("\r\n inline  ", expected);
-            CheckValidTryParse("inline", expected);
-
-            // We don't have to test all possible input strings, since most of the pieces are handled by other parsers.
-            // The purpose of this test is to verify that these other parsers are combined correctly to build a
-            // Content-Disposition parser.
-            expected.Name = "myName";
-            CheckValidTryParse("\r\n inline  ;  name =   myName ", expected);
-            CheckValidTryParse("  inline;name=myName", expected);
-        }
-
-        [Fact]
-        public void TryParse_SetOfInvalidValueStrings_ReturnsFalse()
-        {
-            CheckInvalidTryParse("");
-            CheckInvalidTryParse("  ");
-            CheckInvalidTryParse(null);
-            CheckInvalidTryParse("inline\u4F1A");
-            CheckInvalidTryParse("inline ,");
-            CheckInvalidTryParse("inline,");
-            CheckInvalidTryParse("inline; name=myName ,");
-            CheckInvalidTryParse("inline; name=myName,");
-            CheckInvalidTryParse("text/");
+            CheckInvalidParse(" inline  ; \r name =   myName ");
         }
 
         #region Tests from HenrikN
@@ -707,7 +677,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid2"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "inline", @"""foo.html""");
+            ValidateHeaderValues(header, "inline", @"foo.html");
         }
 
         [Fact]
@@ -715,7 +685,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid3"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "inline", @"""Not an attachment!""");
+            ValidateHeaderValues(header, "inline", @"Not an attachment!");
         }
 
         [Fact]
@@ -723,7 +693,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid4"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "inline", @"""foo.pdf""");
+            ValidateHeaderValues(header, "inline", @"foo.pdf");
         }
 
         [Fact]
@@ -747,7 +717,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid7"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo.html""");
+            ValidateHeaderValues(header, "attachment", @"foo.html");
         }
 
         [Fact]
@@ -755,7 +725,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid8"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""f\oo.html""");
+            ValidateHeaderValues(header, "attachment", @"f\oo.html");
         }
 
         [Fact]
@@ -763,7 +733,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid9"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""\""quoting\"" tested.html""");
+            ValidateHeaderValues(header, "attachment", @"\""quoting\"" tested.html");
         }
 
         [Fact]
@@ -771,7 +741,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid10"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""Here's a semicolon;.html""");
+            ValidateHeaderValues(header, "attachment", @"Here's a semicolon;.html");
         }
 
         [Fact]
@@ -779,7 +749,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid11"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo.html""");
+            ValidateHeaderValues(header, "attachment", @"foo.html");
             ValidateExtensionParameter(header, "foo", @"""bar""");
         }
 
@@ -788,7 +758,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid12"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo.html""");
+            ValidateHeaderValues(header, "attachment", @"foo.html");
             ValidateExtensionParameter(header, "foo", @"""\""\\""");
         }
 
@@ -797,7 +767,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid13"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo.html""");
+            ValidateHeaderValues(header, "attachment", @"foo.html");
         }
 
         [Fact]
@@ -821,7 +791,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid16"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo-\u00E4.html""");
+            ValidateHeaderValues(header, "attachment", @"foo-\u00E4.html");
         }
 
         [Fact]
@@ -829,7 +799,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid17"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo-&#xc3;&#xa4;.html""");
+            ValidateHeaderValues(header, "attachment", @"foo-&#xc3;&#xa4;.html");
         }
 
         [Fact]
@@ -837,7 +807,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid18"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo-%41.html""");
+            ValidateHeaderValues(header, "attachment", @"foo-%41.html");
         }
 
         [Fact]
@@ -845,7 +815,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid19"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""50%.html""");
+            ValidateHeaderValues(header, "attachment", @"50%.html");
         }
 
         [Fact]
@@ -853,7 +823,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid20"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo-%\41.html""");
+            ValidateHeaderValues(header, "attachment", @"foo-%\41.html");
         }
 
         [Fact]
@@ -870,7 +840,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid22"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""\u00E4-%41.html""");
+            ValidateHeaderValues(header, "attachment", @"\u00E4-%41.html");
         }
 
         [Fact]
@@ -878,7 +848,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid23"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo-%c3%a4-%e2%82%ac.html""");
+            ValidateHeaderValues(header, "attachment", @"foo-%c3%a4-%e2%82%ac.html");
         }
 
         [Fact]
@@ -886,7 +856,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid24"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo.html""");
+            ValidateHeaderValues(header, "attachment", @"foo.html");
         }
 
         [Fact]
@@ -903,7 +873,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid26"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""/foo.html""");
+            ValidateHeaderValues(header, "attachment", @"/foo.html");
         }
 
         [Fact]
@@ -911,7 +881,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid27"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""\\foo.html""");
+            ValidateHeaderValues(header, "attachment", @"\\foo.html");
         }
 
         [Fact]
@@ -1086,7 +1056,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid46"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo-ae.html""");
+            ValidateHeaderValues(header, "attachment", @"foo-ae.html");
             ValidateExtensionParameter(header, "filename*", @"UTF-8''foo-%c3%a4.html");
         }
 
@@ -1095,7 +1065,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid47"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo-ae.html""");
+            ValidateHeaderValues(header, "attachment", @"foo-ae.html");
             ValidateExtensionParameter(header, "filename*", @"UTF-8''foo-%c3%a4.html");
         }
 
@@ -1104,7 +1074,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid48"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""foo.html""");
+            ValidateHeaderValues(header, "attachment", @"foo.html");
             ValidateExtensionParameter(header, "foobar", @"x");
         }
 
@@ -1113,7 +1083,7 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionValue cd = ContentDispositionTestCases["valid49"];
             ContentDispositionHeaderValue header = TryParse(cd);
-            ValidateHeaderValues(header, "attachment", @"""=?ISO-8859-1?Q?foo-=E4.html?=""");
+            ValidateHeaderValues(header, "attachment", @"=?ISO-8859-1?Q?foo-=E4.html?=");
         }
 
         #endregion
@@ -1209,24 +1179,16 @@ namespace System.Net.Http.Tests
         {
             ContentDispositionHeaderValue result = ContentDispositionHeaderValue.Parse(input);
             Assert.Equal(expectedResult, result);
+
+            Assert.True(ContentDispositionHeaderValue.TryParse(input, out result), input);
+            Assert.Equal(expectedResult, result);
         }
 
         private void CheckInvalidParse(string input)
         {
             Assert.Throws<FormatException>(() => { ContentDispositionHeaderValue.Parse(input); });
-        }
 
-        private void CheckValidTryParse(string input, ContentDispositionHeaderValue expectedResult)
-        {
-            ContentDispositionHeaderValue result = null;
-            Assert.True(ContentDispositionHeaderValue.TryParse(input, out result), input);
-            Assert.Equal(expectedResult, result);
-        }
-
-        private void CheckInvalidTryParse(string input)
-        {
-            ContentDispositionHeaderValue result = null;
-            Assert.False(ContentDispositionHeaderValue.TryParse(input, out result), input);
+            Assert.False(ContentDispositionHeaderValue.TryParse(input, out ContentDispositionHeaderValue result), input);
             Assert.Null(result);
         }
 

@@ -2,23 +2,23 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Runtime.Versioning;
 
 namespace System.Net.Security
 {
     /// <summary>
     /// Specifies allowed cipher suites.
     /// </summary>
+    [UnsupportedOSPlatform("windows")]
+    [UnsupportedOSPlatform("android")]
     public sealed partial class CipherSuitesPolicy
     {
-        internal CipherSuitesPolicyPal Pal { get; private set; }
+        internal CipherSuitesPolicyPal Pal { get; }
 
         [CLSCompliant(false)]
         public CipherSuitesPolicy(IEnumerable<TlsCipherSuite> allowedCipherSuites)
         {
-            if (allowedCipherSuites == null)
-            {
-                throw new ArgumentNullException(nameof(allowedCipherSuites));
-            }
+            ArgumentNullException.ThrowIfNull(allowedCipherSuites);
 
             Pal = new CipherSuitesPolicyPal(allowedCipherSuites);
         }

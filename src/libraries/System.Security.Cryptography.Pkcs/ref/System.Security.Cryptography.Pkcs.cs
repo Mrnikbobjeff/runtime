@@ -55,6 +55,10 @@ namespace System.Security.Cryptography.Pkcs
         public CmsRecipient(System.Security.Cryptography.X509Certificates.X509Certificate2 certificate) { }
         public System.Security.Cryptography.X509Certificates.X509Certificate2 Certificate { get { throw null; } }
         public System.Security.Cryptography.Pkcs.SubjectIdentifierType RecipientIdentifierType { get { throw null; } }
+#if NET11_0_OR_GREATER
+        public static System.Security.Cryptography.Pkcs.CmsRecipient CreateForKeyEncapsulation(System.Security.Cryptography.Pkcs.SubjectIdentifierType recipientIdentifierType, System.Security.Cryptography.X509Certificates.X509Certificate2 certificate, System.ReadOnlySpan<byte> userKeyingMaterial) { throw null; }
+        public static System.Security.Cryptography.Pkcs.CmsRecipient CreateForKeyEncapsulation(System.Security.Cryptography.X509Certificates.X509Certificate2 certificate, System.ReadOnlySpan<byte> userKeyingMaterial) { throw null; }
+#endif
     }
     public sealed partial class CmsRecipientCollection : System.Collections.ICollection, System.Collections.IEnumerable
     {
@@ -83,6 +87,9 @@ namespace System.Security.Cryptography.Pkcs
     public sealed partial class CmsSigner
     {
         public CmsSigner() { }
+#if NET
+        [System.ObsoleteAttribute("CmsSigner(CspParameters) is obsolete and is not supported. Use an alternative constructor instead.", DiagnosticId = "SYSLIB0034", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+#endif
         [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
         public CmsSigner(System.Security.Cryptography.CspParameters parameters) { }
         public CmsSigner(System.Security.Cryptography.Pkcs.SubjectIdentifierType signerIdentifierType) { }
@@ -117,6 +124,11 @@ namespace System.Security.Cryptography.Pkcs
         public int Version { get { throw null; } }
         public void Decode(byte[] encodedMessage) { }
         public void Decrypt() { }
+#if NET11_0_OR_GREATER
+        [System.Diagnostics.CodeAnalysis.ExperimentalAttribute("SYSLIB5006", UrlFormat="https://aka.ms/dotnet-warnings/{0}")]
+        public void Decrypt(System.Security.Cryptography.Pkcs.KemRecipientInfo recipientInfo, System.Security.Cryptography.CompositeMLKem privateKey) { }
+        public void Decrypt(System.Security.Cryptography.Pkcs.KemRecipientInfo recipientInfo, System.Security.Cryptography.MLKem privateKey) { }
+#endif
         public void Decrypt(System.Security.Cryptography.Pkcs.RecipientInfo recipientInfo) { }
         public void Decrypt(System.Security.Cryptography.Pkcs.RecipientInfo recipientInfo, System.Security.Cryptography.X509Certificates.X509Certificate2Collection extraStore) { }
         public void Decrypt(System.Security.Cryptography.X509Certificates.X509Certificate2Collection extraStore) { }
@@ -135,6 +147,21 @@ namespace System.Security.Cryptography.Pkcs
         public override System.Security.Cryptography.Pkcs.SubjectIdentifier RecipientIdentifier { get { throw null; } }
         public override int Version { get { throw null; } }
     }
+#if NET11_0_OR_GREATER
+    public sealed partial class KemRecipientInfo : System.Security.Cryptography.Pkcs.RecipientInfo
+    {
+        internal KemRecipientInfo() { }
+        public override byte[] EncryptedKey { get { throw null; } }
+        public System.Security.Cryptography.Pkcs.AlgorithmIdentifier KeyEncapsulationAlgorithm { get { throw null; } }
+        public System.ReadOnlyMemory<byte> KeyEncapsulationCiphertext { get { throw null; } }
+        public System.Security.Cryptography.Pkcs.AlgorithmIdentifier KeyDerivationAlgorithm { get { throw null; } }
+        public override System.Security.Cryptography.Pkcs.AlgorithmIdentifier KeyEncryptionAlgorithm { get { throw null; } }
+        public int KeyEncryptionKeyLengthInBytes { get { throw null; } }
+        public override System.Security.Cryptography.Pkcs.SubjectIdentifier RecipientIdentifier { get { throw null; } }
+        public System.ReadOnlyMemory<byte>? UserKeyingMaterial { get { throw null; } }
+        public override int Version { get { throw null; } }
+    }
+#endif
     public sealed partial class KeyTransRecipientInfo : System.Security.Cryptography.Pkcs.RecipientInfo
     {
         internal KeyTransRecipientInfo() { }
@@ -228,6 +255,9 @@ namespace System.Security.Cryptography.Pkcs
         Unknown = 0,
         KeyTransport = 1,
         KeyAgreement = 2,
+#if NET11_0_OR_GREATER
+        KeyEncapsulation = 3,
+#endif
     }
     public sealed partial class SignedCms
     {
@@ -267,6 +297,9 @@ namespace System.Security.Cryptography.Pkcs
         public void CheckHash() { }
         public void CheckSignature(bool verifySignatureOnly) { }
         public void CheckSignature(System.Security.Cryptography.X509Certificates.X509Certificate2Collection extraStore, bool verifySignatureOnly) { }
+#if NET
+        [System.ObsoleteAttribute("ComputeCounterSignature without specifying a CmsSigner is obsolete and is not supported. Use the overload that accepts a CmsSigner.", DiagnosticId = "SYSLIB0035", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+#endif
         [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
         public void ComputeCounterSignature() { }
         public void ComputeCounterSignature(System.Security.Cryptography.Pkcs.CmsSigner signer) { }

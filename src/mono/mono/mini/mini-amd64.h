@@ -126,8 +126,6 @@ struct sigcontext {
 #define MONO_ARCH_USE_SHARED_FP_SIMD_BANK 1
 #endif
 
-
-
 #if defined(__APPLE__)
 #define MONO_ARCH_SIGNAL_STACK_SIZE MINSIGSTKSZ
 #else
@@ -164,8 +162,6 @@ struct sigcontext {
 #define MONO_ARCH_CALLEE_REGS AMD64_CALLEE_REGS
 #define MONO_ARCH_CALLEE_SAVED_REGS AMD64_CALLEE_SAVED_REGS
 
-#define MONO_ARCH_USE_FPSTACK FALSE
-
 #define MONO_ARCH_INST_FIXED_REG(desc) ((desc == '\0') ? -1 : ((desc == 'i' ? -1 : ((desc == 'a') ? AMD64_RAX : ((desc == 's') ? AMD64_RCX : ((desc == 'd') ? AMD64_RDX : ((desc == 'A') ? MONO_AMD64_ARG_REG1 : -1)))))))
 
 /* RDX is clobbered by the opcode implementation before accessing sreg2 */
@@ -176,12 +172,16 @@ struct sigcontext {
 
 #define MONO_ARCH_FRAME_ALIGNMENT 16
 
-/* fixme: align to 16byte instead of 32byte (we align to 32byte to get 
+/* fixme: align to 16byte instead of 32byte (we align to 32byte to get
  * reproduceable results for benchmarks */
 #define MONO_ARCH_CODE_ALIGNMENT 32
 
+#if defined(TARGET_OSX) || defined(TARGET_APPLE_MOBILE)
+#define MONO_ARCH_HAVE_SWIFTCALL 1
+#endif
+
 struct MonoLMF {
-	/* 
+	/*
 	 * The rsp field points to the stack location where the caller ip is saved.
 	 * If the second lowest bit is set, then this is a MonoLMFExt structure, and
 	 * the other fields are not valid.
@@ -215,6 +215,7 @@ typedef struct MonoCompileArch {
 	MonoInst *ss_tramp_var;
 	MonoInst *bp_tramp_var;
 	MonoInst *lmf_var;
+	MonoInst *swift_error_var;
 #ifdef HOST_WIN32
 	struct _UNWIND_INFO* unwindinfo;
 #endif
@@ -238,28 +239,41 @@ static const AMD64_XMM_Reg_No float_return_regs [] = { AMD64_XMM0 };
 #else
 #define PARAM_REGS 6
 #define FLOAT_PARAM_REGS 8
-#define RETURN_REGS 2
-#define FLOAT_RETURN_REGS 2
 
 static const AMD64_Reg_No param_regs [] = {AMD64_RDI, AMD64_RSI, AMD64_RDX,
 					   AMD64_RCX, AMD64_R8,  AMD64_R9};
-
 static const AMD64_XMM_Reg_No float_param_regs[] = {AMD64_XMM0, AMD64_XMM1, AMD64_XMM2,
 						     AMD64_XMM3, AMD64_XMM4, AMD64_XMM5,
 						     AMD64_XMM6, AMD64_XMM7};
 
+#ifndef MONO_ARCH_HAVE_SWIFTCALL
+#define RETURN_REGS 2
+#define FLOAT_RETURN_REGS 2
+
 static const AMD64_Reg_No return_regs [] = {AMD64_RAX, AMD64_RDX};
+static const AMD64_XMM_Reg_No float_return_regs [] = {AMD64_XMM0, AMD64_XMM1};
+#else
+#define SWIFT_RETURN_BUFFER_REG AMD64_RAX
+#define RETURN_REGS 4
+#define FLOAT_RETURN_REGS 4
+
+static const AMD64_Reg_No return_regs [] = { AMD64_RAX, AMD64_RDX, AMD64_RCX, AMD64_R8 };
+static const AMD64_XMM_Reg_No float_return_regs [] = { AMD64_XMM0, AMD64_XMM1, AMD64_XMM2, AMD64_XMM3 };
+#endif /* MONO_ARCH_HAVE_SWIFTCALL */
 #endif
+
+#define CTX_REGS 2
+#define CTX_REGS_OFFSET AMD64_R12
 
 typedef struct {
 	/* Method address to call */
 	gpointer addr;
 	/* The trampoline reads this, so keep the size explicit */
 	int ret_marshal;
-	/* If ret_marshal != NONE, this is the reg of the vret arg, else -1 (used in out case) */
+	/* If ret_marshal != NONE, this is the reg of the vret arg, else -1 (used bu "out" case) */
 	/* Equivalent of vret_arg_slot in the x86 implementation. */
 	int vret_arg_reg;
-	/* The stack slot where the return value will be stored (used in in case) */
+	/* The stack slot where the return value will be stored (used by "in" case) */
 	int vret_slot;
 	int stack_usage, map_count;
 	/* If not -1, then make a virtual call using this vtable offset */
@@ -301,26 +315,37 @@ typedef enum {
 	ArgGSharedVtOnStack,
 	/* Variable sized gsharedvt argument passed/returned by addr */
 	ArgGsharedvtVariableInReg,
+	ArgSwiftError,
+	/* Swift lowered struct returned in multiple int and float registers. */
+	ArgSwiftValuetypeLoweredRet,
 	ArgNone /* only in pair_storage */
 } ArgStorage;
 
 typedef struct {
 	gint16 offset;
-	gint8  reg;
+	guint8  reg;
 	ArgStorage storage : 8;
 
-	/* Only if storage == ArgValuetypeInReg */
+	/* Only if storage == ArgValuetypeInReg/ArgSwiftValuetypeLoweredRet */
+#ifndef MONO_ARCH_HAVE_SWIFTCALL
 	ArgStorage pair_storage [2];
-	gint8 pair_regs [2];
+	guint8 pair_regs [2];
+#else
+	ArgStorage pair_storage [4]; // The last 2 entries are only used for ArgSwiftValuetypeLoweredRet
+	guint8 pair_regs [4];
+	/* Only if storage == ArgSwiftValuetypeLoweredRet */
+	guint16 offsets [4];
+#endif
 	/* The size of each pair (bytes) */
 	int pair_size [2];
 	int nregs;
-	/* Only if storage == ArgOnStack */
-	int arg_size; // Bytes, will always be rounded up/aligned to 8 byte boundary
+	/* Only if storage == ArgOnStack/ArgSwiftValuetypeLoweredRet */
+	int arg_size; // Bytes, when on stack, will always be rounded up/aligned to 8 byte boundary
 	// Size in bytes for small arguments
 	int byte_arg_size;
 	guint8 pass_empty_struct : 1; // Set in scenarios when empty structs needs to be represented as argument.
 	guint8 is_signed : 1;
+	guint8 swift_error_in_reg : 1;
 } ArgInfo;
 
 struct CallInfo {
@@ -328,6 +353,8 @@ struct CallInfo {
 	guint32 stack_usage;
 	guint32 reg_usage;
 	guint32 freg_usage;
+	gint32 swift_error_index;
+	gboolean need_swift_return_buffer;
 	gboolean need_stack_align;
 	gboolean gsharedvt;
 	/* The index of the vret arg in the argument list */
@@ -364,7 +391,7 @@ typedef struct {
 
 #else
 
-/* 
+/*
  * __builtin_frame_address () is broken on some older gcc versions in the presence of
  * frame pointer elimination, see bug #82095.
  */
@@ -382,7 +409,7 @@ typedef struct {
 
 #define MONO_ARCH_USE_SIGACTION 1
 
-#ifdef HAVE_WORKING_SIGALTSTACK
+#ifdef ENABLE_SIGALTSTACK
 
 #define MONO_ARCH_SIGSEGV_ON_ALTSTACK
 
@@ -435,8 +462,6 @@ typedef struct {
 #define MONO_ARCH_AOT_SUPPORTED 1
 #define MONO_ARCH_SOFT_DEBUG_SUPPORTED 1
 
-#define MONO_ARCH_SUPPORT_TASKLETS 1
-
 #define MONO_ARCH_GSHARED_SUPPORTED 1
 #define MONO_ARCH_DYN_CALL_SUPPORTED 1
 #define MONO_ARCH_DYN_CALL_PARAM_AREA 0
@@ -457,46 +482,44 @@ typedef struct {
 #define MONO_ARCH_HAVE_OP_TAILCALL_MEMBASE 1
 #define MONO_ARCH_HAVE_OP_TAILCALL_REG 1
 #define MONO_ARCH_HAVE_SDB_TRAMPOLINES 1
-#define MONO_ARCH_HAVE_PATCH_CODE_NEW 1
 #define MONO_ARCH_HAVE_OP_GENERIC_CLASS_INIT 1
 #define MONO_ARCH_HAVE_GENERAL_RGCTX_LAZY_FETCH_TRAMPOLINE 1
+#define MONO_ARCH_HAVE_PATCH_JUMP_TRAMPOLINE 1
 #define MONO_ARCH_FLOAT32_SUPPORTED 1
 #define MONO_ARCH_LLVM_TARGET_LAYOUT "e-i64:64-i128:128-n8:16:32:64-S128"
 
 #define MONO_ARCH_HAVE_INTERP_PINVOKE_TRAMP
 #define MONO_ARCH_HAVE_INTERP_ENTRY_TRAMPOLINE 1
 #define MONO_ARCH_HAVE_INTERP_NATIVE_TO_MANAGED 1
+// FIXME: Doesn't work on windows
+//#define MONO_ARCH_HAVE_INIT_MRGCTX 1
 
-#if defined(TARGET_OSX) || defined(__linux__)
+#if defined(TARGET_OSX) || (defined(__linux__) && !defined(TARGET_ANDROID))
 #define MONO_ARCH_HAVE_UNWIND_BACKTRACE 1
 #endif
 
 #define MONO_ARCH_GSHAREDVT_SUPPORTED 1
 
 
-#if defined(HOST_TVOS)
-/* No signals */
+#if defined(HOST_TVOS) || defined(HOST_WATCHOS)
+/* Neither tvOS nor watchOS give signal handlers access to a ucontext_t, so we
+ * can't use signals to translate SIGFPE into a .NET-level exception. */
 #define MONO_ARCH_NEED_DIV_CHECK 1
+#endif
+
+#if defined(TARGET_TVOS) || defined(TARGET_WATCHOS)
+#define MONO_ARCH_EXPLICIT_NULL_CHECKS 1
 #endif
 
 /* Used for optimization, not complete */
 #define MONO_ARCH_IS_OP_MEMBASE(opcode) ((opcode) == OP_X86_PUSH_MEMBASE)
 
-#define MONO_ARCH_EMIT_BOUNDS_CHECK(cfg, array_reg, offset, index_reg, ex_name) do { \
-            MonoInst *inst; \
-            MONO_INST_NEW ((cfg), inst, OP_AMD64_ICOMPARE_MEMBASE_REG); \
-            inst->inst_basereg = array_reg; \
-            inst->inst_offset = offset; \
-            inst->sreg2 = index_reg; \
-            MONO_ADD_INS ((cfg)->cbb, inst); \
-            MONO_EMIT_NEW_COND_EXC (cfg, LE_UN, ex_name); \
-       } while (0)
-
 // Does the ABI have a volatile non-parameter register, so tailcall
 // can pass context to generics or interfaces?
 #define MONO_ARCH_HAVE_VOLATILE_NON_PARAM_REGISTER 1
 
-void 
+
+void
 mono_amd64_patch (unsigned char* code, gpointer target);
 
 void
@@ -551,7 +574,7 @@ typedef union _UNWIND_CODE {
         guchar CodeOffset;
         guchar UnwindOp : 4;
         guchar OpInfo   : 4;
-    };
+    } UnwindCode;
     gushort FrameOffset;
 } UNWIND_CODE, *PUNWIND_CODE;
 
@@ -640,5 +663,5 @@ mono_arch_unwindinfo_validate_size (GSList *unwind_ops, guint max_size)
 
 CallInfo* mono_arch_get_call_info (MonoMemPool *mp, MonoMethodSignature *sig);
 
-#endif /* __MONO_MINI_AMD64_H__ */  
+#endif /* __MONO_MINI_AMD64_H__ */
 

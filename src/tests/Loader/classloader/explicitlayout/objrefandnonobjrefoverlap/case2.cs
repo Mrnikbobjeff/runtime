@@ -12,6 +12,8 @@
 
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
+using TestLibrary;
 
 public struct Wrapper { public Object o; }
 	
@@ -22,7 +24,9 @@ public struct Wrapper { public Object o; }
 
 public class Test{
 
-  public static int Main(string[] args){
+  [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+  [Fact]
+  public static int TestEntryPoint(){
       bool caught=false;
       try{
           Go();

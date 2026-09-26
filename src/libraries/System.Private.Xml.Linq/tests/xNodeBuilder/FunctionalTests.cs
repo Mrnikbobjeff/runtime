@@ -18,6 +18,11 @@ namespace CoreXml.Test.XLinq
         // Test Module
         [Fact]
         [OuterLoop]
+        // This ModuleCore entry point runs the full XNodeBuilder writer suite. On wasm the runtime
+        // fails to shut down cleanly after it completes, so the test harness hangs until it times
+        // out. It is [OuterLoop], so it never ran on single-threaded wasm before; gate it off
+        // CoreCLR Browser (Mono keeps running) to keep the lane green while preserving coverage elsewhere.
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/129973", typeof(PlatformDetection), nameof(PlatformDetection.IsBrowser), nameof(PlatformDetection.IsCoreCLR))]
         public static void RunTests()
         {
             TestInput.CommandLine = "";
@@ -29,7 +34,7 @@ namespace CoreXml.Test.XLinq
             }
             module.Execute();
 
-            Assert.Equal(0, module.FailCount);
+            Assert.False(module.HasFailures, module.GetFailuresInfo());
         }
 
         #region Code
@@ -579,7 +584,7 @@ namespace CoreXml.Test.XLinq
                     this.AddChild(new TestVariation(writeValue_13) { Attribute = new VariationAttribute("Write multiple atomic values inside element, separate by WriteWhitespace(' ')") { Id = 13, Priority = 1 } });
                     this.AddChild(new TestVariation(writeValue_14) { Attribute = new VariationAttribute("Write multiple atomic values inside element, separate by WriteString(' ')") { Id = 14, Priority = 1 } });
                     this.AddChild(new TestVariation(writeValue_15) { Attribute = new VariationAttribute("Write multiple atomic values inside attribute, separate by WriteWhitespace(' ')") { Id = 15, Priority = 1 } });
-                    this.AddChild(new TestVariation(writeValue_16) { Attribute = new VariationAttribute("Write multiple atomic values inside attribute, seperate by WriteString(' ')") { Id = 16, Priority = 1 } });
+                    this.AddChild(new TestVariation(writeValue_16) { Attribute = new VariationAttribute("Write multiple atomic values inside attribute, separate by WriteString(' ')") { Id = 16, Priority = 1 } });
                     this.AddChild(new TestVariation(writeValue_17) { Attribute = new VariationAttribute("WriteValue(long)") { Id = 17, Priority = 1 } });
                 }
             }

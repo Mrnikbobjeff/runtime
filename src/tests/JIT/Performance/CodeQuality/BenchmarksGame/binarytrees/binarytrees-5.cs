@@ -7,9 +7,10 @@
 // Best-scoring C# .NET Core version as of 2017-09-01
 
 /* The Computer Language Benchmarks Game
-   http://benchmarksgame.alioth.debian.org/ 
+using TestLibrary;
+   http://benchmarksgame.alioth.debian.org/
 
-   contributed by Marek Safar  
+   contributed by Marek Safar
    *reset*
    concurrency added by Peperud
    minor improvements by Alex Yakunin
@@ -18,32 +19,34 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
-using Microsoft.Xunit.Performance;
-
-[assembly: OptimizeForBenchmarks]
-[assembly: MeasureGCCounts]
+using Xunit;
+using TestLibrary;
 
 namespace BenchmarksGame
 {
-    public sealed class BinaryTrees_5
+    public class BinaryTrees_5
     {
         public const int MinDepth = 4;
 
-        public static int Main(string[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/41472", typeof(PlatformDetection), nameof(PlatformDetection.IsNotMultithreadingSupported))]
+        [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+        [Fact]
+        public static int TestEntryPoint()
         {
-            var n = args.Length == 0 ? 0 : int.Parse(args[0]);
+            return Test(null);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int Test(int? arg)
+        {
+            var n = arg ?? 0;
 
             int check = Bench(n, true);
             int expected = 4398;
 
             // Return 100 on success, anything else on failure.
             return check - expected + 100;
-        }
-
-        [Benchmark(InnerIterationCount = 7)]
-        public static void RunBench()
-        {
-            Benchmark.Iterate(() => Bench(16, false));
         }
 
         static int Bench(int n, bool verbose)

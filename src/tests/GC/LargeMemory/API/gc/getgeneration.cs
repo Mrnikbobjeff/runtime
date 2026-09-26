@@ -17,7 +17,7 @@ public sealed class GetGenerationTest {
             gen = GC.GetGeneration(new WeakReference(new LargeObject(size)));
         } catch (OutOfMemoryException) {
             Console.WriteLine("Large Memory Machine required");
-            return false;
+            return true;
         } catch (Exception e) {
             Console.WriteLine("Unexpected Exception:");
             Console.WriteLine(e);
@@ -45,7 +45,7 @@ public sealed class GetGenerationTest {
 
         } catch (OutOfMemoryException) {
             Console.WriteLine("Large Memory Machine required");
-            return false;
+            return true;
         } catch (Exception e) {
             Console.WriteLine("Unexpected Exception:");
             Console.WriteLine(e);
@@ -79,6 +79,12 @@ public sealed class GetGenerationTest {
 
 
     public static int Main(string[] args) {
+        if (!TestLibrary.PlatformDetection.IsMonoRuntime)
+        {
+            // https://github.com/dotnet/runtime/issues/5933
+            return 100;
+        }
+
         GetGenerationTest test = new GetGenerationTest();
         test.size = MemCheck.ParseSizeMBAndLimitByAvailableMem(args);
         if (test.RunTests()) {

@@ -1,10 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Composition.Diagnostics;
 using System.ComponentModel.Composition.Hosting;
 using System.ComponentModel.Composition.Primitives;
 using System.ComponentModel.Composition.ReflectionModel;
+using System.Composition.Diagnostics;
 using System.Globalization;
 using System.Reflection;
 using Microsoft.Internal;
@@ -26,10 +26,7 @@ namespace System.ComponentModel.Composition.AttributedModel
 
         public static ReflectionComposablePartDefinition CreatePartDefinition(Type type, PartCreationPolicyAttribute? partCreationPolicy, bool ignoreConstructorImports, ICompositionElement? origin)
         {
-            if (type == null)
-            {
-                throw new ArgumentNullException(nameof(type));
-            }
+            ArgumentNullException.ThrowIfNull(type);
 
             AttributedPartCreationInfo creationInfo = new AttributedPartCreationInfo(type, partCreationPolicy, ignoreConstructorImports, origin);
 
@@ -38,10 +35,7 @@ namespace System.ComponentModel.Composition.AttributedModel
 
         public static ReflectionComposablePart CreatePart(object attributedPart)
         {
-            if (attributedPart == null)
-            {
-                throw new ArgumentNullException(nameof(attributedPart));
-            }
+            ArgumentNullException.ThrowIfNull(attributedPart);
 
             // If given an instance then we want to pass the default composition options because we treat it as a shared part
             ReflectionComposablePartDefinition definition = AttributedModelDiscovery.CreatePartDefinition(attributedPart.GetType(), PartCreationPolicyAttribute.Shared, true, (ICompositionElement?)null);
@@ -51,15 +45,8 @@ namespace System.ComponentModel.Composition.AttributedModel
 
         public static ReflectionComposablePart CreatePart(object attributedPart, ReflectionContext reflectionContext)
         {
-            if (attributedPart == null)
-            {
-                throw new ArgumentNullException(nameof(attributedPart));
-            }
-
-            if (reflectionContext == null)
-            {
-                throw new ArgumentNullException(nameof(reflectionContext));
-            }
+            ArgumentNullException.ThrowIfNull(attributedPart);
+            ArgumentNullException.ThrowIfNull(reflectionContext);
 
             // If given an instance then we want to pass the default composition options because we treat it as a shared part
             var mappedType = reflectionContext.MapType(IntrospectionExtensions.GetTypeInfo(attributedPart.GetType()));
@@ -75,16 +62,8 @@ namespace System.ComponentModel.Composition.AttributedModel
 
         public static ReflectionComposablePart CreatePart(ComposablePartDefinition partDefinition, object attributedPart)
         {
-            if (partDefinition == null)
-            {
-                throw new ArgumentNullException(nameof(partDefinition));
-            }
-
-            if (attributedPart == null)
-            {
-                throw new ArgumentNullException(nameof(attributedPart));
-            }
-
+            ArgumentNullException.ThrowIfNull(partDefinition);
+            ArgumentNullException.ThrowIfNull(attributedPart);
 
             return new ReflectionComposablePart((ReflectionComposablePartDefinition)partDefinition, attributedPart);
         }

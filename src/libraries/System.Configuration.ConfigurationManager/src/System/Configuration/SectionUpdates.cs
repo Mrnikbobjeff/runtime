@@ -6,7 +6,7 @@ using System.Diagnostics;
 
 namespace System.Configuration
 {
-    internal class SectionUpdates
+    internal sealed class SectionUpdates
     {
         private readonly Hashtable _groups;
         private readonly string _name;
@@ -29,10 +29,10 @@ namespace System.Configuration
         // Find the SectionUpdates for a configKey, and create it if it does not exist.
         private SectionUpdates FindSectionUpdates(string configKey, bool isGroup)
         {
-            string group, dummy;
+            string group;
 
             if (isGroup) group = configKey;
-            else BaseConfigurationRecord.SplitConfigKey(configKey, out group, out dummy);
+            else BaseConfigurationRecord.SplitConfigKey(configKey, out group, out _);
 
             Debug.Assert(string.IsNullOrEmpty(_name), "FindSectionUpdates assumes search is from root record");
             SectionUpdates sectionUpdates = this;
@@ -146,7 +146,7 @@ namespace System.Configuration
         {
             _cUnretrieved = 0;
             foreach (SectionUpdates sectionUpdates in _groups.Values) sectionUpdates.MarkAsRetrieved();
-            if (_sectionGroupUpdate != null) _sectionGroupUpdate.Retrieved = true;
+            _sectionGroupUpdate?.Retrieved = true;
         }
 
         internal void MarkGroupAsRetrieved(string groupName)

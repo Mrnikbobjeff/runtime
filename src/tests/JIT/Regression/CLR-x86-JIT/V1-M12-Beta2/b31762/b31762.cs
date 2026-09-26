@@ -2,16 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b31762
 {
     using System;
 
-    class BB
+    public class BB
     {
         public static uint[] m_auForward5;
         public static uint[] Method2() { return null; }
 
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             bool local3 = true;
             if (local3)
@@ -23,7 +26,6 @@ namespace Test
                 catch (Exception)
                 {
                 }
-            return 100;
         }
     }
 }

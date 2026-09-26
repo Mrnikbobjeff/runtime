@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b73921
 {
     using System;
 
@@ -19,7 +20,9 @@ namespace Test
             catch (Exception) { }
             return 103;
         }
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

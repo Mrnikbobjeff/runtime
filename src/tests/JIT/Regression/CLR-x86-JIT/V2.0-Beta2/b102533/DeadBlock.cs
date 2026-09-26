@@ -2,7 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b102533;
+
 using System;
+using Xunit;
 public struct AA
 {
     public static void f()
@@ -34,9 +38,11 @@ public struct AA
 
 }
 
-class App
+public class App
 {
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         try
         {
@@ -47,7 +53,6 @@ class App
             Console.WriteLine("Exception handled: " + x.ToString());
         }
         Console.WriteLine("Passed.");
-        return 100;
     }
     public static bool flag = true;
 }

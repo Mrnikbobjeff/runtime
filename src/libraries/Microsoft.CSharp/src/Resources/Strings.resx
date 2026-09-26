@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -413,5 +413,8 @@
   </data>
   <data name="COMUnsupportedEventHandlerType" xml:space="preserve">
     <value>Attempting to pass an event handler of an unsupported type.</value>
+  </data>
+  <data name="UnsupportedEnum" xml:space="preserve">
+    <value>Attempting to wrap an unsupported enum type.</value>
   </data>
 </root>

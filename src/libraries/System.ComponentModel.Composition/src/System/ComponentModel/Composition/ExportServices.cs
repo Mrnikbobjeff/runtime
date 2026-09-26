@@ -25,10 +25,7 @@ namespace System.ComponentModel.Composition
 
         internal static bool IsDefaultMetadataViewType(Type metadataViewType)
         {
-            if (metadataViewType == null)
-            {
-                throw new ArgumentNullException(nameof(metadataViewType));
-            }
+            ArgumentNullException.ThrowIfNull(metadataViewType);
 
             // Consider all types that IDictionary<string, object> derives from, such
             // as ICollection<KeyValuePair<TKey, TValue>>, IEnumerable<KeyValuePair<TKey, TValue>>
@@ -38,10 +35,7 @@ namespace System.ComponentModel.Composition
 
         internal static bool IsDictionaryConstructorViewType(Type metadataViewType)
         {
-            if (metadataViewType == null)
-            {
-                throw new ArgumentNullException(nameof(metadataViewType));
-            }
+            ArgumentNullException.ThrowIfNull(metadataViewType);
 
             // Does the view type have a constructor that is a Dictionary<string, object>
             return metadataViewType.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
@@ -62,10 +56,7 @@ namespace System.ComponentModel.Composition
                 genericMethod = _createStronglyTypedLazyOfT.MakeGenericMethod(exportType ?? ExportServices.DefaultExportedValueType);
             }
 
-            if (genericMethod == null)
-            {
-                throw new ArgumentNullException(nameof(genericMethod));
-            }
+            ArgumentNullException.ThrowIfNull(genericMethod);
 
             return (Func<Export, object>)Delegate.CreateDelegate(typeof(Func<Export, object>), genericMethod);
         }
@@ -75,10 +66,7 @@ namespace System.ComponentModel.Composition
             MethodInfo genericMethod = _createSemiStronglyTypedLazy.MakeGenericMethod(
                 exportType ?? ExportServices.DefaultExportedValueType,
                 metadataViewType ?? ExportServices.DefaultMetadataViewType);
-            if (genericMethod == null)
-            {
-                throw new ArgumentNullException(nameof(genericMethod));
-            }
+            ArgumentNullException.ThrowIfNull(genericMethod);
             return (Func<Export, Lazy<object, object>>)Delegate.CreateDelegate(typeof(Func<Export, Lazy<object, object>>), genericMethod);
         }
 

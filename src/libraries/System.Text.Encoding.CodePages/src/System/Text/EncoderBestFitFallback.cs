@@ -7,13 +7,14 @@
 
 using System;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using System.Threading;
 
 namespace System.Text
 {
-    internal class InternalEncoderBestFitFallback : EncoderFallback
+    internal sealed class InternalEncoderBestFitFallback : EncoderFallback
     {
         // Our variables
         internal BaseCodePageEncoding encoding;
@@ -31,7 +32,7 @@ namespace System.Text
         // Maximum number of characters that this instance of this fallback could return
         public override int MaxCharCount => 1;
 
-        public override bool Equals(object? value) =>
+        public override bool Equals([NotNullWhen(true)] object? value) =>
             value is InternalEncoderBestFitFallback that && encoding.CodePage == that.encoding.CodePage;
 
         public override int GetHashCode() => encoding.CodePage;
@@ -46,19 +47,8 @@ namespace System.Text
         private int _iSize;
 
         // Private object for locking instead of locking on a public type for SQL reliability work.
-        private static object? s_InternalSyncObject;
-        private static object InternalSyncObject
-        {
-            get
-            {
-                if (s_InternalSyncObject == null)
-                {
-                    object o = new object();
-                    Interlocked.CompareExchange<object?>(ref s_InternalSyncObject, o, null);
-                }
-                return s_InternalSyncObject;
-            }
-        }
+        private static object InternalSyncObject =>
+            field ?? Interlocked.CompareExchange(ref field, new object(), null) ?? field;
 
         // Constructor
         public InternalEncoderBestFitFallbackBuffer(InternalEncoderBestFitFallback fallback)
@@ -71,8 +61,7 @@ namespace System.Text
                 lock (InternalSyncObject)
                 {
                     // Double check before we do it again.
-                    if (_oFallback.arrayBestFit == null)
-                        _oFallback.arrayBestFit = fallback.encoding.GetBestFitUnicodeToBytesData();
+                    _oFallback.arrayBestFit ??= fallback.encoding.GetBestFitUnicodeToBytesData();
                 }
             }
         }
@@ -83,7 +72,7 @@ namespace System.Text
             // If we had a buffer already we're being recursive, throw, it's probably at the suspect
             // character in our array.
             // Shouldn't be able to get here for all of our code pages, table would have to be messed up.
-            Debug.Assert(_iCount < 1, "[InternalEncoderBestFitFallbackBuffer.Fallback(non surrogate)] Fallback char " + ((int)_cBestFit).ToString("X4", CultureInfo.InvariantCulture) + " caused recursive fallback");
+            Debug.Assert(_iCount < 1, $"[InternalEncoderBestFitFallbackBuffer.Fallback(non surrogate)] Fallback char {(int)_cBestFit:X4} caused recursive fallback");
 
             _iCount = _iSize = 1;
             _cBestFit = TryBestFit(charUnknown);
@@ -105,7 +94,7 @@ namespace System.Text
             // If we had a buffer already we're being recursive, throw, it's probably at the suspect
             // character in our array.  0 is processing last character, < 0 is not falling back
             // Shouldn't be able to get here, table would have to be messed up.
-            Debug.Assert(_iCount < 1, "[InternalEncoderBestFitFallbackBuffer.Fallback(surrogate)] Fallback char " + ((int)_cBestFit).ToString("X4", CultureInfo.InvariantCulture) + " caused recursive fallback");
+            Debug.Assert(_iCount < 1, $"[InternalEncoderBestFitFallbackBuffer.Fallback(surrogate)] Fallback char {(int)_cBestFit:X4} caused recursive fallback");
 
             // Go ahead and get our fallback, surrogates don't have best fit
             _cBestFit = '?';
@@ -158,7 +147,7 @@ namespace System.Text
         }
 
         // Clear the buffer
-        public override unsafe void Reset()
+        public override void Reset()
         {
             _iCount = -1;
         }

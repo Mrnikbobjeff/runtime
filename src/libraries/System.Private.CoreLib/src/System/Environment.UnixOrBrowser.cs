@@ -1,10 +1,11 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
 
@@ -17,10 +18,10 @@ namespace System
         private static string CurrentDirectoryCore
         {
             get => Interop.Sys.GetCwd();
-            set => Interop.CheckIo(Interop.Sys.ChDir(value), value, isDirectory: true);
+            set => Interop.CheckIo(Interop.Sys.ChDir(value), value, isDirError: true);
         }
 
-        private static string ExpandEnvironmentVariablesCore(string name)
+        private static unsafe string ExpandEnvironmentVariablesCore(string name)
         {
             var result = new ValueStringBuilder(stackalloc char[128]);
 
@@ -52,7 +53,7 @@ namespace System
 
         public static string SystemDirectory => GetFolderPathCore(SpecialFolder.System, SpecialFolderOption.None);
 
-        public static int SystemPageSize => CheckedSysConf(Interop.Sys.SysConfName._SC_PAGESIZE);
+        private static int GetSystemPageSize() => CheckedSysConf(Interop.Sys.SysConfName._SC_PAGESIZE);
 
         public static string UserDomainName => MachineName;
 
@@ -69,5 +70,32 @@ namespace System
             }
             return (int)result;
         }
+
+        /// <summary>
+        /// Get the CPU usage, including the process time spent running the application code, the process time spent running the operating system code,
+        /// and the total time spent running both the application and operating system code.
+        /// </summary>
+        [UnsupportedOSPlatform("ios")]
+        [UnsupportedOSPlatform("tvos")]
+        [UnsupportedOSPlatform("browser")]
+        [SupportedOSPlatform("maccatalyst")]
+        public static ProcessCpuUsage CpuUsage
+        {
+            get
+            {
+                Interop.Sys.ProcessCpuInformation cpuInfo = default;
+                Interop.Sys.GetCpuUtilization(ref cpuInfo);
+
+                // Division by 100 is to convert the nanoseconds to 100-nanoseconds to match .NET time units (100-nanoseconds).
+                ulong userTime100Nanoseconds = Math.Min(cpuInfo.lastRecordedUserTime / 100, (ulong)long.MaxValue);
+                ulong kernelTime100Nanoseconds = Math.Min(cpuInfo.lastRecordedKernelTime / 100, (ulong)long.MaxValue);
+
+                return new ProcessCpuUsage { UserTime = new TimeSpan((long)userTime100Nanoseconds), PrivilegedTime = new TimeSpan((long)kernelTime100Nanoseconds) };
+            }
+        }
+
+        /// <summary>Gets the number of milliseconds elapsed since the system started.</summary>
+        /// <value>A 64-bit signed integer containing the amount of time in milliseconds that has passed since the last time the computer was started.</value>
+        public static long TickCount64 => Interop.Sys.GetLowResolutionTimestamp();
     }
 }

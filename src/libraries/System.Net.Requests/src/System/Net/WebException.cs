@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Sockets;
@@ -52,6 +53,8 @@ namespace System.Net
             }
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         protected WebException(SerializationInfo serializationInfo, StreamingContext streamingContext)
             : base(serializationInfo, streamingContext)
         {
@@ -61,11 +64,14 @@ namespace System.Net
 
         public WebResponse? Response => _response;
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         void ISerializable.GetObjectData(SerializationInfo serializationInfo, StreamingContext streamingContext)
         {
             base.GetObjectData(serializationInfo, streamingContext);
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public override void GetObjectData(SerializationInfo serializationInfo, StreamingContext streamingContext)
         {
             base.GetObjectData(serializationInfo, streamingContext);
@@ -96,17 +102,18 @@ namespace System.Net
 
         private static WebExceptionStatus GetStatusFromExceptionHelper(HttpRequestException ex)
         {
-            NetworkException? networkException = ex.InnerException as NetworkException;
+            SocketException? socketException = ex.InnerException as SocketException;
 
-            if (networkException is null)
+            if (socketException is null)
             {
                 return WebExceptionStatus.UnknownError;
             }
 
             WebExceptionStatus status;
-            switch (networkException.NetworkError)
+            switch (socketException.SocketErrorCode)
             {
-                case NetworkError.HostNotFound:
+                case SocketError.NoData:
+                case SocketError.HostNotFound:
                     status = WebExceptionStatus.NameResolutionFailure;
                     break;
                 default:

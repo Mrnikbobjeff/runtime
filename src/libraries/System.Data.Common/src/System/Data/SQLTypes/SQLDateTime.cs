@@ -3,8 +3,10 @@
 
 using System.Data.Common;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Xml;
 using System.Xml.Schema;
 using System.Xml.Serialization;
@@ -20,7 +22,7 @@ namespace System.Data.SqlTypes
     [StructLayout(LayoutKind.Sequential)]
     [XmlSchemaProvider("GetXsdType")]
     [System.Runtime.CompilerServices.TypeForwardedFrom("System.Data, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public struct SqlDateTime : INullable, IComparable, IXmlSerializable
+    public struct SqlDateTime : INullable, IComparable, IXmlSerializable, IEquatable<SqlDateTime>
     {
         private bool m_fNotNull;    // false if null. Do not rename (binary serialization)
         private int m_day;      // Day from 1900/1/1, could be negative. Range: Jan 1 1753 - Dec 31 9999. Do not rename (binary serialization)
@@ -29,38 +31,42 @@ namespace System.Data.SqlTypes
         // Constants
 
         // Number of (100ns) ticks per time unit
-        private const double s_SQLTicksPerMillisecond = 0.3;
-        public static readonly int SQLTicksPerSecond = 300;
-        public static readonly int SQLTicksPerMinute = SQLTicksPerSecond * 60;
-        public static readonly int SQLTicksPerHour = SQLTicksPerMinute * 60;
-        private static readonly int s_SQLTicksPerDay = SQLTicksPerHour * 24;
+        private const double TicksPerMillisecond = 0.3;
+        private const int TicksPerSecond = 300;
+        private const int TicksPerMinute = TicksPerSecond * (int)TimeSpan.SecondsPerMinute;
+        private const int TicksPerHour = TicksPerSecond * (int)TimeSpan.SecondsPerHour;
+        private const int TicksPerDay = TicksPerSecond * (int)TimeSpan.SecondsPerDay;
 
-        private const long s_ticksPerSecond = TimeSpan.TicksPerMillisecond * 1000;
+        private static DateTime BaseDate => new DateTime(1900, 1, 1);
 
-        private static readonly DateTime s_SQLBaseDate = new DateTime(1900, 1, 1);
-        private static readonly long s_SQLBaseDateTicks = s_SQLBaseDate.Ticks;
+        private const int MinYear = 1753;               // Jan 1 1753
+        private const int MaxYear = 9999;               // Dec 31 9999
 
-        private const int s_minYear = 1753;                 // Jan 1 1753
-        private const int s_maxYear = 9999;                 // Dec 31 9999
+        private const int MinDay = -53690;              // Jan 1 1753
+        private const int MaxDay = 2958463;             // Dec 31 9999 is this many days from Jan 1 1900
+        private const int MinTime = 0;                  // 00:00:0:000PM
+        private const int MaxTime = TicksPerDay - 1;    // = 25919999,  11:59:59:997PM
 
-        private const int s_minDay = -53690;               // Jan 1 1753
-        private const int s_maxDay = 2958463;              // Dec 31 9999 is this many days from Jan 1 1900
-        private const int s_minTime = 0;                    // 00:00:0:000PM
-        private static readonly int s_maxTime = s_SQLTicksPerDay - 1;   // = 25919999,  11:59:59:997PM
+        private const int DayBase = 693595;             // Jan 1 1900 is this many days from Jan 1 0001
 
-        private const int s_dayBase = 693595;               // Jan 1 1900 is this many days from Jan 1 0001
+        private const long DateTimeMaxTicks = 3155378975999999999; // DateTime.MaxValue.Ticks
 
+        private static ReadOnlySpan<int> DaysToMonth365 => [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365];
+        private static ReadOnlySpan<int> DaysToMonth366 => [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366];
 
-        private static readonly int[] s_daysToMonth365 = new int[] {
-            0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334, 365};
-        private static readonly int[] s_daysToMonth366 = new int[] {
-            0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 335, 366};
+        private static TimeSpan MinTimeSpan
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => new DateTime(1753, 1, 1).Subtract(BaseDate);
+        }
 
-        private static readonly DateTime s_minDateTime = new DateTime(1753, 1, 1);
-        private static readonly DateTime s_maxDateTime = DateTime.MaxValue;
-        private static readonly TimeSpan s_minTimeSpan = s_minDateTime.Subtract(s_SQLBaseDate);
-        private static readonly TimeSpan s_maxTimeSpan = s_maxDateTime.Subtract(s_SQLBaseDate);
-        private const string s_ISO8601_DateTimeFormat = "yyyy-MM-ddTHH:mm:ss.fff";
+        private static TimeSpan MaxTimeSpan
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get => new DateTime(DateTimeMaxTicks).Subtract(BaseDate);
+        }
+
+        private const string ISO8601_DateTimeFormat = "yyyy-MM-ddTHH:mm:ss.fff";
 
         // These formats are valid styles in SQL Server (style 9, 12, 13, 14)
         // but couldn't be recognized by the default parse. Needs to call
@@ -78,7 +84,7 @@ namespace System.Data.SqlTypes
         private const DateTimeStyles x_DateTimeStyle = DateTimeStyles.AllowWhiteSpaces;
 
         // construct a Null
-        private SqlDateTime(bool fNull)
+        private SqlDateTime(bool _)
         {
             m_fNotNull = false;
             m_day = 0;
@@ -102,27 +108,29 @@ namespace System.Data.SqlTypes
 
         public SqlDateTime(int year, int month, int day, int hour, int minute, int second, double millisecond)
         {
-            if (year >= s_minYear && year <= s_maxYear && month >= 1 && month <= 12)
+            if (year >= MinYear && year <= MaxYear && month >= 1 && month <= 12)
             {
-                int[] days = IsLeapYear(year) ? s_daysToMonth366 : s_daysToMonth365;
+                ReadOnlySpan<int> days = IsLeapYear(year) ?
+                    DaysToMonth366 :
+                    DaysToMonth365;
                 if (day >= 1 && day <= days[month] - days[month - 1])
                 {
                     int y = year - 1;
                     int dayticks = y * 365 + y / 4 - y / 100 + y / 400 + days[month - 1] + day - 1;
-                    dayticks -= s_dayBase;
+                    dayticks -= DayBase;
 
-                    if (dayticks >= s_minDay && dayticks <= s_maxDay &&
+                    if (dayticks >= MinDay && dayticks <= MaxDay &&
                         hour >= 0 && hour < 24 && minute >= 0 && minute < 60 &&
                         second >= 0 && second < 60 && millisecond >= 0 && millisecond < 1000.0)
                     {
-                        double ticksForMilisecond = millisecond * s_SQLTicksPerMillisecond + 0.5;
-                        int timeticks = hour * SQLTicksPerHour + minute * SQLTicksPerMinute + second * SQLTicksPerSecond +
+                        double ticksForMilisecond = millisecond * TicksPerMillisecond + 0.5;
+                        int timeticks = hour * TicksPerHour + minute * TicksPerMinute + second * TicksPerSecond +
                             (int)ticksForMilisecond;
 
-                        if (timeticks > s_maxTime)
+                        if (timeticks > MaxTime)
                         {
                             // Only rounding up could cause time to become greater than MaxTime.
-                            Debug.Assert(timeticks == s_maxTime + 1);
+                            Debug.Assert(timeticks == MaxTime + 1);
 
                             // Make time to be zero, and increment day.
                             timeticks = 0;
@@ -149,7 +157,7 @@ namespace System.Data.SqlTypes
 
         public SqlDateTime(int dayTicks, int timeTicks)
         {
-            if (dayTicks < s_minDay || dayTicks > s_maxDay || timeTicks < s_minTime || timeTicks > s_maxTime)
+            if (dayTicks < MinDay || dayTicks > MaxDay || timeTicks < MinTime || timeTicks > MaxTime)
             {
                 m_fNotNull = false;
                 throw new OverflowException(SQLResource.DateTimeOverflowMessage);
@@ -162,19 +170,19 @@ namespace System.Data.SqlTypes
 
         internal SqlDateTime(double dblVal)
         {
-            if ((dblVal < s_minDay) || (dblVal >= s_maxDay + 1))
+            if ((dblVal < MinDay) || (dblVal >= MaxDay + 1))
                 throw new OverflowException(SQLResource.DateTimeOverflowMessage);
 
             int day = (int)dblVal;
-            int time = (int)((dblVal - day) * s_SQLTicksPerDay);
+            int time = (int)((dblVal - day) * TicksPerDay);
 
             // Check if we need to borrow a day from the day portion.
             if (time < 0)
             {
                 day--;
-                time += s_SQLTicksPerDay;
+                time += TicksPerDay;
             }
-            else if (time >= s_SQLTicksPerDay)
+            else if (time >= TicksPerDay)
             {
                 // Deal with case where time portion = 24 hrs.
                 //
@@ -185,7 +193,7 @@ namespace System.Data.SqlTypes
                 //    there was a negative value for dblVal such that dblVal + 1.0 = 1.0
                 //
                 day++;
-                time -= s_SQLTicksPerDay;
+                time -= TicksPerDay;
             }
 
             this = new SqlDateTime(day, time);
@@ -199,34 +207,34 @@ namespace System.Data.SqlTypes
 
         private static TimeSpan ToTimeSpan(SqlDateTime value)
         {
-            long millisecond = (long)(value.m_time / s_SQLTicksPerMillisecond + 0.5);
+            long millisecond = (long)(value.m_time / TicksPerMillisecond + 0.5);
             return new TimeSpan(value.m_day * TimeSpan.TicksPerDay +
                                 millisecond * TimeSpan.TicksPerMillisecond);
         }
 
         private static DateTime ToDateTime(SqlDateTime value)
         {
-            return s_SQLBaseDate.Add(ToTimeSpan(value));
+            return BaseDate.Add(ToTimeSpan(value));
         }
 
         // Used by SqlBuffer in SqlClient.
         internal static DateTime ToDateTime(int daypart, int timepart)
         {
-            if (daypart < s_minDay || daypart > s_maxDay || timepart < s_minTime || timepart > s_maxTime)
+            if (daypart < MinDay || daypart > MaxDay || timepart < MinTime || timepart > MaxTime)
             {
                 throw new OverflowException(SQLResource.DateTimeOverflowMessage);
             }
             long dayticks = daypart * TimeSpan.TicksPerDay;
-            long timeticks = ((long)(timepart / s_SQLTicksPerMillisecond + 0.5)) * TimeSpan.TicksPerMillisecond;
+            long timeticks = ((long)(timepart / TicksPerMillisecond + 0.5)) * TimeSpan.TicksPerMillisecond;
 
-            DateTime result = new DateTime(s_SQLBaseDateTicks + dayticks + timeticks);
+            DateTime result = new DateTime(BaseDate.Ticks + dayticks + timeticks);
             return result;
         }
 
         // Convert from TimeSpan, rounded to one three-hundredth second, due to loss of precision
         private static SqlDateTime FromTimeSpan(TimeSpan value)
         {
-            if (value < s_minTimeSpan || value > s_maxTimeSpan)
+            if (value < MinTimeSpan || value > MaxTimeSpan)
                 throw new SqlTypeException(SQLResource.DateTimeOverflowMessage);
 
             int day = value.Days;
@@ -239,11 +247,11 @@ namespace System.Data.SqlTypes
                 ticks += TimeSpan.TicksPerDay;
             }
 
-            int time = (int)((double)ticks / TimeSpan.TicksPerMillisecond * s_SQLTicksPerMillisecond + 0.5);
-            if (time > s_maxTime)
+            int time = (int)((double)ticks / TimeSpan.TicksPerMillisecond * TicksPerMillisecond + 0.5);
+            if (time > MaxTime)
             {
                 // Only rounding up could cause time to become greater than MaxTime.
-                Debug.Assert(time == s_maxTime + 1);
+                Debug.Assert(time == MaxTime + 1);
 
                 // Make time to be zero, and increment day.
                 time = 0;
@@ -264,7 +272,7 @@ namespace System.Data.SqlTypes
             //
             if (value == DateTime.MaxValue)
                 return SqlDateTime.MaxValue;
-            return FromTimeSpan(value.Subtract(s_SQLBaseDate));
+            return FromTimeSpan(value.Subtract(BaseDate));
         }
 
         /*
@@ -274,7 +282,7 @@ namespace System.Data.SqlTypes
 
         internal static double ToDouble(SqlDateTime x) {
             AssertValidSqlDateTime(x);
-            return(double)x.m_day + ((double)x.m_time / (double)SQLTicksPerDay);
+            return(double)x.m_day + ((double)x.m_time / (double)TicksPerDay);
         }
 
         internal static int ToInt(SqlDateTime x) {
@@ -596,10 +604,8 @@ namespace System.Data.SqlTypes
         // If object is not of same type, this method throws an ArgumentException.
         public int CompareTo(object? value)
         {
-            if (value is SqlDateTime)
+            if (value is SqlDateTime i)
             {
-                SqlDateTime i = (SqlDateTime)value;
-
                 return CompareTo(i);
             }
             throw ADP.WrongType(value!.GetType(), typeof(SqlDateTime));
@@ -620,26 +626,18 @@ namespace System.Data.SqlTypes
         }
 
         // Compares this instance with a specified object
-        public override bool Equals(object? value)
-        {
-            if (!(value is SqlDateTime))
-            {
-                return false;
-            }
+        public override bool Equals([NotNullWhen(true)] object? value) =>
+            value is SqlDateTime other && Equals(other);
 
-            SqlDateTime i = (SqlDateTime)value;
-
-            if (i.IsNull || IsNull)
-                return (i.IsNull && IsNull);
-            else
-                return (this == i).Value;
-        }
+        /// <summary>Indicates whether the current instance is equal to another instance of the same type.</summary>
+        /// <param name="other">An instance to compare with this instance.</param>
+        /// <returns>true if the current instance is equal to the other instance; otherwise, false.</returns>
+        public bool Equals(SqlDateTime other) =>
+            other.IsNull || IsNull ? other.IsNull && IsNull :
+            (this == other).Value;
 
         // For hashing purpose
-        public override int GetHashCode()
-        {
-            return IsNull ? 0 : Value.GetHashCode();
-        }
+        public override int GetHashCode() => IsNull ? 0 : Value.GetHashCode();
 
         XmlSchema? IXmlSerializable.GetSchema() { return null; }
 
@@ -679,7 +677,7 @@ namespace System.Data.SqlTypes
             }
             else
             {
-                writer.WriteString(XmlConvert.ToString(Value, s_ISO8601_DateTimeFormat));
+                writer.WriteString(XmlConvert.ToString(Value, ISO8601_DateTimeFormat));
             }
         }
 
@@ -688,8 +686,12 @@ namespace System.Data.SqlTypes
             return new XmlQualifiedName("dateTime", XmlSchema.Namespace);
         }
 
-        public static readonly SqlDateTime MinValue = new SqlDateTime(s_minDay, 0);
-        public static readonly SqlDateTime MaxValue = new SqlDateTime(s_maxDay, s_maxTime);
+        public static readonly int SQLTicksPerSecond = TicksPerSecond;
+        public static readonly int SQLTicksPerMinute = TicksPerMinute;
+        public static readonly int SQLTicksPerHour = TicksPerHour;
+
+        public static readonly SqlDateTime MinValue = new SqlDateTime(MinDay, 0);
+        public static readonly SqlDateTime MaxValue = new SqlDateTime(MaxDay, MaxTime);
 
         public static readonly SqlDateTime Null = new SqlDateTime(true);
     } // SqlDateTime

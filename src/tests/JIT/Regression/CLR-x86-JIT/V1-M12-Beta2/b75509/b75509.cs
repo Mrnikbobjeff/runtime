@@ -2,16 +2,21 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b75509;
+
 using System;
+using Xunit;
 
 public class Foo
 {
-    public static int Main(string[] args)
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         Foo o = new Foo();
         Object a = 2.718281828458999;
         System.Console.WriteLine(o.Convert(o.Compare(a, 2.718281828458999) ? 1 : 0));
-        return 100;
     }
 
     public Boolean Compare(Object a, Object b)

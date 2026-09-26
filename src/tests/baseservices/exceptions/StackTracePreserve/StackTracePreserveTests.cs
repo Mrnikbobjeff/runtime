@@ -5,8 +5,10 @@ using System.Threading;
 using System.Runtime.ExceptionServices;
 using System.IO;
 using System.Security;
+using Xunit;
+using TestLibrary;
 
-class InactiveForeignException
+public class InactiveForeignException
 {
     private static ExceptionDispatchInfo s_EDI = null;
     private static int iPassed = 0, iFailed = 0;
@@ -501,7 +503,9 @@ exit:
     }
 
     
-    public static int Main(string[] args)
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/11213", TestRuntimes.CoreCLR)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         iPassed = iFailed = 0;
 

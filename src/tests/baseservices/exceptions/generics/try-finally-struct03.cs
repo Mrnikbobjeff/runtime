@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
+using Xunit;
 
 public struct ValX0 {}
 public struct ValY0 {}
@@ -33,7 +34,7 @@ public struct Gen<T>
 			{
 				throw new GenException<T>();
 			}
-			Test.Eval(!throwException);
+			Test_try_finally_struct03.Eval(!throwException);
 		}
 		finally
 		{
@@ -47,19 +48,19 @@ public struct Gen<T>
 		try
 		{
 			InternalExceptionTest(throwException);
-			Test.Eval(!throwException);
+			Test_try_finally_struct03.Eval(!throwException);
 		}
 		catch(Exception E)
 		{
-			Test.Eval(hit);
-			Test.Eval(throwException);
-			Test.Eval(E is GenException<RefX1<T>>);
+			Test_try_finally_struct03.Eval(hit);
+			Test_try_finally_struct03.Eval(throwException);
+			Test_try_finally_struct03.Eval(E is GenException<RefX1<T>>);
 		}
 	}
 	
 }
 
-public class Test
+public class Test_try_finally_struct03
 {
 	public static int counter = 0;
 	public static bool result = true;
@@ -74,7 +75,8 @@ public class Test
 	
 	}
 	
-	public static int Main()
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		new Gen<int>().ExceptionTest(true);
 		new Gen<double>().ExceptionTest(true); 

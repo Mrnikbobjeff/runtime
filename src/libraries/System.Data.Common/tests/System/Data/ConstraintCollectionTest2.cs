@@ -405,7 +405,7 @@ namespace System.Data.Tests
             foreach (Exception expectedEx in exceptionList)
                 if ((expectedEx.GetType()) == (ex.GetType()))
                     return;
-            Assert.True(false);
+            Assert.Fail();
         }
 
         [Fact]
@@ -413,7 +413,7 @@ namespace System.Data.Tests
         {
             DataTable dt = DataProvider.CreateParentDataTable();
             dt.Constraints.Add("UniqueConstraint", dt.Columns["ParentId"], true);
-            Assert.Equal(1, (double)dt.Constraints.Count); ;
+            Assert.Equal(1, (double)dt.Constraints.Count);
             Assert.Equal("UniqueConstraint", dt.Constraints[0].ConstraintName);
         }
 

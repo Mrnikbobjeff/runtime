@@ -5,7 +5,7 @@ using System.Security.Permissions;
 
 namespace System.Security
 {
-#if NET50_OBSOLETIONS
+#if NET
     [Obsolete(Obsoletions.CodeAccessSecurityMessage, DiagnosticId = Obsoletions.CodeAccessSecurityDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
 #endif
     public sealed partial class NamedPermissionSet : PermissionSet

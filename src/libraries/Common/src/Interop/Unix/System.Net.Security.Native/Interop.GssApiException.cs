@@ -1,11 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 
 internal static partial class Interop
 {
@@ -70,17 +70,23 @@ internal static partial class Interop
                 return errorMessage;
             }
 
-            private static string? GetGssApiDisplayStatus(Status status, bool isMinor)
+            private static unsafe string? GetGssApiDisplayStatus(Status status, bool isMinor)
             {
+                if (!System.Net.NegotiateAuthenticationPal.HasSystemNetSecurityNative)
+                {
+                    // avoid calling into libSystem.Net.Security.Native.
+                    return null;
+                }
+
                 GssBuffer displayBuffer = default(GssBuffer);
 
                 try
                 {
                     Interop.NetSecurityNative.Status minStat;
                     Interop.NetSecurityNative.Status displayCallStatus = isMinor ?
-                        DisplayMinorStatus(out minStat, status, ref displayBuffer):
+                        DisplayMinorStatus(out minStat, status, ref displayBuffer) :
                         DisplayMajorStatus(out minStat, status, ref displayBuffer);
-                    return (Status.GSS_S_COMPLETE != displayCallStatus) ? null : Marshal.PtrToStringAnsi(displayBuffer._data);
+                    return (Status.GSS_S_COMPLETE != displayCallStatus) ? null : Utf8StringMarshaller.ConvertToManaged(displayBuffer._data);
                 }
                 finally
                 {

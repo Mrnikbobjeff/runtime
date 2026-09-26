@@ -5,14 +5,14 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 
-#if !FEATURE_SERIALIZATION
+#if CODEDOM
 namespace System.CodeDom
 #else
 namespace System.Runtime.Serialization
 #endif
 {
     [Flags]
-#if !FEATURE_SERIALIZATION
+#if CODEDOM
     public enum CodeTypeReferenceOptions
 #else
     internal enum CodeTypeReferenceOptions
@@ -22,10 +22,10 @@ namespace System.Runtime.Serialization
         GenericTypeParameter = 0x00000002
     }
 
-#if !FEATURE_SERIALIZATION
+#if CODEDOM
     public class CodeTypeReference : CodeObject
 #else
-    internal class CodeTypeReference : CodeObject
+    internal sealed class CodeTypeReference : CodeObject
 #endif
     {
         private string? _baseType;
@@ -42,10 +42,7 @@ namespace System.Runtime.Serialization
 
         public CodeTypeReference(Type type)
         {
-            if (type == null)
-            {
-                throw new ArgumentNullException(nameof(type));
-            }
+            ArgumentNullException.ThrowIfNull(type);
 
             if (type.IsArray)
             {
@@ -68,12 +65,12 @@ namespace System.Runtime.Serialization
             Options = codeTypeReferenceOption;
         }
 
-        public CodeTypeReference(string typeName, CodeTypeReferenceOptions codeTypeReferenceOption)
+        public CodeTypeReference(string? typeName, CodeTypeReferenceOptions codeTypeReferenceOption)
         {
             Initialize(typeName, codeTypeReferenceOption);
         }
 
-        public CodeTypeReference(string typeName)
+        public CodeTypeReference(string? typeName)
         {
             Initialize(typeName);
         }
@@ -267,7 +264,7 @@ namespace System.Runtime.Serialization
             }
 
             // Now see if we have some arity.  baseType could be null if this is an array type.
-            if (_baseType != null && _baseType.IndexOf('`') != -1) // string.Contains(char) is .NetCore2.1+ specific
+            if (_baseType != null && _baseType.Contains('`'))
             {
                 _needsFixup = false;
             }
@@ -281,7 +278,7 @@ namespace System.Runtime.Serialization
             }
         }
 
-#if !FEATURE_SERIALIZATION
+#if CODEDOM
         public CodeTypeReference(CodeTypeParameter typeParameter) :
             this(typeParameter?.Name)
         {
@@ -325,7 +322,7 @@ namespace System.Runtime.Serialization
 
                 string returnType = _baseType;
                 return _needsFixup && TypeArguments.Count > 0 ?
-                    returnType + '`' + TypeArguments.Count.ToString(CultureInfo.InvariantCulture) :
+                    $"{returnType}`{(uint)TypeArguments.Count}" :
                     returnType;
             }
             set
@@ -346,12 +343,7 @@ namespace System.Runtime.Serialization
                     return ArrayElementType.TypeArguments;
                 }
 
-                if (_typeArguments == null)
-                {
-                    _typeArguments = new CodeTypeReferenceCollection();
-                }
-
-                return _typeArguments;
+                return _typeArguments ??= new CodeTypeReferenceCollection();
             }
         }
 
@@ -365,7 +357,7 @@ namespace System.Runtime.Serialization
         // " [System.Collections.Generic.List[[System.string, mscorlib, Version=2.0.0.0, Culture=neutral,
         //   PublicKeyToken=b77a5c561934e089]], mscorlib, Version=2.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089]"
         //
-        private string RipOffAssemblyInformationFromTypeName(string typeName)
+        private static string RipOffAssemblyInformationFromTypeName(string typeName)
         {
             int start = 0;
             int end = typeName.Length - 1;

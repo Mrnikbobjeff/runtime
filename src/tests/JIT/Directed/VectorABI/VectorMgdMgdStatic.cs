@@ -1,10 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+namespace JitTest_Directed_VectorABI_VectorMgdMgdStatic;
+
 using System;
 using System.Runtime.Intrinsics;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Xunit;
 
 // Test passing and returning HVAs (homogeneous vector aggregates) to/from managed code.
 // Test various sizes (including ones that exceed the limit for being treated as HVAs),
@@ -24,7 +27,15 @@ public static class VectorMgdMgd
     private const int PASS = 100;
     private const int FAIL = 0;
 
-    static Random random = new Random(12345);
+    private const int DefaultSeed = 20010415;
+    private static int Seed = Environment.GetEnvironmentVariable("CORECLR_SEED") switch
+    {
+        string seedStr when seedStr.Equals("random", StringComparison.OrdinalIgnoreCase) => new Random().Next(),
+        string seedStr when int.TryParse(seedStr, out int envSeed) => envSeed,
+        _ => DefaultSeed
+    };
+
+    static Random random = new Random(Seed);
 
     public static T GetValueFromInt<T>(int value)
     {
@@ -104,7 +115,7 @@ public static class VectorMgdMgd
         // element type (byte).
         static T[] values;
         static T[] check;
-        private int ElementCount = (Unsafe.SizeOf<Vector128<T>>() / sizeof(byte)) * 5;
+        private int ElementCount = (sizeof(Vector128<T>) / sizeof(byte)) * 5;
         public bool isPassing = true;
         public bool isReflection = false;
 
@@ -264,7 +275,7 @@ public static class VectorMgdMgd
             hva128_04_s.v2 = Unsafe.As<T, Vector128<T>>(ref values[i]);
             i += Vector128<T>.Count;
             hva128_04_s.v3 = Unsafe.As<T, Vector128<T>>(ref values[i]);
- 
+
             i = 0;
             hva128_05_s.v0 = Unsafe.As<T, Vector128<T>>(ref values[i]);
             i += Vector128<T>.Count;
@@ -344,7 +355,7 @@ public static class VectorMgdMgd
 
         //==========    Vector64<T> tests
 
-        //====================   Tests for passing 1 argumnet of HVA64_01
+        //====================   Tests for passing 1 argument of HVA64_01
 
         // Test the case where we've passed in a single argument HVA of 1 vector.
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -361,7 +372,7 @@ public static class VectorMgdMgd
             reflectionInvokeArgs = new object[] { hva64_01_s };
         }
 
-        //====================   Tests for passing 1 argumnet of HVA64_02
+        //====================   Tests for passing 1 argument of HVA64_02
 
         // Test the case where we've passed in a single argument HVA of 2 vectors.
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -379,7 +390,7 @@ public static class VectorMgdMgd
             reflectionInvokeArgs = new object[] { hva64_02_s };
         }
 
-        //====================   Tests for passing 1 argumnet of HVA64_03
+        //====================   Tests for passing 1 argument of HVA64_03
 
         // Test the case where we've passed in a single argument HVA of 3 vectors.
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -398,7 +409,7 @@ public static class VectorMgdMgd
             reflectionInvokeArgs = new object[] { hva64_03_s };
         }
 
-        //====================   Tests for passing 1 argumnet of HVA64_04
+        //====================   Tests for passing 1 argument of HVA64_04
 
         // Test the case where we've passed in a single argument HVA of 4 vectors.
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -418,7 +429,7 @@ public static class VectorMgdMgd
             reflectionInvokeArgs = new object[] { hva64_04_s };
         }
 
-        //====================   Tests for passing 1 argumnet of HVA64_05
+        //====================   Tests for passing 1 argument of HVA64_05
 
         // Test the case where we've passed in a single argument HVA of 5 vectors.
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -643,7 +654,7 @@ public static class VectorMgdMgd
 
         //==========    Vector128<T> tests
 
-        //====================   Tests for passing 1 argumnet of HVA128_01
+        //====================   Tests for passing 1 argument of HVA128_01
 
         // Test the case where we've passed in a single argument HVA of 1 vectors.
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -660,7 +671,7 @@ public static class VectorMgdMgd
             reflectionInvokeArgs = new object[] { hva128_01_s };
         }
 
-        //====================   Tests for passing 1 argumnet of HVA128_02
+        //====================   Tests for passing 1 argument of HVA128_02
 
         // Test the case where we've passed in a single argument HVA of 2 vectors.
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -678,7 +689,7 @@ public static class VectorMgdMgd
             reflectionInvokeArgs = new object[] { hva128_02_s };
         }
 
-        //====================   Tests for passing 1 argumnet of HVA128_03
+        //====================   Tests for passing 1 argument of HVA128_03
 
         // Test the case where we've passed in a single argument HVA of 2 vectors.
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -697,7 +708,7 @@ public static class VectorMgdMgd
             reflectionInvokeArgs = new object[] { hva128_03_s };
         }
 
-        //====================   Tests for passing 1 argumnet of HVA128_04
+        //====================   Tests for passing 1 argument of HVA128_04
 
         // Test the case where we've passed in a single argument HVA of 2 vectors.
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -717,7 +728,7 @@ public static class VectorMgdMgd
             reflectionInvokeArgs = new object[] { hva128_04_s };
         }
 
-        //====================   Tests for passing 1 argumnet of HVA128_05
+        //====================   Tests for passing 1 argument of HVA128_05
 
         // Test the case where we've passed in a single argument HVA of 2 vectors.
         [MethodImpl(MethodImplOptions.NoInlining)]
@@ -1065,7 +1076,8 @@ public static class VectorMgdMgd
         }
     }
 
-    public static int Main(string[] args)
+    [Fact]
+    public static int TestEntryPoint()
     {
 
         HVATests<byte> byteTests = new HVATests<byte>();

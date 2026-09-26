@@ -9,7 +9,7 @@ using System.Runtime.Loader;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
-using TestLibrary;
+using Xunit;
 
 public class FakeNativeLibrary
 {
@@ -30,7 +30,7 @@ public class ALC : AssemblyLoadContext
 
     public void Validate(params string[] expectedNames)
     {
-        Assert.AreAllEqual(expectedNames, invocations, $"Unexpected invocations for {nameof(LoadUnmanagedDll)}.");
+        AssertExtensions.CollectionEqual(expectedNames, invocations);
     }
 
     protected override IntPtr LoadUnmanagedDll(string unmanagedDllName)
@@ -59,7 +59,10 @@ public class ResolveUnmanagedDllTests
     private static readonly int seed = 123;
     internal static readonly Random rand = new Random(seed);
 
-    public static int Main()
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/41180", TestRuntimes.Mono)]
+    [ActiveIssue("https://github.com/dotnet/runtimelab/issues/165", typeof(TestLibrary.Utilities), nameof(TestLibrary.Utilities.IsNativeAot))]
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {
@@ -87,30 +90,30 @@ public class ResolveUnmanagedDllTests
         // ALC implementation returns a fake handle value
         IntPtr ptr = NativeLibrary.Load(FakeNativeLibrary.Name, asm, null);
         alc.Validate(FakeNativeLibrary.Name);
-        Assert.AreEqual(FakeNativeLibrary.Handle, ptr, $"Unexpected return value for {nameof(NativeLibrary.Load)}");
+        Assert.Equal(FakeNativeLibrary.Handle, ptr);
 
         alc.Reset();
         ptr = IntPtr.Zero;
 
         bool success = NativeLibrary.TryLoad(FakeNativeLibrary.Name, asm, null, out ptr);
-        Assert.IsTrue(success, $"NativeLibrary.TryLoad should have succeeded");
+        Assert.True(success, $"NativeLibrary.TryLoad should have succeeded");
         alc.Validate(FakeNativeLibrary.Name);
-        Assert.AreEqual(FakeNativeLibrary.Handle, ptr, $"Unexpected return value for {nameof(NativeLibrary.Load)}");
+        Assert.Equal(FakeNativeLibrary.Handle, ptr);
 
         alc.Reset();
 
         // ALC implementation calls NativeLibrary.TryLoad with a different name
         ptr = NativeLibrary.Load(FakeNativeLibrary.RedirectName, asm, null);
         alc.Validate(FakeNativeLibrary.RedirectName, FakeNativeLibrary.Name);
-        Assert.AreEqual(FakeNativeLibrary.Handle, ptr, $"Unexpected return value for {nameof(NativeLibrary.Load)}");
+        Assert.Equal(FakeNativeLibrary.Handle, ptr);
 
         alc.Reset();
         ptr = IntPtr.Zero;
 
         success = NativeLibrary.TryLoad(FakeNativeLibrary.RedirectName, asm, null, out ptr);
-        Assert.IsTrue(success, $"NativeLibrary.TryLoad should have succeeded");
+        Assert.True(success, $"NativeLibrary.TryLoad should have succeeded");
         alc.Validate(FakeNativeLibrary.RedirectName, FakeNativeLibrary.Name);
-        Assert.AreEqual(FakeNativeLibrary.Handle, ptr, $"Unexpected return value for {nameof(NativeLibrary.Load)}");
+        Assert.Equal(FakeNativeLibrary.Handle, ptr);
 
         alc.Reset();
 
@@ -121,7 +124,7 @@ public class ResolveUnmanagedDllTests
 
         int value = NativeSumInAssemblyLoadContext(alc, addend1, addend2);
         alc.Validate(NativeLibraryToLoad.InvalidName);
-        Assert.AreEqual(expected, value, $"Unexpected return value for {nameof(NativeSum)}");
+        Assert.Equal(expected, value);
     }
 
     public static void ValidateResolvingUnmanagedDllEvent()
@@ -150,14 +153,14 @@ public class ResolveUnmanagedDllTests
         using (var handler = new Handlers(alc, returnValid: false))
         {
             Assert.Throws<DllNotFoundException>(() => NativeLibrary.Load(FakeNativeLibrary.Name, assembly, null));
-            Assert.IsTrue(handler.EventHandlerInvoked, "Event handler should have been invoked");
+            Assert.True(handler.EventHandlerInvoked);
         }
 
         using (var handler = new Handlers(alc, returnValid: true))
         {
             IntPtr ptr = NativeLibrary.Load(FakeNativeLibrary.Name, assembly, null);
-            Assert.IsTrue(handler.EventHandlerInvoked, "Event handler should have been invoked");
-            Assert.AreEqual(FakeNativeLibrary.Handle, ptr, $"Unexpected return value for {nameof(NativeLibrary.Load)}");
+            Assert.True(handler.EventHandlerInvoked);
+            Assert.Equal(FakeNativeLibrary.Handle, ptr);
         }
     }
 
@@ -176,10 +179,10 @@ public class ResolveUnmanagedDllTests
             else
             {
                 TargetInvocationException ex = Assert.Throws<TargetInvocationException>(() => NativeSumInAssemblyLoadContext(alc, addend1, addend2));
-                Assert.AreEqual(typeof(DllNotFoundException), ex.InnerException.GetType());
+                Assert.Equal(typeof(DllNotFoundException), ex.InnerException.GetType());
             }
 
-            Assert.IsTrue(handler.EventHandlerInvoked, "Event handler should have been invoked");
+            Assert.True(handler.EventHandlerInvoked);
         }
 
         // Multiple handlers - first valid result is used
@@ -192,10 +195,10 @@ public class ResolveUnmanagedDllTests
                 ? NativeSum(addend1, addend2)
                 : NativeSumInAssemblyLoadContext(alc, addend1, addend2);
 
-            Assert.IsTrue(handlerInvalid.EventHandlerInvoked, "Event handler should have been invoked");
-            Assert.IsTrue(handlerValid1.EventHandlerInvoked, "Event handler should have been invoked");
-            Assert.IsFalse(handlerValid2.EventHandlerInvoked, "Event handler should not have been invoked");
-            Assert.AreEqual(expected, value, $"Unexpected return value for {nameof(NativeSum)} in {alc}");
+            Assert.True(handlerInvalid.EventHandlerInvoked);
+            Assert.True(handlerValid1.EventHandlerInvoked);
+            Assert.False(handlerValid2.EventHandlerInvoked);
+            Assert.Equal(expected, value);
         }
     }
 

@@ -1,10 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b59899;
+
 using System;
+using Xunit;
 public class SamplesArray
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    [ActiveIssue("https://github.com/dotnet/runtimelab/issues/155: Arrays with non-zero lower bounds", typeof(TestLibrary.Utilities), nameof(TestLibrary.Utilities.IsNativeAot))]
+    public static void TestEntryPoint()
     {
         int[] myLens = new int[1] { 5 };
         int[] myLows = new int[1] { -2 };
@@ -25,6 +32,5 @@ public class SamplesArray
         {
             Console.WriteLine("Exception: " + myException.ToString());
         }
-        return 100;
     }
 }

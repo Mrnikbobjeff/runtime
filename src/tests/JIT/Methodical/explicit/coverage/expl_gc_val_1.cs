@@ -3,6 +3,7 @@
 
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
 
 internal struct QQ
 {
@@ -81,4 +82,14 @@ internal class AA
 internal struct BB
 {
     public static AA f_init, f_zero;
+}
+
+public static class Test_expl_gc_val_1
+{
+    [Fact]
+    [OuterLoop]
+    public static int TestEntrypoint()
+    {
+        return TestApp.RunAllTests();
+    }
 }

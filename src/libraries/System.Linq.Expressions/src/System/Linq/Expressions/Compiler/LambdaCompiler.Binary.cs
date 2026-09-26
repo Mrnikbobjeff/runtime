@@ -5,11 +5,12 @@ using System.Diagnostics;
 using System.Dynamic.Utils;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using static System.Linq.Expressions.CachedReflectionInfo;
 
 namespace System.Linq.Expressions.Compiler
 {
-    internal partial class LambdaCompiler
+    internal sealed partial class LambdaCompiler
     {
         private void EmitBinaryExpression(Expression expr)
         {
@@ -99,7 +100,7 @@ namespace System.Linq.Expressions.Compiler
                 Type resultType;
                 if (b.IsLiftedToNull)
                 {
-                    resultType = mc.Type.GetNullableType();
+                    resultType = mc.Type.LiftPrimitiveOrThrow();
                 }
                 else
                 {
@@ -475,10 +476,12 @@ namespace System.Linq.Expressions.Compiler
             FreeLocal(locLeft);
             FreeLocal(locRight);
 
-            EmitBinaryOperator(op, leftType.GetNonNullableType(), rightType.GetNonNullableType(), resultType.GetNonNullableType(), liftedToNull: false);
+            Type resultNonNullableType = resultType.GetNonNullableType();
+
+            EmitBinaryOperator(op, leftType.GetNonNullableType(), rightType.GetNonNullableType(), resultNonNullableType, liftedToNull: false);
 
             // construct result type
-            ConstructorInfo ci = resultType.GetConstructor(new Type[] { resultType.GetNonNullableType() })!;
+            ConstructorInfo ci = TypeUtils.GetNullableConstructor(resultType);
             _ilg.Emit(OpCodes.Newobj, ci);
             _ilg.Emit(OpCodes.Stloc, locResult);
             _ilg.Emit(OpCodes.Br_S, labEnd);

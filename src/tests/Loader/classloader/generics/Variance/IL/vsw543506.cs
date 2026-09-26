@@ -4,9 +4,10 @@
 // Regression test for VSW 543506
 /*
 
+using TestLibrary;
 Testing that generic argument types for co/contravariant generic types are boxed
 (VSW 543506)
-Test: under Loader\ClassLoader\Generics\Variance\IL
+Test_vsw543506: under Loader\ClassLoader\Generics\Variance\IL
 Positive and negative tests on casting valuetype instantiations such as
 Positive:
 "	IPos<int> is castable to IPos<int>   (exact match on value types)
@@ -18,6 +19,8 @@ IPos<int> is not castable to IPos<MyEnum>
 
 */
 using System;
+using Xunit;
+using TestLibrary;
 
 public class C<T> : IPos<T>, INeg<T>
 {
@@ -34,7 +37,7 @@ public class C<T> : IPos<T>, INeg<T>
 enum intEnum : int {}
 enum uintEnum : uint {}
 
-class Test
+public class Test_vsw543506
 {
 
 	public static bool pass;
@@ -101,7 +104,9 @@ class Test
 
    	
 
-  	public static int Main() 
+   [ActiveIssue("Doesn't compile with LLVM AOT.", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoMiniJIT), nameof(PlatformDetection.IsArm64Process), nameof(PlatformDetection.IsNotWindows))]
+  	[Fact]
+  	public static int TestEntryPoint() 
 	{
 		pass = true;
 		
@@ -152,7 +157,7 @@ class Test
 
 
 
-		// IPos<unit> --> IPos<int>
+		// IPos<uint> --> IPos<int>
 	    	IsInstShouldFail<IPos<int>>(cui);
 
 		// IPos<IComparable> --> IPos<uint>

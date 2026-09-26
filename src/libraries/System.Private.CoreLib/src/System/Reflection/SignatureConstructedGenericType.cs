@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
 using System.Text;
 
 namespace System.Reflection
@@ -11,17 +12,14 @@ namespace System.Reflection
         // intended user of this constructor.
         internal SignatureConstructedGenericType(Type genericTypeDefinition, Type[] typeArguments)
         {
-            if (genericTypeDefinition is null)
-                throw new ArgumentNullException(nameof(genericTypeDefinition));
-
-            if (typeArguments is null)
-                throw new ArgumentNullException(nameof(typeArguments));
+            Debug.Assert(genericTypeDefinition != null);
+            Debug.Assert(typeArguments != null);
+            Debug.Assert(genericTypeDefinition.IsGenericTypeDefinition);
 
             typeArguments = (Type[])(typeArguments.Clone());
             for (int i = 0; i < typeArguments.Length; i++)
             {
-                if (typeArguments[i] is null)
-                    throw new ArgumentNullException(nameof(typeArguments));
+                ArgumentNullException.ThrowIfNull(typeArguments[i], nameof(typeArguments));
             }
 
             _genericTypeDefinition = genericTypeDefinition;
@@ -34,6 +32,7 @@ namespace System.Reflection
         protected sealed override bool IsArrayImpl() => false;
         protected sealed override bool IsByRefImpl() => false;
         public sealed override bool IsByRefLike => _genericTypeDefinition.IsByRefLike;
+        public sealed override bool IsEnum => _genericTypeDefinition.IsEnum;
         protected sealed override bool IsPointerImpl() => false;
         public sealed override bool IsSZArray => false;
         public sealed override bool IsVariableBoundArray => false;
@@ -54,9 +53,11 @@ namespace System.Reflection
             }
         }
 
+        protected sealed override bool IsValueTypeImpl() => _genericTypeDefinition.IsValueType;
         internal sealed override SignatureType? ElementType => null;
         public sealed override int GetArrayRank() => throw new ArgumentException(SR.Argument_HasToBeArrayClass);
         public sealed override Type GetGenericTypeDefinition() => _genericTypeDefinition;
+        public sealed override Type? GetNullableUnderlyingType() => _genericTypeDefinition.GetNullableUnderlyingType() is not null ? _genericTypeArguments[0] : null;
         public sealed override Type[] GetGenericArguments() => GenericTypeArguments;
         public sealed override Type[] GenericTypeArguments => (Type[])(_genericTypeArguments.Clone());
         public sealed override int GenericParameterPosition => throw new InvalidOperationException(SR.Arg_NotGenericParameter);

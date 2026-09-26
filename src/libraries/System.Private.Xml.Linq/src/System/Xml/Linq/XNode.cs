@@ -2,14 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-
 using CultureInfo = System.Globalization.CultureInfo;
-using SuppressMessageAttribute = System.Diagnostics.CodeAnalysis.SuppressMessageAttribute;
 using StringBuilder = System.Text.StringBuilder;
-using System.Diagnostics;
+using SuppressMessageAttribute = System.Diagnostics.CodeAnalysis.SuppressMessageAttribute;
 
 namespace System.Xml.Linq
 {
@@ -29,9 +28,6 @@ namespace System.Xml.Linq
     /// </remarks>
     public abstract class XNode : XObject
     {
-        private static XNodeDocumentOrderComparer? s_documentOrderComparer;
-        private static XNodeEqualityComparer? s_equalityComparer;
-
         internal XNode? next;
 
         internal XNode() { }
@@ -78,26 +74,12 @@ namespace System.Xml.Linq
         /// <summary>
         /// Gets a comparer that can compare the relative position of two nodes.
         /// </summary>
-        public static XNodeDocumentOrderComparer DocumentOrderComparer
-        {
-            get
-            {
-                if (s_documentOrderComparer == null) s_documentOrderComparer = new XNodeDocumentOrderComparer();
-                return s_documentOrderComparer;
-            }
-        }
+        public static XNodeDocumentOrderComparer DocumentOrderComparer => field ??= new XNodeDocumentOrderComparer();
 
         /// <summary>
         /// Gets a comparer that can compare two nodes for value equality.
         /// </summary>
-        public static XNodeEqualityComparer EqualityComparer
-        {
-            get
-            {
-                if (s_equalityComparer == null) s_equalityComparer = new XNodeEqualityComparer();
-                return s_equalityComparer;
-            }
-        }
+        public static XNodeEqualityComparer EqualityComparer => field ??= new XNodeEqualityComparer();
 
         /// <overloads>
         /// Adds the specified content immediately after this node. The
@@ -138,7 +120,7 @@ namespace System.Xml.Linq
         /// <exception cref="InvalidOperationException">
         /// Thrown if the parent is null.
         /// </exception>
-        public void AddAfterSelf(params object[] content)
+        public void AddAfterSelf(params object?[] content)
         {
             AddAfterSelf((object)content);
         }
@@ -185,7 +167,7 @@ namespace System.Xml.Linq
         /// <exception cref="InvalidOperationException">
         /// Thrown if the parent is null.
         /// </exception>
-        public void AddBeforeSelf(params object[] content)
+        public void AddBeforeSelf(params object?[] content)
         {
             AddBeforeSelf((object)content);
         }
@@ -440,7 +422,8 @@ namespace System.Xml.Linq
         /// </exception>
         public static XNode ReadFrom(XmlReader reader)
         {
-            if (reader == null) throw new ArgumentNullException(nameof(reader));
+            ArgumentNullException.ThrowIfNull(reader);
+
             if (reader.ReadState != ReadState.Interactive) throw new InvalidOperationException(SR.InvalidOperation_ExpectedInteractive);
             switch (reader.NodeType)
             {
@@ -477,8 +460,8 @@ namespace System.Xml.Linq
         /// </exception>
         public static Task<XNode> ReadFromAsync(XmlReader reader, CancellationToken cancellationToken)
         {
-            if (reader == null)
-                throw new ArgumentNullException(nameof(reader));
+            ArgumentNullException.ThrowIfNull(reader);
+
             if (cancellationToken.IsCancellationRequested)
                 return Task.FromCanceled<XNode>(cancellationToken);
             return ReadFromAsyncInternal(reader, cancellationToken);
@@ -567,7 +550,7 @@ namespace System.Xml.Linq
         /// Replaces this node with the specified content.
         /// </summary>
         /// <param name="content">Content that replaces this node.</param>
-        public void ReplaceWith(params object[] content)
+        public void ReplaceWith(params object?[] content)
         {
             ReplaceWith((object)content);
         }

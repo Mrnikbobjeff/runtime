@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 /*
+using TestLibrary;
 ** This program was translated to C# and adapted for xunit-performance.
 ** New variants of several tests were added to compare class versus
 ** struct and to compare jagged arrays vs multi-dimensional arrays.
@@ -30,11 +31,10 @@
 ** this code.
 */
 
-using Microsoft.Xunit.Performance;
 using System;
 using System.IO;
-
-[assembly: OptimizeForBenchmarks]
+using System.Runtime.CompilerServices;
+using Xunit;
 
 internal class global
 {
@@ -74,11 +74,7 @@ internal class global
     public const long TICKS_PER_SEC = 1000;
     public const long MINIMUM_TICKS = 60; // 60 msecs
 
-#if DEBUG
     public const int MINIMUM_SECONDS = 1;
-#else
-    public const int MINIMUM_SECONDS = 1;
-#endif
 
     public const int NUMNUMARRAYS = 1000;
     public const int NUMARRAYSIZE = 8111;
@@ -263,10 +259,13 @@ public class ByteMark
     private static double[] s_bindex;
     private static HarnessTest[] s_tests;
 
-    public static int Main(string[] args)
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         ByteMark app = new ByteMark();
-        int result = app.ExecuteCore(args);
+        int result = app.ExecuteCore(Array.Empty<string>());
         return result;
     }
 
@@ -1255,289 +1254,5 @@ public class ByteMark
         global.custrun = false;
         global.align = 8;
         global.write_to_file = false;
-    }
-
-    const int NumericSortJaggedIterations = 10;
-
-    [Benchmark]
-    public static void BenchNumericSortJagged()
-    {
-        Setup();
-        NumericSortJagged t = new NumericSortJagged();
-        t.numarrays = 200;
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < NumericSortJaggedIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
-    }
-
-    const int NumericSortRectangularIterations = 5;
-
-    [Benchmark]
-    public static void BenchNumericSortRectangular()
-    {
-        Setup();
-        NumericSortRect t = new NumericSortRect();
-        t.numarrays = 200;
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < NumericSortRectangularIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
-    }
-
-    const int StringSortIterations = 15;
-
-    [Benchmark]
-    public static void BenchStringSort()
-    {
-        Setup();
-        StringSort t = new StringSort();
-        t.numarrays = 40;
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < StringSortIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
-    }
-
-    const int BitOpsIterations = 100000;
-
-    [Benchmark]
-    public static void BenchBitOps()
-    {
-        Setup();
-        BitOps t = new BitOps();
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < BitOpsIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
-    }
-
-    const int EmFloatIterations = 10;
-
-    [Benchmark]
-    public static void BenchEmFloat()
-    {
-        Setup();
-        EmFloatStruct t = new EMFloat();
-        t.loops = 50;
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < EmFloatIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
-    }
-
-    const int EmFloatClassIterations = 2;
-
-    [Benchmark]
-    public static void BenchEmFloatClass()
-    {
-        Setup();
-        EmFloatStruct t = new EMFloatClass();
-        t.loops = 50;
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < EmFloatClassIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
-    }
-
-    const int FourierIterations = 300;
-
-    [Benchmark]
-    public static void BenchFourier()
-    {
-        Setup();
-        FourierStruct t = new Fourier();
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < FourierIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
-    }
-
-    const int AssignJaggedIterations = 2;
-
-    [Benchmark]
-    public static void BenchAssignJagged()
-    {
-        Setup();
-        AssignStruct t = new AssignJagged();
-        t.numarrays = 25;
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < AssignJaggedIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
-    }
-
-    const int AssignRectangularIterations = 5;
-
-    [Benchmark]
-    public static void BenchAssignRectangular()
-    {
-        Setup();
-        AssignStruct t = new AssignRect();
-        t.numarrays = 10;
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < AssignRectangularIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
-    }
-
-    const int IDEAEncryptionIterations = 50;
-
-    [Benchmark]
-    public static void BenchIDEAEncryption()
-    {
-        Setup();
-        IDEAStruct t = new IDEAEncryption();
-        t.loops = 100;
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < IDEAEncryptionIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
-    }
-
-    const int NeuralJaggedIterations = 10;
-
-    [Benchmark]
-    public static void BenchNeuralJagged()
-    {
-        Setup();
-        NNetStruct t = new NeuralJagged();
-        t.loops = 3;
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < NeuralJaggedIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
-    }
-
-    const int NeuralIterations = 20;
-
-    [Benchmark]
-    public static void BenchNeural()
-    {
-        Setup();
-        NNetStruct t = new Neural();
-        t.loops = 1;
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < NeuralIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
-    }
-
-    const int LUDecompIterations = 10;
-
-    [Benchmark]
-    public static void BenchLUDecomp()
-    {
-        Setup();
-        LUStruct t = new LUDecomp();
-        t.numarrays = 250;
-        t.adjust = 1;
-
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                for (int i = 0; i < LUDecompIterations; i++)
-                {
-                    t.Run();
-                }
-            }
-        }
     }
 }

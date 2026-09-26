@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Microsoft.DotNet.XUnitExtensions;
 using Microsoft.Extensions.FileSystemGlobbing.Abstractions;
 using Microsoft.Extensions.FileSystemGlobbing.Tests.TestUtility;
 using Xunit;
@@ -365,22 +366,18 @@ namespace Microsoft.Extensions.FileSystemGlobbing.Tests
                 "compiler/shared/sub/sub/sharedsub.cs"
             };
 
-            Assert.Equal(
-                expected.OrderBy(e => e),
-                actual.OrderBy(e => e),
-                StringComparer.OrdinalIgnoreCase);
+            AssertExtensions.CollectionEqual(expected, actual, StringComparer.OrdinalIgnoreCase);
         }
 
         [Fact]
         public void StemCorrectWithDifferentWildCards_WithInMemory()
         {
             var matcher = new Matcher();
-            matcher.AddInclude("sub/*.cs");
-            matcher.AddInclude("**/*.cs");
+            matcher.AddInclude("src/project/sub/*.cs");
+            matcher.AddInclude("src/project/**/*.cs");
 
             var files = GetFileList();
-            var directoryPath = "src/project";
-            var results = matcher.Match(directoryPath, files);
+            var results = matcher.Match("./", files);
 
             var actual = results.Files.Select(match => match.Stem);
             var expected = new string[]
@@ -398,10 +395,7 @@ namespace Microsoft.Extensions.FileSystemGlobbing.Tests
                 "compiler/shared/sub/sub/sharedsub.cs"
             };
 
-            Assert.Equal(
-                expected.OrderBy(e => e),
-                actual.OrderBy(e => e),
-                StringComparer.OrdinalIgnoreCase);
+            AssertExtensions.CollectionEqual(expected, actual, StringComparer.OrdinalIgnoreCase);
         }
 
         [Fact]
@@ -424,21 +418,17 @@ namespace Microsoft.Extensions.FileSystemGlobbing.Tests
                 "shared/sub/sub/sharedsub.cs"
             };
 
-            Assert.Equal(
-                expected.OrderBy(e => e),
-                actual.OrderBy(e => e),
-                StringComparer.OrdinalIgnoreCase);
+            AssertExtensions.CollectionEqual(expected, actual, StringComparer.OrdinalIgnoreCase);
         }
 
         [Fact]
         public void MultipleSubDirsAfterFirstWildcardMatch_HasCorrectStem_WithInMemory()
         {
             var matcher = new Matcher();
-            matcher.AddInclude("compiler/**/*.cs");
+            matcher.AddInclude("src/project/compiler/**/*.cs");
 
             var files = GetFileList();
-            var directoryPath = "src/project";
-            var results = matcher.Match(directoryPath, files);
+            var results = matcher.Match("./", files);
 
             var actual = results.Files.Select(match => match.Stem);
             var expected = new string[]
@@ -451,16 +441,305 @@ namespace Microsoft.Extensions.FileSystemGlobbing.Tests
                 "shared/sub/sub/sharedsub.cs"
             };
 
+            AssertExtensions.CollectionEqual(expected, actual, StringComparer.OrdinalIgnoreCase);
+        }
+
+        [Theory] // rootDir, includePattern, expectedPath
+        [InlineData(@"root", @"*.0",         @"test.0")]
+        [InlineData(@"root", @"**/*.0",      @"test.0")]
+        public void PathIncludesAllSegmentsFromPattern_RootDirectory(string root, string includePattern, string expectedPath)
+        {
+            var matcher = new Matcher();
+            matcher.AddInclude(includePattern);
+
+            var results = matcher.Match(root, new[] { expectedPath });
+            var actualPath = results.Files.Select(file => file.Path).SingleOrDefault();
+
+            Assert.Equal(expectedPath, actualPath);
+
+            // Also test all scenarios with the `./` current directory prefix
+            matcher = new Matcher();
+            matcher.AddInclude("./" + includePattern);
+
+            results = matcher.Match(root, new[] { expectedPath });
+            actualPath = results.Files.Select(file => file.Path).SingleOrDefault();
+
+            Assert.Equal(expectedPath, actualPath);
+        }
+
+        [Theory] // rootDir,      includePattern,    expectedPath
+        [InlineData(@"root/dir1", @"*.1",            @"test.1")]
+        [InlineData(@"root/dir1", @"**/*.1",         @"test.1")]
+        [InlineData(@"root",      @"dir1/*.1",       @"dir1/test.1")]
+        [InlineData(@"root",      @"dir1/**/*.1",    @"dir1/test.1")]
+        [InlineData(@"root",      @"**/dir1/*.1",    @"dir1/test.1")]
+        [InlineData(@"root",      @"**/dir1/**/*.1", @"dir1/test.1")]
+        [InlineData(@"root",      @"**/*.1",         @"dir1/test.1")]
+        public void PathIncludesAllSegmentsFromPattern_OneDirectoryDeep(string root, string includePattern, string expectedPath)
+        {
+            var matcher = new Matcher();
+            matcher.AddInclude(includePattern);
+
+            var results = matcher.Match(root, new[] { expectedPath });
+            var actualPath = results.Files.Select(file => file.Path).SingleOrDefault();
+
+            Assert.Equal(expectedPath, actualPath);
+
+            // Also test all scenarios with the `./` current directory prefix
+            matcher = new Matcher();
+            matcher.AddInclude("./" + includePattern);
+
+            results = matcher.Match(root, new[] { expectedPath });
+            actualPath = results.Files.Select(file => file.Path).SingleOrDefault();
+
+            Assert.Equal(expectedPath, actualPath);
+        }
+
+        [Theory] // rootDir,           includePattern,            expectedPath
+        [InlineData(@"root/dir1/dir2", @"*.2",                    @"test.2")]
+        [InlineData(@"root/dir1/dir2", @"**/*.2",                 @"test.2")]
+        [InlineData(@"root/dir1",      @"dir2/*.2",               @"dir2/test.2")]
+        [InlineData(@"root/dir1",      @"dir2/**/*.2",            @"dir2/test.2")]
+        [InlineData(@"root/dir1",      @"**/dir2/*.2",            @"dir2/test.2")]
+        [InlineData(@"root/dir1",      @"**/dir2/**/*.2",         @"dir2/test.2")]
+        [InlineData(@"root/dir1",      @"**/*.2",                 @"dir2/test.2")]
+        [InlineData(@"root",           @"dir1/dir2/*.2",          @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"dir1/dir2/**/*.2",       @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"**/dir1/dir2/**/*.2",    @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"**/dir1/**/dir2/*.2",    @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"**/dir1/**/dir2/**/*.2", @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"dir1/**/*.2",            @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"**/dir1/**/*.2",         @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"**/dir2/*.2",            @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"**/dir2/**/*.2",         @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"**/*.2",                 @"dir1/dir2/test.2")]
+        public void PathIncludesAllSegmentsFromPattern_TwoDirectoriesDeep(string root, string includePattern, string expectedPath)
+        {
+            var matcher = new Matcher();
+            matcher.AddInclude(includePattern);
+
+            var results = matcher.Match(root, new[] { expectedPath });
+            var actualPath = results.Files.Select(file => file.Path).SingleOrDefault();
+
+            Assert.Equal(expectedPath, actualPath);
+
+            // Also test all scenarios with the `./` current directory prefix
+            matcher = new Matcher();
+            matcher.AddInclude("./" + includePattern);
+
+            results = matcher.Match(root, new[] { expectedPath });
+            actualPath = results.Files.Select(file => file.Path).SingleOrDefault();
+
+            Assert.Equal(expectedPath, actualPath);
+        }
+
+        [Theory] // rootDir, includePattern, expectedStem
+        [InlineData(@"root", @"*.0",         @"test.0")]
+        [InlineData(@"root", @"**/*.0",      @"test.0")]
+        public void StemIncludesAllSegmentsFromPatternStartingAtWildcard_RootDirectory(string root, string includePattern, string expectedStem)
+        {
+            string fileToFind = "test.0";
+
+            var matcher = new Matcher();
+            matcher.AddInclude(includePattern);
+
+            var results = matcher.Match(root, new[] { fileToFind });
+            var actualStem = results.Files.Select(file => file.Stem).SingleOrDefault();
+
+            Assert.Equal(expectedStem, actualStem);
+
+            // Also test all scenarios with the `./` current directory prefix
+            matcher = new Matcher();
+            matcher.AddInclude("./" + includePattern);
+
+            results = matcher.Match(root, new[] { fileToFind });
+            actualStem = results.Files.Select(file => file.Stem).SingleOrDefault();
+
+            Assert.Equal(expectedStem, actualStem);
+        }
+
+        [Theory] // rootDir,      includePattern,    fileToFind      expectedStem
+        [InlineData(@"root/dir1", @"*.1",            @"test.1",      @"test.1")]
+        [InlineData(@"root/dir1", @"**/*.1",         @"test.1",      @"test.1")]
+        [InlineData(@"root",      @"dir1/*.1",       @"dir1/test.1", @"test.1")]
+        [InlineData(@"root",      @"dir1/**/*.1",    @"dir1/test.1", @"test.1")]
+        [InlineData(@"root",      @"**/dir1/*.1",    @"dir1/test.1", @"dir1/test.1")]
+        [InlineData(@"root",      @"**/dir1/**/*.1", @"dir1/test.1", @"dir1/test.1")]
+        [InlineData(@"root",      @"**/*.1",         @"dir1/test.1", @"dir1/test.1")]
+        public void StemIncludesAllSegmentsFromPatternStartingAtWildcard_OneDirectoryDeep(string root, string includePattern, string fileToFind, string expectedStem)
+        {
+            var matcher = new Matcher();
+            matcher.AddInclude(includePattern);
+
+            var results = matcher.Match(root, new[] { fileToFind });
+            var actualStem = results.Files.Select(file => file.Stem).SingleOrDefault();
+
+            Assert.Equal(expectedStem, actualStem);
+
+            // Also test all scenarios with the `./` current directory prefix
+            matcher = new Matcher();
+            matcher.AddInclude("./" + includePattern);
+
+            results = matcher.Match(root, new[] { fileToFind });
+            actualStem = results.Files.Select(file => file.Stem).SingleOrDefault();
+
+            Assert.Equal(expectedStem, actualStem);
+        }
+
+        [Theory] // rootDir,           includePattern,            fileToFind           expectedStem
+        [InlineData(@"root/dir1/dir2", @"*.2",                    @"test.2",           @"test.2")]
+        [InlineData(@"root/dir1/dir2", @"**/*.2",                 @"test.2",           @"test.2")]
+        [InlineData(@"root/dir1",      @"dir2/*.2",               @"dir2/test.2",      @"test.2")]
+        [InlineData(@"root/dir1",      @"dir2/**/*.2",            @"dir2/test.2",      @"test.2")]
+        [InlineData(@"root/dir1",      @"**/dir2/*.2",            @"dir2/test.2",      @"dir2/test.2")]
+        [InlineData(@"root/dir1",      @"**/dir2/**/*.2",         @"dir2/test.2",      @"dir2/test.2")]
+        [InlineData(@"root/dir1",      @"**/*.2",                 @"dir2/test.2",      @"dir2/test.2")]
+        [InlineData(@"root",           @"dir1/dir2/*.2",          @"dir1/dir2/test.2", @"test.2")]
+        [InlineData(@"root",           @"dir1/dir2/**/*.2",       @"dir1/dir2/test.2", @"test.2")]
+        [InlineData(@"root",           @"**/dir1/dir2/**/*.2",    @"dir1/dir2/test.2", @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"**/dir1/**/dir2/*.2",    @"dir1/dir2/test.2", @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"**/dir1/**/dir2/**/*.2", @"dir1/dir2/test.2", @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"dir1/**/*.2",            @"dir1/dir2/test.2", @"dir2/test.2")]
+        [InlineData(@"root",           @"**/dir1/**/*.2",         @"dir1/dir2/test.2", @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"**/dir2/*.2",            @"dir1/dir2/test.2", @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"**/dir2/**/*.2",         @"dir1/dir2/test.2", @"dir1/dir2/test.2")]
+        [InlineData(@"root",           @"**/*.2",                 @"dir1/dir2/test.2", @"dir1/dir2/test.2")]
+        public void StemIncludesAllSegmentsFromPatternStartingAtWildcard_TwoDirectoriesDeep(string root, string includePattern, string fileToFind, string expectedStem)
+        {
+            var matcher = new Matcher();
+            matcher.AddInclude(includePattern);
+
+            var results = matcher.Match(root, new[] { fileToFind });
+            var actualStem = results.Files.Select(file => file.Stem).SingleOrDefault();
+
+            Assert.Equal(expectedStem, actualStem);
+
+            // Also test all scenarios with the `./` current directory prefix
+            matcher = new Matcher();
+            matcher.AddInclude("./" + includePattern);
+
+            results = matcher.Match(root, new[] { fileToFind });
+            actualStem = results.Files.Select(file => file.Stem).SingleOrDefault();
+
+            Assert.Equal(expectedStem, actualStem);
+        }
+
+        [Theory]
+        [InlineData("/", '/')]
+        public void RootDir_IsPathRoot_WithInMemory_AllOS(string rootDir, char separator)
+        {
+            RootDir_IsPathRoot_WithInMemory(rootDir, separator);
+        }
+
+        [Theory]
+        [PlatformSpecific(TestPlatforms.Windows)]
+        [InlineData("C:\\", '\\')]
+        [InlineData("C:/", '/')]
+        public void RootDir_IsPathRoot_WithInMemory_WindowsOnly(string rootDir, char separator)
+        {
+            RootDir_IsPathRoot_WithInMemory(rootDir, separator);
+        }
+
+        private static void RootDir_IsPathRoot_WithInMemory(string rootDir, char separator)
+        {
+            var matcher = new Matcher();
+            matcher.AddInclude($"**{separator}*.cs");
+
+            IEnumerable<string> files = GetFileList(rootDir, separator);
+            PatternMatchingResult results = matcher.Match(rootDir, files);
+
+            IEnumerable<string> actual = results.Files.Select(match => match.Path);
+            IEnumerable<string> expected = new string[]
+            {
+                "src/project/source1.cs",
+                "src/project/sub/source2.cs",
+                "src/project/sub/source3.cs",
+                "src/project/sub2/source4.cs",
+                "src/project/sub2/source5.cs",
+                "src/project/compiler/preprocess/preprocess-source1.cs",
+                "src/project/compiler/preprocess/sub/preprocess-source2.cs",
+                "src/project/compiler/preprocess/sub/sub/preprocess-source3.cs",
+                "src/project/compiler/shared/shared1.cs",
+                "src/project/compiler/shared/sub/shared2.cs",
+                "src/project/compiler/shared/sub/sub/sharedsub.cs",
+                "src/project2/source1.cs",
+                "src/project2/sub/source2.cs",
+                "src/project2/sub/source3.cs",
+                "src/project2/sub2/source4.cs",
+                "src/project2/sub2/source5.cs",
+                "src/project2/compiler/preprocess/preprocess-source1.cs",
+                "src/project2/compiler/preprocess/sub/preprocess-source2.cs",
+                "src/project2/compiler/preprocess/sub/sub/preprocess-source3.cs",
+                "src/project2/compiler/shared/shared1.cs",
+                "src/project2/compiler/shared/sub/shared2.cs",
+                "src/project2/compiler/shared/sub/sub/sharedsub.cs",
+                "lib/source6.cs",
+                "lib/sub3/source7.cs",
+                "lib/sub4/source8.cs",
+            };
+
             Assert.Equal(
                 expected.OrderBy(e => e),
                 actual.OrderBy(e => e),
                 StringComparer.OrdinalIgnoreCase);
         }
 
-        private List<string> GetFileList()
+        [Theory]
+        [InlineData("/src/project", '/')]
+        [InlineData("/src/project/", '/')]
+        public void RootDir_IsAbsolutePath_WithInMemory_AllOS(string rootDir, char separator)
         {
-            return new List<string>
+            RootDir_IsAbsolutePath_WithInMemory(rootDir, separator);
+        }
+        
+        [Theory]
+        [PlatformSpecific(TestPlatforms.Windows)]
+        [InlineData("C:\\src\\project", '\\')]
+        [InlineData("C:\\src\\project\\", '\\')]
+        [InlineData("C:/src/project", '/')]
+        [InlineData("C:/src/project/", '/')]
+        public void RootDir_IsAbsolutePath_WithInMemory_WindowsOnly(string rootDir, char separator)
+        {
+            RootDir_IsAbsolutePath_WithInMemory(rootDir, separator);
+        }
+
+        private static void RootDir_IsAbsolutePath_WithInMemory(string rootDir, char separator)
+        {
+            var matcher = new Matcher();
+            matcher.AddInclude($"**{separator}*.cs");
+
+            IEnumerable<string> files = GetFileList(Path.GetPathRoot(rootDir), separator);
+            PatternMatchingResult results = matcher.Match(rootDir, files);
+
+            IEnumerable<string> actual = results.Files.Select(match => match.Path);
+            IEnumerable<string> expected = new string[]
             {
+                "source1.cs",
+                "sub/source2.cs",
+                "sub/source3.cs",
+                "sub2/source4.cs",
+                "sub2/source5.cs",
+                "compiler/preprocess/preprocess-source1.cs",
+                "compiler/preprocess/sub/preprocess-source2.cs",
+                "compiler/preprocess/sub/sub/preprocess-source3.cs",
+                "compiler/shared/shared1.cs",
+                "compiler/shared/sub/shared2.cs",
+                "compiler/shared/sub/sub/sharedsub.cs"
+            };
+
+            Assert.Equal(
+                expected.OrderBy(e => e),
+                actual.OrderBy(e => e),
+                StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static IEnumerable<string> GetFileList(string rootDir = "", char directorySeparator = '/')
+        {
+            var files = new List<string>
+            {
+                "root/test.0",
+                "root/dir1/test.1",
+                "root/dir1/dir2/test.2",
                 "src/project/source1.cs",
                 "src/project/sub/source2.cs",
                 "src/project/sub/source3.cs",
@@ -512,6 +791,8 @@ namespace Microsoft.Extensions.FileSystemGlobbing.Tests
                 ".hidden/file1.hid",
                 ".hidden/sub/file2.hid"
             };
+
+            return files.Select(x => (rootDir + x).Replace('/', directorySeparator));
         }
 
         private DisposableFileSystem CreateContext()
@@ -530,10 +811,216 @@ namespace Microsoft.Extensions.FileSystemGlobbing.Tests
             var actual = results.Files.Select(match => Path.GetFullPath(Path.Combine(_context.RootPath, directoryPath, match.Path)));
             var expected = expectFiles.Select(relativePath => Path.GetFullPath(Path.Combine(_context.RootPath, relativePath)));
 
-            Assert.Equal(
-                expected.OrderBy(e => e),
-                actual.OrderBy(e => e),
-                StringComparer.OrdinalIgnoreCase);
+            AssertExtensions.CollectionEqual(expected, actual, StringComparer.OrdinalIgnoreCase);
+        }
+
+        [Fact] // https://github.com/dotnet/runtime/issues/44767
+        public void VerifyAbsolutePaths_HasMatches()
+        {
+            var fileMatcher = new Matcher();
+            fileMatcher.AddInclude("**/*");
+
+            if (PlatformDetection.IsWindows)
+            {
+                // Windows-like absolute paths are not supported on Unix.
+                string fakeWindowsPath = "C:\\This\\is\\a\\nested\\windows-like\\path\\somefile.cs";
+                Assert.True(fileMatcher.Match(Path.GetPathRoot(fakeWindowsPath), fakeWindowsPath).HasMatches);
+            }
+            
+            // Unix-like absolute paths are treated as relative paths on Windows.
+            string fakeUnixPath = "/This/is/a/nested/unix-like/path/somefile.cs";
+            Assert.True(fileMatcher.Match(Path.GetPathRoot(fakeUnixPath), fakeUnixPath).HasMatches);
+        }
+
+        [Fact] // https://github.com/dotnet/runtime/issues/36415
+        public void VerifyInMemoryDirectoryInfo_IsNotEmpty()
+        {
+            IEnumerable<string> files = new[] { @"pagefile.sys" };
+            InMemoryDirectoryInfo directoryInfo;
+            IEnumerable<FileSystemInfoBase> fileSystemInfos;
+
+            if (PlatformDetection.IsWindows)
+            {
+                directoryInfo = new InMemoryDirectoryInfo(@"C:\", files);
+                fileSystemInfos = directoryInfo.EnumerateFileSystemInfos();
+
+                Assert.Equal(1, fileSystemInfos.Count());
+            }
+
+            directoryInfo = new InMemoryDirectoryInfo("/", files);
+            fileSystemInfos = directoryInfo.EnumerateFileSystemInfos();
+
+            Assert.Equal(1, fileSystemInfos.Count());
+        }
+
+        [Theory]
+        [InlineData("./sdk/9.0.100-preview.4.24207.1/.version")]
+        [InlineData("././sdk/9.0.100-preview.4.24207.1/.version")]
+        public void VerifyFiles_RedundantSegment_HasMatches(string file)
+        {
+            foreach (string pattern in new[] { "**/*", "./", file })
+            {
+                var matcher = new Matcher();
+                matcher.AddInclude(pattern);
+                Assert.True(matcher.Match(file).HasMatches);
+                Assert.True(matcher.Match([file]).HasMatches);
+                Assert.True(matcher.Match("X:/foo", file).HasMatches);
+                Assert.True(matcher.Match("X:/foo", [file]).HasMatches);
+            }
+        }
+
+        [ConditionalFact]
+        public void VerifyFiles_ParentRedundantSegment_HasMatches()
+        {
+            string file = "sdk/9.0.100-preview.4.24207.1/.version";
+            foreach (string pattern in new[] { "**/*", "./", file })
+            {
+                var matcher = new Matcher();
+                matcher.AddInclude(pattern);
+                Assert.True(matcher.Match("X:/foo", $"../foo/{file}").HasMatches);
+                Assert.True(matcher.Match("X:/foo", [$"../foo/{file}"]).HasMatches);
+            }
+        }
+
+        [ConditionalFact]
+        public void VerifyFiles_ParentRedundantSegment_CurrentDirectory_HasMatches()
+        {
+            string cwd = Environment.CurrentDirectory;
+            string cwdFolderName = new DirectoryInfo(cwd).Name;
+            if (cwd == cwdFolderName) // cwd is root, we can't do ../C:/
+            {
+                throw new SkipTestException($"CurrentDirectory {cwd} is the root directory.");
+            }
+
+            string file = "sdk/9.0.100-preview.4.24207.1/.version";
+            foreach (string pattern in new[] { "**/*", "./", file })
+            {
+                var matcher = new Matcher();
+                matcher.AddInclude(pattern);
+                Assert.True(matcher.Match($"../{cwdFolderName}/{file}").HasMatches);
+                Assert.True(matcher.Match([$"../{cwdFolderName}/{file}"]).HasMatches);
+            }
+        }
+
+        [Theory]
+        [InlineData(@"/this/example/root", @"/this/EXAMPLE/root", "**/*", new[] { "some/test/file.txt" })]
+        [InlineData(@"/this/example/root", @"/this/example/root", "**/*", new[] { "some/test/file.txt" })]
+        [InlineData(@"/this/EXAMPLE/root", @"/this/example/root", "**/*", new[] { "some/test/file.txt" })]
+        public void VerifyFiles_InMemory_HasCaseInsensitiveRootMatches(string matchRoot, string filesRoot, string pattern, string[] expectedSubPaths)
+        {
+            Matcher matcher = new(StringComparison.OrdinalIgnoreCase);
+            matcher.AddInclude(pattern);
+
+            PatternMatchingResult patternMatchingResult = matcher.Match(matchRoot,
+                expectedSubPaths.Select(expectedSubPath => Path.Combine(filesRoot, expectedSubPath)));
+
+            Assert.True(patternMatchingResult.HasMatches);
+            Assert.Equal(expectedSubPaths.Length, patternMatchingResult.Files.Count());
+        }
+
+        [Theory]
+        [InlineData(@"/this/example/root", @"/this/example/root", "**/*", new[] { "some/test/file.txt" })]
+        public void VerifyFiles_InMemory_HasCaseSensitiveRootMatches(string matchRoot, string filesRoot, string pattern, string[] expectedSubPaths)
+        {
+            Matcher matcher = new(StringComparison.Ordinal);
+            matcher.AddInclude(pattern);
+
+            PatternMatchingResult patternMatchingResult = matcher.Match(matchRoot,
+                expectedSubPaths.Select(expectedSubPath => Path.Combine(filesRoot, expectedSubPath)));
+
+            Assert.True(patternMatchingResult.HasMatches);
+            Assert.Equal(expectedSubPaths.Length, patternMatchingResult.Files.Count());
+        }
+
+        [Theory]
+        [InlineData(@"/this/example/root", @"/this/EXAMPLE/root", "**/*", new[] { "some/test/file.txt" })]
+        [InlineData(@"/this/EXAMPLE/root", @"/this/example/root", "**/*", new[] { "some/test/file.txt" })]
+        public void VerifyFiles_InMemory_HasCaseSensitiveRootMisses(string matchRoot, string filesRoot, string pattern, string[] expectedSubPaths)
+        {
+            Matcher matcher = new(StringComparison.Ordinal);
+            matcher.AddInclude(pattern);
+
+            PatternMatchingResult patternMatchingResult = matcher.Match(matchRoot,
+                expectedSubPaths.Select(expectedSubPath => Path.Combine(filesRoot, expectedSubPath)));
+
+            Assert.False(patternMatchingResult.HasMatches);
+            Assert.Equal(0, patternMatchingResult.Files.Count());
+        }
+
+        [Fact]
+        public void StemIsCorrectForMultipleWildcardSiblingDirectories()
+        {
+            var matcher = new Matcher();
+            matcher.AddInclude("sys*/1*/*.dll");
+
+            var files = new[]
+            {
+                "system32/1028/VsGraphicsResources.dll",
+                "system32/1028/vsjitdebuggerui.dll",
+                "system32/1029/VsGraphicsResources.dll",
+                "system32/1029/vsjitdebuggerui.dll",
+                "system32/1031/VsGraphicsResources.dll",
+                "system32/1031/vsjitdebuggerui.dll",
+             };
+
+            var results = matcher.Match("./", files);
+
+            var actual = results.Files.Select(f => f.Stem);
+            var expected = new[]
+            {
+                "system32/1028/VsGraphicsResources.dll",
+                "system32/1028/vsjitdebuggerui.dll",
+                "system32/1029/VsGraphicsResources.dll",
+                "system32/1029/vsjitdebuggerui.dll",
+                "system32/1031/VsGraphicsResources.dll",
+                "system32/1031/vsjitdebuggerui.dll",
+             };
+
+            AssertExtensions.CollectionEqual(expected, actual, StringComparer.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void StemIsCorrectForRecursiveWildcardWithSiblingDirectories()
+        {
+            var matcher = new Matcher();
+            matcher.AddInclude("sys*/**/*.dll");
+
+            var files = new[]
+            {
+                "system32/drivers/acpi.dll",
+                "system32/drivers/usb.dll",
+                "system32/config/sam.dll",
+                "system32/config/security.dll",
+            };
+
+            var results = matcher.Match("./", files);
+
+            var actual = results.Files.Select(f => f.Stem);
+            var expected = new[]
+            {
+                "drivers/acpi.dll",
+                "drivers/usb.dll",
+                "config/sam.dll",
+                "config/security.dll",
+            };
+
+            AssertExtensions.CollectionEqual(expected, actual, StringComparer.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public void VerifyInMemoryDirectoryInfo_ParentPatternMatches()
+        {
+            string rootDir = "/Folder1";
+            string[] files = ["/Folder1/File1.txt", "/Folder2/File2.txt"];
+
+            var matcher = new Matcher();
+            matcher.AddInclude("../Folder2/**");
+
+            var result = matcher.Execute(new InMemoryDirectoryInfo(rootDir, files));
+
+            Assert.True(result.HasMatches);
+            Assert.Single(result.Files);
+            Assert.Equal("../Folder2/File2.txt", result.Files.First().Path);
         }
     }
 }

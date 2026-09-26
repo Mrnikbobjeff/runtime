@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers.Binary;
 using System.Diagnostics.CodeAnalysis;
 
 namespace System.Net.NetworkInformation
@@ -28,10 +29,7 @@ namespace System.Net.NetworkInformation
 
                 for (i = 0; i < size; i += 4)
                 {
-                    hash ^= (int)_address[i]
-                            | ((int)_address[i + 1] << 8)
-                            | ((int)_address[i + 2] << 16)
-                            | ((int)_address[i + 3] << 24);
+                    hash ^= BinaryPrimitives.ReadInt32LittleEndian(_address.AsSpan(i));
                 }
 
                 if ((_address.Length & 3) != 0)
@@ -59,34 +57,11 @@ namespace System.Net.NetworkInformation
             return _hash;
         }
 
-        public override bool Equals(object? comparand)
-        {
-            PhysicalAddress? address = comparand as PhysicalAddress;
-            if (address == null)
-            {
-                return false;
-            }
-
-            if (_address.Length != address._address.Length)
-            {
-                return false;
-            }
-
-            if (GetHashCode() != address.GetHashCode())
-            {
-                return false;
-            }
-
-            for (int i = 0; i < address._address.Length; i++)
-            {
-                if (_address[i] != address._address[i])
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
+        public override bool Equals([NotNullWhen(true)] object? comparand) =>
+            comparand is PhysicalAddress other &&
+            _address.Length == other._address.Length &&
+            GetHashCode() == other.GetHashCode() &&
+            _address.AsSpan().SequenceEqual(other._address);
 
         public override string ToString()
         {
@@ -240,7 +215,7 @@ namespace System.Net.NetworkInformation
                     }
                     else if ((i - (segments - 1)) % validSegmentLength != 0)
                     {
-                        // segments - 1 = num of delimeters. Return false if new segment isn't the validSegmentLength
+                        // segments - 1 = num of delimiters. Return false if new segment isn't the validSegmentLength
                         return false;
                     }
 

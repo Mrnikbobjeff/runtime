@@ -2,17 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 #pragma once
-
+#ifdef WINDOWS
 #include <Windows.h>
 #include <comdef.h>
-#include <cassert>
 #include <exception>
 #include <type_traits>
+#endif // WINDOWS
 #include <atomic>
+#include <cassert>
 
 // Common macro for working in COM
 #define RETURN_IF_FAILED(exp) { hr = exp; if (FAILED(hr)) { return hr; } }
 
+#ifdef WINDOWS
 namespace Internal
 {
     template<typename I>
@@ -50,24 +52,25 @@ namespace Internal
         return __QueryInterfaceImpl(riid, ppvObject, remain...);
     }
 }
+#endif // WINDOWS
 
 // Implementation of IUnknown operations
 class UnknownImpl
 {
 public:
-    UnknownImpl() = default;
+    UnknownImpl() : _refCount{ 1 } {};
     virtual ~UnknownImpl() = default;
 
     UnknownImpl(const UnknownImpl&) = delete;
     UnknownImpl& operator=(const UnknownImpl&) = delete;
 
-    UnknownImpl(UnknownImpl&&) = default;
-    UnknownImpl& operator=(UnknownImpl&&) = default;
+    UnknownImpl(UnknownImpl&&) = delete;
+    UnknownImpl& operator=(UnknownImpl&&) = delete;
 
     template<typename I1, typename ...IR>
     HRESULT DoQueryInterface(
         /* [in] */ REFIID riid,
-        /* [iid_is][out] */ _COM_Outptr_ void **ppvObject,
+        /* [iid_is][out] */ void **ppvObject,
         /* [in] */ I1 i1,
         /* [in] */ IR... remain)
     {
@@ -80,38 +83,49 @@ public:
         }
         else
         {
+#ifdef WINDOWS
+            // Internal::__QueryInterfaceImpl available only for Windows due to __uuidof(T) availability
             HRESULT hr = Internal::__QueryInterfaceImpl(riid, ppvObject, i1, remain...);
             if (hr != S_OK)
                 return hr;
+#else
+            *ppvObject = nullptr;
+            return E_NOTIMPL;
+#endif // WINDOWS
         }
 
         DoAddRef();
         return S_OK;
     }
 
-    ULONG DoAddRef()
+    uint32_t DoAddRef()
     {
         assert(_refCount > 0);
         return (++_refCount);
     }
 
-    ULONG DoRelease()
+#ifdef TARGET_UNIX
+    // Header-defined 'delete this' confuses GCC 16's flow analysis when
+    // inlined into scopes containing stack-allocated instances.
+    __attribute__((noinline))
+#endif
+    uint32_t DoRelease()
     {
         assert(_refCount > 0);
-        ULONG c = (--_refCount);
+        uint32_t c = (--_refCount);
         if (c == 0)
             delete this;
         return c;
     }
 
 protected:
-    ULONG GetRefCount()
+    uint32_t GetRefCount()
     {
         return _refCount;
     }
 
 private:
-    std::atomic<ULONG> _refCount = 1;
+    std::atomic<uint32_t> _refCount;
 };
 
 // Macro to use for defining ref counting impls
@@ -119,6 +133,7 @@ private:
     STDMETHOD_(ULONG, AddRef)(void) { return UnknownImpl::DoAddRef(); } \
     STDMETHOD_(ULONG, Release)(void) { return UnknownImpl::DoRelease(); }
 
+#ifdef WINDOWS
 // Templated class factory
 template<typename T>
 class ClassFactoryBasic : public UnknownImpl, public IClassFactory
@@ -336,6 +351,7 @@ public: // IUnknown
 
     DEFINE_REF_COUNTING();
 };
+#endif // WINDOWS
 
 template<typename T>
 struct ComSmartPtr

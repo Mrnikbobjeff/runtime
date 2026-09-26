@@ -21,8 +21,6 @@
 // OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-#nullable enable
-
 using System.Linq;
 using System.IO;
 using System.Threading;
@@ -503,12 +501,12 @@ namespace System.Data.Common.Tests
         }
 
         [Fact]
-        public void GetSchemaTableAsync_with_cancelled_token()
-            => Assert.ThrowsAsync<TaskCanceledException>(async () => await new DbDataReaderMock().GetSchemaTableAsync(new CancellationToken(true)));
+        public async Task GetSchemaTableAsync_with_cancelled_token()
+            => await Assert.ThrowsAsync<TaskCanceledException>(async () => await new DbDataReaderMock().GetSchemaTableAsync(new CancellationToken(true)));
 
         [Fact]
-        public void GetSchemaTableAsync_with_exception()
-            => Assert.ThrowsAsync<NotSupportedException>(async () => await new DbDataReaderMock().GetSchemaTableAsync());
+        public async Task GetSchemaTableAsync_with_exception()
+            => await Assert.ThrowsAsync<NotSupportedException>(async () => await new DbDataReaderMock().GetSchemaTableAsync());
 
         [Fact]
         public async Task GetSchemaTableAsync_calls_GetSchemaTable()
@@ -518,18 +516,18 @@ namespace System.Data.Common.Tests
 
             var table = (await new SchemaDbDataReaderMock(readerTable).GetSchemaTableAsync())!;
 
-            DataRow textColRow = table.Rows.Cast<DataRow>().Single()!;
+            var textColRow = table.Rows.Cast<DataRow>().Single();
             Assert.Equal("text_col", textColRow["ColumnName"]);
             Assert.Same(typeof(string), textColRow["DataType"]);
         }
 
         [Fact]
-        public void GetColumnSchemaAsync_with_cancelled_token()
-            => Assert.ThrowsAsync<TaskCanceledException>(async () => await new DbDataReaderMock().GetColumnSchemaAsync(new CancellationToken(true)));
+        public async Task GetColumnSchemaAsync_with_cancelled_token()
+            => await Assert.ThrowsAsync<TaskCanceledException>(async () => await new DbDataReaderMock().GetColumnSchemaAsync(new CancellationToken(true)));
 
         [Fact]
-        public void GetColumnSchemaAsync_with_exception()
-            => Assert.ThrowsAsync<NotSupportedException>(async () => await new DbDataReaderMock().GetColumnSchemaAsync());
+        public async Task GetColumnSchemaAsync_with_exception()
+            => await Assert.ThrowsAsync<NotSupportedException>(async () => await new DbDataReaderMock().GetColumnSchemaAsync());
 
         [Fact]
         public async Task GetColumnSchemaAsync_calls_GetSchemaTable()

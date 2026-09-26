@@ -197,6 +197,42 @@ namespace System.Formats.Asn1.Tests.Writer
                 },
                 new object[]
                 {
+                    AsnEncodingRules.BER,
+                    "2.16.840.1.101.3.4.3.17",
+                    "0609608648016503040311",
+                },
+                new object[]
+                {
+                    AsnEncodingRules.CER,
+                    "2.16.840.1.101.3.4.3.18",
+                    "0609608648016503040312",
+                },
+                new object[]
+                {
+                    AsnEncodingRules.DER,
+                    "2.16.840.1.101.3.4.3.19",
+                    "0609608648016503040313",
+                },
+                new object[]
+                {
+                    AsnEncodingRules.BER,
+                    "2.16.840.1.101.3.4.4.1",
+                    "0609608648016503040401",
+                },
+                new object[]
+                {
+                    AsnEncodingRules.CER,
+                    "2.16.840.1.101.3.4.4.2",
+                    "0609608648016503040402",
+                },
+                new object[]
+                {
+                    AsnEncodingRules.DER,
+                    "2.16.840.1.101.3.4.4.3",
+                    "0609608648016503040403",
+                },
+                new object[]
+                {
                     // Using the rules of ITU-T-REC-X.667-201210 for 2.25.{UUID} unregistered arcs, and
                     // their sample value of f81d4fae-7dec-11d0-a765-00a0c91e6bf6
                     // this is
@@ -229,6 +265,8 @@ namespace System.Formats.Asn1.Tests.Writer
                 new object[] { "Invalid character second position", AsnEncodingRules.CER, "0,1.23" },
                 new object[] { "Invalid character second rid", AsnEncodingRules.DER, "0.1q.23" },
                 new object[] { "Invalid character third rid", AsnEncodingRules.BER, "0.1.23q" },
+                new object[] { "Invalid second RID for first arc 0", AsnEncodingRules.DER, "0.40.1.2.3" },
+                new object[] { "Invalid second RID for first arc 1", AsnEncodingRules.BER, "1.40.1.2.3" },
             };
     }
 }

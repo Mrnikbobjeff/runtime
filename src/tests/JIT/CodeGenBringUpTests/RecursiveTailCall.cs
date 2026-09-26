@@ -4,6 +4,7 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 public struct Struct1
 {
@@ -30,7 +31,7 @@ class GenericException<T> : Exception
 {
 }
 
-public class Test
+public class Test_RecursiveTailCall
 {
     // Test a recursive tail call with a 1-byte struct parameter.
     static bool TestStruct1Param(Struct1 str1, int count)
@@ -130,7 +131,8 @@ public class Test
         return TestStackParam(i1 - 1, i2, i3, i4);
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         const int Pass = 100;
         const int Fail = -1;
@@ -149,7 +151,7 @@ public class Test
             return Fail;
         }
 
-        Test test = new Test();
+        Test_RecursiveTailCall test = new Test_RecursiveTailCall();
 
         if (!test.TestGenericSharing<object>())
         {

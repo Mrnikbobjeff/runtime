@@ -3,23 +3,37 @@
 
 using System;
 using System.Diagnostics;
+using System.Runtime.Versioning;
 using System.Security;
 
 namespace Microsoft.Extensions.Logging.EventLog
 {
-    internal class WindowsEventLog : IEventLog
+    /// <summary>
+    /// The windows event log.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    internal sealed class WindowsEventLog : IEventLog
     {
         // https://msdn.microsoft.com/EN-US/library/windows/desktop/aa363679.aspx
         private const int MaximumMessageSize = 31839;
         private bool _enabled = true;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="WindowsEventLog"/> class.
+        /// </summary>
         public WindowsEventLog(string logName, string machineName, string sourceName)
         {
             DiagnosticsEventLog = new System.Diagnostics.EventLog(logName, machineName, sourceName);
         }
 
+        /// <summary>
+        /// The diagnostics event log.
+        /// </summary>
         public System.Diagnostics.EventLog DiagnosticsEventLog { get; }
 
+        /// <summary>
+        /// The maximum message size.
+        /// </summary>
         public int MaxMessageSize => MaximumMessageSize;
 
         public int? DefaultEventId { get; set; }

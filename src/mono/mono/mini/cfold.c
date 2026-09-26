@@ -45,13 +45,13 @@ mono_is_power_of_two (guint32 val)
 
 #define FOLD_FBINOP(name, op) \
 	case name: \
-	dest->inst_p0 = (double *)mono_domain_alloc (cfg->domain, sizeof (double)); \
+	dest->inst_p0 = (double *)mono_mem_manager_alloc (cfg->mem_manager, sizeof (double)); \
 	*(double *)dest->inst_p0 = (*((double *) arg1->inst_p0)) op (*((double *) arg2->inst_p0)); \
 	break;
 
 #define FOLD_RBINOP(name, op) \
 	case name: \
-	dest->inst_p0 = (float *)mono_domain_alloc (cfg->domain, sizeof (float)); \
+	dest->inst_p0 = (float *)mono_mem_manager_alloc (cfg->mem_manager, sizeof (float)); \
 	*(float *)dest->inst_p0 = (*((float *) arg1->inst_p0)) op (*((float *) arg2->inst_p0)); \
 	break;
 
@@ -110,7 +110,7 @@ mono_constant_fold_ins (MonoCompile *cfg, MonoInst *ins, MonoInst *arg1, MonoIns
 				FOLD_FBINOP (OP_FMUL, *);
 			}
 			dest->opcode = OP_R8CONST;
-			MONO_INST_NULLIFY_SREGS (dest);		
+			MONO_INST_NULLIFY_SREGS (dest);
 		}
 		break;
 	case OP_RADD:
@@ -122,7 +122,7 @@ mono_constant_fold_ins (MonoCompile *cfg, MonoInst *ins, MonoInst *arg1, MonoIns
 				FOLD_RBINOP (OP_RMUL, *);
 			}
 			dest->opcode = OP_R4CONST;
-			MONO_INST_NULLIFY_SREGS (dest);		
+			MONO_INST_NULLIFY_SREGS (dest);
 		}
 		break;
 	case OP_IMUL:
@@ -144,13 +144,13 @@ mono_constant_fold_ins (MonoCompile *cfg, MonoInst *ins, MonoInst *arg1, MonoIns
 				MONO_INST_NULLIFY_SREGS (dest);
 			}
 		} else if (arg1->opcode == OP_ICONST) {
-			/* 
+			/*
 			 * This is commutative so swap the arguments, allowing the _imm variant
 			 * to be used later.
 			 */
 			if (mono_op_to_op_imm (ins->opcode) != -1) {
 				ALLOC_DEST (cfg, dest, ins);
-				dest->opcode = mono_op_to_op_imm (ins->opcode);
+				dest->opcode = GINT_TO_OPCODE (mono_op_to_op_imm (ins->opcode));
 				dest->sreg1 = ins->sreg2;
 				dest->sreg2 = -1;
 				dest->inst_imm = arg1->inst_c0;
@@ -300,10 +300,15 @@ mono_constant_fold_ins (MonoCompile *cfg, MonoInst *ins, MonoInst *arg1, MonoIns
 		}
 		break;
 	case OP_XMOVE:
-		if (arg1->opcode == OP_XZERO) {
+		if ((arg1->opcode == OP_XZERO) || (arg1->opcode == OP_XONES)) {
 			ALLOC_DEST (cfg, dest, ins);
-			dest->opcode = OP_XZERO;
+			dest->opcode = arg1->opcode;
 			dest->sreg1 = -1;
+		} else if (arg1->opcode == OP_XCONST) {
+			ALLOC_DEST (cfg, dest, ins);
+			dest->opcode = arg1->opcode;
+			dest->sreg1 = -1;
+			dest->inst_p0 = arg1->inst_p0;
 		}
 		break;
 	case OP_COMPARE:
@@ -380,8 +385,8 @@ mono_constant_fold_ins (MonoCompile *cfg, MonoInst *ins, MonoInst *arg1, MonoIns
 				}
 
 				if (overwrite) {
-					/* 
-					 * Can't nullify OP_COMPARE here since the decompose long branch 
+					/*
+					 * Can't nullify OP_COMPARE here since the decompose long branch
 					 * opcodes depend on it being executed. Also, the branch might not
 					 * be eliminated after all if loop opts is disabled, for example.
 					 */
@@ -443,17 +448,17 @@ mono_constant_fold_ins (MonoCompile *cfg, MonoInst *ins, MonoInst *arg1, MonoIns
 	}
 
 		/*
-		 * TODO: 
+		 * TODO:
 		 * 	conv.* opcodes.
 		 * 	*ovf* opcodes? It's slow and hard to do in C.
-		 *      switch can be replaced by a simple jump 
+		 *      switch can be replaced by a simple jump
 		 */
 	default:
 		return NULL;
 	}
-		
+
     return dest;
-}	
+}
 
 
 #endif /* DISABLE_JIT */

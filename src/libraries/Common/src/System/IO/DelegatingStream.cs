@@ -1,13 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace System.Net.Http
+namespace System.IO
 {
     // Forwards all calls to an inner stream except where overridden in a derived class.
     internal abstract class DelegatingStream : Stream
@@ -123,6 +122,16 @@ namespace System.Net.Http
             return _innerStream.EndRead(asyncResult);
         }
 
+        public override void CopyTo(Stream destination, int bufferSize)
+        {
+            _innerStream.CopyTo(destination, bufferSize);
+        }
+
+        public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
+        {
+            return _innerStream.CopyToAsync(destination, bufferSize, cancellationToken);
+        }
+
         #endregion Read
 
         #region Write
@@ -175,11 +184,6 @@ namespace System.Net.Http
         public override void EndWrite(IAsyncResult asyncResult)
         {
             _innerStream.EndWrite(asyncResult);
-        }
-
-        public override Task CopyToAsync(Stream destination, int bufferSize, CancellationToken cancellationToken)
-        {
-            return _innerStream.CopyToAsync(destination, bufferSize, cancellationToken);
         }
         #endregion Write
     }

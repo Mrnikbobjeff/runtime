@@ -41,8 +41,7 @@ namespace System.Collections.Generic
         // must be a non-negative number.
         public Stack(int capacity)
         {
-            if (capacity < 0)
-                throw new ArgumentOutOfRangeException(nameof(capacity), capacity, SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(capacity);
             _array = new T[capacity];
         }
 
@@ -50,20 +49,21 @@ namespace System.Collections.Generic
         // pushed onto the stack in the same order they are read by the enumerator.
         public Stack(IEnumerable<T> collection)
         {
-            if (collection == null)
-                throw new ArgumentNullException(nameof(collection));
+            ArgumentNullException.ThrowIfNull(collection);
+
             _array = EnumerableHelpers.ToArray(collection, out _size);
         }
 
-        public int Count
-        {
-            get { return _size; }
-        }
+        public int Count => _size;
 
-        bool ICollection.IsSynchronized
-        {
-            get { return false; }
-        }
+
+        /// <summary>
+        /// Gets the total numbers of elements the internal data structure can hold without resizing.
+        /// </summary>
+        public int Capacity => _array.Length;
+
+        /// <inheritdoc cref="ICollection.IsSynchronized" />
+        bool ICollection.IsSynchronized => false;
 
         object ICollection.SyncRoot => this;
 
@@ -90,20 +90,17 @@ namespace System.Collections.Generic
             // via EqualityComparer<T>.Default.Equals, we
             // only make one virtual call to EqualityComparer.LastIndexOf.
 
-            return _size != 0 && Array.LastIndexOf(_array, item, _size - 1) != -1;
+            return _size != 0 && Array.LastIndexOf(_array, item, _size - 1) >= 0;
         }
 
         // Copies the stack into an array.
         public void CopyTo(T[] array, int arrayIndex)
         {
-            if (array == null)
-            {
-                throw new ArgumentNullException(nameof(array));
-            }
+            ArgumentNullException.ThrowIfNull(array);
 
             if (arrayIndex < 0 || arrayIndex > array.Length)
             {
-                throw new ArgumentOutOfRangeException(nameof(arrayIndex), arrayIndex, SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(arrayIndex), arrayIndex, SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             if (array.Length - arrayIndex < _size)
@@ -122,10 +119,7 @@ namespace System.Collections.Generic
 
         void ICollection.CopyTo(Array array, int arrayIndex)
         {
-            if (array == null)
-            {
-                throw new ArgumentNullException(nameof(array));
-            }
+            ArgumentNullException.ThrowIfNull(array);
 
             if (array.Rank != 1)
             {
@@ -139,7 +133,7 @@ namespace System.Collections.Generic
 
             if (arrayIndex < 0 || arrayIndex > array.Length)
             {
-                throw new ArgumentOutOfRangeException(nameof(arrayIndex), arrayIndex, SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(arrayIndex), arrayIndex, SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             if (array.Length - arrayIndex < _size)
@@ -154,35 +148,43 @@ namespace System.Collections.Generic
             }
             catch (ArrayTypeMismatchException)
             {
-                throw new ArgumentException(SR.Argument_InvalidArrayType, nameof(array));
+                throw new ArgumentException(SR.Argument_IncompatibleArrayType, nameof(array));
             }
         }
 
         // Returns an IEnumerator for this Stack.
-        public Enumerator GetEnumerator()
-        {
-            return new Enumerator(this);
-        }
+        public Enumerator GetEnumerator() => new Enumerator(this);
 
         /// <internalonly/>
-        IEnumerator<T> IEnumerable<T>.GetEnumerator()
-        {
-            return new Enumerator(this);
-        }
+        IEnumerator<T> IEnumerable<T>.GetEnumerator() =>
+            Count == 0 ? EnumerableHelpers.GetEmptyEnumerator<T>() :
+            GetEnumerator();
 
-        IEnumerator IEnumerable.GetEnumerator()
-        {
-            return new Enumerator(this);
-        }
+        IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable<T>)this).GetEnumerator();
 
         public void TrimExcess()
         {
-            int threshold = (int)(((double)_array.Length) * 0.9);
+            int threshold = (int)(_array.Length * 0.9);
             if (_size < threshold)
             {
                 Array.Resize(ref _array, _size);
-                _version++;
             }
+        }
+
+        /// <summary>
+        /// Sets the capacity of a <see cref="Stack{T}"/> object to a specified number of entries.
+        /// </summary>
+        /// <param name="capacity">The new capacity.</param>
+        /// <exception cref="ArgumentOutOfRangeException">Passed capacity is lower than 0 or entries count.</exception>
+        public void TrimExcess(int capacity)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+            ArgumentOutOfRangeException.ThrowIfLessThan(capacity, _size);
+
+            if (capacity == _array.Length)
+                return;
+
+            Array.Resize(ref _array, capacity);
         }
 
         // Returns the top object on the stack without removing it.  If the stack
@@ -282,10 +284,47 @@ namespace System.Collections.Generic
         [MethodImpl(MethodImplOptions.NoInlining)]
         private void PushWithResize(T item)
         {
-            Array.Resize(ref _array, (_array.Length == 0) ? DefaultCapacity : 2 * _array.Length);
+            Debug.Assert(_size == _array.Length);
+            Grow(_size + 1);
             _array[_size] = item;
             _version++;
             _size++;
+        }
+
+        /// <summary>
+        /// Ensures that the capacity of this Stack is at least the specified <paramref name="capacity"/>.
+        /// If the current capacity of the Stack is less than specified <paramref name="capacity"/>,
+        /// the capacity is increased by continuously twice current capacity until it is at least the specified <paramref name="capacity"/>.
+        /// </summary>
+        /// <param name="capacity">The minimum capacity to ensure.</param>
+        /// <returns>The new capacity of this stack.</returns>
+        public int EnsureCapacity(int capacity)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+
+            if (_array.Length < capacity)
+            {
+                Grow(capacity);
+            }
+
+            return _array.Length;
+        }
+
+        private void Grow(int capacity)
+        {
+            Debug.Assert(_array.Length < capacity);
+
+            int newcapacity = _array.Length == 0 ? DefaultCapacity : 2 * _array.Length;
+
+            // Allow the list to grow to maximum possible capacity (~2G elements) before encountering overflow.
+            // Note that this check works even when _items.Length overflowed thanks to the (uint) cast.
+            if ((uint)newcapacity > Array.MaxLength) newcapacity = Array.MaxLength;
+
+            // If computed capacity is still less than specified, set to the original argument.
+            // Capacities exceeding Array.MaxLength will be surfaced as OutOfMemoryException by Array.Resize.
+            if (newcapacity < capacity) newcapacity = capacity;
+
+            Array.Resize(ref _array, newcapacity);
         }
 
         // Copies the Stack to an array, in the same order Pop would return the items.
@@ -321,67 +360,50 @@ namespace System.Collections.Generic
             {
                 _stack = stack;
                 _version = stack._version;
-                _index = -2;
+                _index = stack.Count;
                 _currentElement = default;
             }
 
-            public void Dispose()
-            {
-                _index = -1;
-            }
+            public void Dispose() => _index = -1;
 
             public bool MoveNext()
             {
-                bool retval;
-                if (_version != _stack._version) throw new InvalidOperationException(SR.InvalidOperation_EnumFailedVersion);
-                if (_index == -2)
-                {  // First call to enumerator.
-                    _index = _stack._size - 1;
-                    retval = (_index >= 0);
-                    if (retval)
-                        _currentElement = _stack._array[_index];
-                    return retval;
-                }
-                if (_index == -1)
-                {  // End of enumeration.
-                    return false;
-                }
-
-                retval = (--_index >= 0);
-                if (retval)
-                    _currentElement = _stack._array[_index];
-                else
-                    _currentElement = default;
-                return retval;
-            }
-
-            public T Current
-            {
-                get
+                if (_version != _stack._version)
                 {
-                    if (_index < 0)
-                        ThrowEnumerationNotStartedOrEnded();
-                    return _currentElement!;
+                    ThrowInvalidVersion();
                 }
+
+                T[] array = _stack._array;
+                int index = _index - 1;
+                if ((uint)index < (uint)array.Length)
+                {
+                    Debug.Assert(index < _stack.Count);
+                    _currentElement = array[index];
+                    _index = index;
+                    return true;
+                }
+
+                _currentElement = default;
+                _index = -1;
+                return false;
             }
 
-            private void ThrowEnumerationNotStartedOrEnded()
-            {
-                Debug.Assert(_index == -1 || _index == -2);
-                throw new InvalidOperationException(_index == -2 ? SR.InvalidOperation_EnumNotStarted : SR.InvalidOperation_EnumEnded);
-            }
+            public T Current => _currentElement!;
 
-            object? System.Collections.IEnumerator.Current
-            {
-                get { return Current; }
-            }
+            object? System.Collections.IEnumerator.Current => Current;
 
             void IEnumerator.Reset()
             {
-                if (_version != _stack._version) throw new InvalidOperationException(SR.InvalidOperation_EnumFailedVersion);
-                _index = -2;
+                if (_version != _stack._version)
+                {
+                    ThrowInvalidVersion();
+                }
+
+                _index = _stack.Count;
                 _currentElement = default;
             }
+
+            private static void ThrowInvalidVersion() => throw new InvalidOperationException(SR.InvalidOperation_EnumFailedVersion);
         }
     }
 }

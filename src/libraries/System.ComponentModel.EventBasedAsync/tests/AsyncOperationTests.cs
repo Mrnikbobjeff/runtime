@@ -11,7 +11,7 @@ namespace System.ComponentModel.EventBasedAsync.Tests
     {
         private const int SpinTimeoutSeconds = 30;
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void Noop()
         {
             // Test that a simple AsyncOperation can be dispatched and completed via AsyncOperationManager
@@ -27,7 +27,7 @@ namespace System.ComponentModel.EventBasedAsync.Tests
                 }).GetAwaiter().GetResult();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void ThrowAfterAsyncComplete()
         {
             Task.Run(() =>
@@ -42,7 +42,7 @@ namespace System.ComponentModel.EventBasedAsync.Tests
                 }).GetAwaiter().GetResult();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void ThrowAfterSynchronousComplete()
         {
             Task.Run(() =>
@@ -57,7 +57,7 @@ namespace System.ComponentModel.EventBasedAsync.Tests
                }).GetAwaiter().GetResult();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void Cancel()
         {
             // Test that cancellation gets passed all the way through PostOperationCompleted(callback, AsyncCompletedEventArgs)
@@ -77,7 +77,7 @@ namespace System.ComponentModel.EventBasedAsync.Tests
              }).GetAwaiter().GetResult();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void Throw()
         {
             // Test that exceptions get passed all the way through PostOperationCompleted(callback, AsyncCompletedEventArgs)
@@ -95,10 +95,10 @@ namespace System.ComponentModel.EventBasedAsync.Tests
         [Fact]
         public static void PostNullDelegate()
         {
-            // the xUnit SynchronizationContext - AysncTestSyncContext interferes with the current SynchronizationContext
+            // the xUnit SynchronizationContext - AsyncTestSyncContext interferes with the current SynchronizationContext
             // used by AsyncOperation when there is exception thrown -> the SC.OperationCompleted() is not called.
             // use  new SC here to avoid this issue
-            var orignal = SynchronizationContext.Current;
+            var original = SynchronizationContext.Current;
             try
             {
                 SynchronizationContext.SetSynchronizationContext(null);
@@ -111,7 +111,7 @@ namespace System.ComponentModel.EventBasedAsync.Tests
             }
             finally
             {
-                SynchronizationContext.SetSynchronizationContext(orignal);
+                SynchronizationContext.SetSynchronizationContext(original);
             }
         }
 

@@ -1,5 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+
 //
 // System.Net.HttpListenerResponse
 //
@@ -51,10 +52,7 @@ namespace System.Net
 
         private void EnsureResponseStream()
         {
-            if (_responseStream == null)
-            {
-                _responseStream = _httpContext!.Connection.GetResponseStream();
-            }
+            _responseStream ??= _httpContext!.Connection.GetResponseStream();
         }
 
         public Version ProtocolVersion
@@ -63,10 +61,7 @@ namespace System.Net
             set
             {
                 CheckDisposed();
-                if (value == null)
-                {
-                    throw new ArgumentNullException(nameof(value));
-                }
+                ArgumentNullException.ThrowIfNull(value);
                 if (value.Major != 1 || (value.Minor != 0 && value.Minor != 1))
                 {
                     throw new ArgumentException(SR.net_wrongversion, nameof(value));
@@ -118,10 +113,7 @@ namespace System.Net
         {
             CheckDisposed();
 
-            if (responseEntity == null)
-            {
-                throw new ArgumentNullException(nameof(responseEntity));
-            }
+            ArgumentNullException.ThrowIfNull(responseEntity);
 
             if (!SentHeaders && _boundaryType != BoundaryType.Chunked)
             {
@@ -278,7 +270,7 @@ namespace System.Net
             StreamWriter writer = new StreamWriter(ms, encoding, 256);
             writer.Write("HTTP/1.1 {0} ", _statusCode); // "1.1" matches Windows implementation, which ignores the response version
             writer.Flush();
-            byte[] statusDescriptionBytes = WebHeaderEncoding.GetBytes(StatusDescription);
+            byte[] statusDescriptionBytes = Encoding.Latin1.GetBytes(StatusDescription);
             ms.Write(statusDescriptionBytes, 0, statusDescriptionBytes.Length);
             writer.Write("\r\n");
 

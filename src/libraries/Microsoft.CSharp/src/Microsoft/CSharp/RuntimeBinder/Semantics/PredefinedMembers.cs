@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.CSharp.RuntimeBinder.Syntax;
 
 namespace Microsoft.CSharp.RuntimeBinder.Semantics
@@ -197,12 +198,16 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
         private static readonly MethodSymbol[] _methods = new MethodSymbol[(int)PREDEFMETH.PM_COUNT];
         private static readonly PropertySymbol[] _properties = new PropertySymbol[(int)PREDEFPROP.PP_COUNT];
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private static PropertySymbol LoadProperty(PREDEFPROP property)
         {
             PredefinedPropertyInfo info = GetPropInfo(property);
             return LoadProperty(property, NameManager.GetPredefinedName(info.name), info.getter);
         }
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private static PropertySymbol LoadProperty(
             PREDEFPROP predefProp,
             Name propertyName,
@@ -221,8 +226,12 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
             return property;
         }
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private static AggregateSymbol GetPredefAgg(PredefinedType pt) => SymbolLoader.GetPredefAgg(pt);
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private static CType LoadTypeFromSignature(int[] signature, ref int indexIntoSignatures, TypeArray classTyVars)
         {
             Debug.Assert(signature != null);
@@ -263,6 +272,8 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
             }
         }
 
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         private static TypeArray LoadTypeArrayFromSignature(int[] signature, ref int indexIntoSignatures, TypeArray classTyVars)
         {
             Debug.Assert(signature != null);
@@ -296,18 +307,24 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
         }
 #endif
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static PropertySymbol GetProperty(PREDEFPROP property)
         {
             Debug.Assert(property >= 0 && property < PREDEFPROP.PP_COUNT);
-            return _properties[(int)property] ?? (_properties[(int)property] = LoadProperty(property));
+            return _properties[(int)property] ??= LoadProperty(property);
         }
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static MethodSymbol GetMethod(PREDEFMETH method)
         {
             Debug.Assert(method >= 0 && method < PREDEFMETH.PM_COUNT);
-            return _methods[(int)method] ?? (_methods[(int)method] = LoadMethod(method));
+            return _methods[(int)method] ??= LoadMethod(method);
         }
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private static MethodSymbol LoadMethod(
                         AggregateSymbol type,
                         int[] signature,
@@ -341,6 +358,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
             return ret;
         }
 
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private static MethodSymbol LookupMethodWhileLoading(AggregateSymbol type, int cMethodTyVars, Name methodName, ACCESS methodAccess, bool isStatic, bool isVirtual, CType returnType, TypeArray argumentTypes)
         {
             for (Symbol sym = SymbolLoader.LookupAggMember(methodName, type, symbmask_t.MASK_ALL);
@@ -363,6 +381,8 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
             return null;
         }
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private static MethodSymbol LoadMethod(PREDEFMETH method)
         {
             PredefinedMethodInfo info = GetMethInfo(method);

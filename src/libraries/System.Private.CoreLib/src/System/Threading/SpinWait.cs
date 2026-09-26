@@ -51,9 +51,9 @@ namespace System.Threading
     /// <see cref="SpinWait"/> is a value type, which means that low-level code can utilize SpinWait without
     /// fear of unnecessary allocation overheads. SpinWait is not generally useful for ordinary applications.
     /// In most cases, you should use the synchronization classes provided by the .NET Framework, such as
-    /// <see cref="System.Threading.Monitor"/>. For most purposes where spin waiting is required, however,
+    /// <see cref="Monitor"/>. For most purposes where spin waiting is required, however,
     /// the <see cref="SpinWait"/> type should be preferred over the <see
-    /// cref="System.Threading.Thread.SpinWait"/> method.
+    /// cref="Thread.SpinWait"/> method.
     /// </para>
     /// <para>
     /// While SpinWait is designed to be used in concurrent applications, it is not designed to be
@@ -85,7 +85,7 @@ namespace System.Threading
         /// depends on the likelihood of the spin being successful and how long the wait would be but those are not accounted
         /// for here.
         /// </remarks>
-        internal static readonly int SpinCountforSpinBeforeWait = Environment.IsSingleProcessor ? 1 : 35;
+        internal static readonly int SpinCountForSpinBeforeWait = Environment.IsSingleProcessor ? 1 : 35;
 
         // The number of times we've spun already.
         private int _count;
@@ -143,10 +143,7 @@ namespace System.Threading
         /// </remarks>
         public void SpinOnce(int sleep1Threshold)
         {
-            if (sleep1Threshold < -1)
-            {
-                throw new ArgumentOutOfRangeException(nameof(sleep1Threshold), sleep1Threshold, SR.ArgumentOutOfRange_NeedNonNegOrNegative1);
-            }
+            ArgumentOutOfRangeException.ThrowIfLessThan(sleep1Threshold, -1);
 
             if (sleep1Threshold >= 0 && sleep1Threshold < YieldThreshold)
             {
@@ -166,7 +163,7 @@ namespace System.Threading
             //   - When there are no threads to switch to, Yield and Sleep(0) become no-op and it turns the spin loop into a
             //     busy-spin that may quickly reach the max spin count and cause the thread to enter a wait state, or may
             //     just busy-spin for longer than desired before a Sleep(1). Completing the spin loop too early can cause
-            //     excessive context switcing if a wait follows, and entering the Sleep(1) stage too early can cause
+            //     excessive context switching if a wait follows, and entering the Sleep(1) stage too early can cause
             //     excessive delays.
             //   - If there are multiple threads doing Yield and Sleep(0) (typically from the same spin loop due to
             //     contention), they may switch between one another, delaying work that can make progress.
@@ -225,10 +222,6 @@ namespace System.Threading
                 // the equivalent of YieldProcessor(), as at that point SwitchToThread/Sleep(0) are more likely to be able to
                 // allow other useful work to run. Long YieldProcessor() loops can help to reduce contention, but Sleep(1) is
                 // usually better for that.
-                //
-                // Thread.OptimalMaxSpinWaitsPerSpinIteration:
-                //   - See Thread::InitializeYieldProcessorNormalized(), which describes and calculates this value.
-                //
                 int n = Thread.OptimalMaxSpinWaitsPerSpinIteration;
                 if (_count <= 30 && (1 << _count) < n)
                 {
@@ -280,7 +273,7 @@ namespace System.Threading
         /// or a TimeSpan that represents -1 milliseconds to wait indefinitely.</param>
         /// <returns>True if the condition is satisfied within the timeout; otherwise, false</returns>
         /// <exception cref="ArgumentNullException">The <paramref name="condition"/> argument is null.</exception>
-        /// <exception cref="System.ArgumentOutOfRangeException"><paramref name="timeout"/> is a negative number
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout"/> is a negative number
         /// other than -1 milliseconds, which represents an infinite time-out -or- timeout is greater than
         /// <see cref="int.MaxValue"/>.</exception>
         public static bool SpinUntil(Func<bool> condition, TimeSpan timeout)
@@ -289,7 +282,7 @@ namespace System.Threading
             long totalMilliseconds = (long)timeout.TotalMilliseconds;
             if (totalMilliseconds < -1 || totalMilliseconds > int.MaxValue)
             {
-                throw new System.ArgumentOutOfRangeException(
+                throw new ArgumentOutOfRangeException(
                     nameof(timeout), timeout, SR.SpinWait_SpinUntil_TimeoutWrong);
             }
 
@@ -302,10 +295,10 @@ namespace System.Threading
         /// </summary>
         /// <param name="condition">A delegate to be executed over and over until it returns true.</param>
         /// <param name="millisecondsTimeout">The number of milliseconds to wait, or <see
-        /// cref="System.Threading.Timeout.Infinite"/> (-1) to wait indefinitely.</param>
+        /// cref="Timeout.Infinite"/> (-1) to wait indefinitely.</param>
         /// <returns>True if the condition is satisfied within the timeout; otherwise, false</returns>
         /// <exception cref="ArgumentNullException">The <paramref name="condition"/> argument is null.</exception>
-        /// <exception cref="System.ArgumentOutOfRangeException"><paramref name="millisecondsTimeout"/> is a
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="millisecondsTimeout"/> is a
         /// negative number other than -1, which represents an infinite time-out.</exception>
         public static bool SpinUntil(Func<bool> condition, int millisecondsTimeout)
         {
@@ -314,14 +307,11 @@ namespace System.Threading
                 throw new ArgumentOutOfRangeException(
                    nameof(millisecondsTimeout), millisecondsTimeout, SR.SpinWait_SpinUntil_TimeoutWrong);
             }
-            if (condition == null)
-            {
-                throw new ArgumentNullException(nameof(condition), SR.SpinWait_SpinUntil_ArgumentNull);
-            }
+            ArgumentNullException.ThrowIfNull(condition);
             uint startTime = 0;
             if (millisecondsTimeout != 0 && millisecondsTimeout != Timeout.Infinite)
             {
-                startTime = TimeoutHelper.GetTime();
+                startTime = (uint)Environment.TickCount;
             }
             SpinWait spinner = default;
             while (!condition())
@@ -335,7 +325,7 @@ namespace System.Threading
 
                 if (millisecondsTimeout != Timeout.Infinite && spinner.NextSpinWillYield)
                 {
-                    if (millisecondsTimeout <= (TimeoutHelper.GetTime() - startTime))
+                    if (millisecondsTimeout <= (uint)Environment.TickCount - startTime)
                     {
                         return false;
                     }

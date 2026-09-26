@@ -118,7 +118,7 @@ namespace Microsoft.Win32.SystemEventsTests
             };
 
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore))]
         [MemberData(nameof(PreferenceChangingCases))]
         public void SignalsUserPreferenceEventsAsynchronously(int message, int uiAction, string area, UserPreferenceCategory expectedCategory)
         {
@@ -128,17 +128,23 @@ namespace Microsoft.Win32.SystemEventsTests
             UserPreferenceChangingEventArgs changingArgs = null;
             UserPreferenceChangingEventHandler changingHandler = (o, e) =>
             {
-                changingArgs = e;
-                changing.Set();
+                if (e.Category == expectedCategory)
+                {
+                    changingArgs = e;
+                    changing.Set();
+                }
             };
 
             UserPreferenceChangedEventArgs changedArgs = null;
             UserPreferenceChangingEventArgs changingDuringChanged = null;
             UserPreferenceChangedEventHandler changedHandler = (o, e) =>
             {
-                changedArgs = e;
-                changingDuringChanged = changingArgs;
-                changed.Set();
+                if (e.Category == expectedCategory)
+                {
+                    changedArgs = e;
+                    changingDuringChanged = changingArgs;
+                    changed.Set();
+                }
             };
 
             SystemEvents.UserPreferenceChanging += changingHandler;
@@ -169,7 +175,7 @@ namespace Microsoft.Win32.SystemEventsTests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore))]
         public void SignalsUserPreferenceEventsAsynchronouslyOnThemeChanged()
         {
             var changing = new AutoResetEvent(false);
@@ -188,7 +194,7 @@ namespace Microsoft.Win32.SystemEventsTests
             {
                 changedArgs.Add(e);
                 changingDuringChanged = changingArgs;
-                // signal test to continue after two events were recieved
+                // signal test to continue after two events were received
                 if (changedArgs.Count > 1)
                 {
                     changed.Set();
@@ -226,7 +232,7 @@ namespace Microsoft.Win32.SystemEventsTests
             }
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore))]
         [MemberData(nameof(PreferenceChangingCases))]
         public void SignalsUserPreferenceEventsSynchronously(int message, int uiAction, string area, UserPreferenceCategory expectedCategory)
         {
@@ -274,7 +280,7 @@ namespace Microsoft.Win32.SystemEventsTests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoNorServerCore))]
         public void SignalsUserPreferenceEventsSynchronouslyOnReflectedThemeChanged()
         {
             bool changing = false, changed = false;

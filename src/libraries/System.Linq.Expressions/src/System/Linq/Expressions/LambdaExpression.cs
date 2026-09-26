@@ -21,7 +21,15 @@ namespace System.Linq.Expressions
     [DebuggerTypeProxy(typeof(LambdaExpressionProxy))]
     public abstract class LambdaExpression : Expression, IParameterProvider
     {
+        private static readonly MethodInfo s_expressionCompileMethodInfo = typeof(Expression<>).GetMethod("Compile", Type.EmptyTypes)!;
+
         private readonly Expression _body;
+
+        [FeatureGuard(typeof(RequiresDynamicCodeAttribute))]
+        public static bool CanCompileToIL => RuntimeFeature.IsDynamicCodeSupported;
+
+        // This could be flipped to false using feature switches at publishing time
+        public static bool CanInterpret => true;
 
         internal LambdaExpression(Expression body)
         {
@@ -103,16 +111,40 @@ namespace System.Linq.Expressions
         }
 
         /// <summary>
+        /// Gets the Compile() MethodInfo on the specified LambdaExpression type.
+        /// </summary>
+        /// <remarks>
+        /// Note that Expression{TDelegate} defines a 'new' Compile() method that hides the base
+        /// LambdaExpression.Compile() method.
+        /// </remarks>
+        internal static MethodInfo GetCompileMethod(Type lambdaExpressionType)
+        {
+            Debug.Assert(lambdaExpressionType.IsAssignableTo(typeof(LambdaExpression)));
+
+            if (lambdaExpressionType == typeof(LambdaExpression))
+            {
+                // use a hard-coded type directly so the method doesn't get trimmed
+                return typeof(LambdaExpression).GetMethod("Compile", Type.EmptyTypes)!;
+            }
+
+            return (MethodInfo)lambdaExpressionType.GetMemberWithSameMetadataDefinitionAs(s_expressionCompileMethodInfo);
+        }
+
+        /// <summary>
         /// Produces a delegate that represents the lambda expression.
         /// </summary>
         /// <returns>A delegate containing the compiled version of the lambda.</returns>
         public Delegate Compile()
         {
-#if FEATURE_COMPILE
-            return Compiler.LambdaCompiler.Compile(this);
-#else
-            return new Interpreter.LightCompiler().CompileTop(this).CreateDelegate();
-#endif
+            if (CanCompileToIL)
+            {
+                return Compiler.LambdaCompiler.Compile(this);
+            }
+            else
+            {
+                Debug.Assert(CanInterpret);
+                return new Interpreter.LightCompiler().CompileTop(this).CreateDelegate();
+            }
         }
 
         /// <summary>
@@ -122,12 +154,11 @@ namespace System.Linq.Expressions
         /// <returns>A delegate containing the compiled version of the lambda.</returns>
         public Delegate Compile(bool preferInterpretation)
         {
-#if FEATURE_COMPILE && FEATURE_INTERPRET
-            if (preferInterpretation)
+            if (CanInterpret && preferInterpretation)
             {
                 return new Interpreter.LightCompiler().CompileTop(this).CreateDelegate();
             }
-#endif
+
             return Compile();
         }
 
@@ -138,7 +169,7 @@ namespace System.Linq.Expressions
         /// <param name="method">A <see cref="Emit.MethodBuilder"/> which will be used to hold the lambda's IL.</param>
         public void CompileToMethod(System.Reflection.Emit.MethodBuilder method)
         {
-            ContractUtils.RequiresNotNull(method, nameof(method));
+            ArgumentNullException.ThrowIfNull(method);
             ContractUtils.Requires(method.IsStatic, nameof(method));
             var type = method.DeclaringType as System.Reflection.Emit.TypeBuilder;
             if (type == null) throw Error.MethodBuilderDoesNotHaveTypeBuilder();
@@ -147,10 +178,7 @@ namespace System.Linq.Expressions
         }
 #endif
 
-
-#if FEATURE_COMPILE
         internal abstract LambdaExpression Accept(Compiler.StackSpiller spiller);
-#endif
 
         /// <summary>
         /// Produces a delegate that represents the lambda expression.
@@ -188,11 +216,15 @@ namespace System.Linq.Expressions
         /// <returns>A delegate containing the compiled version of the lambda.</returns>
         public new TDelegate Compile()
         {
-#if FEATURE_COMPILE
-            return (TDelegate)(object)Compiler.LambdaCompiler.Compile(this);
-#else
-            return (TDelegate)(object)new Interpreter.LightCompiler().CompileTop(this).CreateDelegate();
-#endif
+            if (CanCompileToIL)
+            {
+                return (TDelegate)(object)Compiler.LambdaCompiler.Compile(this);
+            }
+            else
+            {
+                Debug.Assert(CanInterpret);
+                return (TDelegate)(object)new Interpreter.LightCompiler().CompileTop(this).CreateDelegate();
+            }
         }
 
         /// <summary>
@@ -202,12 +234,11 @@ namespace System.Linq.Expressions
         /// <returns>A delegate containing the compiled version of the lambda.</returns>
         public new TDelegate Compile(bool preferInterpretation)
         {
-#if FEATURE_COMPILE && FEATURE_INTERPRET
-            if (preferInterpretation)
+            if (CanInterpret && preferInterpretation)
             {
                 return (TDelegate)(object)new Interpreter.LightCompiler().CompileTop(this).CreateDelegate();
             }
-#endif
+
             return Compile();
         }
 
@@ -219,7 +250,7 @@ namespace System.Linq.Expressions
         /// <param name="body">The <see cref="LambdaExpression.Body" /> property of the result.</param>
         /// <param name="parameters">The <see cref="LambdaExpression.Parameters" /> property of the result.</param>
         /// <returns>This expression if no children changed, or an expression with the updated children.</returns>
-        public Expression<TDelegate>? Update(Expression body, IEnumerable<ParameterExpression>? parameters)
+        public Expression<TDelegate> Update(Expression body, IEnumerable<ParameterExpression>? parameters)
         {
             if (body == Body)
             {
@@ -268,7 +299,6 @@ namespace System.Linq.Expressions
             return visitor.VisitLambda(this);
         }
 
-#if FEATURE_COMPILE
         internal override LambdaExpression Accept(Compiler.StackSpiller spiller)
         {
             return spiller.Rewrite(this);
@@ -290,7 +320,6 @@ namespace System.Linq.Expressions
 
             return new FullExpression<TDelegate>(body, name, tailCall, parameters);
         }
-#endif
 
         /// <summary>
         /// Produces a delegate that represents the lambda expression.
@@ -303,9 +332,8 @@ namespace System.Linq.Expressions
         }
     }
 
-#if !FEATURE_COMPILE
     // Separate expression creation class to hide the CreateExpressionFunc function from users reflecting on Expression<T>
-    public class ExpressionCreator<TDelegate>
+    internal static class ExpressionCreator<TDelegate>
     {
         public static Expression<TDelegate> CreateExpressionFunc(Expression body, string? name, bool tailCall, ReadOnlyCollection<ParameterExpression> parameters)
         {
@@ -324,7 +352,6 @@ namespace System.Linq.Expressions
             return new FullExpression<TDelegate>(body, name, tailCall, parameters);
         }
     }
-#endif
 
     internal sealed class Expression0<TDelegate> : Expression<TDelegate>
     {
@@ -343,7 +370,7 @@ namespace System.Linq.Expressions
             throw Error.ArgumentOutOfRange(nameof(index));
         }
 
-        internal override ReadOnlyCollection<ParameterExpression> GetOrMakeParameters() => EmptyReadOnlyCollection<ParameterExpression>.Instance;
+        internal override ReadOnlyCollection<ParameterExpression> GetOrMakeParameters() => ReadOnlyCollection<ParameterExpression>.Empty;
 
         internal override Expression<TDelegate> Rewrite(Expression body, ParameterExpression[]? parameters)
         {
@@ -580,25 +607,29 @@ namespace System.Linq.Expressions
         /// Creates an Expression{T} given the delegate type. Caches the
         /// factory method to speed up repeated creations for the same T.
         /// </summary>
+        [UnconditionalSuppressMessage("DynamicCode", "IL3050",
+            Justification = "MakeGenericType is only used for a Type that should be a delegate type, which are always reference types.")]
         internal static LambdaExpression CreateLambda(Type delegateType, Expression body, string? name, bool tailCall, ReadOnlyCollection<ParameterExpression> parameters)
         {
             // Get or create a delegate to the public Expression.Lambda<T>
             // method and call that will be used for creating instances of this
             // delegate type
             Func<Expression, string?, bool, ReadOnlyCollection<ParameterExpression>, LambdaExpression>? fastPath;
-            CacheDict<Type, Func<Expression, string?, bool, ReadOnlyCollection<ParameterExpression>, LambdaExpression>>? factories = s_lambdaFactories;
-            if (factories == null)
-            {
-                s_lambdaFactories = factories = new CacheDict<Type, Func<Expression, string?, bool, ReadOnlyCollection<ParameterExpression>, LambdaExpression>>(50);
-            }
+            CacheDict<Type, Func<Expression, string?, bool, ReadOnlyCollection<ParameterExpression>, LambdaExpression>>? factories =
+                s_lambdaFactories ??= new CacheDict<Type, Func<Expression, string?, bool, ReadOnlyCollection<ParameterExpression>, LambdaExpression>>(50);
 
             if (!factories.TryGetValue(delegateType, out fastPath))
             {
-#if FEATURE_COMPILE
-                MethodInfo create = typeof(Expression<>).MakeGenericType(delegateType).GetMethod("Create", BindingFlags.Static | BindingFlags.NonPublic)!;
-#else
-                MethodInfo create = typeof(ExpressionCreator<>).MakeGenericType(delegateType).GetMethod("CreateExpressionFunc", BindingFlags.Static | BindingFlags.Public)!;
-#endif
+                MethodInfo create;
+                if (LambdaExpression.CanCompileToIL)
+                {
+                    create = typeof(Expression<>).MakeGenericType(delegateType).GetMethod("Create", BindingFlags.Static | BindingFlags.NonPublic)!;
+                }
+                else
+                {
+                    create = typeof(ExpressionCreator<>).MakeGenericType(delegateType).GetMethod("CreateExpressionFunc", BindingFlags.Static | BindingFlags.Public)!;
+                }
+
                 if (delegateType.IsCollectible)
                 {
                     return (LambdaExpression)create.Invoke(null, new object?[] { body, name, tailCall, parameters })!;
@@ -686,11 +717,14 @@ namespace System.Linq.Expressions
         {
             ReadOnlyCollection<ParameterExpression> parameterList = parameters.ToReadOnly();
             ValidateLambdaArgs(typeof(TDelegate), ref body, parameterList, nameof(TDelegate));
-#if FEATURE_COMPILE
-            return Expression<TDelegate>.Create(body, name, tailCall, parameterList);
-#else
-            return ExpressionCreator<TDelegate>.CreateExpressionFunc(body, name, tailCall, parameterList);
-#endif
+            if (LambdaExpression.CanCompileToIL)
+            {
+                return Expression<TDelegate>.Create(body, name, tailCall, parameterList);
+            }
+            else
+            {
+                return ExpressionCreator<TDelegate>.CreateExpressionFunc(body, name, tailCall, parameterList);
+            }
         }
 
         /// <summary>
@@ -699,6 +733,7 @@ namespace System.Linq.Expressions
         /// <param name="body">An <see cref="Expression"/> to set the <see cref="LambdaExpression.Body"/> property equal to.</param>
         /// <param name="parameters">An array that contains <see cref="ParameterExpression"/> objects to use to populate the <see cref="LambdaExpression.Parameters"/> collection.</param>
         /// <returns>A <see cref="LambdaExpression"/> that has the <see cref="NodeType"/> property equal to <see cref="ExpressionType.Lambda"/> and the <see cref="LambdaExpression.Body"/> and <see cref="LambdaExpression.Parameters"/> properties set to the specified values.</returns>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         public static LambdaExpression Lambda(Expression body, params ParameterExpression[]? parameters)
         {
             return Lambda(body, false, (IEnumerable<ParameterExpression>?)parameters);
@@ -711,6 +746,7 @@ namespace System.Linq.Expressions
         /// <param name="tailCall">A <see cref="bool"/> that indicates if tail call optimization will be applied when compiling the created expression.</param>
         /// <param name="parameters">An array that contains <see cref="ParameterExpression"/> objects to use to populate the <see cref="LambdaExpression.Parameters"/> collection.</param>
         /// <returns>A <see cref="LambdaExpression"/> that has the <see cref="NodeType"/> property equal to <see cref="ExpressionType.Lambda"/> and the <see cref="LambdaExpression.Body"/> and <see cref="LambdaExpression.Parameters"/> properties set to the specified values.</returns>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         public static LambdaExpression Lambda(Expression body, bool tailCall, params ParameterExpression[]? parameters)
         {
             return Lambda(body, tailCall, (IEnumerable<ParameterExpression>?)parameters);
@@ -722,6 +758,7 @@ namespace System.Linq.Expressions
         /// <param name="body">An <see cref="Expression"/> to set the <see cref="LambdaExpression.Body"/> property equal to.</param>
         /// <param name="parameters">An <see cref="IEnumerable{T}"/> that contains <see cref="ParameterExpression"/> objects to use to populate the <see cref="LambdaExpression.Parameters"/> collection.</param>
         /// <returns>A <see cref="LambdaExpression"/> that has the <see cref="NodeType"/> property equal to <see cref="ExpressionType.Lambda"/> and the <see cref="LambdaExpression.Body"/> and <see cref="LambdaExpression.Parameters"/> properties set to the specified values.</returns>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         public static LambdaExpression Lambda(Expression body, IEnumerable<ParameterExpression>? parameters)
         {
             return Lambda(body, null, false, parameters);
@@ -734,6 +771,7 @@ namespace System.Linq.Expressions
         /// <param name="tailCall">A <see cref="bool"/> that indicates if tail call optimization will be applied when compiling the created expression.</param>
         /// <param name="parameters">An <see cref="IEnumerable{T}"/> that contains <see cref="ParameterExpression"/> objects to use to populate the <see cref="LambdaExpression.Parameters"/> collection.</param>
         /// <returns>A <see cref="LambdaExpression"/> that has the <see cref="NodeType"/> property equal to <see cref="ExpressionType.Lambda"/> and the <see cref="LambdaExpression.Body"/> and <see cref="LambdaExpression.Parameters"/> properties set to the specified values.</returns>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         public static LambdaExpression Lambda(Expression body, bool tailCall, IEnumerable<ParameterExpression>? parameters)
         {
             return Lambda(body, null, tailCall, parameters);
@@ -796,6 +834,7 @@ namespace System.Linq.Expressions
         /// <param name="parameters">An <see cref="IEnumerable{T}"/> that contains <see cref="ParameterExpression"/> objects to use to populate the <see cref="LambdaExpression.Parameters"/> collection.</param>
         /// <param name="name">The name for the lambda. Used for emitting debug information.</param>
         /// <returns>A <see cref="LambdaExpression"/> that has the <see cref="NodeType"/> property equal to <see cref="ExpressionType.Lambda"/> and the <see cref="LambdaExpression.Body"/> and <see cref="LambdaExpression.Parameters"/> properties set to the specified values.</returns>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         public static LambdaExpression Lambda(Expression body, string? name, IEnumerable<ParameterExpression>? parameters)
         {
             return Lambda(body, name, false, parameters);
@@ -809,9 +848,10 @@ namespace System.Linq.Expressions
         /// <param name="tailCall">A <see cref="bool"/> that indicates if tail call optimization will be applied when compiling the created expression.</param>
         /// <param name="parameters">An <see cref="IEnumerable{T}"/> that contains <see cref="ParameterExpression"/> objects to use to populate the <see cref="LambdaExpression.Parameters"/> collection.</param>
         /// <returns>A <see cref="LambdaExpression"/> that has the <see cref="NodeType"/> property equal to <see cref="ExpressionType.Lambda"/> and the <see cref="LambdaExpression.Body"/> and <see cref="LambdaExpression.Parameters"/> properties set to the specified values.</returns>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         public static LambdaExpression Lambda(Expression body, string? name, bool tailCall, IEnumerable<ParameterExpression>? parameters)
         {
-            ContractUtils.RequiresNotNull(body, nameof(body));
+            ArgumentNullException.ThrowIfNull(body);
 
             ReadOnlyCollection<ParameterExpression> parameterList = parameters.ToReadOnly();
 
@@ -823,7 +863,7 @@ namespace System.Linq.Expressions
                 for (int i = 0; i < paramCount; i++)
                 {
                     ParameterExpression param = parameterList[i];
-                    ContractUtils.RequiresNotNull(param, "parameter");
+                    ArgumentNullException.ThrowIfNull(param, "parameter");
                     typeArgs[i] = param.IsByRef ? param.Type.MakeByRefType() : param.Type;
                     if (!set.Add(param))
                     {
@@ -873,7 +913,7 @@ namespace System.Linq.Expressions
 
         private static void ValidateLambdaArgs(Type delegateType, ref Expression body, ReadOnlyCollection<ParameterExpression> parameters, string paramName)
         {
-            ContractUtils.RequiresNotNull(delegateType, nameof(delegateType));
+            ArgumentNullException.ThrowIfNull(delegateType);
             ExpressionUtils.RequiresCanRead(body, nameof(body));
 
             if (!typeof(MulticastDelegate).IsAssignableFrom(delegateType) || delegateType == typeof(MulticastDelegate))
@@ -983,6 +1023,7 @@ namespace System.Linq.Expressions
         /// </summary>
         /// <param name="typeArgs">An array of <see cref="System.Type"/> objects that specify the type arguments for the System.Func delegate type.</param>
         /// <returns>The type of a System.Func delegate that has the specified type arguments.</returns>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         public static Type GetFuncType(params Type[]? typeArgs)
         {
             switch (ValidateTryGetFuncActionArgs(typeArgs))
@@ -1012,6 +1053,7 @@ namespace System.Linq.Expressions
         /// <param name="typeArgs">An array of <see cref="System.Type"/> objects that specify the type arguments for the System.Func delegate type.</param>
         /// <param name="funcType">When this method returns, contains the generic System.Func delegate type that has specific type arguments. Contains null if there is no generic System.Func delegate that matches the <paramref name="typeArgs"/>.This parameter is passed uninitialized.</param>
         /// <returns>true if generic System.Func delegate type was created for specific <paramref name="typeArgs"/>; false otherwise.</returns>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         public static bool TryGetFuncType(Type[] typeArgs, [NotNullWhen(true)] out Type? funcType)
         {
             if (ValidateTryGetFuncActionArgs(typeArgs) == TryGetFuncActionArgsResult.Valid)
@@ -1028,6 +1070,7 @@ namespace System.Linq.Expressions
         /// </summary>
         /// <param name="typeArgs">An array of <see cref="System.Type"/> objects that specify the type arguments for the System.Action delegate type.</param>
         /// <returns>The type of a System.Action delegate that has the specified type arguments.</returns>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         public static Type GetActionType(params Type[]? typeArgs)
         {
             switch (ValidateTryGetFuncActionArgs(typeArgs))
@@ -1056,6 +1099,7 @@ namespace System.Linq.Expressions
         /// <param name="typeArgs">An array of <see cref="System.Type"/> objects that specify the type arguments for the System.Action delegate type.</param>
         /// <param name="actionType">When this method returns, contains the generic System.Action delegate type that has specific type arguments. Contains null if there is no generic System.Action delegate that matches the <paramref name="typeArgs"/>.This parameter is passed uninitialized.</param>
         /// <returns>true if generic System.Action delegate type was created for specific <paramref name="typeArgs"/>; false otherwise.</returns>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         public static bool TryGetActionType(Type[] typeArgs, [NotNullWhen(true)] out Type? actionType)
         {
             if (ValidateTryGetFuncActionArgs(typeArgs) == TryGetFuncActionArgsResult.Valid)
@@ -1077,6 +1121,7 @@ namespace System.Linq.Expressions
         /// <remarks>
         /// As with Func, the last argument is the return type. It can be set
         /// to <see cref="System.Void"/> to produce an Action.</remarks>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         public static Type GetDelegateType(params Type[] typeArgs)
         {
             ContractUtils.RequiresNotEmpty(typeArgs, nameof(typeArgs));

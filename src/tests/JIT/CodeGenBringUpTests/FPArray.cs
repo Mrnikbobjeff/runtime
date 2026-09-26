@@ -5,7 +5,8 @@
 
 using System;
 using System.Runtime.CompilerServices;
-public class BringUpTest
+using Xunit;
+public class BringUpTest_FPArray
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -21,7 +22,8 @@ public class BringUpTest
        return sum / len; 
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         float []arr = new float[] {1f,2f,3f,4f,5f};
         float y = FPArray(arr, arr.Length);

@@ -8,6 +8,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading.Tasks;
 using System.Xml;
+using Test.Cryptography;
 using Xunit;
 
 namespace System.Security.Cryptography.Xml.Tests
@@ -59,6 +60,7 @@ namespace System.Security.Cryptography.Xml.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51370", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void SignedXmlHasCertificateVerifiableSignature()
         {
             using (X509Certificate2 x509cert = TestHelpers.GetSampleX509Certificate())
@@ -71,6 +73,28 @@ namespace System.Security.Cryptography.Xml.Tests
                 {
                     SignXml(xmlDoc, key);
                 }
+
+                Assert.True(VerifyXml(xmlDoc.OuterXml, x509cert));
+            }
+        }
+
+        [ConditionalFact(typeof(PlatformSupport), nameof(PlatformSupport.IsDSASupported))]
+        public void SignedXmlHasDSACertificateVerifiableSignature()
+        {
+            using (X509Certificate2 x509cert = TestHelpers.GetSampleDSAX509Certificate())
+            {
+                var xmlDoc = new XmlDocument();
+                xmlDoc.PreserveWhitespace = true;
+                xmlDoc.LoadXml(ExampleXml);
+
+#if NET
+                using (DSA key = x509cert.GetDSAPrivateKey())
+                {
+                    SignXml(xmlDoc, key);
+                }
+#else //NETFRAMEWORK
+                SignXml(xmlDoc, x509cert.PrivateKey);
+#endif
 
                 Assert.True(VerifyXml(xmlDoc.OuterXml, x509cert));
             }

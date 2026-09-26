@@ -52,7 +52,7 @@ namespace System.Data.Tests.SqlTypes
         {
             Assert.Throws<OverflowException>(() => new SqlMoney(1000000000000000m));
 
-            SqlMoney CreationTest = new SqlMoney((decimal)913.3);
+            SqlMoney CreationTest = new SqlMoney(913.3m);
             Assert.Equal(913.3m, CreationTest.Value);
 
             Assert.Throws<OverflowException>(() => new SqlMoney(1e200));
@@ -131,7 +131,9 @@ namespace System.Data.Tests.SqlTypes
         public void EqualsMethods()
         {
             Assert.False(_test1.Equals(_test2));
+            Assert.False(_test1.Equals((object)_test2));
             Assert.True(_test2.Equals(_test3));
+            Assert.True(_test2.Equals((object)_test3));
             Assert.False(SqlMoney.Equals(_test1, _test2).Value);
             Assert.True(SqlMoney.Equals(_test3, _test2).Value);
         }
@@ -203,7 +205,7 @@ namespace System.Data.Tests.SqlTypes
             SqlMoney testMoney100 = new SqlMoney(100);
 
             // ToDecimal
-            Assert.Equal((decimal)6464.6464, _test1.ToDecimal());
+            Assert.Equal(6464.6464m, _test1.ToDecimal());
 
             // ToDouble
             Assert.Equal(6464.6464, _test1.ToDouble());
@@ -227,7 +229,7 @@ namespace System.Data.Tests.SqlTypes
             Assert.Throws<OverflowException>(() => _test2.ToSqlByte());
 
             // ToSqlDecimal ()
-            Assert.Equal((decimal)6464.6464, _test1.ToSqlDecimal().Value);
+            Assert.Equal(6464.6464m, _test1.ToSqlDecimal().Value);
             Assert.Equal(-45000m, _test4.ToSqlDecimal().Value);
 
             // ToSqlInt16 ()
@@ -324,7 +326,7 @@ namespace System.Data.Tests.SqlTypes
         [Fact]
         public void UnaryNegation()
         {
-            Assert.Equal((decimal)(-6464.6464), -(_test1).Value);
+            Assert.Equal(-6464.6464m, -(_test1).Value);
             Assert.Equal(45000M, -(_test4).Value);
         }
 
@@ -364,7 +366,7 @@ namespace System.Data.Tests.SqlTypes
         [Fact]
         public void SqlMoneyToDecimal()
         {
-            Assert.Equal((decimal)6464.6464, (decimal)_test1);
+            Assert.Equal(6464.6464m, (decimal)_test1);
             Assert.Equal(-45000M, (decimal)_test4);
         }
 
@@ -425,6 +427,23 @@ namespace System.Data.Tests.SqlTypes
         {
             XmlQualifiedName qualifiedName = SqlMoney.GetXsdType(null);
             Assert.Equal("decimal", qualifiedName.Name);
+        }
+
+        [Fact]
+        public void GetTdsValue()
+        {
+            Assert.Equal(long.MaxValue,SqlMoney.MaxValue.GetTdsValue());
+            Assert.Equal(long.MinValue, SqlMoney.MinValue.GetTdsValue());
+            Assert.Equal((long)0, new SqlMoney(0).GetTdsValue());
+            Assert.Throws<SqlNullValueException>(() => SqlMoney.Null.GetTdsValue());
+        }
+
+        [Fact]
+        public void FromTdsValue()
+        {
+            Assert.Equal(SqlMoney.FromTdsValue(long.MaxValue), SqlMoney.MaxValue);
+            Assert.Equal(SqlMoney.FromTdsValue(long.MinValue), SqlMoney.MinValue);
+            Assert.Equal(SqlMoney.FromTdsValue(0), new SqlMoney(0));
         }
     }
 }

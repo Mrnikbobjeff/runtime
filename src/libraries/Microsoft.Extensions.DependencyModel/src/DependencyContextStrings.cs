@@ -3,7 +3,7 @@
 
 namespace Microsoft.Extensions.DependencyModel
 {
-    internal class DependencyContextStrings
+    internal static class DependencyContextStrings
     {
         internal const char VersionSeparator = '/';
 
@@ -33,7 +33,7 @@ namespace Microsoft.Extensions.DependencyModel
 
         internal const string ServiceablePropertyName = "serviceable";
 
-        internal const string CompilationOptionsPropertName = "compilationOptions";
+        internal const string CompilationOptionsPropertyName = "compilationOptions";
 
         internal const string DefinesPropertyName = "defines";
 
@@ -86,5 +86,7 @@ namespace Microsoft.Extensions.DependencyModel
         internal const string AssemblyVersionPropertyName = "assemblyVersion";
 
         internal const string FileVersionPropertyName = "fileVersion";
+
+        internal const string LocalPathPropertyName = "localPath";
     }
 }

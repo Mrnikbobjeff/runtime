@@ -7,6 +7,7 @@ using System.Linq;
 using Microsoft.DotNet.RemoteExecutor;
 using Xunit;
 using System.Threading.Tasks;
+using System.Runtime.InteropServices;
 
 namespace System.Diagnostics.Tests
 {
@@ -46,6 +47,7 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void TestThreadCount()
         {
             int numOfThreads = 10;
@@ -82,13 +84,15 @@ namespace System.Diagnostics.Tests
                 processThread.Disposed += (_, __) => disposedCount += 1;
             }
 
-            process.Dispose();
+            KillWait(process);
+            Assert.Equal(0, disposedCount);
 
+            process.Dispose();
             Assert.Equal(expectedCount, disposedCount);
         }
 
         [Fact]
-        [PlatformSpecific(TestPlatforms.OSX|TestPlatforms.FreeBSD)] // OSX and FreeBSD throw PNSE from StartTime
+        [PlatformSpecific(TestPlatforms.OSX | TestPlatforms.FreeBSD | TestPlatforms.OpenBSD)] // these platforms throw PNSE from StartTime
         public void TestStartTimeProperty_OSX()
         {
             using (Process p = Process.GetCurrentProcess())
@@ -104,8 +108,8 @@ namespace System.Diagnostics.Tests
             }
         }
 
-        [Fact]
-        [PlatformSpecific(TestPlatforms.Linux|TestPlatforms.Windows)] // OSX and FreeBSD throw PNSE from StartTime
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        [PlatformSpecific(TestPlatforms.Linux | TestPlatforms.Windows)] // OSX and FreeBSD throw PNSE from StartTime
         public async Task TestStartTimeProperty()
         {
             TimeSpan allowedWindow = TimeSpan.FromSeconds(2);
@@ -144,21 +148,25 @@ namespace System.Diagnostics.Tests
                 // that there's at least one thread greater than the current time we previously grabbed.
                 await Task.Factory.StartNew(() =>
                 {
-                    p.Refresh();
-                    try
+                    int newThreadId = GetCurrentThreadId();
+
+                    // Retry to handle the race where the newly started thread is not yet visible via Process.Threads.
+                    ProcessThread newThread = null;
+                    for (int i = 0; i < 10 && newThread is null; i++)
                     {
-                        var newest = p.Threads.Cast<ProcessThread>().OrderBy(t => t.StartTime.ToUniversalTime()).Last();
-                        Assert.InRange(newest.StartTime.ToUniversalTime(), curTime - allowedWindow, DateTime.Now.ToUniversalTime() + allowedWindow);
+                        if (i > 0) Thread.Sleep(100);
+                        p.Refresh();
+                        newThread = p.Threads.Cast<ProcessThread>().FirstOrDefault(t => t.Id == newThreadId);
                     }
-                    catch (InvalidOperationException)
-                    {
-                        // A thread may have gone away between our getting its info and attempting to access its StartTime
-                    }
+
+                    Assert.True(newThread is not null, $"Thread with id {newThreadId} was not found after retrying.");
+                    Assert.InRange(newThread.StartTime.ToUniversalTime(), curTime - allowedWindow, DateTime.UtcNow + allowedWindow);
                 }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
             }
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
         public void TestStartAddressProperty()
         {
             using (Process p = Process.GetCurrentProcess())

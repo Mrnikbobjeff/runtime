@@ -3,10 +3,13 @@
 
 using System;
 using System.Reflection;
+using Xunit;
 
-class Program
+public class Program
 {
-    static int Main()
+    [Fact]
+    [ActiveIssue("https://github.com/dotnet/runtimelab/issues/861", typeof(TestLibrary.Utilities), nameof(TestLibrary.Utilities.IsNativeAot))]
+    public static int TestEntryPoint()
     {
         bool failed = false;
 

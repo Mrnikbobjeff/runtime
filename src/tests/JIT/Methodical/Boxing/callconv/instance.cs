@@ -3,16 +3,17 @@
 
 
 using System;
+using Xunit;
 
 
-namespace BoxTest
+namespace BoxTest_instance_cs
 {
-    internal abstract class BaseTest
+    public abstract class BaseTest
     {
         protected abstract object Fibonacci2(object num, object flag);
     }
 
-    internal class Test : BaseTest
+    public class Test : BaseTest
     {
         private object _num;
 
@@ -37,7 +38,9 @@ namespace BoxTest
             return N;
         }
 
-        public Test(object num)
+        public Test() { }
+
+        private Test(object num)
         {
             _num = (float)(double)num;
         }
@@ -49,12 +52,13 @@ namespace BoxTest
             return _num;
         }
 
-        private static int Main()
+        [Fact]
+        [OuterLoop]
+        public static void TestEntryPoint()
         {
             Test test = new Test(20.0d);
             test.Print();
             Console.WriteLine("*** PASSED ***");
-            return 100;
         }
     }
 }

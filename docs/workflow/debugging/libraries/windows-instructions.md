@@ -1,5 +1,5 @@
-Debugging CoreFX on Windows
-==========================
+Debugging core .NET libraries on Windows
+========================================
 
 You can Debug .NET via Visual Studio or WinDBG.
 
@@ -33,15 +33,15 @@ To run a single test from command line:
 
 * Locate the test binary folder based on the CSPROJ name.
 
-For example: `src\System.Net.Sockets\tests\Functional\System.Net.Sockets.Tests.csproj` will build and output binaries at  `bin\tests\Windows_NT.AnyCPU.Debug\System.Net.Sockets.Tests\netcoreapp1.0`.
+For example: `src\System.Net.Sockets\tests\Functional\System.Net.Sockets.Tests.csproj` will build and output binaries at  `bin\tests\windows.AnyCPU.Debug\System.Net.Sockets.Tests\netcoreapp1.0`.
 
 * Execute the test
 
-Assuming that your repo is at `C:\corefx`:
+Assuming that your repo is at `C:\root`:
 
 ```
-cd C:\corefx\bin\tests\Windows_NT.AnyCPU.Debug\System.Net.Sockets.Tests\netcoreapp1.0
-C:\corefx\bin\tests\Windows_NT.AnyCPU.Debug\System.Net.Sockets.Tests\netcoreapp1.0\CoreRun.exe xunit.console.dll System.Net.Sockets.Tests.dll -xml testResults.xml -notrait category=nonwindowstests -notrait category=OuterLoop -notrait category=failing
+cd C:\root\bin\tests\windows.AnyCPU.Debug\System.Net.Sockets.Tests\netcoreapp1.0
+C:\root\bin\tests\windows.AnyCPU.Debug\System.Net.Sockets.Tests\netcoreapp1.0\CoreRun.exe xunit.console.dll System.Net.Sockets.Tests.dll -xml testResults.xml -notrait category=nonwindowstests -notrait category=OuterLoop -notrait category=failing
 ```
 
 * If the test crashes or encounters a `Debugger.Launch()` method call, WinDBG will automatically start and attach to the `CoreRun.exe` process
@@ -52,7 +52,7 @@ The following commands will properly configure the debugging extension and fix s
 .symfix
 .srcfix
 .reload
-!load C:\corefx\packages\runtime.win7-x64.Microsoft.NETCore.Runtime.CoreCLR\<version>\tools\sos
+!load C:\root\packages\runtime.win7-x64.Microsoft.NETCore.Runtime.CoreCLR\<version>\tools\sos
 ```
 
 _Important_: Pass in the correct path to your SOS extension discovered during the Prerequisites, step 2.
@@ -137,7 +137,7 @@ Logs are going to be placed in %SYSTEMDRIVE%\sockets.etl.
 
 ### Built-in EventSource tracing
 
-The following EventSources are built-in to CoreFX. The ones that are not marked as [__TestCode__] can be enabled in production scenarios for log collection.
+The following EventSources are built-in to the .NET platform. The ones that are not marked as [__TestCode__] can be enabled in production scenarios for log collection.
 
 #### Global
 * `*System.Diagnostics.Eventing.FrameworkEventSource {8E9F5090-2D75-4d03-8A81-E5AFBF85DAF1}`: Global EventSource used by multiple namespaces.
@@ -150,18 +150,7 @@ The following EventSources are built-in to CoreFX. The ones that are not marked 
 
 #### System.Net namespaces
 
-Helper scripts are available at https://github.com/dotnet/runtime/tree/master/src/libraries/Common/tests/Scripts/Tools. Run `net_startlog.cmd` as Administrator, run the application, then run `net_stoplog.cmd`. Open the `.etl` file with PerfView.
-
-* `*Microsoft-System-Net-Http {bdd9a83e-1929-5482-0d73-2fe5e1c0e16d}`: HTTP-related traces.
-* `*Microsoft-System-Net-Http-WinHttpHandler {b71555b1-9566-5ce3-27f5-98405bbfde9d}`: WinHttpHandler-related traces.
-* `*Microsoft-System-Net-Mail {42c8027b-f048-58d2-537d-a4a9d5ee7038}`: SMTP-related traces.
-* `*Microsoft-System-Net-NameResolution {5f302add-3825-520e-8fa0-627b206e2e7e}`: DNS-related traces.
-* `*Microsoft-System-Net-NetworkInformation {b8e42167-0eb2-5e39-97b5-acaca593d3a2}`: Network configuration-related traces.
-* `*Microsoft-System-Net-Ping {a771ec4a-7260-59ce-0475-db257437ed8c}`: Ping-related traces.
-* `*Microsoft-System-Net-Primitives {a9f9e4e1-0cf5-5005-b530-3d37959d5e84}`: Traces related to core networking-related types.
-* `*Microsoft-System-Net-Requests {3763dc7e-7046-5576-9041-5616e21cc2cf}`: WebRequest-related traces.
-* `*Microsoft-System-Net-Sockets {e03c0352-f9c9-56ff-0ea7-b94ba8cabc6b}`: Sockets-related traces.
-* `*Microsoft-System-Net-Security {066c0e27-a02d-5a98-9a4d-078cc3b1a896}`: Security-related traces.
+For information on collecting network telemetry, see https://learn.microsoft.com/dotnet/fundamentals/networking/telemetry/overview.
 
 #### System.Threading
 * `*System.Threading.SynchronizationEventSource {EC631D38-466B-4290-9306-834971BA0217}`: Provides an event source for tracing Coordination Data Structure synchronization information.

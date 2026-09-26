@@ -104,7 +104,8 @@ namespace System.Net.Http.Functional.Tests
         }
     }
 
-    public class NtAuthTests : IClassFixture<NtAuthServers>
+    [SkipOnPlatform(TestPlatforms.Wasi, "NTLM/Negotiate test servers are not supported on WASI")]
+    public partial class NtAuthTests : IClassFixture<NtAuthServers>
     {
         private readonly NtAuthServers _servers;
         private readonly ITestOutputHelper _output;

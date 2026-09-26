@@ -86,7 +86,7 @@ namespace System.Threading.Tests
             trwl.Dispose();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void InvalidLockCookieTest()
         {
             // Invalid lock cookie created by using one up with Upgrade/Downgrade
@@ -121,7 +121,7 @@ namespace System.Threading.Tests
             trwl.Dispose();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void BasicLockTest()
         {
             var trwl = new TestReaderWriterLock();
@@ -434,6 +434,25 @@ namespace System.Threading.Tests
         }
 
         [Fact]
+        public static void MultipleNestedReadersMiscellaneousTest()
+        {
+            var trwl1 = new TestReaderWriterLock();
+            var trwl2 = new TestReaderWriterLock();
+
+            trwl1.AcquireReaderLock();
+
+            trwl2.AcquireReaderLock();
+            trwl2.ReleaseReaderLock();
+
+            trwl1.AcquireReaderLock();
+            trwl1.ReleaseReaderLock();
+            trwl1.ReleaseReaderLock();
+
+            trwl1.Dispose();
+            trwl2.Dispose();
+        }
+
+        [Fact]
         public static void DowngradeQuirks_ChangedInDotNetCore()
         {
             var trwl = new TestReaderWriterLock();
@@ -479,7 +498,7 @@ namespace System.Threading.Tests
             trwl.Dispose();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void WaitingReadersTest()
         {
             var trwl = new TestReaderWriterLock();
@@ -509,7 +528,7 @@ namespace System.Threading.Tests
             trwl.Dispose();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void WaitingWritersTest()
         {
             var trwl = new TestReaderWriterLock();
@@ -540,7 +559,7 @@ namespace System.Threading.Tests
             trwl.Dispose();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void ReadersWaitingOnWaitingWriterTest()
         {
             var trwl = new TestReaderWriterLock();
@@ -590,7 +609,7 @@ namespace System.Threading.Tests
             trwl.Dispose();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void ReadersWaitingOnWaitingUpgraderTest()
         {
             var trwl = new TestReaderWriterLock();
@@ -643,7 +662,7 @@ namespace System.Threading.Tests
             trwl.Dispose();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void WaitingUpgradersTest()
         {
             var trwl = new TestReaderWriterLock();
@@ -688,7 +707,7 @@ namespace System.Threading.Tests
             trwl.Dispose();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void AtomicRecursiveReaderTest()
         {
             var trwl = new TestReaderWriterLock();
@@ -714,7 +733,7 @@ namespace System.Threading.Tests
             trwl.Dispose();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void AtomicDowngradeTest()
         {
             var trwl = new TestReaderWriterLock();

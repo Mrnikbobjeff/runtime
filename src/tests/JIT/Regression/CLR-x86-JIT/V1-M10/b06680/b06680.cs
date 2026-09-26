@@ -2,21 +2,23 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b06680
 {
     //@BEGINRENAME; Verify this renames
     //@ENDRENAME; Verify this renames
     using System;
 
-    class AppStarter
+    public class AppStarter
     {
         private static int n = 0;
 
-        public static int Main(String[] args)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             n = 1;
             Console.WriteLine("n = " + n);
-            return 100;
         }
     };
 };

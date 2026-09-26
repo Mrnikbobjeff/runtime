@@ -2,11 +2,11 @@
 
 source="${BASH_SOURCE[0]}"
 darcVersion=''
-versionEndpoint='https://maestro-prod.westus2.cloudapp.azure.com/api/assets/darc-version?api-version=2019-01-16'
+versionEndpoint='https://maestro.dot.net/api/assets/darc-version?api-version=2020-02-20'
 verbosity='minimal'
 
-while [[ $# > 0 ]]; do
-  opt="$(echo "$1" | awk '{print tolower($0)}')"
+while [[ $# -gt 0 ]]; do
+  opt="$(echo "$1" | tr "[:upper:]" "[:lower:]")"
   case "$opt" in
     --darcversion)
       darcVersion=$2
@@ -53,7 +53,7 @@ fi
 function InstallDarcCli {
   local darc_cli_package_name="microsoft.dotnet.darc"
 
-  InitializeDotNetCli
+  InitializeDotNetCli true
   local dotnet_root=$_InitializeDotNetCli
 
   if [ -z "$toolpath" ]; then
@@ -68,14 +68,14 @@ function InstallDarcCli {
     fi
   fi
 
-  local arcadeServicesSource="https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-tools/nuget/v3/index.json"
+  local arcadeServicesSource="https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet-eng/nuget/v3/index.json"
 
   echo "Installing Darc CLI version $darcVersion..."
   echo "You may need to restart your command shell if this is the first dotnet tool you have installed."
   if [ -z "$toolpath" ]; then
-    echo $($dotnet_root/dotnet tool install $darc_cli_package_name --version $darcVersion --add-source "$arcadeServicesSource" -v $verbosity -g)
+    echo $($dotnet_root/dotnet tool install $darc_cli_package_name --version $darcVersion --source "$arcadeServicesSource" -v $verbosity -g)
   else
-    echo $($dotnet_root/dotnet tool install $darc_cli_package_name --version $darcVersion --add-source "$arcadeServicesSource" -v $verbosity --tool-path "$toolpath")
+    echo $($dotnet_root/dotnet tool install $darc_cli_package_name --version $darcVersion --source "$arcadeServicesSource" -v $verbosity --tool-path "$toolpath")
   fi
 }
 

@@ -2,11 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Xml;
-using System.Diagnostics;
 using System.Collections;
-using System.Globalization;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.Xml;
 
 namespace System.Xml
 {
@@ -15,7 +15,7 @@ namespace System.Xml
         //
         // Private types
         //
-        private class NodeData
+        private sealed class NodeData
         {
             internal XmlNodeType type;
             internal string localName;
@@ -180,7 +180,7 @@ namespace System.Xml
             }
         }
 
-        public override string? BaseURI
+        public override string BaseURI
         {
             get
             {
@@ -1300,10 +1300,7 @@ namespace System.Xml
             _nsManager.AddNamespace(prefix, ns);
 
             int index = _nsAttrCount++;
-            if (_nsAttributes == null)
-            {
-                _nsAttributes = new NodeData[InitialNamespaceAttributeCount];
-            }
+            _nsAttributes ??= new NodeData[InitialNamespaceAttributeCount];
 
             if (index == _nsAttributes.Length)
             {
@@ -1326,7 +1323,7 @@ namespace System.Xml
             {
                 localName = prefix;
                 attrPrefix = _xmlns;
-                name = reader.NameTable.Add(string.Concat(_xmlns, ":", prefix));
+                name = reader.NameTable.Add($"{_xmlns}:{prefix}");
             }
 
             if (_nsAttributes[index] == null)
@@ -1580,24 +1577,13 @@ namespace System.Xml
             }
         }
 
-        private void CheckBuffer(Array buffer, int index, int count)
+        private static void CheckBuffer(Array buffer, int index, int count)
         {
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-            if (index < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index));
-            }
-            if (buffer.Length - index < count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+            ArgumentNullException.ThrowIfNull(buffer);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, buffer.Length - index);
         }
     }
 }

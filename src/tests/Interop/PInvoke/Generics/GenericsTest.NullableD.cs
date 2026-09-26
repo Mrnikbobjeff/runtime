@@ -3,7 +3,7 @@
 
 using System;
 using System.Runtime.InteropServices;
-using TestLibrary;
+using Xunit;
 
 unsafe partial class GenericsNative
 {
@@ -26,9 +26,10 @@ unsafe partial class GenericsNative
     public static extern double? AddNullableDs(in double? pValues, int count);
 }
 
-unsafe partial class GenericsTest
+public unsafe partial class GenericsTest
 {
-    private static void TestNullableD()
+    [Fact]
+    public static void TestNullableD()
     {
         Assert.Throws<MarshalDirectiveException>(() => GenericsNative.GetNullableD(true, 1.0));
 

@@ -3,7 +3,7 @@
 
 using System;
 using System.Runtime.InteropServices;
-using TestLibrary;
+using Xunit;
 
 unsafe partial class GenericsNative
 {
@@ -25,9 +25,10 @@ unsafe partial class GenericsNative
     public static extern void GetIComInterfaceDs([MarshalAs(UnmanagedType.Interface)] ref IComInterface<double> pValues, int count);
 }
 
-unsafe partial class GenericsTest
+public unsafe partial class GenericsTest
 {
-    private static void TestIComInterfaceD()
+    [Fact]
+    public static void TestIComInterfaceD()
     {
         Assert.Throws<MarshalDirectiveException>(() => GenericsNative.GetIComInterfaceD());
 

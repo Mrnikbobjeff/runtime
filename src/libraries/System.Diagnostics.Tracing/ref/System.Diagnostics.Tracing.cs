@@ -145,6 +145,7 @@ namespace System.Diagnostics.Tracing
         Send = 9,
         Receive = 240,
     }
+    [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicNestedTypes)]
     public partial class EventSource : System.IDisposable
     {
         protected EventSource() { }
@@ -154,6 +155,8 @@ namespace System.Diagnostics.Tracing
         public EventSource(string eventSourceName) { }
         public EventSource(string eventSourceName, System.Diagnostics.Tracing.EventSourceSettings config) { }
         public EventSource(string eventSourceName, System.Diagnostics.Tracing.EventSourceSettings config, params string[]? traits) { }
+        public EventSource(string eventSourceName, System.Guid eventSourceGuid) { }
+        public EventSource(string eventSourceName, System.Guid eventSourceGuid, System.Diagnostics.Tracing.EventSourceSettings settings, string[]? traits = null) { }
         public System.Exception? ConstructionException { get { throw null; } }
         public static System.Guid CurrentThreadActivityId { get { throw null; } }
         public System.Guid Guid { get { throw null; } }
@@ -163,8 +166,8 @@ namespace System.Diagnostics.Tracing
         public void Dispose() { }
         protected virtual void Dispose(bool disposing) { }
         ~EventSource() { }
-        public static string? GenerateManifest(System.Type eventSourceType, string? assemblyPathToIncludeInManifest) { throw null; }
-        public static string? GenerateManifest(System.Type eventSourceType, string? assemblyPathToIncludeInManifest, System.Diagnostics.Tracing.EventManifestOptions flags) { throw null; }
+        public static string? GenerateManifest([System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicNestedTypes)] System.Type eventSourceType, string? assemblyPathToIncludeInManifest) { throw null; }
+        public static string? GenerateManifest([System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicNestedTypes)] System.Type eventSourceType, string? assemblyPathToIncludeInManifest, System.Diagnostics.Tracing.EventManifestOptions flags) { throw null; }
         public static System.Guid GetGuid(System.Type eventSourceType) { throw null; }
         public static string GetName(System.Type eventSourceType) { throw null; }
         public static System.Collections.Generic.IEnumerable<System.Diagnostics.Tracing.EventSource> GetSources() { throw null; }
@@ -190,6 +193,8 @@ namespace System.Diagnostics.Tracing
         protected void WriteEvent(int eventId, long arg1, long arg2) { }
         protected void WriteEvent(int eventId, long arg1, long arg2, long arg3) { }
         protected void WriteEvent(int eventId, long arg1, string? arg2) { }
+        protected void WriteEvent(int eventId, params EventSourcePrimitive[] args) { }
+        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("EventSource will serialize the whole object graph. Trimmer will not safely handle this case because properties may be trimmed. This can be suppressed if the object is a primitive type")]
         protected void WriteEvent(int eventId, params object?[] args) { }
         protected void WriteEvent(int eventId, string? arg1) { }
         protected void WriteEvent(int eventId, string? arg1, int arg2) { }
@@ -197,15 +202,57 @@ namespace System.Diagnostics.Tracing
         protected void WriteEvent(int eventId, string? arg1, long arg2) { }
         protected void WriteEvent(int eventId, string? arg1, string? arg2) { }
         protected void WriteEvent(int eventId, string? arg1, string? arg2, string? arg3) { }
+        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("EventSource will serialize the whole object graph. Trimmer will not safely handle this case because properties may be trimmed. This can be suppressed if the object is a primitive type")]
         [System.CLSCompliantAttribute(false)]
         protected unsafe void WriteEventCore(int eventId, int eventDataCount, System.Diagnostics.Tracing.EventSource.EventData* data) { }
+        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("EventSource will serialize the whole object graph. Trimmer will not safely handle this case because properties may be trimmed. This can be suppressed if the object is a primitive type")]
         protected void WriteEventWithRelatedActivityId(int eventId, System.Guid relatedActivityId, params object?[] args) { }
+        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("EventSource will serialize the whole object graph. Trimmer will not safely handle this case because properties may be trimmed. This can be suppressed if the object is a primitive type")]
         [System.CLSCompliantAttribute(false)]
         protected unsafe void WriteEventWithRelatedActivityIdCore(int eventId, System.Guid* relatedActivityId, int eventDataCount, System.Diagnostics.Tracing.EventSource.EventData* data) { }
-        public void Write<T>(string? eventName, System.Diagnostics.Tracing.EventSourceOptions options, T data) { }
-        public void Write<T>(string? eventName, ref System.Diagnostics.Tracing.EventSourceOptions options, ref System.Guid activityId, ref System.Guid relatedActivityId, ref T data) { }
-        public void Write<T>(string? eventName, ref System.Diagnostics.Tracing.EventSourceOptions options, ref T data) { }
-        public void Write<T>(string? eventName, T data) { }
+        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("EventSource will serialize the whole object graph. Trimmer will not safely handle this case because properties may be trimmed. This can be suppressed if the object is a primitive type")]
+        public void Write<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] T>(string? eventName, System.Diagnostics.Tracing.EventSourceOptions options, T data) { }
+        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("EventSource will serialize the whole object graph. Trimmer will not safely handle this case because properties may be trimmed. This can be suppressed if the object is a primitive type")]
+        public void Write<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] T>(string? eventName, ref System.Diagnostics.Tracing.EventSourceOptions options, ref System.Guid activityId, ref System.Guid relatedActivityId, ref T data) { }
+        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("EventSource will serialize the whole object graph. Trimmer will not safely handle this case because properties may be trimmed. This can be suppressed if the object is a primitive type")]
+        public void Write<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] T>(string? eventName, ref System.Diagnostics.Tracing.EventSourceOptions options, ref T data) { }
+        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("EventSource will serialize the whole object graph. Trimmer will not safely handle this case because properties may be trimmed. This can be suppressed if the object is a primitive type")]
+        public void Write<[System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicProperties)] T>(string? eventName, T data) { }
+        [System.Runtime.InteropServices.StructLayoutAttribute(System.Runtime.InteropServices.LayoutKind.Sequential)]
+        public readonly struct EventSourcePrimitive
+        {
+            public static implicit operator EventSourcePrimitive(bool value) => throw null;
+            public static implicit operator EventSourcePrimitive(byte value) => throw null;
+            public static implicit operator EventSourcePrimitive(short value) => throw null;
+            public static implicit operator EventSourcePrimitive(int value) => throw null;
+            public static implicit operator EventSourcePrimitive(long value) => throw null;
+
+            [CLSCompliant(false)]
+            public static implicit operator EventSourcePrimitive(sbyte value) => throw null;
+            [CLSCompliant(false)]
+            public static implicit operator EventSourcePrimitive(ushort value) => throw null;
+            [CLSCompliant(false)]
+            public static implicit operator EventSourcePrimitive(uint value) => throw null;
+            [CLSCompliant(false)]
+            public static implicit operator EventSourcePrimitive(ulong value) => throw null;
+            [CLSCompliant(false)]
+            // Added to prevent going through the nuint -> ulong conversion
+            public static implicit operator EventSourcePrimitive(nuint value) => throw null;
+
+            public static implicit operator EventSourcePrimitive(float value) => throw null;
+            public static implicit operator EventSourcePrimitive(double value) => throw null;
+            public static implicit operator EventSourcePrimitive(decimal value) => throw null;
+
+            public static implicit operator EventSourcePrimitive(string? value) => throw null;
+            public static implicit operator EventSourcePrimitive(byte[]? value) => throw null;
+
+            public static implicit operator EventSourcePrimitive(Guid value) => throw null;
+            public static implicit operator EventSourcePrimitive(DateTime value) => throw null;
+            public static implicit operator EventSourcePrimitive(nint value) => throw null;
+            public static implicit operator EventSourcePrimitive(char value) => throw null;
+
+            public static implicit operator EventSourcePrimitive(Enum value) => throw null;
+        }
         [System.Runtime.InteropServices.StructLayoutAttribute(System.Runtime.InteropServices.LayoutKind.Sequential)]
         protected internal partial struct EventData
         {
@@ -230,6 +277,8 @@ namespace System.Diagnostics.Tracing
     public partial class EventSourceException : System.Exception
     {
         public EventSourceException() { }
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
         protected EventSourceException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public EventSourceException(string? message) { }
         public EventSourceException(string? message, System.Exception? innerException) { }

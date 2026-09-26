@@ -72,8 +72,8 @@ namespace System.Reflection.TypeLoading
                 if (rank != toTypeInfo.GetArrayRank())
                     return false;
 
-                bool fromTypeIsSzArray = fromTypeInfo.IsSZArray();
-                bool toTypeIsSzArray = toTypeInfo.IsSZArray();
+                bool fromTypeIsSzArray = fromTypeInfo.IsSZArray;
+                bool toTypeIsSzArray = toTypeInfo.IsSZArray;
                 if (fromTypeIsSzArray != toTypeIsSzArray)
                 {
                     // T[] is assignable to T[*] but not vice-versa.
@@ -233,7 +233,7 @@ namespace System.Reflection.TypeLoading
         //    A can cast to B under variance rules.
         //
         //    A and B are both integers or enums and have the same reduced type (i.e. represent the same-sized integer, ignoring signed/unsigned differences.)
-        //        "char" is not interchangable with short/ushort. "bool" is not interchangable with byte/sbyte.
+        //        "char" is not interchangeable with short/ushort. "bool" is not interchangeable with byte/sbyte.
         //
         // For .NET Framework compat, A& and A* follow the same rules.
         //

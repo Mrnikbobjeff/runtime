@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel.Design;
 using System.Diagnostics.CodeAnalysis;
 
 namespace System.ComponentModel
@@ -11,13 +12,17 @@ namespace System.ComponentModel
     [AttributeUsage(AttributeTargets.All)]
     public class ToolboxItemAttribute : Attribute
     {
-        private Type _toolboxItemType;
-        private readonly string _toolboxItemTypeName;
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        private Type? _toolboxItemType;
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        private readonly string? _toolboxItemTypeName;
+
+        private const string DefaultToolboxItemTypeName = "System.Drawing.Design.ToolboxItem, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a";
 
         /// <summary>
         /// Initializes a new instance of ToolboxItemAttribute and sets the type to
         /// </summary>
-        public static readonly ToolboxItemAttribute Default = new ToolboxItemAttribute("System.Drawing.Design.ToolboxItem, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a");
+        public static readonly ToolboxItemAttribute Default = new ToolboxItemAttribute(DefaultToolboxItemTypeName);
 
         /// <summary>
         /// Initializes a new instance of ToolboxItemAttribute and sets the type to
@@ -28,7 +33,7 @@ namespace System.ComponentModel
         /// <summary>
         /// Gets whether the attribute is the default attribute.
         /// </summary>
-        public override bool IsDefaultAttribute() => Equals(Default);
+        public override bool IsDefaultAttribute() => _toolboxItemTypeName == DefaultToolboxItemTypeName;
 
         /// <summary>
         /// Initializes a new instance of ToolboxItemAttribute and specifies if default values should be used.
@@ -37,27 +42,31 @@ namespace System.ComponentModel
         {
             if (defaultType)
             {
-                _toolboxItemTypeName = "System.Drawing.Design.ToolboxItem, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a";
+                if (!IDesignerHost.IsSupported)
+                {
+                    throw new NotSupportedException(SR.IDesignerHostNotSupported);
+                }
+
+                _toolboxItemTypeName = DefaultToolboxItemTypeName;
             }
         }
 
         /// <summary>
         /// Initializes a new instance of ToolboxItemAttribute and specifies the name of the type.
         /// </summary>
-        public ToolboxItemAttribute(string toolboxItemTypeName)
+        public ToolboxItemAttribute([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] string toolboxItemTypeName)
         {
-            _toolboxItemTypeName = toolboxItemTypeName ?? throw new ArgumentNullException(nameof(toolboxItemTypeName));
+            ArgumentNullException.ThrowIfNull(toolboxItemTypeName);
+
+            _toolboxItemTypeName = toolboxItemTypeName;
         }
 
         /// <summary>
         /// Initializes a new instance of ToolboxItemAttribute and specifies the type of the toolbox item.
         /// </summary>
-        public ToolboxItemAttribute(Type toolboxItemType)
+        public ToolboxItemAttribute([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)] Type toolboxItemType)
         {
-            if (toolboxItemType == null)
-            {
-                throw new ArgumentNullException(nameof(toolboxItemType));
-            }
+            ArgumentNullException.ThrowIfNull(toolboxItemType);
 
             _toolboxItemType = toolboxItemType;
             _toolboxItemTypeName = toolboxItemType.AssemblyQualifiedName;
@@ -66,7 +75,8 @@ namespace System.ComponentModel
         /// <summary>
         /// Gets the toolbox item's type.
         /// </summary>
-        public Type ToolboxItemType
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        public Type? ToolboxItemType
         {
             get
             {
@@ -88,9 +98,10 @@ namespace System.ComponentModel
             }
         }
 
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
         public string ToolboxItemTypeName => _toolboxItemTypeName ?? string.Empty;
 
-        public override bool Equals(object obj)
+        public override bool Equals([NotNullWhen(true)] object? obj)
         {
             if (obj == this)
             {

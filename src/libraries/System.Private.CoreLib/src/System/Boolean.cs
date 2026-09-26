@@ -1,25 +1,24 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*============================================================
-**
-**
-**
-** Purpose: The boolean class serves as a wrapper for the primitive
-** type boolean.
-**
-**
-===========================================================*/
-
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
 namespace System
 {
+    /// <summary>
+    /// Represents a boolean (<see langword="true"/> or <see langword="false"/>) value.
+    /// </summary>
     [Serializable]
     [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public readonly struct Boolean : IComparable, IConvertible, IComparable<bool>, IEquatable<bool>
+    public readonly struct Boolean
+        : IComparable,
+          IConvertible,
+          IComparable<bool>,
+          IEquatable<bool>,
+          ISpanParsable<bool>
     {
         //
         // Member Variables
@@ -59,13 +58,13 @@ namespace System
         public static readonly string FalseString = FalseLiteral;
 
         //
-        // Overriden Instance Methods
+        // Overridden Instance Methods
         //
         /*=================================GetHashCode==================================
         **Args:  None
         **Returns: 1 or 0 depending on whether this instance represents true or false.
         **Exceptions: None
-        **Overriden From: Value
+        **Overridden From: Value
         ==============================================================================*/
         // Provides a hash code for this instance.
         public override int GetHashCode()
@@ -81,7 +80,7 @@ namespace System
         // Converts the boolean value of this instance to a String.
         public override string ToString()
         {
-            if (false == m_value)
+            if (!m_value)
             {
                 return FalseLiteral;
             }
@@ -97,26 +96,17 @@ namespace System
         {
             if (m_value)
             {
-                if ((uint)destination.Length > 3) // uint cast, per https://github.com/dotnet/runtime/issues/10596
+                if (TrueLiteral.TryCopyTo(destination))
                 {
-                    destination[0] = 'T';
-                    destination[1] = 'r';
-                    destination[2] = 'u';
-                    destination[3] = 'e';
-                    charsWritten = 4;
+                    charsWritten = TrueLiteral.Length;
                     return true;
                 }
             }
             else
             {
-                if ((uint)destination.Length > 4)
+                if (FalseLiteral.TryCopyTo(destination))
                 {
-                    destination[0] = 'F';
-                    destination[1] = 'a';
-                    destination[2] = 'l';
-                    destination[3] = 's';
-                    destination[4] = 'e';
-                    charsWritten = 5;
+                    charsWritten = FalseLiteral.Length;
                     return true;
                 }
             }
@@ -126,7 +116,7 @@ namespace System
         }
 
         // Determines whether two Boolean objects are equal.
-        public override bool Equals(object? obj)
+        public override bool Equals([NotNullWhen(true)] object? obj)
         {
             // If it's not a boolean, we're definitely not equal
             if (!(obj is bool))
@@ -165,7 +155,7 @@ namespace System
             {
                 return 0;
             }
-            else if (m_value == false)
+            else if (!m_value)
             {
                 return -1;
             }
@@ -178,7 +168,7 @@ namespace System
             {
                 return 0;
             }
-            else if (m_value == false)
+            else if (!m_value)
             {
                 return -1;
             }
@@ -191,65 +181,71 @@ namespace System
 
         // Custom string compares for early application use by config switches, etc
         //
+#if MONO
+        // We have to keep these implementations for Mono here because MemoryExtensions.Equals("True", OrdinalIgnoreCase)
+        // triggers CompareInfo static initialization which is not desired when we parse configs on start.
+        // TODO: Remove once Mono aligns its behavior with CoreCLR around .beforefieldinit
+        // https://github.com/dotnet/runtime/issues/77513
         internal static bool IsTrueStringIgnoreCase(ReadOnlySpan<char> value)
         {
+            // "true" as a ulong, each char |'d with 0x0020 for case-insensitivity
+            ulong true_val = BitConverter.IsLittleEndian ? 0x65007500720074ul : 0x74007200750065ul;
             return value.Length == 4 &&
-                    (value[0] == 't' || value[0] == 'T') &&
-                    (value[1] == 'r' || value[1] == 'R') &&
-                    (value[2] == 'u' || value[2] == 'U') &&
-                    (value[3] == 'e' || value[3] == 'E');
+                   (MemoryMarshal.Read<ulong>(MemoryMarshal.AsBytes(value)) | 0x0020002000200020) == true_val;
         }
 
         internal static bool IsFalseStringIgnoreCase(ReadOnlySpan<char> value)
         {
+            // "fals" as a ulong, each char |'d with 0x0020 for case-insensitivity
+            ulong fals_val = BitConverter.IsLittleEndian ? 0x73006C00610066ul : 0x660061006C0073ul;
             return value.Length == 5 &&
-                    (value[0] == 'f' || value[0] == 'F') &&
-                    (value[1] == 'a' || value[1] == 'A') &&
-                    (value[2] == 'l' || value[2] == 'L') &&
-                    (value[3] == 's' || value[3] == 'S') &&
-                    (value[4] == 'e' || value[4] == 'E');
+                   (((MemoryMarshal.Read<ulong>(MemoryMarshal.AsBytes(value)) | 0x0020002000200020) == fals_val) &
+                    ((value[4] | 0x20) == 'e'));
         }
+#else
+        internal static bool IsTrueStringIgnoreCase(ReadOnlySpan<char> value)
+        {
+            // JIT inlines and unrolls this, see https://github.com/dotnet/runtime/pull/77398
+            return value.Equals(TrueLiteral, StringComparison.OrdinalIgnoreCase);
+        }
+
+        internal static bool IsFalseStringIgnoreCase(ReadOnlySpan<char> value)
+        {
+            return value.Equals(FalseLiteral, StringComparison.OrdinalIgnoreCase);
+        }
+#endif
 
         // Determines whether a String represents true or false.
         //
         public static bool Parse(string value)
         {
-            if (value == null) throw new ArgumentNullException(nameof(value));
+            ArgumentNullException.ThrowIfNull(value);
+
             return Parse(value.AsSpan());
         }
 
-        public static bool Parse(ReadOnlySpan<char> value) =>
-            TryParse(value, out bool result) ? result : throw new FormatException(SR.Format(SR.Format_BadBoolean, new string(value)));
+        public static bool Parse(ReadOnlySpan<char> value)
+        {
+            if (!TryParse(value, out bool result))
+            {
+                ThrowHelper.ThrowFormatException_BadBoolean(value);
+            }
+            return result;
+        }
 
         // Determines whether a String represents true or false.
         //
-        public static bool TryParse([NotNullWhen(true)] string? value, out bool result)
-        {
-            if (value == null)
-            {
-                result = false;
-                return false;
-            }
-
-            return TryParse(value.AsSpan(), out result);
-        }
+        public static bool TryParse([NotNullWhen(true)] string? value, out bool result) =>
+            TryParse(value.AsSpan(), out result);
 
         public static bool TryParse(ReadOnlySpan<char> value, out bool result)
         {
-            if (IsTrueStringIgnoreCase(value))
-            {
-                result = true;
-                return true;
-            }
-
-            if (IsFalseStringIgnoreCase(value))
-            {
-                result = false;
-                return true;
-            }
-
-            // Special case: Trim whitespace as well as null characters.
-            value = TrimWhiteSpaceAndNull(value);
+            // Boolean.{Try}Parse allows for optional whitespace/null values before and
+            // after the case-insensitive "true"/"false", but we don't expect those to
+            // be the common case. We check for "true"/"false" case-insensitive in the
+            // fast, inlined call path, and then only if neither match do we fall back
+            // to trimming and making a second post-trimming attempt at matching those
+            // same strings.
 
             if (IsTrueStringIgnoreCase(value))
             {
@@ -263,18 +259,42 @@ namespace System
                 return true;
             }
 
-            result = false;
-            return false;
+            return TryParseUncommon(value, out result);
+
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            static bool TryParseUncommon(ReadOnlySpan<char> value, out bool result)
+            {
+                // With "true" being 4 characters, even if we trim something from <= 4 chars,
+                // it can't possibly match "true" or "false".
+                int originalLength = value.Length;
+                if (originalLength >= 5)
+                {
+                    value = TrimWhiteSpaceAndNull(value);
+                    if (value.Length != originalLength)
+                    {
+                        // Something was trimmed.  Try matching again.
+                        if (IsTrueStringIgnoreCase(value))
+                        {
+                            result = true;
+                            return true;
+                        }
+
+                        result = false;
+                        return IsFalseStringIgnoreCase(value);
+                    }
+                }
+
+                result = false;
+                return false;
+            }
         }
 
         private static ReadOnlySpan<char> TrimWhiteSpaceAndNull(ReadOnlySpan<char> value)
         {
-            const char nullChar = (char)0x0000;
-
             int start = 0;
             while (start < value.Length)
             {
-                if (!char.IsWhiteSpace(value[start]) && value[start] != nullChar)
+                if (!char.IsWhiteSpace(value[start]) && value[start] != '\0')
                 {
                     break;
                 }
@@ -284,7 +304,7 @@ namespace System
             int end = value.Length - 1;
             while (end >= start)
             {
-                if (!char.IsWhiteSpace(value[end]) && value[end] != nullChar)
+                if (!char.IsWhiteSpace(value[end]) && value[end] != '\0')
                 {
                     break;
                 }
@@ -377,5 +397,21 @@ namespace System
         {
             return Convert.DefaultToType((IConvertible)this, type, provider);
         }
+
+        //
+        // IParsable
+        //
+
+        static bool IParsable<bool>.Parse(string s, IFormatProvider? provider) => Parse(s);
+
+        static bool IParsable<bool>.TryParse([NotNullWhen(true)] string? s, IFormatProvider? provider, out bool result) => TryParse(s, out result);
+
+        //
+        // ISpanParsable
+        //
+
+        static bool ISpanParsable<bool>.Parse(ReadOnlySpan<char> s, IFormatProvider? provider) => Parse(s);
+
+        static bool ISpanParsable<bool>.TryParse(ReadOnlySpan<char> s, IFormatProvider? provider, out bool result) => TryParse(s, out result);
     }
 }

@@ -2,12 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b31912
 {
     using System;
-    class AA
+    public class AA
     {
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             bool[] cond = new bool[40];
             while (cond[0])
@@ -34,7 +37,6 @@ namespace Test
             }
             while (cond[15]) ;
             while (cond[16]) ;
-            return 100;
         }
     }
 }

@@ -1,16 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
+using System.Reflection;
+
 namespace System.Xml.Serialization
 {
-    using System;
-    using System.Reflection;
-    using System.Collections;
-    using System.ComponentModel;
-    using System.Linq;
-    using System.Collections.Generic;
-    using System.Xml.Serialization;
-
     internal enum XmlAttributeFlags
     {
         Enum = 0x1,
@@ -46,7 +41,6 @@ namespace System.Xml.Serialization
         private XmlTypeAttribute? _xmlType;
         private XmlAnyAttributeAttribute? _xmlAnyAttribute;
         private readonly XmlChoiceIdentifierAttribute? _xmlChoiceIdentifier;
-        private static volatile Type? s_ignoreAttributeType;
 
 
         /// <devdoc>
@@ -77,37 +71,39 @@ namespace System.Xml.Serialization
             }
         }
 
-        private static Type IgnoreAttribute
-        {
-            get
-            {
-                if (s_ignoreAttributeType == null)
-                {
-                    s_ignoreAttributeType = typeof(object).Assembly.GetType("System.XmlIgnoreMemberAttribute");
-                    if (s_ignoreAttributeType == null)
-                    {
-                        s_ignoreAttributeType = typeof(XmlIgnoreAttribute);
-                    }
-                }
-                return s_ignoreAttributeType;
-            }
-        }
-
         /// <devdoc>
         ///    <para>[To be supplied.]</para>
         /// </devdoc>
         public XmlAttributes(ICustomAttributeProvider provider)
         {
+            ArgumentNullException.ThrowIfNull(provider);
             object[] attrs = provider.GetCustomAttributes(false);
 
             // most generic <any/> matches everything
             XmlAnyElementAttribute? wildcard = null;
             for (int i = 0; i < attrs.Length; i++)
             {
-                if (attrs[i] is XmlIgnoreAttribute || attrs[i] is ObsoleteAttribute || attrs[i].GetType() == IgnoreAttribute)
+                if (attrs[i] is XmlIgnoreAttribute)
                 {
                     _xmlIgnore = true;
                     break;
+                }
+                else if (attrs[i] is ObsoleteAttribute obsoleteAttr)
+                {
+                    if (!System.Xml.LocalAppContextSwitches.IgnoreObsoleteMembers)
+                    {
+                        if (obsoleteAttr.IsError)
+                        {
+                            throw new InvalidOperationException(SR.Format(SR.XmlObsoleteIsError, obsoleteAttr.Message));
+                        }
+                        // If IsError is false, continue processing normally (don't ignore)
+                    }
+                    else
+                    {
+                        // Old behavior: ignore obsolete members when switch is enabled
+                        _xmlIgnore = true;
+                        break;
+                    }
                 }
                 else if (attrs[i] is XmlElementAttribute)
                 {
@@ -117,10 +113,9 @@ namespace System.Xml.Serialization
                 {
                     _xmlArrayItems.Add((XmlArrayItemAttribute)attrs[i]);
                 }
-                else if (attrs[i] is XmlAnyElementAttribute)
+                else if (attrs[i] is XmlAnyElementAttribute any)
                 {
-                    XmlAnyElementAttribute any = (XmlAnyElementAttribute)attrs[i];
-                    if ((any.Name == null || any.Name.Length == 0) && any.GetNamespaceSpecified() && any.Namespace == null)
+                    if (string.IsNullOrEmpty(any.Name) && any.GetNamespaceSpecified() && any.Namespace == null)
                     {
                         // ignore duplicate wildcards
                         wildcard = any;

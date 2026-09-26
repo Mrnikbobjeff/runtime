@@ -1,65 +1,39 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace System.ServiceProcess
 {
     public readonly struct SessionChangeDescription
+#if NET
+        : IEquatable<SessionChangeDescription>
+#endif
     {
-        private readonly SessionChangeReason _reason;
-        private readonly int _id;
-
         internal SessionChangeDescription(SessionChangeReason reason, int id)
         {
-            _reason = reason;
-            _id = id;
+            Reason = reason;
+            SessionId = id;
         }
 
-        public SessionChangeReason Reason
-        {
-            get
-            {
-                return _reason;
-            }
-        }
+        public SessionChangeReason Reason { get; }
 
-        public int SessionId
-        {
-            get
-            {
-                return _id;
-            }
-        }
+        public int SessionId { get; }
 
-        public override bool Equals(object? obj)
-        {
-            if (obj == null || !(obj is SessionChangeDescription))
-            {
-                return false;
-            }
-            else
-            {
-                return Equals((SessionChangeDescription)obj);
-            }
-        }
+        public override int GetHashCode() =>
+            (int)Reason ^ SessionId;
 
-        public override int GetHashCode()
-        {
-            return (int)_reason ^ _id;
-        }
+        public override bool Equals([NotNullWhen(true)] object? obj) =>
+            obj is SessionChangeDescription other && Equals(other);
 
-        public bool Equals(SessionChangeDescription changeDescription)
-        {
-            return (_reason == changeDescription._reason) && (_id == changeDescription._id);
-        }
+        public bool Equals(SessionChangeDescription changeDescription) =>
+            (Reason == changeDescription.Reason) &&
+            (SessionId == changeDescription.SessionId);
 
-        public static bool operator ==(SessionChangeDescription a, SessionChangeDescription b)
-        {
-            return a.Equals(b);
-        }
+        public static bool operator ==(SessionChangeDescription a, SessionChangeDescription b) =>
+            a.Equals(b);
 
-        public static bool operator !=(SessionChangeDescription a, SessionChangeDescription b)
-        {
-            return !a.Equals(b);
-        }
+        public static bool operator !=(SessionChangeDescription a, SessionChangeDescription b) =>
+            !a.Equals(b);
     }
 }

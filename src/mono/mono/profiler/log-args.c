@@ -1,6 +1,8 @@
 #include <config.h>
+#include <mono/metadata/debug-helpers.h>
 #include <mono/utils/mono-logger-internals.h>
 #include <mono/utils/mono-proclib.h>
+#include <mono/utils/w32subset.h>
 #include "log.h"
 
 #ifdef HAVE_UNISTD_H
@@ -80,7 +82,11 @@ parse_arg (const char *arg, ProfilerConfig *config)
 	} else if (match_option (arg, "nodefaults", NULL)) {
 		mono_profiler_printf_err ("The nodefaults option can only be used as the first argument.");
 	} else if (match_option (arg, "report", NULL)) {
+#if HAVE_API_SUPPORT_WIN32_PIPE_OPEN_CLOSE && !defined (HOST_WIN32)
 		config->do_report = TRUE;
+#else
+		mono_profiler_printf_err ("'report' argument not supported on platform.");
+#endif
 	} else if (match_option (arg, "debug", NULL)) {
 		config->do_debug = TRUE;
 	} else if (match_option (arg, "heapshot", &val)) {
@@ -93,6 +99,9 @@ parse_arg (const char *arg, ProfilerConfig *config)
 	} else if (match_option (arg, "heapshot-on-shutdown", NULL)) {
 		config->hs_on_shutdown = TRUE;
 		config->enable_mask |= PROFLOG_HEAPSHOT_ALIAS;
+	} else if (match_option (arg, "take-heapshot-method", &val)) {
+		printf ("take-heapshot-method: %s\n", val);
+		set_log_profiler_take_heapshot_method(val);
 	} else if (match_option (arg, "sample", &val)) {
 		set_sample_freq (config, val);
 		config->sampling_mode = MONO_PROFILER_SAMPLE_MODE_PROCESS;
@@ -227,7 +236,7 @@ proflog_parse_args (ProfilerConfig *config, const char *desc)
 			break;
 		}
 	}
-		
+
 	if (buffer_pos != 0) {
 		buffer [buffer_pos] = 0;
 		parse_arg (buffer, config);

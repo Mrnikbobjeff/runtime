@@ -2,9 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Directed_intrinsic_interlocked_nullchecksuppress;
+
 using System;
 using System.Threading;
 using System.Runtime.CompilerServices;
+using Xunit;
 public class NCS
 {
     public int field;
@@ -27,7 +30,9 @@ public class NCS
         return Interlocked.CompareExchange(ref value, newData, oldData);
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         NCS ncs = new NCS();
         ncs.field = 99;

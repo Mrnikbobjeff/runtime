@@ -3,17 +3,20 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using Microsoft.DotNet.RemoteExecutor;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting.Fakes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Primitives;
 using Xunit;
 
-namespace Microsoft.Extensions.Hosting
+namespace Microsoft.Extensions.Hosting.Tests
 {
     public class HostBuilderTests
     {
@@ -29,6 +32,37 @@ namespace Microsoft.Extensions.Hosting
                 config["key1"] = "value";
                 Assert.Equal("value", config["key1"]);
             }
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void BuildFiresEvents()
+        {
+            using var _ = RemoteExecutor.Invoke(() =>
+            {
+                IHostBuilder hostBuilderFromEvent = null;
+                IHost hostFromEvent = null;
+
+                var listener = new HostingListener((pair) =>
+                {
+                    if (pair.Key == "HostBuilding")
+                    {
+                        hostBuilderFromEvent = (IHostBuilder)pair.Value;
+                    }
+
+                    if (pair.Key == "HostBuilt")
+                    {
+                        hostFromEvent = (IHost)pair.Value;
+                    }
+                });
+
+                using var sub = DiagnosticListener.AllListeners.Subscribe(listener);
+
+                var hostBuilder = new HostBuilder();
+                var host = hostBuilder.Build();
+
+                Assert.Same(hostBuilder, hostBuilderFromEvent);
+                Assert.Same(host, hostFromEvent);
+            });
         }
 
         [Fact]
@@ -115,7 +149,7 @@ namespace Microsoft.Extensions.Hosting
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/34580", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/126697", typeof(PlatformDetection), nameof(PlatformDetection.IsAppleMobile), nameof(PlatformDetection.IsNativeAot))]
         public void CanConfigureAppConfigurationFromFile()
         {
             var hostBuilder = new HostBuilder()
@@ -141,11 +175,11 @@ namespace Microsoft.Extensions.Hosting
                 {
                     var env = hostContext.HostingEnvironment;
                     Assert.Equal(Environments.Production, env.EnvironmentName);
-#if NETCOREAPP
+#if NET
                     Assert.NotNull(env.ApplicationName);
 #elif NETFRAMEWORK
                     // Note GetEntryAssembly returns null for the net4x console test runner.
-                    Assert.Null(env.ApplicationName);
+                    Assert.Equal(string.Empty, env.ApplicationName);
 #else
 #error TFMs need to be updated
 #endif
@@ -157,11 +191,11 @@ namespace Microsoft.Extensions.Hosting
             {
                 var env = host.Services.GetRequiredService<IHostEnvironment>();
                 Assert.Equal(Environments.Production, env.EnvironmentName);
-#if NETCOREAPP
+#if NET
                 Assert.NotNull(env.ApplicationName);
 #elif NETFRAMEWORK
                 // Note GetEntryAssembly returns null for the net4x console test runner.
-                Assert.Null(env.ApplicationName);
+                Assert.Equal(string.Empty, env.ApplicationName);
 #else
 #error TFMs need to be updated
 #endif
@@ -202,7 +236,7 @@ namespace Microsoft.Extensions.Hosting
         }
 
         [Fact]
-        public void UseEnvironmentIsNotOverriden()
+        public void UseEnvironmentIsNotOverridden()
         {
             var vals = new Dictionary<string, string>
             {
@@ -213,7 +247,6 @@ namespace Microsoft.Extensions.Hosting
             var config = builder.Build();
 
             var expected = "MY_TEST_ENVIRONMENT";
-
 
             using (var host = new HostBuilder()
                 .ConfigureHostConfiguration(configBuilder => configBuilder.AddConfiguration(config))
@@ -256,8 +289,8 @@ namespace Microsoft.Extensions.Hosting
         {
             var parameters = new Dictionary<string, string>()
             {
-                { "applicationName", "MyProjectReference"},
-                { "environment", Environments.Development},
+                { "applicationName", "MyProjectReference" },
+                { "environment", Environments.Development },
                 { "contentRoot", Path.GetFullPath(".") }
             };
 
@@ -329,6 +362,66 @@ namespace Microsoft.Extensions.Hosting
             {
                 Assert.NotNull(host.Services.GetService<ILoggerFactory>());
             }
+        }
+
+        public static IEnumerable<object[]> ConfigureHostOptionsTestInput = new[]
+        {
+            new object[] { BackgroundServiceExceptionBehavior.Ignore, TimeSpan.FromDays(3) },
+            new object[] { BackgroundServiceExceptionBehavior.StopHost, TimeSpan.FromTicks(long.MaxValue) },
+        };
+
+        [Theory]
+        [MemberData(nameof(ConfigureHostOptionsTestInput))]
+        public void CanConfigureHostOptionsWithOptionsOverload(
+            BackgroundServiceExceptionBehavior testBehavior, TimeSpan testShutdown)
+        {
+            using var host = new HostBuilder()
+                .ConfigureDefaults(Array.Empty<string>())
+                .ConfigureHostOptions(
+                    options =>
+                    {
+                        options.BackgroundServiceExceptionBehavior = testBehavior;
+                        options.ShutdownTimeout = testShutdown;
+                    })
+                .Build();
+
+            var options = host.Services.GetRequiredService<IOptions<HostOptions>>();
+            Assert.NotNull(options.Value);
+
+            var hostOptions = options.Value;
+            Assert.Equal(testBehavior, hostOptions.BackgroundServiceExceptionBehavior);
+            Assert.Equal(testShutdown, hostOptions.ShutdownTimeout);
+        }
+
+        [Theory]
+        [MemberData(nameof(ConfigureHostOptionsTestInput))]
+        public void CanConfigureHostOptionsWithContenxtAndOptionsOverload(
+            BackgroundServiceExceptionBehavior testBehavior, TimeSpan testShutdown)
+        {
+            using var host = new HostBuilder()
+                .ConfigureDefaults(Array.Empty<string>())
+                .ConfigureHostOptions(
+                    (context, options) =>
+                    {
+                        context.HostingEnvironment.ApplicationName = "TestApp";
+                        context.HostingEnvironment.EnvironmentName = Environments.Staging;
+
+                        options.BackgroundServiceExceptionBehavior = testBehavior;
+                        options.ShutdownTimeout = testShutdown;
+                    })
+                .Build();
+
+            var options = host.Services.GetRequiredService<IOptions<HostOptions>>();
+            Assert.NotNull(options.Value);
+
+            var hostOptions = options.Value;
+            Assert.Equal(testBehavior, hostOptions.BackgroundServiceExceptionBehavior);
+            Assert.Equal(testShutdown, hostOptions.ShutdownTimeout);
+
+            var env = host.Services.GetRequiredService<IHostEnvironment>();
+
+            Assert.Equal("TestApp", env.ApplicationName);
+            Assert.Equal(Environments.Staging, env.EnvironmentName);
         }
 
         [Fact]
@@ -442,6 +535,85 @@ namespace Microsoft.Extensions.Hosting
         }
 
         [Fact]
+        public void ScopeValidationEnabledInDevelopment()
+        {
+            using var host = new HostBuilder()
+                .UseEnvironment(Environments.Development)
+                .ConfigureServices(serices =>
+                {
+                    serices.AddScoped<ServiceA>();
+                })
+                .Build();
+
+            Assert.Throws<InvalidOperationException>(() => { host.Services.GetRequiredService<ServiceA>(); });
+        }
+
+        [Fact]
+        public void ValidateOnBuildEnabledInDevelopment()
+        {
+            var hostBuilder = new HostBuilder()
+                .UseEnvironment(Environments.Development)
+                .ConfigureServices(serices =>
+                {
+                    serices.AddSingleton<ServiceC>();
+                });
+
+            Assert.Throws<AggregateException>(() => hostBuilder.Build());
+        }
+
+        [Fact]
+        public void ScopeValidationNotEnabledInDevelopmentWithServiceProviderChanges()
+        {
+            using var host = new HostBuilder()
+                .UseEnvironment(Environments.Development)
+                .ConfigureServices(serices =>
+                {
+                    serices.AddScoped<ServiceA>();
+                })
+                .UseDefaultServiceProvider((context, options) =>
+                {
+                    options.ValidateScopes = false;
+                })
+                .Build();
+
+            Assert.NotNull(host.Services.GetRequiredService<ServiceA>());
+        }
+        [Fact]
+        public void ScopeValidationtEnabledInDevelopmentWithServiceProviderChanges()
+        {
+            var host = new HostBuilder()
+                .UseEnvironment(Environments.Development)
+                .ConfigureServices(services =>
+                {
+                    services.AddScoped<ServiceA>();
+                })
+                .UseDefaultServiceProvider((context, options) =>
+                {
+                    options.ValidateScopes = true;
+                })
+                .Build();
+
+            Assert.Throws<InvalidOperationException>(() => host.Services.GetRequiredService<ServiceA>());
+        }
+        [Fact]
+        public void ValidateOnBuildNotEnabledInDevelopmentWithServiceProviderChanges()
+        {
+            using var host = new HostBuilder()
+                .UseEnvironment(Environments.Development)
+                .ConfigureServices(serices =>
+                {
+                    serices.AddSingleton<ServiceC>();
+                })
+                .UseDefaultServiceProvider((context, options) =>
+                {
+                    options.ValidateOnBuild = false;
+                })
+                .Build();
+
+            Assert.NotNull(host);
+        }
+
+        [Fact]
         public void HostingContextContainsAppConfigurationDuringConfigureLogging()
         {
             var hostBuilder = new HostBuilder()
@@ -531,9 +703,282 @@ namespace Microsoft.Extensions.Hosting
             using (hostBuilder.Build()) { }
         }
 
+        [Fact]
+        public void DisposingHostDisposesContentFileProvider()
+        {
+            var host = new HostBuilder()
+                .Build();
+
+            var env = host.Services.GetRequiredService<IHostEnvironment>();
+            var fileProvider = new FakeFileProvider();
+            env.ContentRootFileProvider = fileProvider;
+
+            host.Dispose();
+            Assert.True(fileProvider.Disposed);
+        }
+
+        [Fact]
+        public void HostServicesSameServiceProviderAsInHostBuilder()
+        {
+            var hostBuilder = Host.CreateDefaultBuilder();
+            var host = hostBuilder.Build();
+
+            // Use typeof so that trimming can see the field being used below
+            var type = typeof(HostBuilder);
+            Assert.Equal(hostBuilder.GetType(), type);
+            var field = type.GetField("_appServices", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var appServicesFromHostBuilder = (IServiceProvider)field.GetValue(hostBuilder)!;
+            Assert.Same(appServicesFromHostBuilder, host.Services);
+        }
+
+        [Fact]
+        public void HostBuilderConfigureDefaultsInterleavesMissingConfigValues()
+        {
+            IHostBuilder hostBuilder = new HostBuilder();
+            hostBuilder.ConfigureDefaults(args: null);
+
+            using var host = hostBuilder.Build();
+            var env = host.Services.GetRequiredService<IHostEnvironment>();
+
+            var expectedContentRootPath = Directory.GetCurrentDirectory();
+            Assert.Equal(expectedContentRootPath, env.ContentRootPath);
+        }
+
+        [Fact]
+        public void HostBuilderConfigureDefaultsDoesntThrowInDevelopment()
+        {
+            using (var host = new HostBuilder()
+                .ConfigureDefaults(args: null)
+                .ConfigureHostConfiguration(config =>
+                {
+                    config.AddInMemoryCollection(new[]
+                    {
+                        new KeyValuePair<string, string>(HostDefaults.ApplicationKey, "MyProjectReference"),
+                        new KeyValuePair<string, string>(HostDefaults.EnvironmentKey, Environments.Development)
+                    });
+                })
+                .Build())
+            {
+                var env = host.Services.GetRequiredService<IHostEnvironment>();
+
+                Assert.Equal("MyProjectReference", env.ApplicationName);
+                Assert.Equal(Environments.Development, env.EnvironmentName);
+            }
+        }
+
+        [Theory]
+        [InlineData(BackgroundServiceExceptionBehavior.Ignore)]
+        [InlineData(BackgroundServiceExceptionBehavior.StopHost)]
+        public void HostBuilderCanConfigureBackgroundServiceExceptionBehavior(
+            BackgroundServiceExceptionBehavior testBehavior)
+        {
+            using IHost host = new HostBuilder()
+                .ConfigureServices(
+                    services =>
+                        services.Configure<HostOptions>(
+                            options =>
+                            options.BackgroundServiceExceptionBehavior = testBehavior))
+                .Build();
+
+            var options = host.Services.GetRequiredService<IOptions<HostOptions>>();
+
+            Assert.Equal(
+                testBehavior,
+                options.Value.BackgroundServiceExceptionBehavior);
+        }
+
+        private class HostingListener : IObserver<DiagnosticListener>, IObserver<KeyValuePair<string, object?>>
+        {
+            private IDisposable? _disposable;
+            private readonly Action<KeyValuePair<string, object?>> _callback;
+
+            public HostingListener(Action<KeyValuePair<string, object?>> callback)
+            {
+                _callback = callback;
+            }
+
+            public void OnCompleted() { _disposable?.Dispose(); }
+            public void OnError(Exception error) { }
+            public void OnNext(DiagnosticListener value)
+            {
+                if (value.Name == "Microsoft.Extensions.Hosting")
+                {
+                    _disposable = value.Subscribe(this);
+                }
+            }
+
+            public void OnNext(KeyValuePair<string, object?> value)
+            {
+                _callback(value);
+            }
+        }
+
+        private class FakeFileProvider : IFileProvider, IDisposable
+        {
+            public bool Disposed { get; private set; }
+            public void Dispose() => Disposed = true;
+            public IDirectoryContents GetDirectoryContents(string subpath) => throw new NotImplementedException();
+            public IFileInfo GetFileInfo(string subpath) => throw new NotImplementedException();
+            public IChangeToken Watch(string filter) => throw new NotImplementedException();
+        }
+
         private class ServiceC
         {
             public ServiceC(ServiceD serviceD) { }
+        }
+
+        [Fact]
+        public void ConfigureDefaults_LoadsApplicationSpecificSettings()
+        {
+            using TempDirectory tempDir = new();
+            string appSettingsPath = Path.Combine(tempDir.Path, "testapp.settings.json");
+            string appSettingsEnvPath = Path.Combine(tempDir.Path, "testapp.settings.Production.json");
+
+            // Create test configuration files
+            File.WriteAllText(appSettingsPath, """{"TestKey": "AppValue"}""");
+            File.WriteAllText(appSettingsEnvPath, """{"TestKey": "AppEnvValue", "EnvKey": "EnvValue"}""");
+
+            using var host = new HostBuilder()
+                .ConfigureDefaults(args: null)
+                .UseContentRoot(tempDir.Path)
+                .ConfigureHostConfiguration(config =>
+                {
+                    config.AddInMemoryCollection(new[]
+                    {
+                        new KeyValuePair<string, string>(HostDefaults.ApplicationKey, "testapp"),
+                        new KeyValuePair<string, string>(HostDefaults.EnvironmentKey, "Production")
+                    });
+                })
+                .Build();
+
+            var configuration = host.Services.GetRequiredService<IConfiguration>();
+
+            // Verify that app-specific environment settings override app-specific settings
+            Assert.Equal("AppEnvValue", configuration["TestKey"]);
+            Assert.Equal("EnvValue", configuration["EnvKey"]);
+        }
+
+        [Fact]
+        public void ConfigureDefaults_LoadsApplicationSpecificSettings_WithDevelopmentEnvironment()
+        {
+            using TempDirectory tempDir = new();
+            string appSettingsPath = Path.Combine(tempDir.Path, "testapp.settings.json");
+            string appSettingsEnvPath = Path.Combine(tempDir.Path, "testapp.settings.Production.json");
+
+            // Create test configuration files
+            File.WriteAllText(appSettingsPath, """{"TestKey": "AppValue"}""");
+            File.WriteAllText(appSettingsEnvPath, """{"TestKey": "ProductionValue", "ProductionKey": "ProductionValue"}""");
+
+            using var host = new HostBuilder()
+                .ConfigureDefaults(args: null)
+                .UseContentRoot(tempDir.Path)
+                .ConfigureHostConfiguration(config =>
+                {
+                    config.AddInMemoryCollection(new[]
+                    {
+                        new KeyValuePair<string, string>(HostDefaults.ApplicationKey, "testapp"),
+                        new KeyValuePair<string, string>(HostDefaults.EnvironmentKey, "Development")
+                    });
+                })
+                .Build();
+
+            var configuration = host.Services.GetRequiredService<IConfiguration>();
+
+            // Verify that Production-specific file is not loaded when running in Development environment
+            Assert.Equal("AppValue", configuration["TestKey"]); // Should come from base settings, not Production
+            Assert.Null(configuration["ProductionKey"]); // Should not be loaded from Production file
+        }
+
+        [Fact]
+        public void ConfigureDefaults_DoesNotLoadApplicationSpecificSettings_WhenApplicationNameIsEmpty()
+        {
+            using TempDirectory tempDir = new();
+            string appSettingsPath = Path.Combine(tempDir.Path, ".settings.json");
+
+            // Create test configuration file that should NOT be loaded
+            File.WriteAllText(appSettingsPath, """{"TestKey": "ShouldNotBeLoaded"}""");
+
+            using var host = new HostBuilder()
+                .ConfigureDefaults(args: null)
+                .UseContentRoot(tempDir.Path)
+                .ConfigureHostConfiguration(config =>
+                {
+                    config.AddInMemoryCollection(new[]
+                    {
+                        new KeyValuePair<string, string>(HostDefaults.ApplicationKey, ""),
+                        new KeyValuePair<string, string>(HostDefaults.EnvironmentKey, "Production")
+                    });
+                })
+                .Build();
+
+            var configuration = host.Services.GetRequiredService<IConfiguration>();
+
+            // Verify that app-specific settings are not loaded when ApplicationName is empty
+            Assert.Null(configuration["TestKey"]);
+        }
+
+        [Fact]
+        public void ConfigureDefaults_ReplacesPathSeparatorsInApplicationName()
+        {
+            using TempDirectory tempDir = new();
+            string appSettingsPath = Path.Combine(tempDir.Path, "my_app.settings.json");
+
+            // Create test configuration file with path separators replaced by underscores
+            File.WriteAllText(appSettingsPath, """{"TestKey": "PathSeparatorValue"}""");
+
+            using var host = new HostBuilder()
+                .ConfigureDefaults(args: null)
+                .UseContentRoot(tempDir.Path)
+                .ConfigureHostConfiguration(config =>
+                {
+                    config.AddInMemoryCollection(new[]
+                    {
+                        new KeyValuePair<string, string>(HostDefaults.ApplicationKey, "my/app"),
+                        new KeyValuePair<string, string>(HostDefaults.EnvironmentKey, "Production")
+                    });
+                })
+                .Build();
+
+            var configuration = host.Services.GetRequiredService<IConfiguration>();
+            var hostEnvironment = host.Services.GetRequiredService<IHostEnvironment>();
+
+            // Verify that ApplicationName retains original value (not sanitized)
+            Assert.Equal("my/app", hostEnvironment.ApplicationName);
+            
+            // Verify that path separators are replaced with underscores for file loading
+            Assert.Equal("PathSeparatorValue", configuration["TestKey"]);
+        }
+
+        [Fact]
+        public void ConfigureDefaults_ApplicationSpecificSettingsOverrideAppSettings()
+        {
+            using TempDirectory tempDir = new();
+            string appSettingsPath = Path.Combine(tempDir.Path, "appsettings.json");
+            string appSpecificSettingsPath = Path.Combine(tempDir.Path, "myapp.settings.json");
+
+            // Create test configuration files
+            File.WriteAllText(appSettingsPath, """{"SharedKey": "AppSettingsValue", "AppKey": "AppSettingsOnly"}""");
+            File.WriteAllText(appSpecificSettingsPath, """{"SharedKey": "AppSpecificValue", "SpecificKey": "AppSpecificOnly"}""");
+
+            using var host = new HostBuilder()
+                .ConfigureDefaults(args: null)
+                .UseContentRoot(tempDir.Path)
+                .ConfigureHostConfiguration(config =>
+                {
+                    config.AddInMemoryCollection(new[]
+                    {
+                        new KeyValuePair<string, string>(HostDefaults.ApplicationKey, "myapp"),
+                        new KeyValuePair<string, string>(HostDefaults.EnvironmentKey, "Development")
+                    });
+                })
+                .Build();
+
+            var configuration = host.Services.GetRequiredService<IConfiguration>();
+
+            // Verify that app-specific settings override general appsettings
+            Assert.Equal("AppSpecificValue", configuration["SharedKey"]);
+            Assert.Equal("AppSettingsOnly", configuration["AppKey"]);
+            Assert.Equal("AppSpecificOnly", configuration["SpecificKey"]);
         }
 
         internal class ServiceD { }

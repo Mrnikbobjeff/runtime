@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
 internal class A
 {
     public virtual string f1() { return "A.f1"; }
@@ -12010,9 +12011,12 @@ internal class D : C
     public override string f2998() { return "D.f2998"; }
     public override string f2999() { return "D.f2999"; }
 }
-internal class CTest
+public class CTest
 {
-    private static int Main()
+    [SkipOnCoreClr("This test simply takes too long to complete under heap verify; it is not fundamentally incompatible.", RuntimeTestModes.HeapVerify)]
+    [SkipOnCoreClr("This test takes too long to complete under GC stress/heap verify; it is not fundamentally incompatible.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         D d = new D();
         A a = d;

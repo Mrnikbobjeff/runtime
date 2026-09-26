@@ -9,22 +9,26 @@ namespace System.Net.Http.Functional.Tests
 {
     public class HttpMethodTest
     {
-        public static IEnumerable<object[]> StaticHttpMethods { get;  }
-
-        static HttpMethodTest()
+        private static readonly IReadOnlyList<HttpMethod> StaticHttpMethods = new HttpMethod[]
         {
-            List<object[]> staticHttpMethods = new List<object[]>
+            HttpMethod.Connect,
+            HttpMethod.Delete,
+            HttpMethod.Get,
+            HttpMethod.Head,
+            HttpMethod.Options,
+            HttpMethod.Patch,
+            HttpMethod.Post,
+            HttpMethod.Put,
+            HttpMethod.Query,
+            HttpMethod.Trace,
+        };
+
+        public static IEnumerable<object[]> StaticHttpMethods_MemberData()
+        {
+            foreach (HttpMethod method in StaticHttpMethods)
             {
-                new object[] { HttpMethod.Get },
-                new object[] { HttpMethod.Put },
-                new object[] { HttpMethod.Post },
-                new object[] { HttpMethod.Delete },
-                new object[] { HttpMethod.Head },
-                new object[] { HttpMethod.Options },
-                new object[] { HttpMethod.Trace }
-            };
-            AddStaticHttpMethods(staticHttpMethods);
-            StaticHttpMethods = staticHttpMethods;
+                yield return new object[] { method };
+            }
         }
 
         [Fact]
@@ -37,6 +41,7 @@ namespace System.Net.Http.Functional.Tests
             Assert.Equal("HEAD", HttpMethod.Head.Method);
             Assert.Equal("OPTIONS", HttpMethod.Options.Method);
             Assert.Equal("TRACE", HttpMethod.Trace.Method);
+            Assert.Equal("QUERY", HttpMethod.Query.Method);
         }
 
         [Fact]
@@ -52,7 +57,7 @@ namespace System.Net.Http.Functional.Tests
         [Fact]
         public void Ctor_NullMethod_Exception()
         {
-            AssertExtensions.Throws<ArgumentException>("method", () => { new HttpMethod(null); } );
+            AssertExtensions.Throws<ArgumentNullException>("method", () => { new HttpMethod(null); } );
         }
 
         [Theory]
@@ -115,7 +120,7 @@ namespace System.Net.Http.Functional.Tests
         }
 
         [Theory]
-        [MemberData(nameof(StaticHttpMethods))]
+        [MemberData(nameof(StaticHttpMethods_MemberData))]
         public void GetHashCode_StaticMethods_SameAsStringToUpperInvariantHashCode(HttpMethod method)
         {
             Assert.Equal(method.ToString().ToUpperInvariant().GetHashCode(), method.GetHashCode());
@@ -150,9 +155,52 @@ namespace System.Net.Http.Functional.Tests
             Assert.Equal("PATCH", HttpMethod.Patch.Method);
         }
 
-        private static void AddStaticHttpMethods(List<object[]> staticHttpMethods)
+        [Theory]
+        [MemberData(nameof(StaticHttpMethods_MemberData))]
+        public void Parse_KnownMethod_UsesKnownInstances(HttpMethod method)
         {
-            staticHttpMethods.Add(new object[] { HttpMethod.Patch });
+            string methodName = method.Method; // Already upper-case (e.g. "GET").
+            Assert.Same(method, HttpMethod.Parse(methodName));
+            Assert.Same(method, HttpMethod.Parse(methodName.ToLowerInvariant()));
+            Assert.Same(method, HttpMethod.Parse(ToMixedCase(methodName)));
+        }
+
+        private static string ToMixedCase(string value)
+        {
+            char[] chars = value.ToCharArray();
+            for (int i = 0; i < chars.Length; i++)
+            {
+                chars[i] = (i % 2 == 0) ? char.ToUpperInvariant(chars[i]) : char.ToLowerInvariant(chars[i]);
+            }
+            return new string(chars);
+        }
+
+        [Theory]
+        [InlineData("Unknown")]
+        [InlineData("custom")]
+        public void Parse_UnknownMethod_UsesNewInstances(string method)
+        {
+            var h = HttpMethod.Parse(method);
+            Assert.NotNull(h);
+            Assert.NotSame(h, HttpMethod.Parse(method));
+        }
+
+        [Theory]
+        [InlineData("")]
+        [InlineData("    ")]
+        public void Parse_Whitespace_ThrowsArgumentException(string method)
+        {
+            AssertExtensions.Throws<ArgumentException>("method", () => HttpMethod.Parse(method));
+        }
+
+        [Theory]
+        [InlineData("  GET  ")]
+        [InlineData(" Post")]
+        [InlineData("Put ")]
+        [InlineData("multiple things")]
+        public void Parse_InvalidToken_Throws(string method)
+        {
+            Assert.Throws<FormatException>(() => HttpMethod.Parse(method));
         }
     }
 }

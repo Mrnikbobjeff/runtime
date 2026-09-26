@@ -2,9 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
+using TestLibrary;
 public class CMain{
     public static int Count = 0;
-    public static int Main(String[] args){
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static int TestEntryPoint(){
         String s;
         s = Gen<String>.x;
         // we expect the Gen<T>.cctor to fire only once!

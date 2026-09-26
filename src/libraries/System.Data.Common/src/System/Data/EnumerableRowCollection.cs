@@ -5,6 +5,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 
 namespace System.Data
@@ -89,7 +90,7 @@ namespace System.Data
         internal EnumerableRowCollection(DataTable table)
         {
             _table = table;
-            _enumerableRows = table.Rows.Cast<TRow>()!;
+            _enumerableRows = table.Rows.Cast<TRow>();
             _listOfPredicates = new List<Func<TRow, bool>>();
             _sortExpression = new SortExpressionBuilder<TRow>();
         }

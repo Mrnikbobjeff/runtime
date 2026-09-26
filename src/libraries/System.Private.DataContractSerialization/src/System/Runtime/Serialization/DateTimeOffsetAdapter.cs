@@ -2,19 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Globalization;
 using System.Reflection;
 using System.Xml;
-using System.Globalization;
 
 
 namespace System.Runtime.Serialization
 {
     [DataContract(Name = "DateTimeOffset", Namespace = "http://schemas.datacontract.org/2004/07/System")]
-#if USE_REFEMIT
-    public struct DateTimeOffsetAdapter
-#else
     internal struct DateTimeOffsetAdapter
-#endif
     {
         private DateTime _utcDateTime;
         private short _offsetMinutes;
@@ -59,18 +55,14 @@ namespace System.Runtime.Serialization
             }
             catch (ArgumentException exception)
             {
-                throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(XmlExceptionHelper.CreateConversionException(value.ToString(CultureInfo.InvariantCulture), "DateTimeOffset", exception));
+                string formattedValue = "DateTime: " + value.UtcDateTime + ", Offset: " + value.OffsetMinutes;
+                throw XmlExceptionHelper.CreateConversionException(formattedValue, "DateTimeOffset", exception);
             }
         }
 
         public static DateTimeOffsetAdapter GetDateTimeOffsetAdapter(DateTimeOffset value)
         {
             return new DateTimeOffsetAdapter(value.UtcDateTime, (short)value.Offset.TotalMinutes);
-        }
-
-        public string ToString(IFormatProvider provider)
-        {
-            return "DateTime: " + this.UtcDateTime + ", Offset: " + this.OffsetMinutes;
         }
     }
 }

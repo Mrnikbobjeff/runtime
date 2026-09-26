@@ -2,12 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.ComponentModel;
-using System.Diagnostics;
 using Microsoft.Win32.SafeHandles;
 
 namespace System.Net
@@ -82,10 +83,7 @@ namespace System.Net
             set
             {
                 CheckDisposed();
-                if (value == null)
-                {
-                    throw new ArgumentNullException(nameof(value));
-                }
+                ArgumentNullException.ThrowIfNull(value);
                 if (value.Major != 1 || (value.Minor != 0 && value.Minor != 1))
                 {
                     throw new ArgumentException(SR.net_wrongversion, nameof(value));
@@ -121,36 +119,33 @@ namespace System.Net
         public void Close(byte[] responseEntity, bool willBlock)
         {
             CheckDisposed();
-            if (responseEntity == null)
-            {
-                throw new ArgumentNullException(nameof(responseEntity));
-            }
+            ArgumentNullException.ThrowIfNull(responseEntity);
             if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"ResponseState:{_responseState}, BoundaryType:{_boundaryType}, ContentLength:{_contentLength}");
             if (!SentHeaders && _boundaryType != BoundaryType.Chunked)
             {
                 ContentLength64 = responseEntity.Length;
             }
+
             EnsureResponseStream();
-            Debug.Assert(_responseStream != null);
             if (willBlock)
             {
                 try
                 {
-                    _responseStream!.Write(responseEntity, 0, responseEntity.Length);
+                    _responseStream.Write(responseEntity, 0, responseEntity.Length);
                 }
                 catch (Win32Exception)
                 {
                 }
                 finally
                 {
-                    _responseStream!.Close();
+                    _responseStream.Close();
                     _responseState = ResponseState.Closed;
                     HttpListenerContext!.Close();
                 }
             }
             else
             {
-                _responseStream!.BeginWrite(responseEntity, 0, responseEntity.Length, new AsyncCallback(NonBlockingCloseCallback), null);
+                _responseStream.BeginWrite(responseEntity, 0, responseEntity.Length, new AsyncCallback(NonBlockingCloseCallback), null);
             }
         }
 
@@ -160,8 +155,9 @@ namespace System.Net
             {
                 return;
             }
+
             EnsureResponseStream();
-            _responseStream!.Close();
+            _responseStream.Close();
             _responseState = ResponseState.Closed;
 
             HttpListenerContext!.Close();
@@ -169,12 +165,10 @@ namespace System.Net
 
         internal BoundaryType BoundaryType => _boundaryType;
 
+        [MemberNotNull(nameof(_responseStream))]
         private void EnsureResponseStream()
         {
-            if (_responseStream == null)
-            {
-                _responseStream = new HttpResponseStream(HttpListenerContext!);
-            }
+            _responseStream ??= new HttpResponseStream(HttpListenerContext!);
         }
 
         private void NonBlockingCloseCallback(IAsyncResult asyncResult)
@@ -222,7 +216,7 @@ namespace System.Net
             Interop.HttpApi.HTTP_FLAGS flags,
             bool isWebSocketHandshake)
         {
-            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"pDataChunk: { ((IntPtr)pDataChunk)}, asyncResult: {asyncResult}");
+            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"pDataChunk: {((IntPtr)pDataChunk)}, asyncResult: {asyncResult}");
             Debug.Assert(!SentHeaders, "SentHeaders is true.");
 
             if (StatusCode == (int)HttpStatusCode.Unauthorized)
@@ -273,11 +267,10 @@ namespace System.Net
                 if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, "Calling Interop.HttpApi.HttpSendHttpResponse flags:" + flags);
                 if (StatusDescription.Length > 0)
                 {
-                    byte[] statusDescriptionBytes = new byte[WebHeaderEncoding.GetByteCount(StatusDescription)];
+                    byte[] statusDescriptionBytes = Encoding.Latin1.GetBytes(StatusDescription);
                     fixed (byte* pStatusDescription = &statusDescriptionBytes[0])
                     {
                         _nativeResponse.ReasonLength = (ushort)statusDescriptionBytes.Length;
-                        WebHeaderEncoding.GetBytes(StatusDescription, 0, statusDescriptionBytes.Length, statusDescriptionBytes, 0);
                         _nativeResponse.pReason = (sbyte*)pStatusDescription;
                         fixed (Interop.HttpApi.HTTP_RESPONSE* pResponse = &_nativeResponse)
                         {
@@ -289,7 +282,7 @@ namespace System.Net
                                     pResponse,
                                     null,
                                     &bytesSent,
-                                    SafeLocalAllocHandle.Zero,
+                                    null,
                                     0,
                                     asyncResult == null ? null : asyncResult._pOverlapped,
                                     null);
@@ -316,7 +309,7 @@ namespace System.Net
                                 pResponse,
                                 null,
                                 &bytesSent,
-                                SafeLocalAllocHandle.Zero,
+                                null,
                                 0,
                                 asyncResult == null ? null : asyncResult._pOverlapped,
                                 null);
@@ -531,18 +524,16 @@ $"flags: {flags} _boundaryType: {_boundaryType} _contentLength: {_contentLength}
                             for (int headerValueIndex = 0; headerValueIndex < headerValues.Length; headerValueIndex++)
                             {
                                 //Add Name
-                                bytes = new byte[WebHeaderEncoding.GetByteCount(headerName)];
+                                bytes = Encoding.Latin1.GetBytes(headerName);
                                 unknownHeaders[headers.UnknownHeaderCount].NameLength = (ushort)bytes.Length;
-                                WebHeaderEncoding.GetBytes(headerName, 0, bytes.Length, bytes, 0);
                                 gcHandle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
                                 pinnedHeaders.Add(gcHandle);
                                 unknownHeaders[headers.UnknownHeaderCount].pName = (sbyte*)gcHandle.AddrOfPinnedObject();
 
                                 //Add Value
                                 headerValue = headerValues[headerValueIndex];
-                                bytes = new byte[WebHeaderEncoding.GetByteCount(headerValue)];
+                                bytes = Encoding.Latin1.GetBytes(headerValue);
                                 unknownHeaders[headers.UnknownHeaderCount].RawValueLength = (ushort)bytes.Length;
-                                WebHeaderEncoding.GetBytes(headerValue, 0, bytes.Length, bytes, 0);
                                 gcHandle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
                                 pinnedHeaders.Add(gcHandle);
                                 unknownHeaders[headers.UnknownHeaderCount].pRawValue = (sbyte*)gcHandle.AddrOfPinnedObject();
@@ -555,9 +546,8 @@ $"flags: {flags} _boundaryType: {_boundaryType} _contentLength: {_contentLength}
                             if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"HttpResponseHeader[{lookup}]:{((HttpResponseHeader)lookup)} headerValue:{headerValue}");
                             if (headerValue != null)
                             {
-                                bytes = new byte[WebHeaderEncoding.GetByteCount(headerValue)];
+                                bytes = Encoding.Latin1.GetBytes(headerValue);
                                 pKnownHeaders[lookup].RawValueLength = (ushort)bytes.Length;
-                                WebHeaderEncoding.GetBytes(headerValue, 0, bytes.Length, bytes, 0);
                                 gcHandle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
                                 pinnedHeaders.Add(gcHandle);
                                 pKnownHeaders[lookup].pRawValue = (sbyte*)gcHandle.AddrOfPinnedObject();
@@ -578,7 +568,7 @@ $"flags: {flags} _boundaryType: {_boundaryType} _contentLength: {_contentLength}
             return pinnedHeaders;
         }
 
-        private void FreePinnedHeaders(List<GCHandle>? pinnedHeaders)
+        private static void FreePinnedHeaders(List<GCHandle>? pinnedHeaders)
         {
             if (pinnedHeaders != null)
             {

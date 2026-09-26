@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 
 usage()
 {
@@ -14,15 +14,17 @@ EXECUTION_DIR=$(dirname "$0")
 RUNTIME_PATH=''
 RSP_FILE=''
 
-while [[ $# > 0 ]]; do
-  opt="$(echo "${1}" | awk '{print tolower($0)}')"
+while [[ $# -gt 0 ]]; do
+  opt="$(echo "${1}" | tr "[:upper:]" "[:lower:]")"
   case "$opt" in
     --help|-h)
       usage
       exit 0
       ;;
     --runtime-path|-r)
-      RUNTIME_PATH=$2
+      # Exported so that tests which need to launch a portable application of their own can find the
+      # same host the test run itself was handed. RunnerTemplate.cmd's "set" already does this.
+      export RUNTIME_PATH=$2
       shift
       ;;
     --rsp-file)
@@ -39,14 +41,11 @@ while [[ $# > 0 ]]; do
   shift
 done
 
-if [ "$RUNTIME_PATH" == "" ]; then
+if [[ -z "$RUNTIME_PATH" ]]; then
   echo "error: -r|--runtime-path argument is required."
   usage
   exit -1
 fi
-
-# Don't use a globally installed SDK.
-export DOTNET_MULTILEVEL_LOOKUP=0
 
 exitcode_list[0]="Exited Successfully"
 exitcode_list[130]="SIGINT  Ctrl-C occurred. Likely tests timed out."
@@ -54,104 +53,118 @@ exitcode_list[131]="SIGQUIT Ctrl-\ occurred. Core dumped."
 exitcode_list[132]="SIGILL  Illegal Instruction. Core dumped. Likely codegen issue."
 exitcode_list[133]="SIGTRAP Breakpoint hit. Core dumped."
 exitcode_list[134]="SIGABRT Abort. Managed or native assert, or runtime check such as heap corruption, caused call to abort(). Core dumped."
-exitcode_list[135]="IGBUS  Unaligned memory access. Core dumped."
+exitcode_list[135]="IGBUS   Unaligned memory access. Core dumped."
 exitcode_list[136]="SIGFPE  Bad floating point arguments. Core dumped."
-exitcode_list[137]="SIGKILL Killed eg by kill"
+exitcode_list[137]="SIGKILL Killed either due to out of memory/resources (see /var/log/messages) or by explicit kill. No dump will be available for this."
 exitcode_list[139]="SIGSEGV Illegal memory access. Deref invalid pointer, overrunning buffer, stack overflow etc. Core dumped."
 exitcode_list[143]="SIGTERM Terminated. Usually before SIGKILL."
 exitcode_list[159]="SIGSYS  Bad System Call."
 
-function print_info_from_core_file_using_lldb {
-  local core_file_name=$1
-  local executable_name=$2
-  local plugin_path_name="$RUNTIME_PATH/shared/Microsoft.NETCore.App/9.9.9/libsosplugin.so"
-
-  # check for existence of lldb on the path
-  hash lldb 2>/dev/null || { echo >&2 "lldb was not found. Unable to print core file."; return; }
-
-  # pe, clrstack, and dumpasync are defined in libsosplugin.so
-  if [ ! -f $plugin_path_name ]; then
-    echo $plugin_path_name cannot be found.
-    return
-  fi
-
-  echo ----- start ===============  lldb Output =====================================================
-  echo Printing managed exceptions, managed call stacks, and async state machines.
-  lldb -O "settings set target.exec-search-paths $RUNTIME_PATH" -o "plugin load $plugin_path_name" -o "clrthreads -managedexception" -o "pe -nested" -o "clrstack -all -a -f" -o "dumpasync -fields -stacks -roots" -o "quit"  --core $core_file_name $executable_name
-  echo ----- end ===============  lldb Output =======================================================
-}
-
-function print_info_from_core_file_using_gdb {
-  local core_file_name=$1
-  local executable_name=$2
-
-  # Check for the existence of GDB on the path
-  hash gdb 2>/dev/null || { echo >&2 "GDB was not found. Unable to print core file."; return; }
-
-  echo ----- start ===============  GDB Output =====================================================
-  # Open the dump in GDB and print the stack from each thread. We can add more
-  # commands here if desired.
-  echo printing native stack.
-  gdb --batch -ex "thread apply all bt full" -ex "quit" $executable_name $core_file_name
-  echo ----- end ===============  GDB Output =======================================================
-}
-
-function print_info_from_core_file {
-  local core_file_name=$1
-  local executable_name=$RUNTIME_PATH/$2
-
-  if ! [ -e $executable_name ]; then
-    echo "Unable to find executable $executable_name"
-    return
-  elif ! [ -e $core_file_name ]; then
-    echo "Unable to find core file $core_file_name"
-    return
-  fi
-  echo "Printing info from core file $core_file_name"
-  print_info_from_core_file_using_gdb $core_file_name $executable_name
-  print_info_from_core_file_using_lldb $core_file_name $executable_name
-}
-
-function copy_core_file_to_temp_location {
+function move_core_file_to_temp_location {
   local core_file_name=$1
 
-  local storage_location="/tmp/coredumps"
+  # Append the dmp extension to ensure XUnitLogChecker finds it
+  local new_location=$HELIX_DUMP_FOLDER/$core_file_name.dmp
 
-  # Create the directory (this shouldn't fail even if it already exists).
-  mkdir -p $storage_location
-
-  local new_location=$storage_location/core.$RANDOM
-
-  echo "Copying core file $core_file_name to $new_location in case you need it."
+  echo "Copying dump file '$core_file_name' to '$new_location'"
   cp $core_file_name $new_location
+
+  # Delete the old one
+  rm $core_file_name
+}
+
+xunitlogchecker_exit_code=0
+function invoke_xunitlogchecker {
+  local dump_folder=$1
+
+  total_dumps=$(find $dump_folder -name "*.dmp" | wc -l)
+
+  if [[ $total_dumps -gt 0 ]]; then
+    echo "Total dumps found in $dump_folder: $total_dumps"
+    xunitlogchecker_file_name="$HELIX_CORRELATION_PAYLOAD/XUnitLogChecker"
+
+    if [[ ! -f $xunitlogchecker_file_name ]]; then
+      echo "XUnitLogChecker does not exist in the expected location: $xunitlogchecker_file_name"
+      xunitlogchecker_exit_code=2
+    elif [[ ! -d $dump_folder ]]; then
+      echo "The dump directory '$dump_folder' does not exist."
+    else
+      echo "Executing XUnitLogChecker in $dump_folder..."
+      cmd="$xunitlogchecker_file_name --dumps-path $dump_folder"
+      echo "$cmd"
+      $cmd
+      xunitlogchecker_exit_code=$?
+    fi
+  else
+    echo "No dumps found in $dump_folder."
+  fi
 }
 
 # ========================= BEGIN Core File Setup ============================
-if [ "$(uname -s)" == "Darwin" ]; then
-  # On OS X, we will enable core dump generation only if there are no core 
+system_name="$(uname -s)"
+if [[ $system_name == "Darwin" ]]; then
+  # On OS X, we will enable core dump generation only if there are no core
   # files already in /cores/ at this point. This is being done to prevent
   # inadvertently flooding the CI machines with dumps.
   if [[ ! -d "/cores" || ! "$(ls -A /cores)" ]]; then
-    ulimit -c unlimited
+    # Disabling core dumps on macOS. System dumps are large (even for very small
+    # programs) and not configurable. As a result, if a single PR build causes a
+    # lot of tests to crash, we can take out the entire queue.
+    # See discussions in:
+    #   https://github.com/dotnet/core-eng/issues/15333
+    #   https://github.com/dotnet/core-eng/issues/15597
+    ulimit -c 0
   fi
-elif [ "$(uname -s)" == "Linux" ]; then
-  # On Linux, we'll enable core file generation unconditionally, and if a dump
-  # is generated, we will print some useful information from it and delete the
-  # dump immediately.
-
-  if [ -e /proc/self/coredump_filter ]; then
-      # Include memory in private and shared file-backed mappings in the dump.
-      # This ensures that we can see disassembly from our shared libraries when
-      # inspecting the contents of the dump. See 'man core' for details.
-      echo -n 0x3F > /proc/self/coredump_filter
-  fi
-
-  ulimit -c unlimited
 fi
+
+export DOTNET_DbgEnableMiniDump=1
+export DOTNET_EnableCrashReport=1
+export DOTNET_DbgMiniDumpName=$HELIX_DUMP_FOLDER/coredump.%d.dmp
 # ========================= END Core File Setup ==============================
 
+# ========================= BEGIN support for SuperPMI collection ==============================
+if [ ! -z $spmi_enable_collection ]; then
+  echo "SuperPMI collection enabled"
+  # spmi_collect_dir and spmi_core_root need to be set before this script is run, if SuperPMI collection is enabled.
+  if [ -z $spmi_collect_dir ]; then
+    echo "ERROR - spmi_collect_dir not defined"
+    exit 1
+  fi
+  if [ -z $spmi_core_root ]; then
+    echo "ERROR - spmi_core_root not defined"
+    exit 1
+  fi
+  mkdir -p $spmi_collect_dir
+  export spmi_file_extension=so
+  if [[ $system_name == "Darwin" ]]; then
+    export spmi_file_extension=dylib
+  fi
+  export SuperPMIShimLogPath=$spmi_collect_dir
+  export SuperPMIShimPath=$spmi_core_root/libclrjit.$spmi_file_extension
+  export DOTNET_EnableExtraSuperPmiQueries=1
+  export DOTNET_JitPath=$spmi_core_root/libsuperpmi-shim-collector.$spmi_file_extension
+  if [ ! -e $SuperPMIShimPath ]; then
+    echo "ERROR - $SuperPMIShimPath not found"
+    exit 1
+  fi
+  if [ ! -e $DOTNET_JitPath ]; then
+    echo "ERROR - $DOTNET_JitPath not found"
+    exit 1
+  fi
+  echo "SuperPMIShimLogPath=$SuperPMIShimLogPath"
+  echo "SuperPMIShimPath=$SuperPMIShimPath"
+  echo "DOTNET_EnableExtraSuperPmiQueries=$DOTNET_EnableExtraSuperPmiQueries"
+  echo "DOTNET_JitPath=$DOTNET_JitPath"
+fi
+# ========================= END support for SuperPMI collection ==============================
+
+echo ========================= Begin custom configuration settings ==============================
+[[SetCommandsEcho]]
+[[SetCommands]]
+echo ========================== End custom configuration settings ===============================
+
 # ========================= BEGIN Test Execution =============================
-echo ----- start $(date) ===============  To repro directly: ===================================================== 
+echo ----- start $(date) ===============  To repro directly: =====================================================
 echo pushd $EXECUTION_DIR
 [[RunCommandsEcho]]
 echo popd
@@ -159,49 +172,109 @@ echo ===========================================================================
 pushd $EXECUTION_DIR
 [[RunCommands]]
 test_exitcode=$?
+if [[ -s testResults.xml ]]; then
+  has_test_results=1;
+fi;
 popd
 echo ----- end $(date) ----- exit code $test_exitcode ----------------------------------------------------------
 
-if [ "${exitcode_list[$test_exitcode]}" != "" ]; then
+if [[ -n "${exitcode_list[$test_exitcode]}" ]]; then
   echo exit code $test_exitcode means ${exitcode_list[$test_exitcode]}
 fi
 # ========================= END Test Execution ===============================
 
 # ======================= BEGIN Core File Inspection =========================
 pushd $EXECUTION_DIR >/dev/null
-if [[ "$(uname -s)" == "Linux" && $test_exitcode -ne 0 ]]; then
-  if [ -n "$HELIX_WORKITEM_PAYLOAD" ]; then
-     have_sleep=$(which sleep)
-     if [ -x "$have_sleep" ]; then
-         echo Waiting a few seconds for any dump to be written..
-          sleep 10s
-     fi
-  fi
-  echo Looking around for any Linux dump..
+
+if [[ $test_exitcode -ne 0 ]]; then
+  echo ulimit -c value: $(ulimit -c)
+fi
+
+if [[ $system_name == "Linux" && $test_exitcode -ne 0 ]]; then
+  echo cat /proc/sys/kernel/core_pattern: $(cat /proc/sys/kernel/core_pattern)
+  echo cat /proc/sys/kernel/core_uses_pid: $(cat /proc/sys/kernel/core_uses_pid)
+  echo cat /proc/sys/kernel/coredump_filter: $(cat /proc/sys/kernel/coredump_filter)
+
   # Depending on distro/configuration, the core files may either be named "core"
-  # or "core.<PID>" by default. We read /proc/sys/kernel/core_uses_pid to 
+  # or "core.<PID>" by default. We read /proc/sys/kernel/core_uses_pid to
   # determine which it is.
   core_name_uses_pid=0
-  if [ -e /proc/sys/kernel/core_uses_pid ] && [ "1" == $(cat /proc/sys/kernel/core_uses_pid) ]; then
+  if [[ -e /proc/sys/kernel/core_uses_pid && "1" == $(cat /proc/sys/kernel/core_uses_pid) ]]; then
     core_name_uses_pid=1
   fi
 
-  if [ $core_name_uses_pid == "1" ]; then
+  # The osx dumps are too large to egress the machine
+  echo Looking around for any Linux dumps...
+
+  if [[ "$core_name_uses_pid" == "1" ]]; then
     # We don't know what the PID of the process was, so let's look at all core
     # files whose name matches core.NUMBER
-    echo Looking for files matching core.* ...
-    for f in core.*; do
-      [[ $f =~ core.[0-9]+ ]] && print_info_from_core_file "$f" "dotnet" && copy_core_file_to_temp_location "$f" && rm "$f"
+    echo "Looking for files matching core.* ..."
+    for f in $(find . -name "core.*"); do
+      [[ $f =~ core.[0-9]+ ]] && move_core_file_to_temp_location "$f"
     done
-  elif [ -f core ]; then
-    echo found a dump named core in $EXECUTION_DIR !
-    print_info_from_core_file "core" "dotnet"
-    copy_core_file_to_temp_location "core"
-    rm "core"
-  else
-    echo ... found no dump in $PWD
+  fi
+
+  if [ -f core ]; then
+    move_core_file_to_temp_location "core"
   fi
 fi
+
+if [ -n "$HELIX_WORKITEM_PAYLOAD" ]; then
+  # For abrupt failures, in Helix, dump some of the kernel log, in case there is a hint
+  if [[ $test_exitcode -ne 1 ]]; then
+    dmesg | tail -50
+
+    # For exit code 137 (SIGKILL, typically OOM killer), check cgroup v2 memory.events
+    # as a fallback to confirm whether the OOM killer fired (e.g., if dmesg is unavailable).
+    # Silent no-op on macOS, cgroup v1, or any system without /proc/self/cgroup.
+    if [[ $test_exitcode -eq 137 && -f /proc/self/cgroup ]]; then
+      # /proc/self/cgroup contains colon-delimited lines; on cgroup v2, a single line like:
+      #   0::/system.slice/helix-agent.service
+      # Extract field 3 (the cgroup path) from the line where field1=="0" and field2==""
+      cg_path=$(awk -F: '$1=="0" && $2=="" {print $3; exit}' /proc/self/cgroup)
+      cg_path=${cg_path#/}  # strip leading slash for path concatenation
+      # Prefer the process-specific cgroup path (more relevant), fall back to root cgroup
+      for memevents in ${cg_path:+/sys/fs/cgroup/$cg_path/memory.events} /sys/fs/cgroup/memory.events; do
+        if [[ -f "$memevents" ]]; then
+          echo "cgroup memory.events ($memevents):"
+          cat "$memevents"
+          break
+        fi
+      done
+    fi
+  fi
+
+fi
+
+if [[ -z "$HELIX_CORRELATION_PAYLOAD" ]]; then
+  : # Skip XUnitLogChecker execution
+elif [[ -z "$__IsXUnitLogCheckerSupported" ]]; then
+  echo "The '__IsXUnitLogCheckerSupported' env var is not set."
+elif [[ "$__IsXUnitLogCheckerSupported" != "1" ]]; then
+  echo "XUnitLogChecker not supported for this test case. Skipping."
+else
+  echo "XUnitLogChecker status: $__IsXUnitLogCheckerSupported"
+  echo ----- start ===============  XUnitLogChecker Output =====================================================
+
+  invoke_xunitlogchecker "$HELIX_DUMP_FOLDER"
+
+  if [[ $xunitlogchecker_exit_code -ne 0 ]]; then
+    test_exitcode=$xunitlogchecker_exit_code
+  fi
+  echo ----- end ===============  XUnitLogChecker Output - exit code $xunitlogchecker_exit_code ===========================
+fi
+
 popd >/dev/null
 # ======================== END Core File Inspection ==========================
+# The helix work item should not exit with non-zero if tests ran and produced results
+# The special console runner for runtime returns 1 when tests fail
+if [[ "$test_exitcode" == "1" && "$has_test_results" == "1" ]]; then
+  if [ -n "$HELIX_WORKITEM_PAYLOAD" ]; then
+    exit 0
+  fi
+fi
+
 exit $test_exitcode
+fi
+

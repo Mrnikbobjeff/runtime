@@ -1,13 +1,19 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+namespace JitTest_Directed_nullabletypes_isinstinterface;
+
+using JitTest_Directed_nullabletypes_Desktop_StructDefinitions;
+using Assert = JitTest_Directed_nullabletypes_Desktop_StructDefinitions.Assert;
+
 #pragma warning disable 0184
 
 
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
 
-internal class Program
+public class Program
 {
     private static void Eval(int testCase, bool b1, bool b2)
     {
@@ -18,7 +24,7 @@ internal class Program
     {
         {
             ImplementOneInterface v = default(ImplementOneInterface);
-            IEmpty o = v; ;
+            IEmpty o = v;
             Eval(0001, o is ImplementOneInterface, true);
             Eval(0002, o is ImplementOneInterface[], false);
             Eval(0003, o is ImplementOneInterface?, true);
@@ -146,7 +152,7 @@ internal class Program
         }
         {
             ImplementOneInterface? v = default(ImplementOneInterface);
-            IEmpty o = v; ;
+            IEmpty o = v;
             Eval(0125, o is ImplementOneInterface, true);
             Eval(0126, o is ImplementOneInterface[], false);
             Eval(0127, o is ImplementOneInterface?, true);
@@ -274,7 +280,7 @@ internal class Program
         }
         {
             ImplementOneInterface? v = default(ImplementOneInterface?);
-            IEmpty o = v; ;
+            IEmpty o = v;
             Eval(0249, o is ImplementOneInterface, false);
             Eval(0250, o is ImplementOneInterface[], false);
             Eval(0251, o is ImplementOneInterface?, false);
@@ -405,7 +411,7 @@ internal class Program
     {
         {
             ImplementTwoInterface v = default(ImplementTwoInterface);
-            IEmpty o = v; ;
+            IEmpty o = v;
             Eval(0373, o is ImplementOneInterface, false);
             Eval(0374, o is ImplementOneInterface[], false);
             Eval(0375, o is ImplementOneInterface?, false);
@@ -533,7 +539,7 @@ internal class Program
         }
         {
             ImplementTwoInterface? v = default(ImplementTwoInterface);
-            IEmpty o = v; ;
+            IEmpty o = v;
             Eval(0497, o is ImplementOneInterface, false);
             Eval(0498, o is ImplementOneInterface[], false);
             Eval(0499, o is ImplementOneInterface?, false);
@@ -661,7 +667,7 @@ internal class Program
         }
         {
             ImplementTwoInterface? v = default(ImplementTwoInterface?);
-            IEmpty o = v; ;
+            IEmpty o = v;
             Eval(0621, o is ImplementOneInterface, false);
             Eval(0622, o is ImplementOneInterface[], false);
             Eval(0623, o is ImplementOneInterface?, false);
@@ -792,7 +798,7 @@ internal class Program
     {
         {
             ImplementOneInterfaceGen<EmptyStructGen<int>> v = default(ImplementOneInterfaceGen<EmptyStructGen<int>>);
-            IEmptyGen<EmptyStructGen<int>> o = v; ;
+            IEmptyGen<EmptyStructGen<int>> o = v;
             Eval(0745, o is ImplementOneInterface, false);
             Eval(0746, o is ImplementOneInterface[], false);
             Eval(0747, o is ImplementOneInterface?, false);
@@ -920,7 +926,7 @@ internal class Program
         }
         {
             ImplementOneInterfaceGen<EmptyStructGen<int>>? v = default(ImplementOneInterfaceGen<EmptyStructGen<int>>);
-            IEmptyGen<EmptyStructGen<int>> o = v; ;
+            IEmptyGen<EmptyStructGen<int>> o = v;
             Eval(0869, o is ImplementOneInterface, false);
             Eval(0870, o is ImplementOneInterface[], false);
             Eval(0871, o is ImplementOneInterface?, false);
@@ -1048,7 +1054,7 @@ internal class Program
         }
         {
             ImplementOneInterfaceGen<EmptyStructGen<int>>? v = default(ImplementOneInterfaceGen<EmptyStructGen<int>>?);
-            IEmptyGen<EmptyStructGen<int>> o = v; ;
+            IEmptyGen<EmptyStructGen<int>> o = v;
             Eval(0993, o is ImplementOneInterface, false);
             Eval(0994, o is ImplementOneInterface[], false);
             Eval(0995, o is ImplementOneInterface?, false);
@@ -1179,7 +1185,7 @@ internal class Program
     {
         {
             ImplementTwoInterfaceGen<int> v = default(ImplementTwoInterfaceGen<int>);
-            IEmptyGen<int> o = v; ;
+            IEmptyGen<int> o = v;
             Eval(1117, o is ImplementOneInterface, false);
             Eval(1118, o is ImplementOneInterface[], false);
             Eval(1119, o is ImplementOneInterface?, false);
@@ -1307,7 +1313,7 @@ internal class Program
         }
         {
             ImplementTwoInterfaceGen<int>? v = default(ImplementTwoInterfaceGen<int>);
-            IEmptyGen<int> o = v; ;
+            IEmptyGen<int> o = v;
             Eval(1241, o is ImplementOneInterface, false);
             Eval(1242, o is ImplementOneInterface[], false);
             Eval(1243, o is ImplementOneInterface?, false);
@@ -1435,7 +1441,7 @@ internal class Program
         }
         {
             ImplementTwoInterfaceGen<int>? v = default(ImplementTwoInterfaceGen<int>?);
-            IEmptyGen<int> o = v; ;
+            IEmptyGen<int> o = v;
             Eval(1365, o is ImplementOneInterface, false);
             Eval(1366, o is ImplementOneInterface[], false);
             Eval(1367, o is ImplementOneInterface?, false);
@@ -1566,7 +1572,7 @@ internal class Program
     {
         {
             ImplementAllInterface<int> v = default(ImplementAllInterface<int>);
-            IEmpty o = v; ;
+            IEmpty o = v;
             Eval(1489, o is ImplementOneInterface, false);
             Eval(1490, o is ImplementOneInterface[], false);
             Eval(1491, o is ImplementOneInterface?, false);
@@ -1694,7 +1700,7 @@ internal class Program
         }
         {
             ImplementAllInterface<int>? v = default(ImplementAllInterface<int>);
-            IEmpty o = v; ;
+            IEmpty o = v;
             Eval(1613, o is ImplementOneInterface, false);
             Eval(1614, o is ImplementOneInterface[], false);
             Eval(1615, o is ImplementOneInterface?, false);
@@ -1822,7 +1828,7 @@ internal class Program
         }
         {
             ImplementAllInterface<int>? v = default(ImplementAllInterface<int>?);
-            IEmpty o = v; ;
+            IEmpty o = v;
             Eval(1737, o is ImplementOneInterface, false);
             Eval(1738, o is ImplementOneInterface[], false);
             Eval(1739, o is ImplementOneInterface?, false);
@@ -1953,7 +1959,7 @@ internal class Program
     {
         {
             char v = default(char);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(1861, o is ImplementOneInterface, false);
             Eval(1862, o is ImplementOneInterface[], false);
             Eval(1863, o is ImplementOneInterface?, false);
@@ -2081,7 +2087,7 @@ internal class Program
         }
         {
             char? v = default(char);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(1985, o is ImplementOneInterface, false);
             Eval(1986, o is ImplementOneInterface[], false);
             Eval(1987, o is ImplementOneInterface?, false);
@@ -2209,7 +2215,7 @@ internal class Program
         }
         {
             char? v = default(char?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(2109, o is ImplementOneInterface, false);
             Eval(2110, o is ImplementOneInterface[], false);
             Eval(2111, o is ImplementOneInterface?, false);
@@ -2340,7 +2346,7 @@ internal class Program
     {
         {
             bool v = default(bool);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(2233, o is ImplementOneInterface, false);
             Eval(2234, o is ImplementOneInterface[], false);
             Eval(2235, o is ImplementOneInterface?, false);
@@ -2468,7 +2474,7 @@ internal class Program
         }
         {
             bool? v = default(bool);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(2357, o is ImplementOneInterface, false);
             Eval(2358, o is ImplementOneInterface[], false);
             Eval(2359, o is ImplementOneInterface?, false);
@@ -2596,7 +2602,7 @@ internal class Program
         }
         {
             bool? v = default(bool?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(2481, o is ImplementOneInterface, false);
             Eval(2482, o is ImplementOneInterface[], false);
             Eval(2483, o is ImplementOneInterface?, false);
@@ -2727,7 +2733,7 @@ internal class Program
     {
         {
             byte v = default(byte);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(2605, o is ImplementOneInterface, false);
             Eval(2606, o is ImplementOneInterface[], false);
             Eval(2607, o is ImplementOneInterface?, false);
@@ -2855,7 +2861,7 @@ internal class Program
         }
         {
             byte? v = default(byte);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(2729, o is ImplementOneInterface, false);
             Eval(2730, o is ImplementOneInterface[], false);
             Eval(2731, o is ImplementOneInterface?, false);
@@ -2983,7 +2989,7 @@ internal class Program
         }
         {
             byte? v = default(byte?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(2853, o is ImplementOneInterface, false);
             Eval(2854, o is ImplementOneInterface[], false);
             Eval(2855, o is ImplementOneInterface?, false);
@@ -3114,7 +3120,7 @@ internal class Program
     {
         {
             sbyte v = default(sbyte);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(2977, o is ImplementOneInterface, false);
             Eval(2978, o is ImplementOneInterface[], false);
             Eval(2979, o is ImplementOneInterface?, false);
@@ -3242,7 +3248,7 @@ internal class Program
         }
         {
             sbyte? v = default(sbyte);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(3101, o is ImplementOneInterface, false);
             Eval(3102, o is ImplementOneInterface[], false);
             Eval(3103, o is ImplementOneInterface?, false);
@@ -3370,7 +3376,7 @@ internal class Program
         }
         {
             sbyte? v = default(sbyte?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(3225, o is ImplementOneInterface, false);
             Eval(3226, o is ImplementOneInterface[], false);
             Eval(3227, o is ImplementOneInterface?, false);
@@ -3501,7 +3507,7 @@ internal class Program
     {
         {
             short v = default(short);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(3349, o is ImplementOneInterface, false);
             Eval(3350, o is ImplementOneInterface[], false);
             Eval(3351, o is ImplementOneInterface?, false);
@@ -3629,7 +3635,7 @@ internal class Program
         }
         {
             short? v = default(short);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(3473, o is ImplementOneInterface, false);
             Eval(3474, o is ImplementOneInterface[], false);
             Eval(3475, o is ImplementOneInterface?, false);
@@ -3757,7 +3763,7 @@ internal class Program
         }
         {
             short? v = default(short?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(3597, o is ImplementOneInterface, false);
             Eval(3598, o is ImplementOneInterface[], false);
             Eval(3599, o is ImplementOneInterface?, false);
@@ -3888,7 +3894,7 @@ internal class Program
     {
         {
             ushort v = default(ushort);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(3721, o is ImplementOneInterface, false);
             Eval(3722, o is ImplementOneInterface[], false);
             Eval(3723, o is ImplementOneInterface?, false);
@@ -4016,7 +4022,7 @@ internal class Program
         }
         {
             ushort? v = default(ushort);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(3845, o is ImplementOneInterface, false);
             Eval(3846, o is ImplementOneInterface[], false);
             Eval(3847, o is ImplementOneInterface?, false);
@@ -4144,7 +4150,7 @@ internal class Program
         }
         {
             ushort? v = default(ushort?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(3969, o is ImplementOneInterface, false);
             Eval(3970, o is ImplementOneInterface[], false);
             Eval(3971, o is ImplementOneInterface?, false);
@@ -4275,7 +4281,7 @@ internal class Program
     {
         {
             int v = default(int);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(4093, o is ImplementOneInterface, false);
             Eval(4094, o is ImplementOneInterface[], false);
             Eval(4095, o is ImplementOneInterface?, false);
@@ -4403,7 +4409,7 @@ internal class Program
         }
         {
             int? v = default(int);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(4217, o is ImplementOneInterface, false);
             Eval(4218, o is ImplementOneInterface[], false);
             Eval(4219, o is ImplementOneInterface?, false);
@@ -4531,7 +4537,7 @@ internal class Program
         }
         {
             int? v = default(int?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(4341, o is ImplementOneInterface, false);
             Eval(4342, o is ImplementOneInterface[], false);
             Eval(4343, o is ImplementOneInterface?, false);
@@ -4662,7 +4668,7 @@ internal class Program
     {
         {
             uint v = default(uint);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(4465, o is ImplementOneInterface, false);
             Eval(4466, o is ImplementOneInterface[], false);
             Eval(4467, o is ImplementOneInterface?, false);
@@ -4790,7 +4796,7 @@ internal class Program
         }
         {
             uint? v = default(uint);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(4589, o is ImplementOneInterface, false);
             Eval(4590, o is ImplementOneInterface[], false);
             Eval(4591, o is ImplementOneInterface?, false);
@@ -4918,7 +4924,7 @@ internal class Program
         }
         {
             uint? v = default(uint?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(4713, o is ImplementOneInterface, false);
             Eval(4714, o is ImplementOneInterface[], false);
             Eval(4715, o is ImplementOneInterface?, false);
@@ -5049,7 +5055,7 @@ internal class Program
     {
         {
             long v = default(long);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(4837, o is ImplementOneInterface, false);
             Eval(4838, o is ImplementOneInterface[], false);
             Eval(4839, o is ImplementOneInterface?, false);
@@ -5177,7 +5183,7 @@ internal class Program
         }
         {
             long? v = default(long);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(4961, o is ImplementOneInterface, false);
             Eval(4962, o is ImplementOneInterface[], false);
             Eval(4963, o is ImplementOneInterface?, false);
@@ -5305,7 +5311,7 @@ internal class Program
         }
         {
             long? v = default(long?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(5085, o is ImplementOneInterface, false);
             Eval(5086, o is ImplementOneInterface[], false);
             Eval(5087, o is ImplementOneInterface?, false);
@@ -5436,7 +5442,7 @@ internal class Program
     {
         {
             ulong v = default(ulong);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(5209, o is ImplementOneInterface, false);
             Eval(5210, o is ImplementOneInterface[], false);
             Eval(5211, o is ImplementOneInterface?, false);
@@ -5564,7 +5570,7 @@ internal class Program
         }
         {
             ulong? v = default(ulong);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(5333, o is ImplementOneInterface, false);
             Eval(5334, o is ImplementOneInterface[], false);
             Eval(5335, o is ImplementOneInterface?, false);
@@ -5692,7 +5698,7 @@ internal class Program
         }
         {
             ulong? v = default(ulong?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(5457, o is ImplementOneInterface, false);
             Eval(5458, o is ImplementOneInterface[], false);
             Eval(5459, o is ImplementOneInterface?, false);
@@ -5823,7 +5829,7 @@ internal class Program
     {
         {
             float v = default(float);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(5581, o is ImplementOneInterface, false);
             Eval(5582, o is ImplementOneInterface[], false);
             Eval(5583, o is ImplementOneInterface?, false);
@@ -5951,7 +5957,7 @@ internal class Program
         }
         {
             float? v = default(float);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(5705, o is ImplementOneInterface, false);
             Eval(5706, o is ImplementOneInterface[], false);
             Eval(5707, o is ImplementOneInterface?, false);
@@ -6079,7 +6085,7 @@ internal class Program
         }
         {
             float? v = default(float?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(5829, o is ImplementOneInterface, false);
             Eval(5830, o is ImplementOneInterface[], false);
             Eval(5831, o is ImplementOneInterface?, false);
@@ -6210,7 +6216,7 @@ internal class Program
     {
         {
             double v = default(double);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(5953, o is ImplementOneInterface, false);
             Eval(5954, o is ImplementOneInterface[], false);
             Eval(5955, o is ImplementOneInterface?, false);
@@ -6338,7 +6344,7 @@ internal class Program
         }
         {
             double? v = default(double);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(6077, o is ImplementOneInterface, false);
             Eval(6078, o is ImplementOneInterface[], false);
             Eval(6079, o is ImplementOneInterface?, false);
@@ -6466,7 +6472,7 @@ internal class Program
         }
         {
             double? v = default(double?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(6201, o is ImplementOneInterface, false);
             Eval(6202, o is ImplementOneInterface[], false);
             Eval(6203, o is ImplementOneInterface?, false);
@@ -6597,7 +6603,7 @@ internal class Program
     {
         {
             decimal v = default(decimal);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(6325, o is ImplementOneInterface, false);
             Eval(6326, o is ImplementOneInterface[], false);
             Eval(6327, o is ImplementOneInterface?, false);
@@ -6725,7 +6731,7 @@ internal class Program
         }
         {
             decimal? v = default(decimal);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(6449, o is ImplementOneInterface, false);
             Eval(6450, o is ImplementOneInterface[], false);
             Eval(6451, o is ImplementOneInterface?, false);
@@ -6853,7 +6859,7 @@ internal class Program
         }
         {
             decimal? v = default(decimal?);
-            IComparable o = v; ;
+            IComparable o = v;
             Eval(6573, o is ImplementOneInterface, false);
             Eval(6574, o is ImplementOneInterface[], false);
             Eval(6575, o is ImplementOneInterface?, false);
@@ -6981,7 +6987,9 @@ internal class Program
         }
     }  // end of test case 0018
 
-    private static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

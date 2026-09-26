@@ -1,6 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- No test-specific corerun on wasm: the generator or the wasm linker rejects this test's
+         native interop surface. Native-dependent tests skip instead. Tracked by https://github.com/dotnet/runtime/issues/131811 -->
+    <WasmBuildTestCorerun Condition="'$(RuntimeFlavor)' == 'coreclr' and '$(TargetOS)' == 'browser'">false</WasmBuildTestCorerun>
+    <!-- Needed for CLRTestTargetUnsupported, CMakeProjectReference -->
+    <RequiresProcessIsolation>true</RequiresProcessIsolation>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- There is a Windows and a non-Windows version of this test to allow it to be compiled for all targets -->
     <CLRTestTargetUnsupported Condition="'$(TargetsWindows)' == 'true'">true</CLRTestTargetUnsupported>
@@ -10,6 +14,9 @@
     <Compile Include="../NativeLibraryToLoad/NativeLibraryToLoad.cs" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="../NativeLibraryToLoad/CMakeLists.txt" />
+    <ProjectReference Include="$(TestLibraryProjectPath)" />
+  </ItemGroup>
+  <ItemGroup>
+    <CMakeProjectReference Include="../NativeLibraryToLoad/CMakeLists.txt" />
   </ItemGroup>
 </Project>

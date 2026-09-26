@@ -1,16 +1,22 @@
 ﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
 using System.Diagnostics.Tracing;
 using System.Threading;
 
 namespace System.Net.Sockets
 {
     [EventSource(Name = "System.Net.Sockets")]
-    internal sealed class SocketsTelemetry : EventSource
+    internal sealed partial class SocketsTelemetry : EventSource
     {
+        private const string ActivitySourceName = "Experimental.System.Net.Sockets";
+        private const string ConnectActivityName = ActivitySourceName + ".Connect";
+        private static readonly ActivitySource s_connectActivitySource = new ActivitySource(ActivitySourceName);
+
         public static readonly SocketsTelemetry Log = new SocketsTelemetry();
 
+        private PollingCounter? _currentOutgoingConnectAttemptsCounter;
         private PollingCounter? _outgoingConnectionsEstablishedCounter;
         private PollingCounter? _incomingConnectionsEstablishedCounter;
         private PollingCounter? _bytesReceivedCounter;
@@ -18,6 +24,7 @@ namespace System.Net.Sockets
         private PollingCounter? _datagramsReceivedCounter;
         private PollingCounter? _datagramsSentCounter;
 
+        private long _currentOutgoingConnectAttempts;
         private long _outgoingConnectionsEstablished;
         private long _incomingConnectionsEstablished;
         private long _bytesReceived;
@@ -26,17 +33,13 @@ namespace System.Net.Sockets
         private long _datagramsSent;
 
         [Event(1, Level = EventLevel.Informational)]
-        public void ConnectStart(string? address)
+        private void ConnectStart(string? address)
         {
-            Interlocked.Increment(ref _outgoingConnectionsEstablished);
-            if (IsEnabled(EventLevel.Informational, EventKeywords.All))
-            {
-                WriteEvent(eventId: 1, address ?? "");
-            }
+            WriteEvent(eventId: 1, address);
         }
 
         [Event(2, Level = EventLevel.Informational)]
-        public void ConnectStop()
+        private void ConnectStop()
         {
             if (IsEnabled(EventLevel.Informational, EventKeywords.All))
             {
@@ -45,105 +48,181 @@ namespace System.Net.Sockets
         }
 
         [Event(3, Level = EventLevel.Error)]
-        public void ConnectFailed(SocketError error, string? exceptionMessage)
+        private void ConnectFailed(SocketError error, string? exceptionMessage)
         {
             if (IsEnabled(EventLevel.Error, EventKeywords.All))
             {
-                WriteEvent(eventId: 3, (int)error, exceptionMessage ?? string.Empty);
+                WriteEvent(eventId: 3, (int)error, exceptionMessage);
             }
         }
 
-        [Event(4, Level = EventLevel.Warning)]
-        public void ConnectCanceled()
+        [Event(4, Level = EventLevel.Informational)]
+        private void AcceptStart(string? address)
         {
-            if (IsEnabled(EventLevel.Warning, EventKeywords.All))
-            {
-                WriteEvent(eventId: 4);
-            }
+            WriteEvent(eventId: 4, address);
         }
 
         [Event(5, Level = EventLevel.Informational)]
-        public void AcceptStart(string? address)
-        {
-            Interlocked.Increment(ref _incomingConnectionsEstablished);
-            if (IsEnabled(EventLevel.Informational, EventKeywords.All))
-            {
-                WriteEvent(eventId: 5, address ?? "");
-            }
-        }
-
-        [Event(6, Level = EventLevel.Informational)]
-        public void AcceptStop()
+        private void AcceptStop()
         {
             if (IsEnabled(EventLevel.Informational, EventKeywords.All))
             {
-                WriteEvent(eventId: 6);
+                WriteEvent(eventId: 5);
             }
         }
 
-        [Event(7, Level = EventLevel.Error)]
-        public void AcceptFailed(SocketError error, string? exceptionMessage)
+        [Event(6, Level = EventLevel.Error)]
+        private void AcceptFailed(SocketError error, string? exceptionMessage)
         {
             if (IsEnabled(EventLevel.Error, EventKeywords.All))
             {
-                WriteEvent(eventId: 7, (int)error, exceptionMessage ?? string.Empty);
+                WriteEvent(eventId: 6, (int)error, exceptionMessage);
             }
         }
 
         [NonEvent]
-        public void ConnectStart(Internals.SocketAddress address)
+        public Activity? ConnectStart(SocketAddress address, ProtocolType protocolType, EndPoint endPoint, bool keepActivityCurrent)
         {
-            ConnectStart(address.ToString());
+            Interlocked.Increment(ref _currentOutgoingConnectAttempts);
+
+            if (IsEnabled(EventLevel.Informational, EventKeywords.All))
+            {
+                ConnectStart(address.ToString());
+            }
+
+            Activity? activity = null;
+            if (s_connectActivitySource.HasListeners())
+            {
+                Activity? activityToReset = keepActivityCurrent ? Activity.Current : null;
+                activity = s_connectActivitySource.StartActivity(ConnectActivityName);
+                if (keepActivityCurrent)
+                {
+                    // Do not overwrite Activity.Current in the caller's ExecutionContext.
+                    Activity.Current = activityToReset;
+                }
+            }
+
+            if (activity is not null)
+            {
+                if (endPoint is IPEndPoint ipEndPoint)
+                {
+                    int port = ipEndPoint.Port;
+                    activity.DisplayName = $"socket connect {ipEndPoint.Address}:{port}";
+                    if (activity.IsAllDataRequested)
+                    {
+                        activity.SetTag("network.peer.address", ipEndPoint.Address.ToString());
+                        activity.SetTag("network.peer.port", port);
+                        activity.SetTag("network.type", ipEndPoint.AddressFamily == AddressFamily.InterNetwork ? "ipv4" : "ipv6");
+                        if (protocolType is ProtocolType.Tcp)
+                        {
+                            SetNetworkTransport(activity, "tcp");
+                        }
+                        else if (protocolType is ProtocolType.Udp)
+                        {
+                            SetNetworkTransport(activity, "udp");
+                        }
+                    }
+                }
+                else if (endPoint is UnixDomainSocketEndPoint udsEndPoint)
+                {
+                    string peerAddress = udsEndPoint.ToString();
+                    activity.DisplayName = $"socket connect {peerAddress}";
+
+                    if (activity.IsAllDataRequested)
+                    {
+                        activity.SetTag("network.peer.address", peerAddress);
+                        SetNetworkTransport(activity, "unix");
+                    }
+                }
+            }
+
+            static void SetNetworkTransport(Activity activity, string transportType) => activity.SetTag("network.transport", transportType);
+
+            return activity;
         }
 
         [NonEvent]
-        public void ConnectStart(EndPoint address)
+        public void AfterConnect(SocketError error, Activity? activity, string? exceptionMessage = null)
         {
-            ConnectStart(address.ToString());
-        }
+            long newCount = Interlocked.Decrement(ref _currentOutgoingConnectAttempts);
+            Debug.Assert(newCount >= 0);
 
-        [NonEvent]
-        public void ConnectCanceledAndStop()
-        {
-            ConnectCanceled();
+            // _currentOutgoingConnectAttempts tracks managed Connect calls. A non-blocking Connect call
+            // can return WouldBlock (Windows) or InProgress (Unix) while the OS connect attempt remains
+            // pending after this method returns. That later result may be observed by Socket when it
+            // checks whether the pending non-blocking connect completed, but it is not available to this
+            // synchronous Connect telemetry callback. Don't report these pending results as failures.
+            bool connectPending = error is SocketError.WouldBlock or SocketError.InProgress;
+
+            if (activity is not null)
+            {
+                if (error != SocketError.Success && !connectPending)
+                {
+                    activity.SetStatus(ActivityStatusCode.Error);
+                    activity.SetTag("error.type", GetErrorType(error));
+                }
+
+                activity.Stop();
+            }
+
+            if (error == SocketError.Success)
+            {
+                Debug.Assert(exceptionMessage is null);
+                Interlocked.Increment(ref _outgoingConnectionsEstablished);
+            }
+            else if (!connectPending)
+            {
+                ConnectFailed(error, exceptionMessage);
+            }
+
             ConnectStop();
         }
 
         [NonEvent]
-        public void ConnectFailedAndStop(SocketError error, string? exceptionMessage)
+        public void AcceptStart(SocketAddress address)
         {
-            ConnectFailed(error, exceptionMessage);
-            ConnectStop();
-        }
-
-        [NonEvent]
-        public void AcceptStart(Internals.SocketAddress address)
-        {
-            AcceptStart(address.ToString());
+            if (IsEnabled(EventLevel.Informational, EventKeywords.All))
+            {
+                AcceptStart(address.ToString());
+            }
         }
 
         [NonEvent]
         public void AcceptStart(EndPoint address)
         {
-            AcceptStart(address.ToString());
+            if (IsEnabled(EventLevel.Informational, EventKeywords.All))
+            {
+                AcceptStart(address.Serialize().ToString());
+            }
         }
 
         [NonEvent]
-        public void AcceptFailedAndStop(SocketError error, string? exceptionMessage)
+        public void AfterAccept(SocketError error, string? exceptionMessage = null)
         {
-            AcceptFailed(error, exceptionMessage);
+            if (error == SocketError.Success)
+            {
+                Debug.Assert(exceptionMessage is null);
+                Interlocked.Increment(ref _incomingConnectionsEstablished);
+            }
+            else
+            {
+                AcceptFailed(error, exceptionMessage);
+            }
+
             AcceptStop();
         }
 
         [NonEvent]
         public void BytesReceived(int count)
         {
+            Debug.Assert(count >= 0);
             Interlocked.Add(ref _bytesReceived, count);
         }
 
         [NonEvent]
         public void BytesSent(int count)
         {
+            Debug.Assert(count >= 0);
             Interlocked.Add(ref _bytesSent, count);
         }
 
@@ -159,12 +238,42 @@ namespace System.Net.Sockets
             Interlocked.Increment(ref _datagramsSent);
         }
 
+        private static string GetErrorType(SocketError socketError) => socketError switch
+        {
+            // Common connect() errors expected to be seen:
+            // https://learn.microsoft.com/en-us/windows/win32/api/winsock2/nf-winsock2-connect#return-value
+            // https://man7.org/linux/man-pages/man2/connect.2.html
+            SocketError.NetworkDown => "network_down",
+            SocketError.AddressAlreadyInUse => "address_already_in_use",
+            SocketError.Interrupted => "interrupted",
+            SocketError.InProgress => "in_progress",
+            SocketError.AlreadyInProgress => "already_in_progress",
+            SocketError.AddressNotAvailable => "address_not_available",
+            SocketError.AddressFamilyNotSupported => "address_family_not_supported",
+            SocketError.ConnectionRefused => "connection_refused",
+            SocketError.Fault => "fault",
+            SocketError.InvalidArgument => "invalid_argument",
+            SocketError.IsConnected => "is_connected",
+            SocketError.NetworkUnreachable => "network_unreachable",
+            SocketError.HostUnreachable => "host_unreachable",
+            SocketError.NoBufferSpaceAvailable => "no_buffer_space_available",
+            SocketError.TimedOut => "timed_out",
+            SocketError.AccessDenied => "access_denied",
+            SocketError.ProtocolType => "protocol_type",
+
+            _ => "_OTHER"
+        };
+
         protected override void OnEventCommand(EventCommandEventArgs command)
         {
             if (command.Command == EventCommand.Enable)
             {
                 // This is the convention for initializing counters in the RuntimeEventSource (lazily on the first enable command).
 
+                _currentOutgoingConnectAttemptsCounter ??= new PollingCounter("current-outgoing-connect-attempts", this, () => Interlocked.Read(ref _currentOutgoingConnectAttempts))
+                {
+                    DisplayName = "Current Outgoing Connect Attempts",
+                };
                 _outgoingConnectionsEstablishedCounter ??= new PollingCounter("outgoing-connections-established", this, () => Interlocked.Read(ref _outgoingConnectionsEstablished))
                 {
                     DisplayName = "Outgoing Connections Established",

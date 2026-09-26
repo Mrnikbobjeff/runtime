@@ -6,7 +6,7 @@ using System;
 namespace Microsoft.NET.HostModel.AppHost
 {
     /// <summary>
-    /// Unable to use input file as a valid application host executable, as it does not contain 
+    /// Unable to use input file as a valid application host executable, as it does not contain
     /// the expected placeholder byte sequence.
     /// </summary>
     public class PlaceHolderNotFoundInAppHostException : AppHostUpdateException
@@ -16,6 +16,9 @@ namespace Microsoft.NET.HostModel.AppHost
         {
             MissingPattern = pattern;
         }
+        public PlaceHolderNotFoundInAppHostException(ReadOnlySpan<byte> pattern)
+        {
+            MissingPattern = pattern.ToArray();
+        }
     }
 }
-

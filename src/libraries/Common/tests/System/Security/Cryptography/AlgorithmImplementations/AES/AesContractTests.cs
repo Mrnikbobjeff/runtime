@@ -1,12 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Test.Cryptography;
+using Microsoft.DotNet.XUnitExtensions;
 using Xunit;
 
 namespace System.Security.Cryptography.Encryption.Aes.Tests
 {
     using Aes = System.Security.Cryptography.Aes;
 
+    [SkipOnPlatform(TestPlatforms.Browser, "Not supported on Browser")]
     public class AesContractTests
     {
         [Fact]
@@ -16,6 +19,7 @@ namespace System.Security.Cryptography.Encryption.Aes.Tests
             {
                 Assert.Equal(128, aes.BlockSize);
                 Assert.Equal(256, aes.KeySize);
+                Assert.Equal(8, aes.FeedbackSize);
                 Assert.Equal(CipherMode.CBC, aes.Mode);
                 Assert.Equal(PaddingMode.PKCS7, aes.Padding);
             }
@@ -90,10 +94,16 @@ namespace System.Security.Cryptography.Encryption.Aes.Tests
 
                 e = Record.Exception(() => aes.CreateDecryptor(key, iv));
                 Assert.True(e is ArgumentException || e is OutOfMemoryException, $"Got {(e?.ToString() ?? "null")}");
+
+                e = Record.Exception(() => aes.Key = key);
+                Assert.True(e is CryptographicException || e is OutOfMemoryException, $"Got {(e?.ToString() ?? "null")}");
+
+                e = Record.Exception(() => aes.SetKey(key));
+                Assert.True(e is CryptographicException || e is OutOfMemoryException, $"Got {(e?.ToString() ?? "null")}");
             }
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindows7))]
+        [Theory]
         [InlineData(0, true)]
         [InlineData(1, true)]
         [InlineData(7, true)]
@@ -133,7 +143,7 @@ namespace System.Security.Cryptography.Encryption.Aes.Tests
             }
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindows7))]
+        [Theory]
         [InlineData(8)]
         [InlineData(128)]
         public static void ValidCFBFeedbackSizes(int feedbackSize)
@@ -152,7 +162,7 @@ namespace System.Security.Cryptography.Encryption.Aes.Tests
             }
         }
 
-        [Theory]
+        [ConditionalTheory]
         [InlineData(64, false)]        // smaller than default BlockSize
         [InlineData(129, false)]       // larger than default BlockSize
         // Skip on .NET Framework because change is not ported https://github.com/dotnet/runtime/issues/21236
@@ -161,6 +171,9 @@ namespace System.Security.Cryptography.Encryption.Aes.Tests
         {
             if (skipOnNetfx && PlatformDetection.IsNetFramework)
                 return;
+
+            if (PlatformDetection.IstvOS && invalidIvSize == 536870928)
+                throw new SkipTestException($"https://github.com/dotnet/runtime/issues/76728 This test case flakily crashes tvOS arm64");
 
             using (Aes aes = AesFactory.Create())
             {
@@ -181,6 +194,68 @@ namespace System.Security.Cryptography.Encryption.Aes.Tests
 
                 e = Record.Exception(() => aes.CreateDecryptor(key, iv));
                 Assert.True(e is ArgumentException || e is OutOfMemoryException, $"Got {(e?.ToString() ?? "null")}");
+            }
+        }
+
+        [Fact]
+        public static void SetKey_SetsKey()
+        {
+            using (Aes aes = AesFactory.Create())
+            {
+                byte[] key = new byte[16];
+                RandomNumberGenerator.Fill(key);
+
+                aes.SetKey(key);
+                Assert.Equal(key, aes.Key);
+            }
+        }
+
+        [Fact]
+        public static void SetKey_SetsKeySize()
+        {
+            Span<byte> bigKey = stackalloc byte[32];
+            RandomNumberGenerator.Fill(bigKey);
+
+            using (Aes aes = AesFactory.Create())
+            {
+                foreach (KeySizes keySize in aes.LegalKeySizes)
+                {
+                    for (int i = keySize.MinSize; i <= keySize.MaxSize; i += keySize.SkipSize)
+                    {
+                        aes.SetKey(bigKey.Slice(0, i / 8));
+                        Assert.Equal(i, aes.KeySize);
+                    }
+                }
+            }
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public static void ReadKeyAfterDispose(bool setProperty)
+        {
+            using (Aes aes = AesFactory.Create())
+            {
+                byte[] key = new byte[aes.KeySize / 8];
+                RandomNumberGenerator.Fill(key);
+
+                if (setProperty)
+                {
+                    aes.Key = key;
+                }
+                else
+                {
+                    aes.SetKey(key);
+                }
+
+                aes.Dispose();
+
+                // Asking for the key after dispose just makes a new key be generated.
+                byte[] key2 = aes.Key;
+                Assert.NotEqual(key, key2);
+
+                // The new key won't be all zero:
+                Assert.NotEqual(-1, key2.AsSpan().IndexOfAnyExcept((byte)0));
             }
         }
 
@@ -247,8 +322,9 @@ namespace System.Security.Cryptography.Encryption.Aes.Tests
         public static void ValidateEncryptorProperties()
         {
             using (Aes aes = AesFactory.Create())
+            using (ICryptoTransform encryptor = aes.CreateEncryptor())
             {
-                ValidateTransformProperties(aes, aes.CreateEncryptor());
+                ValidateTransformProperties(aes, encryptor);
             }
         }
 
@@ -257,8 +333,9 @@ namespace System.Security.Cryptography.Encryption.Aes.Tests
         public static void ValidateDecryptorProperties()
         {
             using (Aes aes = AesFactory.Create())
+            using (ICryptoTransform decryptor = aes.CreateDecryptor())
             {
-                ValidateTransformProperties(aes, aes.CreateDecryptor());
+                ValidateTransformProperties(aes, decryptor);
             }
         }
 
@@ -369,6 +446,85 @@ namespace System.Security.Cryptography.Encryption.Aes.Tests
 
                 Assert.Equal(firstBlockEncrypted, firstBlockEncryptedFromCount);
                 Assert.Equal(middleHalfEncrypted, middleHalfEncryptedFromOffsetAndCount);
+            }
+        }
+
+        [Fact]
+        public static void Cfb8ModeCanDepadCfb128Padding()
+        {
+            using (Aes aes = AesFactory.Create())
+            {
+                // 1, 2, 3, 4, 5 encrypted with CFB8 but padded with block-size padding.
+                byte[] ciphertext = "68C272ACF16BE005A361DB1C147CA3AD".HexToByteArray();
+                aes.Key = "3279CE2E9669A54E038AA62818672150D0B5A13F6757C27F378115501F83B119".HexToByteArray();
+                aes.IV = new byte[16];
+                aes.Padding = PaddingMode.PKCS7;
+                aes.Mode = CipherMode.CFB;
+                aes.FeedbackSize = 8;
+
+                using ICryptoTransform transform = aes.CreateDecryptor();
+                byte[] decrypted = transform.TransformFinalBlock(ciphertext, 0, ciphertext.Length);
+                Assert.Equal(new byte[] { 1, 2, 3, 4, 5 }, decrypted);
+            }
+        }
+
+        [Theory]
+        [InlineData(128)]
+        [InlineData(192)]
+        [InlineData(256)]
+        public static void SetKeySize_MakesRandomKey(int keySize)
+        {
+            for (int i = 0; i < 2; i++)
+            {
+                bool createEncryptorFirst = i == 0;
+                byte[] one;
+                byte[] exported;
+                byte[] iv;
+
+                using (Aes aes = AesFactory.Create())
+                {
+                    aes.KeySize = keySize;
+
+                    if (createEncryptorFirst)
+                    {
+                        using (ICryptoTransform enc = aes.CreateEncryptor())
+                        {
+                            one = enc.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                        }
+
+                        iv = aes.IV;
+                    }
+                    else
+                    {
+                        iv = aes.IV;
+                        one = aes.EncryptCbc(ReadOnlySpan<byte>.Empty, iv);
+                    }
+
+                    exported = aes.Key;
+                }
+
+                Assert.Equal(keySize / 8, exported.Length);
+                byte[] two;
+
+                using (Aes aes = AesFactory.Create())
+                {
+                    aes.IV = iv;
+                    aes.Key = exported;
+
+                    if (createEncryptorFirst)
+                    {
+                        two = aes.EncryptCbc(ReadOnlySpan<byte>.Empty, iv);
+                    }
+                    else
+                    {
+                        using (ICryptoTransform enc = aes.CreateEncryptor())
+                        {
+                            two = enc.TransformFinalBlock(Array.Empty<byte>(), 0, 0);
+                        }
+                    }
+                }
+
+                Assert.Equal(one, two);
             }
         }
 

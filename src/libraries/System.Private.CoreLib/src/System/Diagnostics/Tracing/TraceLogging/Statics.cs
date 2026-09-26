@@ -3,15 +3,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text;
 
-#if ES_BUILD_STANDALONE
-namespace Microsoft.Diagnostics.Tracing
-#else
 namespace System.Diagnostics.Tracing
-#endif
 {
     /// <summary>
     /// TraceLogging: Constants and utility functions.
@@ -87,7 +84,7 @@ namespace System.Diagnostics.Tracing
             int suffixSize,
             int additionalSize)
         {
-            Statics.CheckName(name);
+            CheckName(name);
             int metadataSize = Encoding.UTF8.GetByteCount(name) + 3 + prefixSize + suffixSize;
             var metadata = new byte[metadataSize];
             ushort totalSize = checked((ushort)(metadataSize + additionalSize));
@@ -119,10 +116,7 @@ namespace System.Diagnostics.Tracing
                 current |= (byte)(more ? 0x80 : 0x00);
                 tagsLeft <<= 7;
 
-                if (metadata != null)
-                {
-                    metadata[pos] = current;
-                }
+                metadata?[pos] = current;
                 pos++;
             }
             while (more);
@@ -313,6 +307,16 @@ namespace System.Diagnostics.Tracing
             };
         }
 
+        public static TraceLoggingDataType FormatScalar(EventFieldFormat format, TraceLoggingDataType nativeFormat) =>
+            nativeFormat switch
+            {
+                TraceLoggingDataType.Boolean8 or TraceLoggingDataType.Int8 or TraceLoggingDataType.UInt8 => Format8(format, nativeFormat),
+                TraceLoggingDataType.Char16 or TraceLoggingDataType.Int16 or TraceLoggingDataType.UInt16 => Format16(format, nativeFormat),
+                TraceLoggingDataType.Int32 or TraceLoggingDataType.UInt32 or TraceLoggingDataType.Float => Format32(format, nativeFormat),
+                TraceLoggingDataType.Int64 or TraceLoggingDataType.UInt64 or TraceLoggingDataType.Double => Format64(format, nativeFormat),
+                _ => MakeDataType(nativeFormat, format),
+            };
+
         #endregion
 
         #region Reflection helpers
@@ -348,7 +352,9 @@ namespace System.Diagnostics.Tracing
             return result;
         }
 
-        public static Type? FindEnumerableElementType(Type type)
+        public static Type? FindEnumerableElementType(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.Interfaces)]
+            Type type)
         {
             Type? elementType = null;
 
@@ -381,6 +387,7 @@ namespace System.Diagnostics.Tracing
             return type.IsGenericType && type.GetGenericTypeDefinition() == (Type?)openType;
         }
 
+        [RequiresUnreferencedCode("EventSource WriteEvent will serialize the whole object graph. Trimmer will not safely handle this case because properties may be trimmed. This can be suppressed if the object is a primitive type")]
         public static TraceLoggingTypeInfo CreateDefaultTypeInfo(
             Type dataType,
             List<Type> recursionCheck)
@@ -394,9 +401,9 @@ namespace System.Diagnostics.Tracing
 
             recursionCheck.Add(dataType);
 
-            EventDataAttribute? eventAttrib = Statics.GetCustomAttribute<EventDataAttribute>(dataType);
+            EventDataAttribute? eventAttrib = GetCustomAttribute<EventDataAttribute>(dataType);
             if (eventAttrib != null ||
-                Statics.GetCustomAttribute<CompilerGeneratedAttribute>(dataType) != null ||
+                GetCustomAttribute<CompilerGeneratedAttribute>(dataType) != null ||
                 IsGenericMatch(dataType, typeof(KeyValuePair<,>)))
             {
                 var analysis = new TypeAnalysis(dataType, eventAttrib, recursionCheck);
@@ -477,7 +484,7 @@ namespace System.Diagnostics.Tracing
 
                 if (dataType == typeof(string))
                 {
-                    result = new StringTypeInfo();
+                    result = StringTypeInfo.Instance();
                 }
                 else if (dataType == typeof(bool))
                 {
@@ -529,11 +536,11 @@ namespace System.Diagnostics.Tracing
                 }
                 else if (dataType == typeof(DateTime))
                 {
-                    result = new DateTimeTypeInfo();
+                    result = DateTimeTypeInfo.Instance();
                 }
                 else if (dataType == typeof(decimal))
                 {
-                    result = new DecimalTypeInfo();
+                    result = DecimalTypeInfo.Instance();
                 }
                 else if (dataType == typeof(IntPtr))
                 {
@@ -549,15 +556,15 @@ namespace System.Diagnostics.Tracing
                 }
                 else if (dataType == typeof(TimeSpan))
                 {
-                    result = new TimeSpanTypeInfo();
+                    result = TimeSpanTypeInfo.Instance();
                 }
                 else if (dataType == typeof(DateTimeOffset))
                 {
-                    result = new DateTimeOffsetTypeInfo();
+                    result = DateTimeOffsetTypeInfo.Instance();
                 }
                 else if (dataType == typeof(EmptyStruct))
                 {
-                    result = new NullTypeInfo();
+                    result = NullTypeInfo.Instance();
                 }
                 else if (IsGenericMatch(dataType, typeof(Nullable<>)))
                 {

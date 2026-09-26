@@ -179,17 +179,17 @@ namespace System.Data.OleDb
             {
                 Debug.Assert(0 <= value, "invalid MaxLen");
 
-                _dbbindings[_index].obStatus = (IntPtr)(_dataBufferSize + 0);
-                _dbbindings[_index].obLength = (IntPtr)(_dataBufferSize + ADP.PtrSize);
-                _dbbindings[_index].obValue = (IntPtr)(_dataBufferSize + ADP.PtrSize + ADP.PtrSize);
-                _dataBufferSize += ADP.PtrSize + ADP.PtrSize;
+                _dbbindings[_index].obStatus = (IntPtr)(_dataBufferSize);
+                _dbbindings[_index].obLength = (IntPtr)(_dataBufferSize + IntPtr.Size);
+                _dbbindings[_index].obValue = (IntPtr)(_dataBufferSize + IntPtr.Size + IntPtr.Size);
+                _dataBufferSize += IntPtr.Size + IntPtr.Size;
 
                 switch (DbType)
                 {
                     case (NativeDBType.BSTR):  // ADP.PtrSize
                     case (NativeDBType.HCHAPTER): // ADP.PtrSize
-                    case (NativeDBType.PROPVARIANT): // sizeof(PROPVARIANT)
-                    case (NativeDBType.VARIANT): // 16 or 24 (8 + ADP.PtrSize *2)
+                    case (NativeDBType.PROPVARIANT): // sizeof(ComVariant)
+                    case (NativeDBType.VARIANT): // sizeof(ComVariant)
                     case (NativeDBType.BYREF | NativeDBType.BYTES): // ADP.PtrSize
                     case (NativeDBType.BYREF | NativeDBType.WSTR): // ADP.PtrSize
                                                                    // allocate extra space to cache original value for disposal
@@ -222,10 +222,7 @@ namespace System.Data.OleDb
 #endif
             set
             {
-                if (null != _bindInfo)
-                {
-                    _bindInfo[_index].bPrecision = value;
-                }
+                _bindInfo?[_index].bPrecision = value;
                 _dbbindings[_index].bPrecision = value;
                 _dbcolumns[_index].bPrecision = value;
             }
@@ -237,10 +234,7 @@ namespace System.Data.OleDb
 #endif
             set
             {
-                if (null != _bindInfo)
-                {
-                    _bindInfo[_index].bScale = value;
-                }
+                _bindInfo?[_index].bScale = value;
                 _dbbindings[_index].bScale = value;
                 _dbcolumns[_index].bScale = value;
             }
@@ -288,12 +282,12 @@ namespace System.Data.OleDb
             {
                 if (ADP.IsDirection(parameters[i], ParameterDirection.Input))
                 {
-                    columnBindings[i].SetOffset(parameters[i].Offset);
+                    columnBindings[i].SetOffset(OleDbParameter.Offset);
                     columnBindings[i].Value(parameters[i].GetCoercedValue());
                 }
                 else
                 {
-                    // always set ouput only and return value parameter values to null when executing
+                    // always set output only and return value parameter values to null when executing
                     parameters[i].Value = null;
 
                     //columnBindings[i].SetValueEmpty();
@@ -353,21 +347,14 @@ namespace System.Data.OleDb
                 ColumnBinding[] columnBindings = this.ColumnBindings();
                 for (int i = 0; i < columnBindings.Length; ++i)
                 {
-                    ColumnBinding binding = columnBindings[i];
-                    if (null != binding)
-                    {
-                        binding.ResetValue();
-                    }
+                    columnBindings[i]?.ResetValue();
                 }
             }
         }
 
         internal void CloseFromConnection()
         {
-            if (null != _rowBinding)
-            {
-                _rowBinding.CloseFromConnection();
-            }
+            _rowBinding?.CloseFromConnection();
             Dispose();
         }
 
@@ -386,10 +373,7 @@ namespace System.Data.OleDb
 
             RowBinding? rowBinding = _rowBinding;
             _rowBinding = null;
-            if (null != rowBinding)
-            {
-                rowBinding.Dispose();
-            }
+            rowBinding?.Dispose();
         }
 
         internal void GuidKindName(Guid guid, int eKind, IntPtr propid)

@@ -5,6 +5,7 @@
 // such as MyType : IComparable<MyType>
 
 /*
+using TestLibrary;
 generic interfaces:
 - ICollection
 - IComparer
@@ -18,7 +19,9 @@ generic interfaces:
 
 using System;
 using System.Collections.Generic;
+using Xunit;
  using System.Collections;
+using TestLibrary;
 
 public struct MyClassICollection : ICollection<MyClassICollection> 
 {
@@ -335,9 +338,11 @@ public struct MyClassIList2:  IList<MyClassIList>,  IList<int>
 }
 
 
-public class Test
+public class Test_Struct_ImplementMscorlibGenInterface
 {
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		#pragma warning disable 219
 		

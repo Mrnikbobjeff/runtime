@@ -10,7 +10,8 @@ namespace System.Reflection.Metadata.Ecma335
     public sealed class MetadataAggregator
     {
         // For each heap handle and each delta contains aggregate heap lengths.
-        // heapSizes[heap kind][reader index] == Sum { 0..index | reader[i].XxxHeap.Block.Length }
+        // For GUIDs: heapSizes[heap kind][reader index] == reader[reader index].GuidHeap.Block.Length
+        // For all other heaps: heapSizes[heap kind][reader index] == Sum { 0..reader index | reader[reader index].XxxHeap.Block.Length }
         private readonly ImmutableArray<ImmutableArray<int>> _heapSizes;
 
         private readonly ImmutableArray<ImmutableArray<RowCounts>> _rowCounts;
@@ -28,7 +29,7 @@ namespace System.Reflection.Metadata.Ecma335
 
             public override string ToString()
             {
-                return string.Format("+0x{0:x} ~0x{1:x}", AggregateInserts, Updates);
+                return $"+0x{AggregateInserts:x} ~0x{Updates:x}";
             }
         }
 
@@ -55,7 +56,7 @@ namespace System.Reflection.Metadata.Ecma335
             {
                 if (baseReader == null)
                 {
-                    throw new ArgumentNullException(nameof(baseReader));
+                    Throw.ArgumentNull(nameof(baseReader));
                 }
 
                 if (baseReader.GetTableRowCount(TableIndex.EncMap) != 0)
@@ -75,7 +76,7 @@ namespace System.Reflection.Metadata.Ecma335
 
                 if (baseHeapSizes == null)
                 {
-                    throw new ArgumentNullException(nameof(baseHeapSizes));
+                    Throw.ArgumentNull(nameof(baseHeapSizes));
                 }
 
                 if (baseHeapSizes.Count != MetadataTokens.HeapCount)
@@ -153,7 +154,7 @@ namespace System.Reflection.Metadata.Ecma335
                 userStringSizes[r + 1] = userStringSizes[r] + deltaReaders[r].GetHeapSize(HeapIndex.UserString);
                 stringSizes[r + 1] = stringSizes[r] + deltaReaders[r].GetHeapSize(HeapIndex.String);
                 blobSizes[r + 1] = blobSizes[r] + deltaReaders[r].GetHeapSize(HeapIndex.Blob);
-                guidSizes[r + 1] = guidSizes[r] + deltaReaders[r].GetHeapSize(HeapIndex.Guid) / guidSize;
+                guidSizes[r + 1] = deltaReaders[r].GetHeapSize(HeapIndex.Guid) / guidSize;
             }
 
             return ImmutableArray.Create(

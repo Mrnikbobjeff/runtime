@@ -8,6 +8,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <cstdint>
+#include <cinttypes>
+#include <minipal/utils.h>
 
 #ifndef _PLATFORMDEFINES__H
 #define _PLATFORMDEFINES__H
@@ -17,6 +19,13 @@
 #define _CRT_SECURE_NO_WARNINGS 1
 #endif
 
+#if defined(TARGET_X86) || defined(TARGET_AMD64)
+#define TARGET_XARCH
+#endif
+
+#if defined(TARGET_ARM) || defined(TARGET_ARM64)
+#define TARGET_ARMARCH
+#endif
 
 // Ensure that both UNICODE and _UNICODE are set.
 #ifndef _UNICODE
@@ -39,12 +48,10 @@
 #include <windows.h>
 #include <combaseapi.h>
 
-#define FS_SEPERATOR L"\\"
-#define PATH_DELIMITER L";"
 #define L(t) L##t
 #define W(str)  L##str
 
-typedef unsigned error_t;
+typedef uint32_t error_t;
 typedef HANDLE THREAD_ID;
 
 #define DLL_EXPORT __declspec(dllexport)
@@ -53,21 +60,26 @@ typedef HANDLE THREAD_ID;
 #include <pthread.h>
 
 typedef char16_t WCHAR;
-typedef unsigned int DWORD;
-typedef int BOOL;
+typedef uint32_t DWORD;
+
+#ifdef OBJC_TESTS
+// The Objective-C headers define the BOOL type to be unsigned char or bool.
+// As a result, we can't redefine it here. So instead, define WINBOOL to be int-sized.
+typedef int32_t WINBOOL;
+#else
+typedef int32_t BOOL;
+#endif
 typedef WCHAR *LPWSTR, *PWSTR;
 typedef const WCHAR *LPCWSTR, *PCWSTR;
 
-typedef int HRESULT;
-#define LONGLONG long long
-#define ULONGLONG unsigned LONGLONG
-typedef unsigned int ULONG, *PULONG;
+typedef int32_t HRESULT;
+
+typedef int32_t LONG, *PLONG;
+typedef uint32_t ULONG, *PULONG;
+
 #define S_OK                    0x0
 #define SUCCEEDED(_hr)          ((HRESULT)(_hr) >= 0)
 #define FAILED(_hr)             ((HRESULT)(_hr) < 0)
-
-#define CCH_BSTRMAX 0x7FFFFFFF  // 4 + (0x7ffffffb + 1 ) * 2 ==> 0xFFFFFFFC
-#define CB_BSTRMAX 0xFFFFFFFa   // 4 + (0xfffffff6 + 2) ==> 0xFFFFFFFC
 
 #ifdef RC_INVOKED
 #define _HRESULT_TYPEDEF_(_sc) _sc
@@ -75,16 +87,6 @@ typedef unsigned int ULONG, *PULONG;
 #define _HRESULT_TYPEDEF_(_sc) ((HRESULT)_sc)
 #endif // RC_INVOKED
 #define E_INVALIDARG                     _HRESULT_TYPEDEF_(0x80070057L)
-
-#ifdef HOST_64BIT
-#define __int64     long
-#else // HOST_64BIT
-#define __int64     long long
-#endif // HOST_64BIT
-
-#define UInt32x32To64(a, b) ((unsigned __int64)((ULONG)(a)) * (unsigned __int64)((ULONG)(b)))
-
-#define ARRAYSIZE(x) (sizeof(x)/sizeof(*x))
 
 #ifndef TRUE
 #define TRUE 1
@@ -111,10 +113,12 @@ typedef unsigned int ULONG, *PULONG;
 #define __stdcall __attribute__((stdcall))
 #define _cdecl __attribute__((cdecl))
 #define __cdecl __attribute__((cdecl))
+#define __thiscall __attribute__((thiscall))
 #else
 #define __stdcall
 #define _cdecl
 #define __cdecl
+#define __thiscall
 #endif
 #endif
 
@@ -126,8 +130,6 @@ typedef unsigned int ULONG, *PULONG;
 
 LPWSTR HackyConvertToWSTR(const char* pszInput);
 
-#define FS_SEPERATOR L("/")
-#define PATH_DELIMITER L(":")
 #define L(t) HackyConvertToWSTR(t)
 #define W(str)  u##str
 #define MAX_PATH 260
@@ -149,7 +151,7 @@ typedef int error_t;
 typedef void* LPVOID;
 typedef unsigned char BYTE;
 typedef WCHAR OLECHAR;
-typedef double DATE;          
+typedef double DATE;
 typedef DWORD LCID;
 #endif
 
@@ -170,8 +172,6 @@ error_t TP_itow_s(int num, LPWSTR buffer, size_t sizeInCharacters, int radix);
 error_t TP_itoa_s(int num, LPSTR buffer, size_t sizeInCharacters, int radix);
 LPWSTR TP_sstr(LPWSTR str, LPWSTR searchStr);
 LPSTR  HackyConvertToSTR(LPWSTR pwszInput);
-DWORD TP_CreateThread(THREAD_ID* tThread, LPTHREAD_START_ROUTINE worker,  LPVOID lpParameter);
-void TP_JoinThread(THREAD_ID tThread);
 void TP_DebugBreak();
 DWORD TP_GetFullPathName(LPWSTR fileName, DWORD nBufferLength, LPWSTR lpBuffer);
 
@@ -191,7 +191,7 @@ inline void *CoreClrBStrAlloc(size_t cb)
 {
     // A null is automatically applied in the SysAllocStringByteLen API.
     // Remove a single OLECHAR for the implied null.
-    // https://docs.microsoft.com/en-us/previous-versions/windows/desktop/api/oleauto/nf-oleauto-sysallocstringbytelen
+    // https://learn.microsoft.com/previous-versions/windows/desktop/api/oleauto/nf-oleauto-sysallocstringbytelen
     if (cb >= sizeof(OLECHAR))
         cb -= sizeof(OLECHAR);
 
@@ -261,6 +261,12 @@ inline void CoreClrFree(void *p)
 #define strcmp TP_scmp_s
 #define strncpy_s TP_strncpy_s
 #define strcpy_s TP_strcpy_s
+#endif
+
+#if defined(TARGET_XARCH) && !defined(_MSC_VER)
+#define ENABLE_AVX __attribute__ ((target("avx")))
+#else
+#define ENABLE_AVX
 #endif
 
 #endif

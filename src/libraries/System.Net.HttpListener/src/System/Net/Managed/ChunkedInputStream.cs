@@ -1,5 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+
 //
 // System.Net.ChunkedInputStream
 //
@@ -38,7 +39,7 @@ namespace System.Net
         private readonly HttpListenerContext _context;
         private bool _no_more_data;
 
-        private class ReadBufferState
+        private sealed class ReadBufferState
         {
             public byte[] Buffer;
             public int Offset;
@@ -150,8 +151,7 @@ namespace System.Net
 
         public override int EndRead(IAsyncResult asyncResult)
         {
-            if (asyncResult == null)
-                throw new ArgumentNullException(nameof(asyncResult));
+            ArgumentNullException.ThrowIfNull(asyncResult);
 
             HttpStreamAsyncResult? ares = asyncResult as HttpStreamAsyncResult;
             if (ares == null || !ReferenceEquals(this, ares._parent))

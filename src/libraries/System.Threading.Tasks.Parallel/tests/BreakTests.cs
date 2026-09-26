@@ -10,7 +10,7 @@ namespace System.Threading.Tasks.Tests
 {
     public static class BreakTests
     {
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [Theory]
         [InlineData(100, 10)]
         [InlineData(100, 20)]
         [InlineData(1000, 100)]
@@ -46,7 +46,7 @@ namespace System.Threading.Tasks.Tests
             Assert.True(result, "TestForBreak:  Failed: Could not detect any interruption of For-loop.");
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [Theory]
         [InlineData(100, 10)]
         [InlineData(100, 20)]
         [InlineData(1000, 100)]
@@ -86,7 +86,7 @@ namespace System.Threading.Tasks.Tests
             Assert.True(result, "TestFor64Break:  Failed: Could not detect any interruption of For-loop.");
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [Theory]
         [InlineData(500, 10)]
         [InlineData(500, 20)]
         [InlineData(1000, 100)]
@@ -140,7 +140,7 @@ namespace System.Threading.Tasks.Tests
             Parallel.ForEach(mop, delegate(int item, ParallelLoopState ps, long index)
             {
                 //break does not imply that the other iterations will not be run
-                //https://docs.microsoft.com/en-us/dotnet/api/system.threading.tasks.parallelloopstate.break#System_Threading_Tasks_ParallelLoopState_Break
+                //https://learn.microsoft.com/dotnet/api/system.threading.tasks.parallelloopstate.break#System_Threading_Tasks_ParallelLoopState_Break
                 //execute the test with high loop size and low break index
                 complete[index] = true;
                 if (index >= breakpoint) ps.Break();

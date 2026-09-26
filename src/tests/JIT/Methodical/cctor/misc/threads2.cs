@@ -6,16 +6,20 @@
 using System;
 using System.Threading;
 using System.Runtime.CompilerServices;
+using TestLibrary;
+using Xunit;
 
 namespace Precise
 {
-    internal class Driver
+    public class Driver_threads2
     {
         public static void f()
         {
             RuntimeHelpers.RunClassConstructor(typeof(test).TypeHandle);
         }
-        public static int Main()
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        [OuterLoop]
+        public static int TestEntryPoint()
         {
             try
             {

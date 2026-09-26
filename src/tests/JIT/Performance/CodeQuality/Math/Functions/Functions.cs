@@ -4,9 +4,9 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using Microsoft.Xunit.Performance;
-
-[assembly: OptimizeForBenchmarks]
+using System.Runtime.CompilerServices;
+using Xunit;
+using TestLibrary;
 
 namespace Functions
 {
@@ -59,7 +59,15 @@ namespace Functions
             ["tanhsingle"] = MathTests.TanhSingleTest
         };
 
-        private static int Main(string[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [Fact]
+        public static int TestEntryPoint()
+        {
+            return Test(Array.Empty<string>());
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static int Test(string[] args)
         {
             var isPassing = true; var iterations = defaultIterations;
             ICollection<string> testsToRun = new HashSet<string>();

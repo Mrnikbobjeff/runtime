@@ -1,7 +1,13 @@
 project(mono)
 
-#set(subdirs eglib arch utils cil sgen metadata mini dis profiler)
-set(subdirs mini profiler)
+set(subdirs
+  minipal
+  eglib
+  utils
+  sgen
+  metadata
+  mini
+  profiler)
 
 foreach(dir ${subdirs})
   add_subdirectory(${dir})

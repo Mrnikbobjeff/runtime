@@ -5,6 +5,7 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 // int
 public struct MyStructInt1
@@ -142,7 +143,7 @@ public struct MyStructDouble8
     public double double8;
 }
 
-public class BringUpTest
+public class BringUpTest_StructReturn
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -335,7 +336,8 @@ public class BringUpTest
     }
 
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         // int
         MyStructInt1 sI1 = returnMyStructInt1(100);

@@ -2,20 +2,20 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-// This test case is ported from S.N.Vector counterpart 
-// https://github.com/dotnet/coreclr/blob/master/tests/src/JIT/SIMD/VectorArray.cs
+// This test case is ported from S.N.Vector counterpart
+// https://github.com/dotnet/runtime/blob/main/src/tests/JIT/SIMD/VectorArray.cs
 
 using System;
 using System.Numerics;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using System.Runtime.CompilerServices;
+using Xunit;
+using TestLibrary;
 
-internal partial class IntelHardwareIntrinsicTest
+namespace IntelHardwareIntrinsicTest.General;
+public partial class Program
 {
-    private const int Pass = 100;
-    private const int Fail = -1;
-
     private class Vector128ArrayTest<T> where T : struct, IComparable<T>, IEquatable<T>
     {
         private static void Move(Vector128<T>[] pos, ref Vector128<T> delta)
@@ -29,7 +29,7 @@ internal partial class IntelHardwareIntrinsicTest
         static public unsafe int Vector128Array()
         {
             Vector128<T>[] v = new Vector128<T>[3];
-            int elementSize = Unsafe.SizeOf<T>();
+            int elementSize = sizeof(T);
             const int vectorSize = 16;
             int elementCount = vectorSize / elementSize;
 
@@ -69,7 +69,7 @@ internal partial class IntelHardwareIntrinsicTest
         static public unsafe int Vector256Array()
         {
             Vector256<T>[] v = new Vector256<T>[3];
-            int elementSize = Unsafe.SizeOf<T>();
+            int elementSize = sizeof(T);
             const int vectorSize = 32;
             int elementCount = vectorSize / elementSize;
 
@@ -96,7 +96,10 @@ internal partial class IntelHardwareIntrinsicTest
         }
     }
 
-    unsafe static int Main()
+    [Xunit.ActiveIssue("https://github.com/dotnet/runtime/issues/75767", typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsMonoLLVMAOT))]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/75767", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoLLVMAOT))]
+    [Fact]
+    public unsafe static void VectorArray()
     {
         int returnVal = Pass;
         try
@@ -139,9 +142,9 @@ internal partial class IntelHardwareIntrinsicTest
         {
             Console.WriteLine("NotSupportedException was raised");
             Console.WriteLine(ex.StackTrace);
-            return Fail;
+            Assert.Fail("");
         }
 
-        return returnVal;
+        Assert.Equal(Pass, returnVal);
     }
 }

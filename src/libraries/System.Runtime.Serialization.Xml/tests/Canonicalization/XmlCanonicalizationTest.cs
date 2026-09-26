@@ -35,7 +35,7 @@ namespace System.Runtime.Serialization.Xml.Canonicalization.Tests
                         //creating XmlC14NWriter with a null stream;
                         XmlDictionaryWriter writer = XmlDictionaryWriter.CreateTextWriter(Stream.Null);
                         writer.StartCanonicalization(null, true, new string[] { "p1", "p2" });
-                        Assert.False(true, "Error, creating XmlC14NWriter with a null stream should have thrown!");
+                        Assert.Fail("Error, creating XmlC14NWriter with a null stream should have thrown!");
                     }
                     catch (Exception ex)
                     {
@@ -61,7 +61,7 @@ namespace System.Runtime.Serialization.Xml.Canonicalization.Tests
                         writer.WriteEndElement();
                         writer.EndCanonicalization();
                         writer.WriteEndElement();
-                        Assert.False(true, "Error, creating XmlC14NWriter with null elements in include prefixes should have thrown!");
+                        Assert.Fail("Error, creating XmlC14NWriter with null elements in include prefixes should have thrown!");
                     }
                     catch (Exception ex)
                     {
@@ -258,7 +258,7 @@ namespace System.Runtime.Serialization.Xml.Canonicalization.Tests
                 Encoding encoding = Encoding.GetEncoding((string)input.Arguments[1].Value);
 
                 bool mustSupportV14N = input.Arguments[2].Value == "true";
-                string baselineFileName = "ReaderWriter_C14N_BaselineXML_OnlyLF.xml";
+                string baselineFileName = "baselines/ReaderWriter_C14N_BaselineXML_OnlyLF.xml";
 
                 XmlDocument xmlDoc = new XmlDocument();
                 xmlDoc.PreserveWhitespace = true;
@@ -320,12 +320,11 @@ namespace System.Runtime.Serialization.Xml.Canonicalization.Tests
                 string value = "attrValue" + i;
                 if (prefix == null)
                 {
-                    sb.AppendFormat(" {0}=\"{1}\"", localName, value);
+                    sb.Append($" {localName}=\"{value}\"");
                 }
                 else
                 {
-                    sb.AppendFormat(" {0}:{1}=\"{2}\" xmlns:{0}=\"{3}\"",
-                        prefix, localName, value, namespaceUri);
+                    sb.Append($" {prefix}:{localName}=\"{value}\" xmlns:{prefix}=\"{namespaceUri}\"");
                 }
             }
             sb.Append(">Hello world</Element></Root>");

@@ -6,8 +6,11 @@ using System.Security.Cryptography.Pkcs.Tests;
 using System.Security.Cryptography.X509Certificates;
 using Xunit;
 
+using Test.Cryptography;
+
 namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
 {
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/126697", typeof(PlatformDetection), nameof(PlatformDetection.IsAppleMobile), nameof(PlatformDetection.IsNativeAot))]
     public class DecryptTestsRsaPaddingMode : DecryptTests
     {
         public static bool SupportsDiffieHellman { get; } = KeyAgreeRecipientInfoTests.SupportsDiffieHellman;
@@ -16,7 +19,7 @@ namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
         {
         }
 
-        [Theory]
+        [ConditionalTheory(typeof(PlatformSupport), nameof(PlatformSupport.IsRC2Supported))]
         [MemberData(nameof(Roundtrip_RsaPaddingModes_TestData))]
         [OuterLoop(/* Leaks key on disk if interrupted */)]
         public static void Roundtrip_RsaPaddingModes(RSAEncryptionPadding rsaEncryptionPadding)
@@ -83,7 +86,7 @@ namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
             }
         }
 
-        [ConditionalFact(nameof(SupportsDiffieHellman))]
+        [ConditionalFact(typeof(DecryptTestsRsaPaddingMode), nameof(SupportsDiffieHellman))]
         public static void CmsRecipient_RejectsNonRSACertificateWithRSAPadding()
         {
             using (X509Certificate2 keyAgreeCertificate = Certificates.DHKeyAgree1.GetCertificate())

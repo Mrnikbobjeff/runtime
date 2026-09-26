@@ -3,7 +3,7 @@
 
 using Xunit;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlNodeReaderTests
 {
     public class XmlNodeReaderConstructionTests
     {
@@ -20,10 +20,7 @@ namespace System.Xml.Tests
         [Fact]
         public void NodeReaderConstructionWithNull()
         {
-            Assert.Throws<ArgumentNullException>(() =>
-            {
-                var nodeReader = new XmlNodeReader(null);
-            });
+            Assert.Throws<ArgumentNullException>(() => new XmlNodeReader(null));
         }
     }
 }

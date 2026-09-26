@@ -85,8 +85,9 @@ DECL_OFFSET(MonoDelegate, target)
 DECL_OFFSET(MonoDelegate, method_ptr)
 DECL_OFFSET(MonoDelegate, invoke_impl)
 DECL_OFFSET(MonoDelegate, method)
-DECL_OFFSET(MonoDelegate, method_code)
+DECL_OFFSET(MonoDelegate, invoke_info)
 DECL_OFFSET(MonoDelegate, method_is_virtual)
+DECL_OFFSET(MonoDelegate, bound)
 DECL_OFFSET(MonoDelegate, extra_arg)
 
 DECL_OFFSET(MonoInternalThread, tid)
@@ -116,8 +117,6 @@ DECL_OFFSET(MonoArrayBounds, length)
 DECL_OFFSET(MonoSafeHandle, handle)
 
 DECL_OFFSET(MonoHandleRef, handle)
-
-DECL_OFFSET(MonoComInteropProxy, com_object)
 
 DECL_OFFSET(MonoString, length)
 DECL_OFFSET(MonoString, chars)
@@ -149,13 +148,22 @@ DECL_OFFSET(SgenThreadInfo, tlab_temp_end)
 #ifndef DISABLE_JIT_OFFSETS
 DECL_SIZE(MonoMethodRuntimeGenericContext)
 DECL_SIZE(MonoLMF)
+DECL_SIZE(MonoLMFExt)
 DECL_SIZE(MonoTypedRef)
 DECL_SIZE(CallContext)
 DECL_SIZE(MonoContext)
 
 DECL_OFFSET(MonoLMF, previous_lmf)
+DECL_OFFSET(MonoLMFExt, kind)
+DECL_OFFSET(MonoLMFExt, il_state)
+
+DECL_OFFSET(MonoMethodILState, method)
+DECL_OFFSET(MonoMethodILState, il_offset)
+DECL_OFFSET(MonoMethodILState, data)
 
 DECL_OFFSET(MonoMethodRuntimeGenericContext, class_vtable)
+DECL_OFFSET(MonoMethodRuntimeGenericContext, entries)
+DECL_OFFSET(MonoMethodRuntimeGenericContext, infos)
 
 DECL_OFFSET(MonoJitTlsData, lmf)
 DECL_OFFSET(MonoJitTlsData, class_cast_from)
@@ -166,14 +174,6 @@ DECL_OFFSET(MonoJitTlsData, stack_restore_ctx)
 
 DECL_OFFSET(MonoGSharedVtMethodRuntimeInfo, locals_size)
 DECL_OFFSET(MonoGSharedVtMethodRuntimeInfo, entries) //XXX more to fix here
-
-#if !defined(ENABLE_NETCORE)
-DECL_OFFSET(MonoContinuation, stack_used_size)
-DECL_OFFSET(MonoContinuation, saved_stack)
-DECL_OFFSET(MonoContinuation, return_sp)
-DECL_OFFSET(MonoContinuation, lmf)
-DECL_OFFSET(MonoContinuation, return_ip)
-#endif
 
 DECL_OFFSET(MonoDelegateTrampInfo, method)
 DECL_OFFSET(MonoDelegateTrampInfo, invoke_impl)
@@ -189,6 +189,7 @@ DECL_OFFSET(MonoContext, wasm_sp)
 DECL_OFFSET(MonoContext, llvm_exc_reg)
 
 DECL_OFFSET(MonoLMF, lmf_addr)
+DECL_OFFSET(MonoLMF, method)
 
 #elif defined(TARGET_X86)
 DECL_OFFSET(MonoContext, eax)
@@ -252,6 +253,9 @@ DECL_OFFSET(MonoLMF, eip)
 DECL_OFFSET(MonoLMF, gregs)
 DECL_OFFSET(MonoLMF, fregs)
 #elif defined(TARGET_RISCV)
+DECL_OFFSET(MonoLMF, lmf_addr)
+DECL_OFFSET(MonoLMF, pc)
+DECL_OFFSET(MonoLMF, gregs)
 DECL_OFFSET(MonoContext, gregs)
 DECL_OFFSET(MonoContext, fregs)
 #endif
@@ -307,6 +311,13 @@ DECL_OFFSET(CallContext, stack)
 DECL_OFFSET(CallContext, eax)
 DECL_OFFSET(CallContext, edx)
 DECL_OFFSET(CallContext, fret)
+DECL_OFFSET(CallContext, stack_size)
+DECL_OFFSET(CallContext, stack)
+#endif
+
+#if defined(TARGET_RISCV)
+DECL_OFFSET(CallContext, gregs)
+DECL_OFFSET(CallContext, fregs)
 DECL_OFFSET(CallContext, stack_size)
 DECL_OFFSET(CallContext, stack)
 #endif

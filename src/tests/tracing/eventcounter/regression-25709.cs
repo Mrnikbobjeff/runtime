@@ -1,16 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#if USE_MDT_EVENTSOURCE
-using Microsoft.Diagnostics.Tracing;
-#else
-using System.Diagnostics.Tracing;
-#endif
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.Tracing;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Diagnostics;
+using Xunit;
+using TestLibrary;
 
 namespace EventCounterRegressionTests
 {
@@ -19,7 +17,7 @@ namespace EventCounterRegressionTests
     {        
         private readonly EventLevel _level = EventLevel.Verbose;
 
-        public int MaxIncrement { get; private set; } = 0;
+        public double MaxIncrement { get; private set; } = 0;
 
         public SimpleEventListener()
         {
@@ -38,7 +36,7 @@ namespace EventCounterRegressionTests
 
         protected override void OnEventWritten(EventWrittenEventArgs eventData)
         {
-            int increment = 0;
+            double increment = 0;
             bool isExceptionCounter = false;
 
             for (int i = 0; i < eventData.Payload.Count; i++)
@@ -52,7 +50,7 @@ namespace EventCounterRegressionTests
                             isExceptionCounter = true;
                         if (payload.Key.Equals("Increment"))
                         {
-                            increment = Int32.Parse(payload.Value.ToString());
+                            increment = double.Parse(payload.Value.ToString());
                         }
                     }
                     if (isExceptionCounter)
@@ -86,7 +84,11 @@ namespace EventCounterRegressionTests
             }
         }
 
-        public static int Main(string[] args)
+        [ActiveIssue(" needs triage ", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoAnyAOT))]
+        [SkipOnCoreClr("This test is sensitive to JIT optimizations.", RuntimeTestModes.AnyJitOptimizationStress)]
+        [SkipOnCoreClr("Tracing tests routinely time out with JIT stress and GC stress.", RuntimeTestModes.AnyGCStress)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             Task exceptionTask = Task.Run(ThrowExceptionTask);
             Thread.Sleep(5000);

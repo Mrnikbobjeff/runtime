@@ -17,7 +17,6 @@ namespace System.ServiceModel.Syndication.Tests
         [Fact]
         public void Ctor_Reader()
         {
-            var extensionObject = new ExtensionObject { Value = 10 };
             var extension = new SyndicationElementExtension(new XElement("ExtensionObject", new XElement("Value", 10)).CreateReader());
             Assert.Equal("ExtensionObject", extension.OuterName);
             Assert.Empty(extension.OuterNamespace);
@@ -105,7 +104,7 @@ namespace System.ServiceModel.Syndication.Tests
         [InlineData(null, "outerNamespace")]
         [InlineData("outerName", "")]
         [InlineData("outerName", "outerNamespace")]
-        public void Ctor_String_String_Object(string outerName, string outerNamespace)
+        public void Ctor_String_String_Object(string? outerName, string? outerNamespace)
         {
             var extensionObject = new ExtensionObject { Value = 10 };
 
@@ -135,7 +134,7 @@ namespace System.ServiceModel.Syndication.Tests
         [InlineData(null, "outerNamespace")]
         [InlineData("outerName", "")]
         [InlineData("outerName", "outerNamespace")]
-        public void Ctor_String_String_Object_XmlObjectSerializer(string outerName, string outerNamespace)
+        public void Ctor_String_String_Object_XmlObjectSerializer(string? outerName, string? outerNamespace)
         {
             var extensionObject = new ExtensionObject { Value = 10 };
 
@@ -215,7 +214,6 @@ namespace System.ServiceModel.Syndication.Tests
         [Fact]
         public void GetReader_WithReader_ReturnsExpected()
         {
-            var extensionObject = new ExtensionObject { Value = 10 };
             var extension = new SyndicationElementExtension(new XElement("ExtensionObject", new XElement("Value", 10)).CreateReader());
             XmlReader reader = extension.GetReader();
             Assert.Equal(@"<ExtensionObject><Value>10</Value></ExtensionObject>", reader.ReadOuterXml());

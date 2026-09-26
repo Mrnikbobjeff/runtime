@@ -11,18 +11,13 @@ namespace System.DirectoryServices.ActiveDirectory
 
         internal ReadOnlyStringCollection(ArrayList values)
         {
-            if (values == null)
-            {
-                values = new ArrayList();
-            }
-
-            this.InnerList.AddRange(values);
+            this.InnerList.AddRange(values ?? new ArrayList());
         }
         public string this[int index]
         {
             get
             {
-                object returnValue = InnerList[index];
+                object returnValue = InnerList[index]!;
 
                 if (returnValue is Exception)
                     throw (Exception)returnValue;
@@ -33,14 +28,11 @@ namespace System.DirectoryServices.ActiveDirectory
 
         public bool Contains(string value)
         {
-            if (value == null)
-            {
-                throw new ArgumentNullException(nameof(value));
-            }
+            ArgumentNullException.ThrowIfNull(value);
 
             for (int i = 0; i < InnerList.Count; i++)
             {
-                string tmp = (string)InnerList[i];
+                string tmp = (string)InnerList[i]!;
                 if (Utils.Compare(tmp, value) == 0)
                 {
                     return true;
@@ -51,14 +43,11 @@ namespace System.DirectoryServices.ActiveDirectory
 
         public int IndexOf(string value)
         {
-            if (value == null)
-            {
-                throw new ArgumentNullException(nameof(value));
-            }
+            ArgumentNullException.ThrowIfNull(value);
 
             for (int i = 0; i < InnerList.Count; i++)
             {
-                string tmp = (string)InnerList[i];
+                string tmp = (string)InnerList[i]!;
                 if (Utils.Compare(tmp, value) == 0)
                 {
                     return i;

@@ -5,8 +5,9 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-public class Test
+public class Test_Finalize
 {
     public static bool visited = false;
     public class Dummy
@@ -14,7 +15,7 @@ public class Test
         ~Dummy()
         {
             Console.WriteLine("In Finalize() of Dummy");
-            Test.visited = true;
+            Test_Finalize.visited = true;
         }
     }
 
@@ -35,7 +36,8 @@ public class Test
         }
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         CreateObj temp = new CreateObj();
         temp.RunTest();

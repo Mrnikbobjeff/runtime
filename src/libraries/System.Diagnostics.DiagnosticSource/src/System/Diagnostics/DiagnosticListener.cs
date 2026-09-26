@@ -1,8 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Threading;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 
 namespace System.Diagnostics
 {
@@ -22,7 +23,7 @@ namespace System.Diagnostics
     /// will fire for every live DiagnosticListener in the appdomain (past or present).
     ///
     /// Please See the DiagnosticSource Users Guide
-    /// https://github.com/dotnet/corefx/blob/master/src/System.Diagnostics.DiagnosticSource/src/DiagnosticSourceUsersGuide.md
+    /// https://github.com/dotnet/runtime/blob/main/src/libraries/System.Diagnostics.DiagnosticSource/src/DiagnosticSourceUsersGuide.md
     /// for instructions on its use.
     /// </summary>
     public partial class DiagnosticListener : DiagnosticSource, IObservable<KeyValuePair<string, object?>>, IDisposable
@@ -38,12 +39,10 @@ namespace System.Diagnostics
 #if ENABLE_HTTP_HANDLER
                 GC.KeepAlive(HttpHandlerDiagnosticListener.s_instance);
 #endif
-
-                if (s_allListenerObservable == null)
-                {
-                    s_allListenerObservable = new AllListenerObservable();
-                }
-                return s_allListenerObservable;
+                return
+                    s_allListenerObservable ??
+                    Interlocked.CompareExchange(ref s_allListenerObservable, new AllListenerObservable(), null) ??
+                    s_allListenerObservable;
             }
         }
 
@@ -108,9 +107,13 @@ namespace System.Diagnostics
         /// </param>
         public virtual IDisposable Subscribe(IObserver<KeyValuePair<string, object?>> observer, Func<string, object?, object?, bool>? isEnabled)
         {
-            return isEnabled == null ?
-             SubscribeInternal(observer, null, null, null, null) :
-             SubscribeInternal(observer, name => IsEnabled(name, null, null), isEnabled, null, null);
+            if (isEnabled == null)
+            {
+                return SubscribeInternal(observer, null, null, null, null);
+            }
+
+            Func<string, object?, object?, bool> localIsEnabled = isEnabled;
+            return SubscribeInternal(observer, name => localIsEnabled(name, null, null), isEnabled, null, null);
         }
 
         /// <summary>
@@ -136,9 +139,7 @@ namespace System.Diagnostics
             lock (s_allListenersLock)
             {
                 // Issue the callback for this new diagnostic listener.
-                var allListenerObservable = s_allListenerObservable;
-                if (allListenerObservable != null)
-                    allListenerObservable.OnNewDiagnosticListener(this);
+                s_allListenerObservable?.OnNewDiagnosticListener(this);
 
                 // And add it to the list of all past listeners.
                 _next = s_allListeners;
@@ -147,7 +148,7 @@ namespace System.Diagnostics
 
             // Touch DiagnosticSourceEventSource.Logger so we ensure that the
             // DiagnosticSourceEventSource has been constructed (and thus is responsive to ETW requests to be enabled).
-            GC.KeepAlive(DiagnosticSourceEventSource.Logger);
+            GC.KeepAlive(DiagnosticSourceEventSource.Log);
         }
 
         /// <summary>
@@ -186,7 +187,7 @@ namespace System.Diagnostics
 
             // Indicate completion to all subscribers.
             DiagnosticSubscription? subscriber = null;
-            Interlocked.Exchange(ref subscriber, _subscriptions);
+            subscriber = Interlocked.Exchange(ref _subscriptions, subscriber);
             while (subscriber != null)
             {
                 subscriber.Observer.OnCompleted();
@@ -198,7 +199,7 @@ namespace System.Diagnostics
         /// <summary>
         /// When a DiagnosticListener is created it is given a name.   Return this.
         /// </summary>
-        public string Name { get; private set; }
+        public string Name { get; }
 
         /// <summary>
         /// Return the name for the ToString() to aid in debugging.
@@ -255,22 +256,15 @@ namespace System.Diagnostics
         /// <summary>
         /// Override abstract method
         /// </summary>
+        [RequiresUnreferencedCode(WriteRequiresUnreferencedCode)]
         public override void Write(string name, object? value)
         {
             for (DiagnosticSubscription? curSubscription = _subscriptions; curSubscription != null; curSubscription = curSubscription.Next)
                 curSubscription.Observer.OnNext(new KeyValuePair<string, object?>(name, value));
         }
 
-        /// <summary>
-        /// We don't have Activities in NetStandard1.1. but it is a pain to ifdef out all references to the Activity type
-        /// in DiagnosticSubscription so we just define a private type for it here just so things compile.
-        /// </summary>
-#if NETSTANDARD1_1
-        private class Activity {}
-#endif
-
         // Note that Subscriptions are READ ONLY.   This means you never update any fields (even on removal!)
-        private class DiagnosticSubscription : IDisposable
+        private sealed class DiagnosticSubscription : IDisposable
         {
             internal IObserver<KeyValuePair<string, object?>> Observer = null!;
 
@@ -335,7 +329,7 @@ namespace System.Diagnostics
                 for (int i = 0; i < 100; i++)
                     GC.KeepAlive("");
 #endif
-                return new DiagnosticSubscription() { Observer = subscriptions.Observer, Owner = subscriptions.Owner, IsEnabled1Arg = subscriptions.IsEnabled1Arg, IsEnabled3Arg = subscriptions.IsEnabled3Arg, Next = Remove(subscriptions.Next, subscription) };
+                return new DiagnosticSubscription() { Observer = subscriptions.Observer, Owner = subscriptions.Owner, IsEnabled1Arg = subscriptions.IsEnabled1Arg, IsEnabled3Arg = subscriptions.IsEnabled3Arg, OnActivityImport = subscriptions.OnActivityImport, OnActivityExport = subscriptions.OnActivityExport, Next = Remove(subscriptions.Next, subscription) };
             }
         }
 
@@ -345,7 +339,7 @@ namespace System.Diagnostics
         /// a callback when a new listener gets created.   When a new DiagnosticListener gets created it should call
         /// OnNewDiagnosticListener so that AllListenerObservable can forward it on to all the subscribers.
         /// </summary>
-        private class AllListenerObservable : IObservable<DiagnosticListener>
+        private sealed class AllListenerObservable : IObservable<DiagnosticListener>
         {
             public IDisposable Subscribe(IObserver<DiagnosticListener> observer)
             {
@@ -409,7 +403,7 @@ namespace System.Diagnostics
             /// One node in the linked list of subscriptions that AllListenerObservable keeps.   It is
             /// IDisposable, and when that is called it removes itself from the list.
             /// </summary>
-            internal class AllListenerSubscription : IDisposable
+            internal sealed class AllListenerSubscription : IDisposable
             {
                 internal AllListenerSubscription(AllListenerObservable owner, IObserver<DiagnosticListener> subscriber, AllListenerSubscription? next)
                 {
@@ -436,7 +430,7 @@ namespace System.Diagnostics
         }
         #endregion
 
-        private IDisposable SubscribeInternal(IObserver<KeyValuePair<string, object?>> observer,
+        private DiagnosticSubscription SubscribeInternal(IObserver<KeyValuePair<string, object?>> observer,
             Predicate<string>? isEnabled1Arg, Func<string, object?, object?, bool>? isEnabled3Arg,
             Action<Activity, object?>? onActivityImport, Action<Activity, object?>? onActivityExport)
         {
@@ -466,7 +460,7 @@ namespace System.Diagnostics
         private bool _disposed;                        // Has Dispose been called?
 
         private static DiagnosticListener? s_allListeners;               // linked list of all instances of DiagnosticListeners.
-        private static AllListenerObservable? s_allListenerObservable;   // to make callbacks to this object when listeners come into existence.
+        private static volatile AllListenerObservable? s_allListenerObservable;   // to make callbacks to this object when listeners come into existence.
         private static readonly object s_allListenersLock = new object();
 #if false
         private static readonly DiagnosticListener s_default = new DiagnosticListener("DiagnosticListener.DefaultListener");

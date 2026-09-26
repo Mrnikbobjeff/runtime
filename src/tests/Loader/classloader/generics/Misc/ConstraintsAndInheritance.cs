@@ -4,6 +4,8 @@
 // test constrainsts with inheritance
 
 using System;
+using Xunit;
+using TestLibrary;
 
 public interface I1{}
 
@@ -75,9 +77,11 @@ public class GenTypes
 	
 }
 
-public class Test
+public class Test_ConstraintsAndInheritance
 {
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		try
 		{

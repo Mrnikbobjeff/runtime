@@ -7,10 +7,13 @@
 
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
 
-public class Test
+public class Test_PinnedHandle
 {
-    public static int Main()
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int[] arr = new int[100];
         GCHandle handle = GCUtil.Alloc(arr, GCHandleType.Pinned);

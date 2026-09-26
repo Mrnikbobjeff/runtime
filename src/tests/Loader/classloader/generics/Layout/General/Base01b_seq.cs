@@ -3,6 +3,8 @@
 
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
+using TestLibrary;
 
 
 
@@ -41,14 +43,14 @@ public class GenInt : GenBase<int>
 {	
 	public void VerifyLayout()
 	{
-		Test.Eval(_int0 == 0);
-		Test.Eval(_int1 == int.MaxValue) ;
-		Test.Eval(_double0 == 0) ;
-		Test.Eval(_double1 == double.MaxValue) ;
-		Test.Eval(base._string0.Equals("string0"));
-		Test.Eval(base._string1.Equals("string1"));
-		Test.Eval(_Guid0 == new Guid());
-		Test.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
+		Test_Base01b_seq.Eval(_int0 == 0);
+		Test_Base01b_seq.Eval(_int1 == int.MaxValue) ;
+		Test_Base01b_seq.Eval(_double0 == 0) ;
+		Test_Base01b_seq.Eval(_double1 == double.MaxValue) ;
+		Test_Base01b_seq.Eval(base._string0.Equals("string0"));
+		Test_Base01b_seq.Eval(base._string1.Equals("string1"));
+		Test_Base01b_seq.Eval(_Guid0 == new Guid());
+		Test_Base01b_seq.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
 	}
 }
 
@@ -57,14 +59,14 @@ public class GenDouble: GenBase<double>
 {	
 	public void VerifyLayout()
 	{
-		Test.Eval(_int0 == 0);
-		Test.Eval(_int1 == int.MaxValue) ;
-		Test.Eval(_double0 == 0) ;
-		Test.Eval(_double1 == double.MaxValue) ;
-		Test.Eval(base._string0.Equals("string0"));
-		Test.Eval(base._string1.Equals("string1"));
-		Test.Eval(_Guid0 == new Guid());
-		Test.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
+		Test_Base01b_seq.Eval(_int0 == 0);
+		Test_Base01b_seq.Eval(_int1 == int.MaxValue) ;
+		Test_Base01b_seq.Eval(_double0 == 0) ;
+		Test_Base01b_seq.Eval(_double1 == double.MaxValue) ;
+		Test_Base01b_seq.Eval(base._string0.Equals("string0"));
+		Test_Base01b_seq.Eval(base._string1.Equals("string1"));
+		Test_Base01b_seq.Eval(_Guid0 == new Guid());
+		Test_Base01b_seq.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
 	}
 }
 
@@ -73,14 +75,14 @@ public class GenString : GenBase<String>
 {	
 	public void VerifyLayout()
 	{
-		Test.Eval(_int0 == 0);
-		Test.Eval(_int1 == int.MaxValue) ;
-		Test.Eval(_double0 == 0) ;
-		Test.Eval(_double1 == double.MaxValue) ;
-		Test.Eval(base._string0.Equals("string0"));
-		Test.Eval(base._string1.Equals("string1"));
-		Test.Eval(_Guid0 == new Guid());
-		Test.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
+		Test_Base01b_seq.Eval(_int0 == 0);
+		Test_Base01b_seq.Eval(_int1 == int.MaxValue) ;
+		Test_Base01b_seq.Eval(_double0 == 0) ;
+		Test_Base01b_seq.Eval(_double1 == double.MaxValue) ;
+		Test_Base01b_seq.Eval(base._string0.Equals("string0"));
+		Test_Base01b_seq.Eval(base._string1.Equals("string1"));
+		Test_Base01b_seq.Eval(_Guid0 == new Guid());
+		Test_Base01b_seq.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
 	}
 }
 
@@ -89,14 +91,14 @@ public class GenObject : GenBase<object>
 {	
 	public void VerifyLayout()
 	{
-		Test.Eval(_int0 == 0);
-		Test.Eval(_int1 == int.MaxValue) ;
-		Test.Eval(_double0 == 0) ;
-		Test.Eval(_double1 == double.MaxValue) ;
-		Test.Eval(base._string0.Equals("string0"));
-		Test.Eval(base._string1.Equals("string1"));
-		Test.Eval(_Guid0 == new Guid());
-		Test.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
+		Test_Base01b_seq.Eval(_int0 == 0);
+		Test_Base01b_seq.Eval(_int1 == int.MaxValue) ;
+		Test_Base01b_seq.Eval(_double0 == 0) ;
+		Test_Base01b_seq.Eval(_double1 == double.MaxValue) ;
+		Test_Base01b_seq.Eval(base._string0.Equals("string0"));
+		Test_Base01b_seq.Eval(base._string1.Equals("string1"));
+		Test_Base01b_seq.Eval(_Guid0 == new Guid());
+		Test_Base01b_seq.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
 	}
 }
 
@@ -105,14 +107,14 @@ public class GenGuid : GenBase<Guid>
 {	
 	public void VerifyLayout()
 	{
-		Test.Eval(_int0 == 0);
-		Test.Eval(_int1 == int.MaxValue) ;
-		Test.Eval(_double0 == 0) ;
-		Test.Eval(_double1 == double.MaxValue) ;
-		Test.Eval(base._string0.Equals("string0"));
-		Test.Eval(base._string1.Equals("string1"));
-		Test.Eval(_Guid0 == new Guid());
-		Test.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
+		Test_Base01b_seq.Eval(_int0 == 0);
+		Test_Base01b_seq.Eval(_int1 == int.MaxValue) ;
+		Test_Base01b_seq.Eval(_double0 == 0) ;
+		Test_Base01b_seq.Eval(_double1 == double.MaxValue) ;
+		Test_Base01b_seq.Eval(base._string0.Equals("string0"));
+		Test_Base01b_seq.Eval(base._string1.Equals("string1"));
+		Test_Base01b_seq.Eval(_Guid0 == new Guid());
+		Test_Base01b_seq.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
 	}
 }
 
@@ -121,14 +123,14 @@ public class GenConstructedReference : GenBase<RefX1<int>>
 {	
 	public void VerifyLayout()
 	{
-		Test.Eval(_int0 == 0);
-		Test.Eval(_int1 == int.MaxValue) ;
-		Test.Eval(_double0 == 0) ;
-		Test.Eval(_double1 == double.MaxValue) ;
-		Test.Eval(base._string0.Equals("string0"));
-		Test.Eval(base._string1.Equals("string1"));
-		Test.Eval(_Guid0 == new Guid());
-		Test.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
+		Test_Base01b_seq.Eval(_int0 == 0);
+		Test_Base01b_seq.Eval(_int1 == int.MaxValue) ;
+		Test_Base01b_seq.Eval(_double0 == 0) ;
+		Test_Base01b_seq.Eval(_double1 == double.MaxValue) ;
+		Test_Base01b_seq.Eval(base._string0.Equals("string0"));
+		Test_Base01b_seq.Eval(base._string1.Equals("string1"));
+		Test_Base01b_seq.Eval(_Guid0 == new Guid());
+		Test_Base01b_seq.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
 	}
 }
 
@@ -137,14 +139,14 @@ public class GenConstructedValue: GenBase<ValX1<string>>
 {	
 	public void VerifyLayout()
 	{
-		Test.Eval(_int0 == 0);
-		Test.Eval(_int1 == int.MaxValue) ;
-		Test.Eval(_double0 == 0) ;
-		Test.Eval(_double1 == double.MaxValue) ;
-		Test.Eval(base._string0.Equals("string0"));
-		Test.Eval(base._string1.Equals("string1"));
-		Test.Eval(_Guid0 == new Guid());
-		Test.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
+		Test_Base01b_seq.Eval(_int0 == 0);
+		Test_Base01b_seq.Eval(_int1 == int.MaxValue) ;
+		Test_Base01b_seq.Eval(_double0 == 0) ;
+		Test_Base01b_seq.Eval(_double1 == double.MaxValue) ;
+		Test_Base01b_seq.Eval(base._string0.Equals("string0"));
+		Test_Base01b_seq.Eval(base._string1.Equals("string1"));
+		Test_Base01b_seq.Eval(_Guid0 == new Guid());
+		Test_Base01b_seq.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
 	}
 }
 
@@ -153,14 +155,14 @@ public class GenInt1DArray : GenBase<int[]>
 {	
 	public void VerifyLayout()
 	{
-		Test.Eval(_int0 == 0);
-		Test.Eval(_int1 == int.MaxValue) ;
-		Test.Eval(_double0 == 0) ;
-		Test.Eval(_double1 == double.MaxValue) ;
-		Test.Eval(base._string0.Equals("string0"));
-		Test.Eval(base._string1.Equals("string1"));
-		Test.Eval(_Guid0 == new Guid());
-		Test.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
+		Test_Base01b_seq.Eval(_int0 == 0);
+		Test_Base01b_seq.Eval(_int1 == int.MaxValue) ;
+		Test_Base01b_seq.Eval(_double0 == 0) ;
+		Test_Base01b_seq.Eval(_double1 == double.MaxValue) ;
+		Test_Base01b_seq.Eval(base._string0.Equals("string0"));
+		Test_Base01b_seq.Eval(base._string1.Equals("string1"));
+		Test_Base01b_seq.Eval(_Guid0 == new Guid());
+		Test_Base01b_seq.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
 	}
 }
 
@@ -169,14 +171,14 @@ public class GenString2DArray : GenBase<string[,]>
 {	
 	public void VerifyLayout()
 	{
-		Test.Eval(_int0 == 0);
-		Test.Eval(_int1 == int.MaxValue) ;
-		Test.Eval(_double0 == 0) ;
-		Test.Eval(_double1 == double.MaxValue) ;
-		Test.Eval(base._string0.Equals("string0"));
-		Test.Eval(base._string1.Equals("string1"));
-		Test.Eval(_Guid0 == new Guid());
-		Test.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
+		Test_Base01b_seq.Eval(_int0 == 0);
+		Test_Base01b_seq.Eval(_int1 == int.MaxValue) ;
+		Test_Base01b_seq.Eval(_double0 == 0) ;
+		Test_Base01b_seq.Eval(_double1 == double.MaxValue) ;
+		Test_Base01b_seq.Eval(base._string0.Equals("string0"));
+		Test_Base01b_seq.Eval(base._string1.Equals("string1"));
+		Test_Base01b_seq.Eval(_Guid0 == new Guid());
+		Test_Base01b_seq.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
 	}
 }
 
@@ -185,19 +187,19 @@ public class GenIntJaggedArray : GenBase<int[][]>
 {	
 	public void VerifyLayout()
 	{
-		Test.Eval(_int0 == 0);
-		Test.Eval(_int1 == int.MaxValue) ;
-		Test.Eval(_double0 == 0) ;
-		Test.Eval(_double1 == double.MaxValue) ;
-		Test.Eval(base._string0.Equals("string0"));
-		Test.Eval(base._string1.Equals("string1"));
-		Test.Eval(_Guid0 == new Guid());
-		Test.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
+		Test_Base01b_seq.Eval(_int0 == 0);
+		Test_Base01b_seq.Eval(_int1 == int.MaxValue) ;
+		Test_Base01b_seq.Eval(_double0 == 0) ;
+		Test_Base01b_seq.Eval(_double1 == double.MaxValue) ;
+		Test_Base01b_seq.Eval(base._string0.Equals("string0"));
+		Test_Base01b_seq.Eval(base._string1.Equals("string1"));
+		Test_Base01b_seq.Eval(_Guid0 == new Guid());
+		Test_Base01b_seq.Eval(_Guid1 == new Guid(1,2,3,4,5,6,7,8,9,10,11));	
 	}
 }
 
 
-public class Test
+public class Test_Base01b_seq
 {
 	public static int counter = 0;
 	public static bool result = true;
@@ -212,7 +214,9 @@ public class Test
 	
 	}
 	
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		new GenInt().VerifyLayout();
 		new GenDouble().VerifyLayout();

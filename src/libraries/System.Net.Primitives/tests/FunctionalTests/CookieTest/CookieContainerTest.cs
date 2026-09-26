@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Linq;
 using Xunit;
 
 namespace System.Net.Primitives.Functional.Tests
@@ -93,36 +94,35 @@ namespace System.Net.Primitives.Functional.Tests
         }
 
         [Fact]
-        public void GetCookies_AddCookieVersion1WithExplicitDomain_CookieReturnedForDomainAndOneLevelSubDomain()
+        public void GetAllCookies_Empty_ReturnsEmptyCollection()
         {
-            const string SchemePrefix = "http://";
-            const string OriginalDomain = "contoso.com";
-            const string OriginalDomainWithLeadingDot = "." + OriginalDomain;
-
             var container = new CookieContainer();
-            var cookie1 = new Cookie(CookieName1, CookieValue1) { Domain = OriginalDomainWithLeadingDot, Version = 1 };
-            container.Add(new Uri(SchemePrefix + OriginalDomain), cookie1);
+            Assert.NotNull(container.GetAllCookies());
+            Assert.NotSame(container.GetAllCookies(), container.GetAllCookies());
+            Assert.Empty(container.GetAllCookies());
+        }
 
-            var uri = new Uri(SchemePrefix + OriginalDomain);
-            var cookies = container.GetCookies(uri);
-            Assert.Equal(1, cookies.Count);
-            Assert.Equal(OriginalDomainWithLeadingDot, cookies[CookieName1].Domain);
+        [Fact]
+        public void GetAllCookies_NonEmpty_AllCookiesReturned()
+        {
+            var container = new CookieContainer();
+            container.PerDomainCapacity = 100;
+            container.Capacity = 100;
 
-            uri = new Uri(SchemePrefix + "www." + OriginalDomain);
-            cookies = container.GetCookies(uri);
-            Assert.Equal(1, cookies.Count);
+            Cookie[] cookies = Enumerable.Range(0, 100).Select(i => new Cookie($"name{i}", $"value{i}")).ToArray();
 
-            uri = new Uri(SchemePrefix + "x.www." + OriginalDomain);
-            cookies = container.GetCookies(uri);
-            Assert.Equal(0, cookies.Count);
+            Uri[] uris = new[] { new Uri("https://dot.net"), new Uri("https://source.dot.net"), new Uri("https://microsoft.com") };
+            for (int i = 0; i < cookies.Length; i++)
+            {
+                container.Add(uris[i % uris.Length], cookies[i]);
+            }
 
-            uri = new Uri(SchemePrefix + "y.x.www." + OriginalDomain);
-            cookies = container.GetCookies(uri);
-            Assert.Equal(0, cookies.Count);
+            CookieCollection actual = container.GetAllCookies();
+            Assert.Equal(cookies.Length, actual.Count);
 
-            uri = new Uri(SchemePrefix + "z.y.x.www." + OriginalDomain);
-            cookies = container.GetCookies(uri);
-            Assert.Equal(0, cookies.Count);
+            Assert.Equal(
+                cookies.Select(c => c.Name + "=" + c.Value).ToHashSet(),
+                actual.Select(c => c.Name + "=" + c.Value).ToHashSet());
         }
     }
 }

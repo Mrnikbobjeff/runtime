@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b16335
 {
     using System;
 
@@ -16,11 +17,12 @@ namespace DefaultNamespace
         public bool[] m_field2;
     }
 
-    class DD
+    public class DD
     {
-        public static BB m_static2 = new BB();
+        static BB m_static2 = new BB();
 
-        public static int Main()
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

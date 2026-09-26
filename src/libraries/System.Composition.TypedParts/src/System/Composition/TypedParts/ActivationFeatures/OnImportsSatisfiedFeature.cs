@@ -15,13 +15,14 @@ namespace System.Composition.TypedParts.ActivationFeatures
     /// Modifies activators of parts that have <see cref="OnImportsSatisfiedAttribute"/> so that
     /// their [OnImportsSatisfied] method is correctly called.
     /// </summary>
-    internal class OnImportsSatisfiedFeature : ActivationFeature
+    internal sealed class OnImportsSatisfiedFeature : ActivationFeature
     {
         private readonly AttributedModelProvider _attributeContext;
 
         public OnImportsSatisfiedFeature(AttributedModelProvider attributeContext)
         {
-            if (attributeContext == null) throw new ArgumentNullException(nameof(attributeContext));
+            ArgumentNullException.ThrowIfNull(attributeContext);
+
             _attributeContext = attributeContext;
         }
 
@@ -39,7 +40,7 @@ namespace System.Composition.TypedParts.ActivationFeatures
 
             foreach (var m in importsSatisfiedMethods)
             {
-                if (!(m.IsPublic || m.IsAssembly) | m.IsStatic || m.ReturnType != typeof(void) ||
+                if (!(m.IsPublic || m.IsAssembly) || m.IsStatic || m.ReturnType != typeof(void) ||
                     m.IsGenericMethodDefinition || m.GetParameters().Length != 0)
                 {
                     string message = SR.Format(SR.OnImportsSatisfiedFeature_AttributeError, partType, m.Name);

@@ -4,11 +4,18 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Xunit;
+using TestLibrary;
 
-public class Test
+public class Test_494226
 {
+    public static bool IsNotHeapVerifyOnNonX64Architecture => !((Utilities.IsX86 || Utilities.IsArm || Utilities.IsArm64) && TestLibrary.CoreClrConfigurationDetection.IsHeapVerify);
+
     [System.Security.SecuritySafeCritical]
-    public static int Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsArmProcess))]
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [ConditionalFact(typeof(Test_494226), nameof(IsNotHeapVerifyOnNonX64Architecture))]
+    public static void TestEntryPoint()
     {
         List<GCHandle> list = new List<GCHandle>();
         List<byte[]> blist = new List<byte[]>();
@@ -34,12 +41,11 @@ public class Test
         }
 
         Console.WriteLine("Test passed");
-        return 100;
     }
 }
 
 /*
-Test passes if the following assert is not hit:
+Test_494226 passes if the following assert is not hit:
 
 (*card_word)==0
 

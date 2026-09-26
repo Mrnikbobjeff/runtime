@@ -5,10 +5,8 @@ using System;
 using System.Globalization;
 using System.Reflection;
 using System.Runtime.InteropServices;
-using System.Runtime.InteropServices.Expando;
+using Xunit;
 using TestLibrary;
-
-using Console = Internal.Console;
 
 namespace PInvokeTests
 {
@@ -29,7 +27,13 @@ namespace PInvokeTests
 
     public static class CustomMarshalersTests
     {
-        public static int Main()
+        [ActiveIssue("Requires COM support, disabled on all Mono platforms", TestRuntimes.Mono)]
+        [Fact]
+        [PlatformSpecific(TestPlatforms.Windows)]
+        [SkipOnMono("These custom marshallers were never built-in to the runtime on Mono")]
+        [ActiveIssue("https://github.com/dotnet/runtimelab/issues/155", typeof(TestLibrary.Utilities), nameof(TestLibrary.Utilities.IsNativeAot))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/91388", typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.PlatformDoesNotSupportNativeTestAssets))]
+        public static int TestEntryPoint()
         {
             try
             {

@@ -2,9 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-class Test
+namespace b06464;
+
+using System;
+using Xunit;
+
+public class Test_b06464
 {
     static int[] a = new int[10];
 
@@ -26,9 +30,10 @@ class Test
         return 1;
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         A()[F()] = G();
-        return 100;
     }
 }

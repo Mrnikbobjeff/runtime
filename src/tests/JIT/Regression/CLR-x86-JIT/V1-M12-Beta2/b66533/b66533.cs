@@ -1,7 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-namespace Test
+using Xunit;
+namespace b66533
 {
     using System;
     using System.Collections;
@@ -123,9 +124,11 @@ namespace Test
         }
     }
 
-    internal class App
+    public class App
     {
-        private static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

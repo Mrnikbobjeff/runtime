@@ -5,6 +5,8 @@
 
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
+using TestLibrary;
 
 
 
@@ -52,7 +54,7 @@ public class Gen<T> : GenBase<T>
 	
 }
 
-public class Test
+public class Test_Base02d_seq_ser
 {	
 	public static void RunTest1()
 	{
@@ -69,7 +71,9 @@ public class Test
 		new Gen<string>();
 	}
 	
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		bool result = true;
 		try

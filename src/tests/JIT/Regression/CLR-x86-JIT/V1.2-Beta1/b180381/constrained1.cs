@@ -2,20 +2,25 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-public class Test
+namespace b180381a;
+
+using System;
+using Xunit;
+
+public class Test_constrained1
 {
-    public static void M<T>(T t)
+    internal static void M<T>(T t)
     {
         System.Type type = t.GetType();
         Console.WriteLine(type);
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         M("Hello"); // Works fine
         M(3); // CLR crashes
-        return 100;
     }
 }

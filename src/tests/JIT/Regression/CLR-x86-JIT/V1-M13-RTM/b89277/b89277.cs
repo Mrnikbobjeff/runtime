@@ -2,15 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b89277;
+
 using System;
-class A
+using Xunit;
+public class A
 {
-    public static int Main()
+    [Fact]
+    public static void TestEntryPoint()
     {
         Main1();
-        return 100;
     }
-    public static void Main1()
+    internal static void Main1()
     {
         bool b = false;
         while (b)

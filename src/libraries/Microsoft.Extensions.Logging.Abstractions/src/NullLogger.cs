@@ -8,19 +8,22 @@ namespace Microsoft.Extensions.Logging.Abstractions
     /// <summary>
     /// Minimalistic logger that does nothing.
     /// </summary>
-    public class NullLogger : ILogger
+    public sealed class NullLogger : ILogger
     {
         /// <summary>
         /// Returns the shared instance of <see cref="NullLogger"/>.
         /// </summary>
         public static NullLogger Instance { get; } = new NullLogger();
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="NullLogger"/> class.
+        /// </summary>
         private NullLogger()
         {
         }
 
         /// <inheritdoc />
-        public IDisposable BeginScope<TState>(TState state)
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull
         {
             return NullScope.Instance;
         }
@@ -32,7 +35,7 @@ namespace Microsoft.Extensions.Logging.Abstractions
         }
 
         /// <inheritdoc />
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
         }
     }

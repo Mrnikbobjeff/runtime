@@ -95,7 +95,7 @@ sgen_card_table_wbarrier_arrayref_copy (gpointer dest_ptr, gconstpointer src_ptr
 				sgen_card_table_mark_address ((mword)dest);
 			sgen_dummy_use (value);
 		}
-	}	
+	}
 }
 
 static void
@@ -130,8 +130,10 @@ sgen_card_table_wbarrier_object_copy (GCObject* obj, GCObject *src)
 static void
 sgen_card_table_wbarrier_generic_nostore (gpointer ptr)
 {
-	sgen_card_table_mark_address ((mword)ptr);	
+	sgen_card_table_mark_address ((mword)ptr);
 }
+
+MONO_DISABLE_WARNING(4189) /* local variable is initialized but not referenced */
 
 static void
 sgen_card_table_wbarrier_range_copy (gpointer _dest, gconstpointer _src, int size)
@@ -163,6 +165,33 @@ sgen_card_table_wbarrier_range_copy (gpointer _dest, gconstpointer _src, int siz
 	}
 }
 
+// Marks more cards so that it works with remset consistency debug checks
+static void
+sgen_card_table_wbarrier_range_copy_debug (gpointer _dest, gconstpointer _src, int size)
+{
+	GCObject **dest = (GCObject **)_dest;
+	GCObject **src = (GCObject **)_src;
+
+	size_t nursery_bits = sgen_nursery_bits;
+	char *start = sgen_nursery_start;
+	G_GNUC_UNUSED char *end = sgen_nursery_end;
+
+	while (size) {
+		GCObject *value = *src;
+		*dest = value;
+		if (SGEN_PTR_IN_NURSERY (value, nursery_bits, start, end) || sgen_concurrent_collection_in_progress) {
+			volatile guint8 *card_address = (volatile guint8 *)sgen_card_table_get_card_address ((mword)dest);
+			*card_address = 1;
+			sgen_dummy_use (value);
+		}
+		++src;
+		++dest;
+		size -= SIZEOF_VOID_P;
+	}
+}
+
+MONO_RESTORE_WARNING
+
 #ifdef SGEN_HAVE_OVERLAPPING_CARDS
 
 guint8 *sgen_shadow_cardtable;
@@ -174,6 +203,7 @@ sgen_card_table_region_begin_scanning (mword start, mword size)
 {
 	mword end = start + size;
 	/*XXX this can be improved to work on words and have a single loop induction var */
+	start = SGEN_ALIGN_DOWN_TO (start, CARD_SIZE_IN_BYTES);
 	while (start < end) {
 		if (sgen_card_table_card_begin_scanning (start))
 			return TRUE;
@@ -293,9 +323,8 @@ sgen_card_table_find_address_with_cards (char *cards_start, guint8 *cards, char 
 static void
 update_mod_union (guint8 *dest, guint8 *start_card, size_t num_cards)
 {
-	int i;
 	/* Marking from another thread can happen while we mark here */
-	for (i = 0; i < num_cards; ++i) {
+	for (gsize i = 0; i < num_cards; ++i) {
 		if (start_card [i])
 			dest [i] = 1;
 	}
@@ -441,17 +470,24 @@ sgen_card_table_clear_cards (void)
 }
 
 static void
-sgen_card_table_start_scan_remsets (void)
+sgen_card_table_start_scan_remsets (gboolean is_parallel)
 {
 #ifdef SGEN_HAVE_OVERLAPPING_CARDS
 	/*FIXME we should have a bit on each block/los object telling if the object have marked cards.*/
 	/*First we copy*/
-	sgen_major_collector_iterate_block_ranges (move_cards_to_shadow_table);
-	sgen_los_iterate_live_block_ranges (move_cards_to_shadow_table);
-	sgen_wbroots_iterate_live_block_ranges (move_cards_to_shadow_table);
+	if (is_parallel) {
+		sgen_iterate_all_block_ranges (move_cards_to_shadow_table, is_parallel);
+	} else {
+		sgen_major_collector_iterate_block_ranges (move_cards_to_shadow_table);
+		sgen_los_iterate_live_block_ranges (move_cards_to_shadow_table);
+		sgen_wbroots_iterate_live_block_ranges (move_cards_to_shadow_table);
+	}
 
 	/*Then we clear*/
-	sgen_card_table_clear_cards ();
+	if (is_parallel)
+		sgen_iterate_all_block_ranges (clear_cards, is_parallel);
+	else
+		sgen_card_table_clear_cards ();
 #endif
 }
 
@@ -587,16 +623,16 @@ sgen_cardtable_scan_object (GCObject *obj, mword block_obj_size, guint8 *cards, 
 	HEAVY_STAT (++bloby_objects);
 	if (cards) {
 		if (sgen_card_table_is_range_marked (cards, (mword)obj, block_obj_size))
-			ctx.ops->scan_object (obj, sgen_obj_get_descriptor (obj), ctx.queue);
+			ctx.ops->scan_object (obj, sgen_obj_get_descriptor_safe (obj), ctx.queue);
 	} else if (sgen_card_table_region_begin_scanning ((mword)obj, block_obj_size)) {
-		ctx.ops->scan_object (obj, sgen_obj_get_descriptor (obj), ctx.queue);
+		ctx.ops->scan_object (obj, sgen_obj_get_descriptor_safe (obj), ctx.queue);
 	}
 
 	sgen_binary_protocol_card_scan (obj, sgen_safe_object_get_size (obj));
 }
 
 void
-sgen_card_table_init (SgenRememberedSet *remset)
+sgen_card_table_init (SgenRememberedSet *remset, gboolean consistency_checks)
 {
 	sgen_cardtable = (guint8 *)sgen_alloc_os_memory (CARD_COUNT_IN_BYTES, (SgenAllocFlags)(SGEN_ALLOC_INTERNAL | SGEN_ALLOC_ACTIVATE), "card table", MONO_MEM_ACCOUNT_SGEN_CARD_TABLE);
 
@@ -627,7 +663,10 @@ sgen_card_table_init (SgenRememberedSet *remset)
 
 	remset->find_address = sgen_card_table_find_address;
 	remset->find_address_with_cards = sgen_card_table_find_address_with_cards;
-	remset->wbarrier_range_copy = sgen_card_table_wbarrier_range_copy;
+	if (consistency_checks)
+		remset->wbarrier_range_copy = sgen_card_table_wbarrier_range_copy_debug;
+	else
+		remset->wbarrier_range_copy = sgen_card_table_wbarrier_range_copy;
 
 	need_mod_union = sgen_get_major_collector ()->is_concurrent;
 }

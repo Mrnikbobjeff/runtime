@@ -5,8 +5,12 @@ internal static partial class Interop
 {
     internal static partial class Libraries
     {
-        internal const string Odbc32 = "libodbc.so.2";
-        internal const string OpenLdap = "libldap-2.4.so.2";
+        // Duplicated from Android for Linux Bionic
+        internal const string Liblog = "liblog";
+
+        // As a convention, some ldap installs use this to reference the latest version.
+        internal const string OpenLdap = "libldap.so.2";
+
         internal const string MsQuic = "libmsquic.so";
     }
 }

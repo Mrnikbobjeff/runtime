@@ -165,10 +165,53 @@ namespace System.Net.Tests
             var listener = listenerFactory.GetListener();
             listener.Start();
             var listenerTask = Task.Run(() => Assert.Throws<HttpListenerException>(() => listener.GetContext()));
-            await Task.Delay(1000).TimeoutAfter(10000); // Wait for listenerTask to call GetContext.
+            await Task.Delay(1000); // Wait for listenerTask to call GetContext.
             listener.Stop();
             listener.Close();
-            await listenerTask.TimeoutAfter(10000);
+            await listenerTask.WaitAsync(TimeSpan.FromSeconds(10));
+        }
+
+        [Theory]
+        [OuterLoop]
+        [InlineData("Stop")]
+        [InlineData("Abort")]
+        [InlineData("Close")]
+        public async Task GetContext_TerminationMethodCalled_ThrowsHttpListenerExceptionWithOperationAborted(string terminationMethod)
+        {
+            using var listenerFactory = new HttpListenerFactory();
+            var listener = listenerFactory.GetListener();
+            listener.Start();
+
+            var getContextStarted = new TaskCompletionSource<bool>();
+
+            var listenerTask = Task.Run(() =>
+            {
+                // Signal that we're about to call GetContext
+                getContextStarted.SetResult(true);
+                HttpListenerException exception = Assert.Throws<HttpListenerException>(() => listener.GetContext());
+                Assert.Equal((int)SocketError.OperationAborted, exception.ErrorCode);
+                return exception;
+            });
+
+            // Wait until GetContext is called before terminating
+            await getContextStarted.Task;
+            await Task.Delay(100); // Small delay to ensure GetContext is blocking
+            
+            switch (terminationMethod)
+            {
+                case "Stop":
+                    listener.Stop();
+                    listener.Close();
+                    break;
+                case "Abort":
+                    listener.Abort();
+                    break;
+                case "Close":
+                    listener.Close();
+                    break;
+            }
+            
+            await listenerTask.WaitAsync(TimeSpan.FromSeconds(10));
         }
     }
 }

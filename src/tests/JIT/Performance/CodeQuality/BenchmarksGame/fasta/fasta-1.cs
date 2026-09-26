@@ -7,6 +7,7 @@
 // Best-scoring C# .NET Core version as of 2017-09-01
 
 /* The Computer Language Benchmarks Game
+using TestLibrary;
   http://benchmarksgame.alioth.debian.org/
 
   contributed by Serge Smith
@@ -23,9 +24,8 @@ using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Xunit.Performance;
-
-[assembly: OptimizeForBenchmarks]
+using Xunit;
+using TestLibrary;
 
 namespace BenchmarksGame
 {
@@ -38,18 +38,23 @@ namespace BenchmarksGame
         const int IC = 29573;
         static int seed = 42;
 
-        public static int Main(string[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/41472", typeof(PlatformDetection), nameof(PlatformDetection.IsNotMultithreadingSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/54906", TestPlatforms.Android)]
+        [ActiveIssue("((null) error) * Assertion at runtime/src/mono/mono/metadata/assembly.c:2049, condition `is_ok (error)' not met, function:mono_assembly_load_friends, Could not load file or assembly 'xunit.performance.core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67066efe964d3b03' or one of its dependencies.", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [Fact]
+        public static int TestEntryPoint()
         {
-            int n = args.Length > 0 ? Int32.Parse(args[0]) : 1000;
+            return Test(null);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static int Test(int? arg)
+        {
+            int n = arg ?? 1000;
 
             Bench(n, true);
             return 100;
-        }
-
-        [Benchmark(InnerIterationCount = 4000)]
-        public static void RunBench()
-        {
-            Benchmark.Iterate(() => Bench(5000, false));
         }
 
         static void Bench(int n, bool verbose)
@@ -64,8 +69,6 @@ namespace BenchmarksGame
                 MakeRandomFasta("THREE", "Homo sapiens frequency", HomoSapiens, n * 5, s);
             }
         }
-
-
 
         public static IEnumerable<R> TransformQueue<T, R>(BlockingCollection<T> queue,
             Func<T, R> transform, int threadCount)

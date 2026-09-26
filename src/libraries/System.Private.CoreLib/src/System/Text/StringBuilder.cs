@@ -1,11 +1,15 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Runtime.Serialization;
+using System.Buffers;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Diagnostics;
-using System.Collections.Generic;
+using System.Runtime.Serialization;
 
 namespace System.Text
 {
@@ -18,7 +22,7 @@ namespace System.Text
     // object unless specified otherwise.  This class may be used in conjunction with the String
     // class to carry out modifications upon strings.
     [Serializable]
-    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
+    [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public sealed partial class StringBuilder : ISerializable
     {
         // A StringBuilder is internally represented as a linked list of blocks each of which holds
@@ -114,23 +118,12 @@ namespace System.Text
         /// <param name="capacity">The initial capacity of this builder.</param>
         public StringBuilder(string? value, int startIndex, int length, int capacity)
         {
-            if (capacity < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(capacity), SR.Format(SR.ArgumentOutOfRange_MustBePositive, nameof(capacity)));
-            }
-            if (length < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(length), SR.Format(SR.ArgumentOutOfRange_MustBeNonNegNum, nameof(length)));
-            }
-            if (startIndex < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_StartIndex);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+            ArgumentOutOfRangeException.ThrowIfNegative(length);
+            ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
 
-            if (value == null)
-            {
-                value = string.Empty;
-            }
+            value ??= string.Empty;
+
             if (startIndex > value.Length - length)
             {
                 throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_IndexLength);
@@ -146,13 +139,7 @@ namespace System.Text
             m_ChunkChars = GC.AllocateUninitializedArray<char>(capacity);
             m_ChunkLength = length;
 
-            unsafe
-            {
-                fixed (char* sourcePtr = value)
-                {
-                    ThreadSafeCopy(sourcePtr + startIndex, m_ChunkChars, 0, length);
-                }
-            }
+            value.AsSpan(startIndex, length).CopyTo(m_ChunkChars);
         }
 
         /// <summary>
@@ -166,14 +153,8 @@ namespace System.Text
             {
                 throw new ArgumentOutOfRangeException(nameof(capacity), SR.ArgumentOutOfRange_Capacity);
             }
-            if (maxCapacity < 1)
-            {
-                throw new ArgumentOutOfRangeException(nameof(maxCapacity), SR.ArgumentOutOfRange_SmallMaxCapacity);
-            }
-            if (capacity < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(capacity), SR.Format(SR.ArgumentOutOfRange_MustBePositive, nameof(capacity)));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxCapacity);
+            ArgumentOutOfRangeException.ThrowIfNegative(capacity);
 
             if (capacity == 0)
             {
@@ -186,10 +167,7 @@ namespace System.Text
 
         private StringBuilder(SerializationInfo info, StreamingContext context)
         {
-            if (info == null)
-            {
-                throw new ArgumentNullException(nameof(info));
-            }
+            ArgumentNullException.ThrowIfNull(info);
 
             int persistedCapacity = 0;
             string? persistedString = null;
@@ -219,10 +197,7 @@ namespace System.Text
             }
 
             // Check values and set defaults
-            if (persistedString == null)
-            {
-                persistedString = string.Empty;
-            }
+            persistedString ??= string.Empty;
             if (persistedMaxCapacity < 1 || persistedString.Length > persistedMaxCapacity)
             {
                 throw new SerializationException(SR.Serialization_StringBuilderMaxCapacity);
@@ -249,10 +224,7 @@ namespace System.Text
 
         void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
         {
-            if (info == null)
-            {
-                throw new ArgumentNullException(nameof(info));
-            }
+            ArgumentNullException.ThrowIfNull(info);
 
             AssertInvariants();
             info.AddValue(MaxCapacityField, m_MaxCapacity);
@@ -262,7 +234,7 @@ namespace System.Text
             info.AddValue(ThreadIDField, 0);
         }
 
-        [System.Diagnostics.Conditional("DEBUG")]
+        [Conditional("DEBUG")]
         private void AssertInvariants()
         {
             Debug.Assert(m_ChunkOffset + m_ChunkChars.Length >= m_ChunkOffset, "The length of the string is greater than int.MaxValue.");
@@ -296,10 +268,7 @@ namespace System.Text
             get => m_ChunkChars.Length + m_ChunkOffset;
             set
             {
-                if (value < 0)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_NegativeCapacity);
-                }
+                ArgumentOutOfRangeException.ThrowIfNegative(value);
                 if (value > MaxCapacity)
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_Capacity);
@@ -334,10 +303,7 @@ namespace System.Text
         /// </remarks>
         public int EnsureCapacity(int capacity)
         {
-            if (capacity < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(capacity), SR.ArgumentOutOfRange_NegativeCapacity);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(capacity);
 
             if (Capacity < capacity)
             {
@@ -357,37 +323,31 @@ namespace System.Text
 
             string result = string.FastAllocateString(Length);
             StringBuilder? chunk = this;
-            unsafe
+            do
             {
-                fixed (char* destinationPtr = result)
+                if (chunk.m_ChunkLength > 0)
                 {
-                    do
+                    // Copy these into local variables so that they are stable even in the presence of race conditions
+                    char[] sourceArray = chunk.m_ChunkChars;
+                    int chunkOffset = chunk.m_ChunkOffset;
+                    int chunkLength = chunk.m_ChunkLength;
+
+                    // Check that we will not overrun our boundaries.
+                    if ((uint)(chunkLength + chunkOffset) > (uint)result.Length || (uint)chunkLength > (uint)sourceArray.Length)
                     {
-                        if (chunk.m_ChunkLength > 0)
-                        {
-                            // Copy these into local variables so that they are stable even in the presence of race conditions
-                            char[] sourceArray = chunk.m_ChunkChars;
-                            int chunkOffset = chunk.m_ChunkOffset;
-                            int chunkLength = chunk.m_ChunkLength;
-
-                            // Check that we will not overrun our boundaries.
-                            if ((uint)(chunkLength + chunkOffset) <= (uint)result.Length && (uint)chunkLength <= (uint)sourceArray.Length)
-                            {
-                                fixed (char* sourcePtr = &sourceArray[0])
-                                    string.wstrcpy(destinationPtr + chunkOffset, sourcePtr, chunkLength);
-                            }
-                            else
-                            {
-                                throw new ArgumentOutOfRangeException(nameof(chunkLength), SR.ArgumentOutOfRange_Index);
-                            }
-                        }
-                        chunk = chunk.m_ChunkPrevious;
+                        throw new ArgumentOutOfRangeException(null, SR.InvalidOperation_ConcurrentOperationsNotSupported);
                     }
-                    while (chunk != null);
 
-                    return result;
+                    Buffer.Memmove(
+                        ref Unsafe.Add(ref result.GetRawStringData(), chunkOffset),
+                        ref MemoryMarshal.GetArrayDataReference(sourceArray),
+                        (nuint)chunkLength);
                 }
+                chunk = chunk.m_ChunkPrevious;
             }
+            while (chunk != null);
+
+            return result;
         }
 
         /// <summary>
@@ -398,18 +358,12 @@ namespace System.Text
         public string ToString(int startIndex, int length)
         {
             int currentLength = this.Length;
-            if (startIndex < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_StartIndex);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
             if (startIndex > currentLength)
             {
                 throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_StartIndexLargerThanLength);
             }
-            if (length < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_NegativeLength);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(length);
             if (startIndex > currentLength - length)
             {
                 throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_IndexLength);
@@ -417,20 +371,52 @@ namespace System.Text
 
             AssertInvariants();
             string result = string.FastAllocateString(length);
-            unsafe
-            {
-                fixed (char* destinationPtr = result)
-                {
-                    this.CopyTo(startIndex, new Span<char>(destinationPtr, length), length);
-                    return result;
-                }
-            }
+            CopyTo(startIndex, new Span<char>(ref result.GetRawStringData(), result.Length), result.Length);
+            return result;
         }
 
         public StringBuilder Clear()
         {
             this.Length = 0;
             return this;
+        }
+
+        /// <summary>
+        /// Creates a new <see cref="StringBuilder"/> instance initialized to the same state as
+        /// <paramref name="source"/>, and resets <paramref name="source"/> to an empty, usable state
+        /// with no allocated buffers.
+        /// </summary>
+        /// <param name="source">The <see cref="StringBuilder"/> whose chunks should be moved to the
+        /// returned instance.</param>
+        /// <returns>A new <see cref="StringBuilder"/> instance that owns the chunks previously held
+        /// by <paramref name="source"/>.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="source"/> is <see langword="null"/>.</exception>
+        /// <remarks>
+        /// <para>
+        /// In contrast to <see cref="Clear"/>, which retains the existing internal buffer,
+        /// this method releases all internal buffers from <paramref name="source"/>. Ownership of
+        /// the chunks is transferred in O(1) to the returned <see cref="StringBuilder"/>; the
+        /// underlying character data is not copied.
+        /// </para>
+        /// <para>
+        /// After the call, <paramref name="source"/> has <see cref="Length"/> and
+        /// <see cref="Capacity"/> of zero but retains its original <see cref="MaxCapacity"/>.
+        /// It remains fully usable; subsequent append or insert operations will allocate new
+        /// buffers as needed.
+        /// </para>
+        /// </remarks>
+        public static StringBuilder MoveChunks(StringBuilder source)
+        {
+            ArgumentNullException.ThrowIfNull(source);
+
+            StringBuilder destination = new StringBuilder(source);
+
+            source.m_ChunkChars = [];
+            source.m_ChunkPrevious = null;
+            source.m_ChunkLength = 0;
+            source.m_ChunkOffset = 0;
+
+            return destination;
         }
 
         /// <summary>
@@ -442,10 +428,7 @@ namespace System.Text
             set
             {
                 // If the new length is less than 0 or greater than our Maximum capacity, bail.
-                if (value < 0)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(value), SR.ArgumentOutOfRange_NegativeLength);
-                }
+                ArgumentOutOfRangeException.ThrowIfNegative(value);
 
                 if (value > MaxCapacity)
                 {
@@ -504,46 +487,23 @@ namespace System.Text
         {
             get
             {
-                StringBuilder? chunk = this;
-                while (true)
+                if ((uint)index >= (uint)Length)
                 {
-                    int indexInBlock = index - chunk.m_ChunkOffset;
-                    if (indexInBlock >= 0)
-                    {
-                        if (indexInBlock >= chunk.m_ChunkLength)
-                        {
-                            throw new IndexOutOfRangeException();
-                        }
-                        return chunk.m_ChunkChars[indexInBlock];
-                    }
-                    chunk = chunk.m_ChunkPrevious;
-                    if (chunk == null)
-                    {
-                        throw new IndexOutOfRangeException();
-                    }
+                    ThrowHelper.ThrowIndexOutOfRangeException();
                 }
+
+                StringBuilder chunk = FindChunkForIndex(index);
+                return chunk.m_ChunkChars[index - chunk.m_ChunkOffset];
             }
             set
             {
-                StringBuilder? chunk = this;
-                while (true)
+                if ((uint)index >= (uint)Length)
                 {
-                    int indexInBlock = index - chunk.m_ChunkOffset;
-                    if (indexInBlock >= 0)
-                    {
-                        if (indexInBlock >= chunk.m_ChunkLength)
-                        {
-                            throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
-                        }
-                        chunk.m_ChunkChars[indexInBlock] = value;
-                        return;
-                    }
-                    chunk = chunk.m_ChunkPrevious;
-                    if (chunk == null)
-                    {
-                        throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
-                    }
+                    ThrowHelper.ThrowArgumentOutOfRange_IndexMustBeLessException();
                 }
+
+                StringBuilder chunk = FindChunkForIndex(index);
+                chunk.m_ChunkChars[index - chunk.m_ChunkOffset] = value;
             }
         }
 
@@ -559,7 +519,7 @@ namespace System.Text
         /// It is undefined what happens if the StringBuilder is modified while the chunk
         /// enumeration is incomplete.  StringBuilder is also not thread-safe, so operating
         /// on it with concurrent threads is illegal.  Finally the ReadOnlyMemory chunks returned
-        /// are NOT guarenteed to remain unchanged if the StringBuilder is modified, so do
+        /// are NOT guaranteed to remain unchanged if the StringBuilder is modified, so do
         /// not cache them for later use either.  This API's purpose is efficiently extracting
         /// the data of a CONSTANT StringBuilder.
         ///
@@ -591,7 +551,7 @@ namespace System.Text
             /// <summary>
             /// Implement IEnumerable.GetEnumerator() to return  'this' as the IEnumerator
             /// </summary>
-            [ComponentModel.EditorBrowsable(ComponentModel.EditorBrowsableState.Never)] // Only here to make foreach work
+            [EditorBrowsable(EditorBrowsableState.Never)] // Only here to make foreach work
             public ChunkEnumerator GetEnumerator() { return this; }
 
             /// <summary>
@@ -648,7 +608,7 @@ namespace System.Text
                 // are a linked list with each chunk pointing to its PREDECESSOR, walking
                 // the list FORWARD is not efficient.   If there are few chunks (< 8) we
                 // simply scan from the start each time, and tolerate the N*N behavior.
-                // However above this size, we allocate an array to hold pointers to all
+                // However above this size, we allocate an array to hold reference to all
                 // the chunks and we can be efficient for large N.
                 int chunkCount = ChunkCount(stringBuilder);
                 if (8 < chunkCount)
@@ -671,7 +631,7 @@ namespace System.Text
             /// <summary>
             /// Used to hold all the chunks indexes when you have many chunks.
             /// </summary>
-            private class ManyChunkInfo
+            private sealed class ManyChunkInfo
             {
                 private readonly StringBuilder[] _chunks;    // These are in normal order (first chunk first)
                 private int _chunkPos;
@@ -703,50 +663,76 @@ namespace System.Text
         }
 
         /// <summary>
+        /// Returns an enumeration of <see cref="Rune"/> from this builder.
+        /// </summary>
+        /// <remarks>
+        /// Invalid sequences will be represented in the enumeration by <see cref="Rune.ReplacementChar"/>.
+        /// </remarks>
+        public StringBuilderRuneEnumerator EnumerateRunes() => new StringBuilderRuneEnumerator(this);
+
+        /// <summary>
         /// Appends a character 0 or more times to the end of this builder.
         /// </summary>
         /// <param name="value">The character to append.</param>
         /// <param name="repeatCount">The number of times to append <paramref name="value"/>.</param>
         public StringBuilder Append(char value, int repeatCount)
         {
-            if (repeatCount < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(repeatCount), SR.ArgumentOutOfRange_NegativeCount);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(repeatCount);
 
             if (repeatCount == 0)
             {
                 return this;
             }
 
-            // this is where we can check if the repeatCount will put us over m_MaxCapacity
-            // We are doing the check here to prevent the corruption of the StringBuilder.
-            int newLength = Length + repeatCount;
-            if (newLength > m_MaxCapacity || newLength < repeatCount)
+            char[] chunkChars = m_ChunkChars;
+            int chunkLength = m_ChunkLength;
+
+            // Try to fit the whole repeatCount in the current chunk
+            // Use the same check as Span<T>.Slice for 64-bit so it can be folded
+            // Since repeatCount can't be negative, there's no risk for it to overflow on 32 bit
+            if (((nuint)(uint)chunkLength + (nuint)(uint)repeatCount) <= (nuint)(uint)chunkChars.Length)
+            {
+                chunkChars.AsSpan(chunkLength, repeatCount).Fill(value);
+                m_ChunkLength += repeatCount;
+            }
+            else
+            {
+                AppendWithExpansion(value, repeatCount);
+            }
+
+            AssertInvariants();
+            return this;
+        }
+
+        private void AppendWithExpansion(char value, int repeatCount)
+        {
+            Debug.Assert(repeatCount > 0, "Invalid length; should have been validated by caller.");
+
+            // Check if the repeatCount will put us over m_MaxCapacity
+            if ((uint)(repeatCount + Length) > (uint)m_MaxCapacity)
             {
                 throw new ArgumentOutOfRangeException(nameof(repeatCount), SR.ArgumentOutOfRange_LengthGreaterThanCapacity);
             }
 
-            int index = m_ChunkLength;
-            while (repeatCount > 0)
+            char[] chunkChars = m_ChunkChars;
+            int chunkLength = m_ChunkLength;
+
+            // Fill the rest of the current chunk
+            int firstLength = chunkChars.Length - chunkLength;
+            if (firstLength > 0)
             {
-                if (index < m_ChunkChars.Length)
-                {
-                    m_ChunkChars[index++] = value;
-                    --repeatCount;
-                }
-                else
-                {
-                    m_ChunkLength = index;
-                    ExpandByABlock(repeatCount);
-                    Debug.Assert(m_ChunkLength == 0);
-                    index = 0;
-                }
+                chunkChars.AsSpan(chunkLength, firstLength).Fill(value);
+                m_ChunkLength = chunkChars.Length;
             }
 
-            m_ChunkLength = index;
-            AssertInvariants();
-            return this;
+            // Expand the builder to add another chunk
+            int restLength = repeatCount - firstLength;
+            ExpandByABlock(restLength);
+            Debug.Assert(m_ChunkLength == 0, "A new block was not created.");
+
+            // Fill the new chunk with the remaining part of repeatCount
+            m_ChunkChars.AsSpan(0, restLength).Fill(value);
+            m_ChunkLength = restLength;
         }
 
         /// <summary>
@@ -757,14 +743,8 @@ namespace System.Text
         /// <param name="charCount">The number of characters to read in <paramref name="value"/>.</param>
         public StringBuilder Append(char[]? value, int startIndex, int charCount)
         {
-            if (startIndex < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_GenericPositive);
-            }
-            if (charCount < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(charCount), SR.ArgumentOutOfRange_GenericPositive);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
+            ArgumentOutOfRangeException.ThrowIfNegative(charCount);
 
             if (value == null)
             {
@@ -773,26 +753,19 @@ namespace System.Text
                     return this;
                 }
 
-                throw new ArgumentNullException(nameof(value));
+                ArgumentNullException.Throw(nameof(value));
             }
             if (charCount > value.Length - startIndex)
             {
-                throw new ArgumentOutOfRangeException(nameof(charCount), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(charCount), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
-            if (charCount == 0)
+            if (charCount != 0)
             {
-                return this;
+                Append(ref value[startIndex], charCount);
             }
 
-            unsafe
-            {
-                fixed (char* valueChars = &value[startIndex])
-                {
-                    Append(valueChars, charCount);
-                    return this;
-                }
-            }
+            return this;
         }
 
         /// <summary>
@@ -801,60 +774,12 @@ namespace System.Text
         /// <param name="value">The string to append.</param>
         public StringBuilder Append(string? value)
         {
-            if (value != null)
+            if (value is not null)
             {
-                // We could have just called AppendHelper here; this is a hand-specialization of that code.
-                char[] chunkChars = m_ChunkChars;
-                int chunkLength = m_ChunkLength;
-                int valueLen = value.Length;
-
-                if (((uint)chunkLength + (uint)valueLen) < (uint)chunkChars.Length) // Use strictly < to avoid issues if count == 0, newIndex == length
-                {
-                    if (valueLen <= 2)
-                    {
-                        if (valueLen > 0)
-                        {
-                            chunkChars[chunkLength] = value[0];
-                        }
-                        if (valueLen > 1)
-                        {
-                            chunkChars[chunkLength + 1] = value[1];
-                        }
-                    }
-                    else
-                    {
-                        unsafe
-                        {
-                            fixed (char* valuePtr = value)
-                            fixed (char* destPtr = &chunkChars[chunkLength])
-                            {
-                                string.wstrcpy(destPtr, valuePtr, valueLen);
-                            }
-                        }
-                    }
-
-                    m_ChunkLength = chunkLength + valueLen;
-                }
-                else
-                {
-                    AppendHelper(value);
-                }
+                Append(ref value.GetRawStringData(), value.Length);
             }
 
             return this;
-        }
-
-        // We put this fixed in its own helper to avoid the cost of zero-initing `valueChars` in the
-        // case we don't actually use it.
-        private void AppendHelper(string value)
-        {
-            unsafe
-            {
-                fixed (char* valueChars = value)
-                {
-                    Append(valueChars, value.Length);
-                }
-            }
         }
 
         /// <summary>
@@ -865,14 +790,8 @@ namespace System.Text
         /// <param name="count">The number of characters to read in <paramref name="value"/>.</param>
         public StringBuilder Append(string? value, int startIndex, int count)
         {
-            if (startIndex < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
-            }
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_GenericPositive);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
 
             if (value == null)
             {
@@ -880,27 +799,20 @@ namespace System.Text
                 {
                     return this;
                 }
-                throw new ArgumentNullException(nameof(value));
+                ArgumentNullException.Throw(nameof(value));
             }
 
-            if (count == 0)
+            if (count != 0)
             {
-                return this;
-            }
-
-            if (startIndex > value.Length - count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
-            }
-
-            unsafe
-            {
-                fixed (char* valueChars = value)
+                if (startIndex > value.Length - count)
                 {
-                    Append(valueChars + startIndex, count);
-                    return this;
+                    throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
                 }
+
+                Append(ref Unsafe.Add(ref value.GetRawStringData(), startIndex), count);
             }
+
+            return this;
         }
 
         public StringBuilder Append(StringBuilder? value)
@@ -914,15 +826,8 @@ namespace System.Text
 
         public StringBuilder Append(StringBuilder? value, int startIndex, int count)
         {
-            if (startIndex < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
-            }
-
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_GenericPositive);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
 
             if (value == null)
             {
@@ -930,7 +835,7 @@ namespace System.Text
                 {
                     return this;
                 }
-                throw new ArgumentNullException(nameof(value));
+                ArgumentNullException.Throw(nameof(value));
             }
 
             if (count == 0)
@@ -940,7 +845,7 @@ namespace System.Text
 
             if (count > value.Length - startIndex)
             {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             return AppendCore(value, startIndex, count);
@@ -966,7 +871,8 @@ namespace System.Text
                 if (length == 0)
                 {
                     ExpandByABlock(count);
-                    length = Math.Min(m_ChunkChars.Length - m_ChunkLength, count);
+                    Debug.Assert(m_ChunkLength == 0 && m_ChunkChars.Length >= count);
+                    length = count;
                 }
                 value.CopyTo(startIndex, new Span<char>(m_ChunkChars, m_ChunkLength, length), length);
 
@@ -988,15 +894,9 @@ namespace System.Text
 
         public void CopyTo(int sourceIndex, char[] destination, int destinationIndex, int count)
         {
-            if (destination == null)
-            {
-                throw new ArgumentNullException(nameof(destination));
-            }
+            ArgumentNullException.ThrowIfNull(destination);
 
-            if (destinationIndex < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(destinationIndex), SR.Format(SR.ArgumentOutOfRange_MustBeNonNegNum, nameof(destinationIndex)));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(destinationIndex);
 
             if (destinationIndex > destination.Length - count)
             {
@@ -1008,14 +908,11 @@ namespace System.Text
 
         public void CopyTo(int sourceIndex, Span<char> destination, int count)
         {
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count), SR.Arg_NegativeArgCount);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
 
             if ((uint)sourceIndex > (uint)Length)
             {
-                throw new ArgumentOutOfRangeException(nameof(sourceIndex), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(sourceIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             if (sourceIndex > Length - count)
@@ -1046,9 +943,7 @@ namespace System.Text
                     curDestIndex -= chunkCount;
                     count -= chunkCount;
 
-                    // We ensure that chunkStartIndex + chunkCount are within range of m_chunkChars as well as
-                    // ensuring that curDestIndex + chunkCount are within range of destination
-                    ThreadSafeCopy(chunk.m_ChunkChars, chunkStartIndex, destination, curDestIndex, chunkCount);
+                    new ReadOnlySpan<char>(chunk.m_ChunkChars, chunkStartIndex, chunkCount).CopyTo(destination.Slice(curDestIndex));
                 }
                 chunk = chunk.m_ChunkPrevious;
             }
@@ -1060,20 +955,19 @@ namespace System.Text
         /// <param name="index">The index to insert in this builder.</param>
         /// <param name="value">The string to insert.</param>
         /// <param name="count">The number of times to insert the string.</param>
-        public StringBuilder Insert(int index, string? value, int count)
+        public StringBuilder Insert(int index, string? value, int count) => Insert(index, value.AsSpan(), count);
+
+        private StringBuilder Insert(int index, ReadOnlySpan<char> value, int count)
         {
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
 
             int currentLength = Length;
             if ((uint)index > (uint)currentLength)
             {
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
-            if (string.IsNullOrEmpty(value) || count == 0)
+            if (value.IsEmpty || count == 0)
             {
                 return this;
             }
@@ -1088,19 +982,14 @@ namespace System.Text
             Debug.Assert(insertingChars + this.Length < int.MaxValue);
 
             MakeRoom(index, (int)insertingChars, out StringBuilder chunk, out int indexInChunk, false);
-            unsafe
-            {
-                fixed (char* valuePtr = value)
-                {
-                    while (count > 0)
-                    {
-                        ReplaceInPlaceAtChunk(ref chunk!, ref indexInChunk, valuePtr, value.Length);
-                        --count;
-                    }
 
-                    return this;
-                }
+            while (count > 0)
+            {
+                ReplaceInPlaceAtChunk(ref chunk!, ref indexInChunk, ref MemoryMarshal.GetReference(value), value.Length);
+                --count;
             }
+
+            return this;
         }
 
         /// <summary>
@@ -1111,19 +1000,11 @@ namespace System.Text
         /// </remarks>
         public StringBuilder Remove(int startIndex, int length)
         {
-            if (length < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_NegativeLength);
-            }
-
-            if (startIndex < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_StartIndex);
-            }
-
+            ArgumentOutOfRangeException.ThrowIfNegative(length);
+            ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
             if (length > Length - startIndex)
             {
-                throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             if (Length == length && startIndex == 0)
@@ -1156,10 +1037,33 @@ namespace System.Text
             }
             else
             {
-                Append(value, 1);
+                AppendWithExpansion(value);
             }
 
             return this;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private void AppendWithExpansion(char value)
+        {
+            ExpandByABlock(1);
+            Debug.Assert(m_ChunkLength == 0, "A new block was not created.");
+            m_ChunkChars[0] = value;
+            m_ChunkLength++;
+        }
+
+        /// <summary>
+        /// Appends the string representation of a specified <see cref="Rune"/> to this instance.
+        /// </summary>
+        /// <param name="value">The UTF-32-encoded code unit to append.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        public unsafe StringBuilder Append(Rune value)
+        {
+            // Convert value to span
+            ReadOnlySpan<char> valueChars = value.AsSpan(stackalloc char[Rune.MaxUtf16CharsPerRune]);
+
+            // Append span
+            return Append(valueChars);
         }
 
         [CLSCompliant(false)]
@@ -1190,6 +1094,8 @@ namespace System.Text
 
         private StringBuilder AppendSpanFormattable<T>(T value) where T : ISpanFormattable
         {
+            Debug.Assert(typeof(T).Assembly.Equals(typeof(object).Assembly), "Implementation trusts the results of TryFormat because T is expected to be something known");
+
             if (value.TryFormat(RemainingCurrentChunk, out int charsWritten, format: default, provider: null))
             {
                 m_ChunkLength += charsWritten;
@@ -1199,8 +1105,10 @@ namespace System.Text
             return Append(value.ToString());
         }
 
-        internal StringBuilder AppendSpanFormattable<T>(T value, string? format, IFormatProvider? provider) where T : ISpanFormattable, IFormattable
+        internal StringBuilder AppendSpanFormattable<T>(T value, string? format, IFormatProvider? provider) where T : ISpanFormattable
         {
+            Debug.Assert(typeof(T).Assembly.Equals(typeof(object).Assembly), "Implementation trusts the results of TryFormat because T is expected to be something known");
+
             if (value.TryFormat(RemainingCurrentChunk, out int charsWritten, format, provider))
             {
                 m_ChunkLength += charsWritten;
@@ -1214,91 +1122,161 @@ namespace System.Text
 
         public StringBuilder Append(char[]? value)
         {
-            if (value?.Length > 0)
+            if (value is not null)
             {
-                unsafe
-                {
-                    fixed (char* valueChars = &value[0])
-                    {
-                        Append(valueChars, value.Length);
-                    }
-                }
+                Append(ref MemoryMarshal.GetArrayDataReference(value), value.Length);
             }
+
             return this;
         }
 
         public StringBuilder Append(ReadOnlySpan<char> value)
         {
-            if (value.Length > 0)
-            {
-                unsafe
-                {
-                    fixed (char* valueChars = &MemoryMarshal.GetReference(value))
-                    {
-                        Append(valueChars, value.Length);
-                    }
-                }
-            }
+            Append(ref MemoryMarshal.GetReference(value), value.Length);
             return this;
         }
 
         public StringBuilder Append(ReadOnlyMemory<char> value) => Append(value.Span);
 
+        /// <summary>Appends the specified interpolated string to this instance.</summary>
+        /// <param name="handler">The interpolated string to append.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        public StringBuilder Append([InterpolatedStringHandlerArgument("")] ref AppendInterpolatedStringHandler handler) => this;
+
+        /// <summary>Appends the specified interpolated string to this instance.</summary>
+        /// <param name="provider">An object that supplies culture-specific formatting information.</param>
+        /// <param name="handler">The interpolated string to append.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        public StringBuilder Append(IFormatProvider? provider, [InterpolatedStringHandlerArgument("", nameof(provider))] ref AppendInterpolatedStringHandler handler) => this;
+
+        /// <summary>Appends the specified interpolated string followed by the default line terminator to the end of the current StringBuilder object.</summary>
+        /// <param name="handler">The interpolated string to append.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        public StringBuilder AppendLine([InterpolatedStringHandlerArgument("")] ref AppendInterpolatedStringHandler handler) => AppendLine();
+
+        /// <summary>Appends the specified interpolated string followed by the default line terminator to the end of the current StringBuilder object.</summary>
+        /// <param name="provider">An object that supplies culture-specific formatting information.</param>
+        /// <param name="handler">The interpolated string to append.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        public StringBuilder AppendLine(IFormatProvider? provider, [InterpolatedStringHandlerArgument("", nameof(provider))] ref AppendInterpolatedStringHandler handler) => AppendLine();
+
         #region AppendJoin
 
-        public unsafe StringBuilder AppendJoin(string? separator, params object?[] values)
+        public StringBuilder AppendJoin(string? separator, params object?[] values)
         {
-            separator ??= string.Empty;
-            fixed (char* pSeparator = separator)
-            {
-                return AppendJoinCore(pSeparator, separator.Length, values);
-            }
-        }
-
-        public unsafe StringBuilder AppendJoin<T>(string? separator, IEnumerable<T> values)
-        {
-            separator ??= string.Empty;
-            fixed (char* pSeparator = separator)
-            {
-                return AppendJoinCore(pSeparator, separator.Length, values);
-            }
-        }
-
-        public unsafe StringBuilder AppendJoin(string? separator, params string?[] values)
-        {
-            separator ??= string.Empty;
-            fixed (char* pSeparator = separator)
-            {
-                return AppendJoinCore(pSeparator, separator.Length, values);
-            }
-        }
-
-        public unsafe StringBuilder AppendJoin(char separator, params object?[] values)
-        {
-            return AppendJoinCore(&separator, 1, values);
-        }
-
-        public unsafe StringBuilder AppendJoin<T>(char separator, IEnumerable<T> values)
-        {
-            return AppendJoinCore(&separator, 1, values);
-        }
-
-        public unsafe StringBuilder AppendJoin(char separator, params string?[] values)
-        {
-            return AppendJoinCore(&separator, 1, values);
-        }
-
-        private unsafe StringBuilder AppendJoinCore<T>(char* separator, int separatorLength, IEnumerable<T> values)
-        {
-            Debug.Assert(separator != null);
-            Debug.Assert(separatorLength >= 0);
-
-            if (values == null)
+            if (values is null)
             {
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.values);
             }
 
+            separator ??= string.Empty;
+            return AppendJoinCore(ref separator.GetRawStringData(), separator.Length, values);
+        }
+
+        /// <summary>
+        /// Concatenates the string representations of the elements in the provided span of objects, using the specified separator between each member,
+        /// then appends the result to the current instance of the string builder.
+        /// </summary>
+        /// <param name="separator">The string to use as a separator. <paramref name="separator"/> is included in the joined strings only if <paramref name="values"/> has more than one element.</param>
+        /// <param name="values">A span that contains the strings to concatenate and append to the current instance of the string builder.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        public StringBuilder AppendJoin(string? separator, params ReadOnlySpan<object?> values)
+        {
+            separator ??= string.Empty;
+            return AppendJoinCore(ref separator.GetRawStringData(), separator.Length, values);
+        }
+
+        public StringBuilder AppendJoin<T>(string? separator, IEnumerable<T> values)
+        {
+            if (values is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.values);
+            }
+
+            separator ??= string.Empty;
+            return AppendJoinCore(ref separator.GetRawStringData(), separator.Length, values);
+        }
+
+        public StringBuilder AppendJoin(string? separator, params string?[] values)
+        {
+            if (values is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.values);
+            }
+
+            separator ??= string.Empty;
+            return AppendJoinCore(ref separator.GetRawStringData(), separator.Length, values);
+        }
+
+        /// <summary>
+        /// Concatenates the strings of the provided span, using the specified separator between each string,
+        /// then appends the result to the current instance of the string builder.
+        /// </summary>
+        /// <param name="separator">The string to use as a separator. <paramref name="separator"/> is included in the joined strings only if <paramref name="values"/> has more than one element.</param>
+        /// <param name="values">A span that contains the strings to concatenate and append to the current instance of the string builder.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        public StringBuilder AppendJoin(string? separator, params ReadOnlySpan<string?> values)
+        {
+            separator ??= string.Empty;
+            return AppendJoinCore(ref separator.GetRawStringData(), separator.Length, values);
+        }
+
+        public StringBuilder AppendJoin(char separator, params object?[] values)
+        {
+            if (values is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.values);
+            }
+
+            return AppendJoinCore(ref separator, 1, (ReadOnlySpan<object?>)values);
+        }
+
+        /// <summary>
+        /// Concatenates the string representations of the elements in the provided span of objects, using the specified char separator between each member,
+        /// then appends the result to the current instance of the string builder.
+        /// </summary>
+        /// <param name="separator">The character to use as a separator. <paramref name="separator"/> is included in the joined strings only if <paramref name="values"/> has more than one element.</param>
+        /// <param name="values">A span that contains the strings to concatenate and append to the current instance of the string builder.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        public StringBuilder AppendJoin(char separator, params ReadOnlySpan<object?> values) =>
+            AppendJoinCore(ref separator, 1, values);
+
+        public StringBuilder AppendJoin<T>(char separator, IEnumerable<T> values)
+        {
+            if (values is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.values);
+            }
+
+            return AppendJoinCore(ref separator, 1, values);
+        }
+
+        public StringBuilder AppendJoin(char separator, params string?[] values)
+        {
+            if (values is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.values);
+            }
+
+            return AppendJoinCore(ref separator, 1, (ReadOnlySpan<string?>)values);
+        }
+
+        /// <summary>
+        /// Concatenates the strings of the provided span, using the specified char separator between each string,
+        /// then appends the result to the current instance of the string builder.
+        /// </summary>
+        /// <param name="separator">The character to use as a separator. <paramref name="separator"/> is included in the joined strings only if <paramref name="values"/> has more than one element.</param>
+        /// <param name="values">A span that contains the strings to concatenate and append to the current instance of the string builder.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        public StringBuilder AppendJoin(char separator, params ReadOnlySpan<string?> values) =>
+            AppendJoinCore(ref separator, 1, values);
+
+        private StringBuilder AppendJoinCore<T>(ref char separator, int separatorLength, IEnumerable<T> values)
+        {
             Debug.Assert(values != null);
+            Debug.Assert(!Unsafe.IsNullRef(ref separator));
+            Debug.Assert(separatorLength >= 0);
+
             using (IEnumerator<T> en = values.GetEnumerator())
             {
                 if (!en.MoveNext())
@@ -1314,7 +1292,7 @@ namespace System.Text
 
                 while (en.MoveNext())
                 {
-                    Append(separator, separatorLength);
+                    Append(ref separator, separatorLength);
                     value = en.Current;
                     if (value != null)
                     {
@@ -1325,30 +1303,24 @@ namespace System.Text
             return this;
         }
 
-        private unsafe StringBuilder AppendJoinCore<T>(char* separator, int separatorLength, T[] values)
+        private StringBuilder AppendJoinCore<T>(ref char separator, int separatorLength, ReadOnlySpan<T> values)
         {
-            if (values == null)
-            {
-                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.values);
-            }
-
-            Debug.Assert(values != null);
-            if (values.Length == 0)
+            if (values.IsEmpty)
             {
                 return this;
             }
 
             if (values[0] != null)
             {
-                Append(values[0]!.ToString()); // TODO-NULLABLE: Indexer nullability tracked (https://github.com/dotnet/roslyn/issues/34644)
+                Append(values[0]!.ToString());
             }
 
             for (int i = 1; i < values.Length; i++)
             {
-                Append(separator, separatorLength);
+                Append(ref separator, separatorLength);
                 if (values[i] != null)
                 {
-                    Append(values[i]!.ToString()); // TODO-NULLABLE: Indexer nullability tracked (https://github.com/dotnet/roslyn/issues/34644)
+                    Append(values[i]!.ToString());
                 }
             }
             return this;
@@ -1360,48 +1332,65 @@ namespace System.Text
         {
             if ((uint)index > (uint)Length)
             {
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             if (value != null)
             {
-                unsafe
-                {
-                    fixed (char* sourcePtr = value)
-                        Insert(index, sourcePtr, value.Length);
-                }
+                Insert(index, ref value.GetRawStringData(), value.Length);
             }
+
             return this;
         }
 
-        public StringBuilder Insert(int index, bool value) => Insert(index, value.ToString(), 1);
+#pragma warning disable CA1830 // Prefer strongly-typed Append and Insert method overloads on StringBuilder. No need to fix for the builder itself
+        // bool does not implement ISpanFormattable but its ToString override returns cached strings.
+        public StringBuilder Insert(int index, bool value) => Insert(index, value.ToString().AsSpan(), 1);
+#pragma warning restore CA1830
 
         [CLSCompliant(false)]
-        public StringBuilder Insert(int index, sbyte value) => Insert(index, value.ToString(), 1);
+        public StringBuilder Insert(int index, sbyte value) => InsertSpanFormattable(index, value);
 
-        public StringBuilder Insert(int index, byte value) => Insert(index, value.ToString(), 1);
+        public StringBuilder Insert(int index, byte value) => InsertSpanFormattable(index, value);
 
-        public StringBuilder Insert(int index, short value) => Insert(index, value.ToString(), 1);
+        public StringBuilder Insert(int index, short value) => InsertSpanFormattable(index, value);
 
         public StringBuilder Insert(int index, char value)
         {
-            unsafe
+            if ((uint)index > (uint)Length)
             {
-                Insert(index, &value, 1);
+                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
+
+            Insert(index, ref value, 1);
             return this;
+        }
+
+        /// <summary>
+        /// Inserts the string representation of a specified Unicode rune into this instance at the specified character position.
+        /// </summary>
+        /// <param name="index">The position in this instance where insertion begins.</param>
+        /// <param name="value">The value to insert.</param>
+        /// <returns>A reference to this instance after the insert operation has completed.</returns>
+        public unsafe StringBuilder Insert(int index, Rune value)
+        {
+            // Convert value to span
+            ReadOnlySpan<char> valueChars = value.AsSpan(stackalloc char[Rune.MaxUtf16CharsPerRune]);
+
+            // Insert span
+            return Insert(index, valueChars);
         }
 
         public StringBuilder Insert(int index, char[]? value)
         {
             if ((uint)index > (uint)Length)
             {
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             if (value != null)
             {
-                Insert(index, value, 0, value.Length);
+                Insert(index, ref MemoryMarshal.GetArrayDataReference(value), value.Length);
             }
             return this;
         }
@@ -1411,7 +1400,7 @@ namespace System.Text
             int currentLength = Length;
             if ((uint)index > (uint)currentLength)
             {
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             if (value == null)
@@ -1420,53 +1409,42 @@ namespace System.Text
                 {
                     return this;
                 }
-                throw new ArgumentNullException(nameof(value), SR.ArgumentNull_String);
+                ArgumentNullException.Throw(nameof(value));
             }
 
-            if (startIndex < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_StartIndex);
-            }
-
-            if (charCount < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(charCount), SR.ArgumentOutOfRange_GenericPositive);
-            }
-
+            ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
+            ArgumentOutOfRangeException.ThrowIfNegative(charCount);
             if (startIndex > value.Length - charCount)
             {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             if (charCount > 0)
             {
-                unsafe
-                {
-                    fixed (char* sourcePtr = &value[startIndex])
-                        Insert(index, sourcePtr, charCount);
-                }
+                Insert(index, ref value[startIndex], charCount);
             }
+
             return this;
         }
 
-        public StringBuilder Insert(int index, int value) => Insert(index, value.ToString(), 1);
+        public StringBuilder Insert(int index, int value) => InsertSpanFormattable(index, value);
 
-        public StringBuilder Insert(int index, long value) => Insert(index, value.ToString(), 1);
+        public StringBuilder Insert(int index, long value) => InsertSpanFormattable(index, value);
 
-        public StringBuilder Insert(int index, float value) => Insert(index, value.ToString(), 1);
+        public StringBuilder Insert(int index, float value) => InsertSpanFormattable(index, value);
 
-        public StringBuilder Insert(int index, double value) => Insert(index, value.ToString(), 1);
+        public StringBuilder Insert(int index, double value) => InsertSpanFormattable(index, value);
 
-        public StringBuilder Insert(int index, decimal value) => Insert(index, value.ToString(), 1);
-
-        [CLSCompliant(false)]
-        public StringBuilder Insert(int index, ushort value) => Insert(index, value.ToString(), 1);
+        public StringBuilder Insert(int index, decimal value) => InsertSpanFormattable(index, value);
 
         [CLSCompliant(false)]
-        public StringBuilder Insert(int index, uint value) => Insert(index, value.ToString(), 1);
+        public StringBuilder Insert(int index, ushort value) => InsertSpanFormattable(index, value);
 
         [CLSCompliant(false)]
-        public StringBuilder Insert(int index, ulong value) => Insert(index, value.ToString(), 1);
+        public StringBuilder Insert(int index, uint value) => InsertSpanFormattable(index, value);
+
+        [CLSCompliant(false)]
+        public StringBuilder Insert(int index, ulong value) => InsertSpanFormattable(index, value);
 
         public StringBuilder Insert(int index, object? value) => (value == null) ? this : Insert(index, value.ToString(), 1);
 
@@ -1474,283 +1452,313 @@ namespace System.Text
         {
             if ((uint)index > (uint)Length)
             {
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
-            if (value.Length > 0)
+            if (value.Length != 0)
             {
-                unsafe
-                {
-                    fixed (char* sourcePtr = &MemoryMarshal.GetReference(value))
-                        Insert(index, sourcePtr, value.Length);
-                }
+                Insert(index, ref MemoryMarshal.GetReference(value), value.Length);
             }
+
             return this;
         }
 
-        public StringBuilder AppendFormat(string format, object? arg0) => AppendFormatHelper(null, format, new ParamsArray(arg0));
-
-        public StringBuilder AppendFormat(string format, object? arg0, object? arg1) => AppendFormatHelper(null, format, new ParamsArray(arg0, arg1));
-
-        public StringBuilder AppendFormat(string format, object? arg0, object? arg1, object? arg2) => AppendFormatHelper(null, format, new ParamsArray(arg0, arg1, arg2));
-
-        public StringBuilder AppendFormat(string format, params object?[] args)
+        private unsafe StringBuilder InsertSpanFormattable<T>(int index, T value) where T : ISpanFormattable
         {
-            if (args == null)
+            Debug.Assert(typeof(T).Assembly.Equals(typeof(object).Assembly), "Implementation trusts the results of TryFormat because T is expected to be something known");
+
+            Span<char> buffer = stackalloc char[string.StackallocCharBufferSizeLimit];
+            if (value.TryFormat(buffer, out int charsWritten, format: default, provider: null))
+            {
+                // We don't use Insert(int, ReadOnlySpan<char>) for exception compatibility;
+                // we want exceeding the maximum capacity to throw an OutOfMemoryException.
+                return Insert(index, buffer.Slice(0, charsWritten), 1);
+            }
+
+            return Insert(index, value.ToString(), 1);
+        }
+
+        public StringBuilder AppendFormat([StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, object? arg0)
+        {
+            return AppendFormat(null, format, new ReadOnlySpan<object?>(in arg0));
+        }
+
+        public StringBuilder AppendFormat([StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, object? arg0, object? arg1)
+        {
+            return AppendFormat(null, format, [arg0, arg1]);
+        }
+
+        public StringBuilder AppendFormat([StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, object? arg0, object? arg1, object? arg2)
+        {
+            return AppendFormat(null, format, [arg0, arg1, arg2]);
+        }
+
+        public StringBuilder AppendFormat([StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, params object?[] args)
+        {
+            if (args is null)
             {
                 // To preserve the original exception behavior, throw an exception about format if both
-                // args and format are null. The actual null check for format is in AppendFormatHelper.
-                string paramName = (format == null) ? nameof(format) : nameof(args);
-                throw new ArgumentNullException(paramName);
+                // args and format are null. The actual null check for format is in AppendFormat(..., span).
+                ArgumentNullException.Throw(format is null ? nameof(format) : nameof(args));
             }
 
-            return AppendFormatHelper(null, format, new ParamsArray(args));
+            return AppendFormat(null, format, args);
         }
 
-        public StringBuilder AppendFormat(IFormatProvider? provider, string format, object? arg0) => AppendFormatHelper(provider, format, new ParamsArray(arg0));
-
-        public StringBuilder AppendFormat(IFormatProvider? provider, string format, object? arg0, object? arg1) => AppendFormatHelper(provider, format, new ParamsArray(arg0, arg1));
-
-        public StringBuilder AppendFormat(IFormatProvider? provider, string format, object? arg0, object? arg1, object? arg2) => AppendFormatHelper(provider, format, new ParamsArray(arg0, arg1, arg2));
-
-        public StringBuilder AppendFormat(IFormatProvider? provider, string format, params object?[] args)
+        /// <summary>
+        /// Appends the string returned by processing a composite format string, which contains zero or more format items, to this instance.
+        /// Each format item is replaced by the string representation of a corresponding argument in a parameter span.
+        /// </summary>
+        /// <param name="format">A composite format string.</param>
+        /// <param name="args">A span of objects to format.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="format"/> is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">The length of the expanded string would exceed <see cref="StringBuilder.MaxCapacity"/>.</exception>
+        /// <exception cref="FormatException">
+        /// <paramref name="format"/> is invalid.
+        /// -or-
+        /// The index of a format item is less than 0 (zero), or greater than or equal to the length of the <paramref name="args"/> span.
+        /// </exception>
+        public StringBuilder AppendFormat([StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, params ReadOnlySpan<object?> args)
         {
-            if (args == null)
+            return AppendFormat(null, format, args);
+        }
+
+        public StringBuilder AppendFormat(IFormatProvider? provider, [StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, object? arg0)
+        {
+            return AppendFormat(provider, format, new ReadOnlySpan<object?>(in arg0));
+        }
+
+        public StringBuilder AppendFormat(IFormatProvider? provider, [StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, object? arg0, object? arg1)
+        {
+            return AppendFormat(provider, format, [arg0, arg1]);
+        }
+
+        public StringBuilder AppendFormat(IFormatProvider? provider, [StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, object? arg0, object? arg1, object? arg2)
+        {
+            return AppendFormat(provider, format, [arg0, arg1, arg2]);
+        }
+
+        public StringBuilder AppendFormat(IFormatProvider? provider, [StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, params object?[] args)
+        {
+            if (args is null)
             {
                 // To preserve the original exception behavior, throw an exception about format if both
-                // args and format are null. The actual null check for format is in AppendFormatHelper.
-                string paramName = (format == null) ? nameof(format) : nameof(args);
-                throw new ArgumentNullException(paramName);
+                // args and format are null. The actual null check for format is in AppendFormat(..., span).
+                ArgumentNullException.Throw(format is null ? nameof(format) : nameof(args));
             }
 
-            return AppendFormatHelper(provider, format, new ParamsArray(args));
+            return AppendFormat(provider, format, (ReadOnlySpan<object?>)args);
         }
 
-        private static void FormatError()
+        /// <summary>
+        /// Appends the string returned by processing a composite format string, which contains zero or more format items, to this instance.
+        /// Each format item is replaced by the string representation of a corresponding argument in a parameter span using a specified format provider.
+        /// </summary>
+        /// <param name="provider">An object that supplies culture-specific formatting information.</param>
+        /// <param name="format">A composite format string.</param>
+        /// <param name="args">A span of objects to format.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="format"/> is null.</exception>
+        /// <exception cref="ArgumentOutOfRangeException">The length of the expanded string would exceed <see cref="StringBuilder.MaxCapacity"/>.</exception>
+        /// <exception cref="FormatException">
+        /// <paramref name="format"/> is invalid.
+        /// -or-
+        /// The index of a format item is less than 0 (zero), or greater than or equal to the length of the <paramref name="args"/> span.
+        /// </exception>
+        public StringBuilder AppendFormat(IFormatProvider? provider, [StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, params ReadOnlySpan<object?> args)
         {
-            throw new FormatException(SR.Format_InvalidString);
-        }
+            ArgumentNullException.ThrowIfNull(format);
 
-        // Undocumented exclusive limits on the range for Argument Hole Index and Argument Hole Alignment.
-        private const int IndexLimit = 1000000; // Note:            0 <= ArgIndex < IndexLimit
-        private const int WidthLimit = 1000000; // Note:  -WidthLimit <  ArgAlign < WidthLimit
+            // Undocumented exclusive limits on the range for Argument Hole Index and Argument Hole Alignment.
+            const int IndexLimit = 1_000_000; // Note:            0 <= ArgIndex < IndexLimit
+            const int WidthLimit = 1_000_000; // Note:  -WidthLimit <  ArgAlign < WidthLimit
 
-        internal StringBuilder AppendFormatHelper(IFormatProvider? provider, string format, ParamsArray args)
-        {
-            if (format == null)
-            {
-                throw new ArgumentNullException(nameof(format));
-            }
+            // Query the provider (if one was supplied) for an ICustomFormatter.  If there is one,
+            // it needs to be used to transform all arguments.
+            ICustomFormatter? cf = (ICustomFormatter?)provider?.GetFormat(typeof(ICustomFormatter));
 
+            // Repeatedly find the next hole and process it.
             int pos = 0;
-            int len = format.Length;
-            char ch = '\x0';
-
-            ICustomFormatter? cf = null;
-            if (provider != null)
-            {
-                cf = (ICustomFormatter?)provider.GetFormat(typeof(ICustomFormatter));
-            }
-
+            char ch;
             while (true)
             {
-                while (pos < len)
+                // Skip until either the end of the input or the first unescaped opening brace, whichever comes first.
+                // Along the way we need to also unescape escaped closing braces.
+                while (true)
                 {
-                    ch = format[pos];
-
-                    pos++;
-                    // Is it a closing brace?
-                    if (ch == '}')
+                    // Find the next brace.  If there isn't one, the remainder of the input is text to be appended, and we're done.
+                    if ((uint)pos >= (uint)format.Length)
                     {
-                        // Check next character (if there is one) to see if it is escaped. eg }}
-                        if (pos < len && format[pos] == '}')
-                        {
-                            pos++;
-                        }
-                        else
-                        {
-                            // Otherwise treat it as an error (Mismatched closing brace)
-                            FormatError();
-                        }
+                        return this;
                     }
-                    // Is it an opening brace?
-                    else if (ch == '{')
-                    {
-                        // Check next character (if there is one) to see if it is escaped. eg {{
-                        if (pos < len && format[pos] == '{')
-                        {
-                            pos++;
-                        }
-                        else
-                        {
-                            // Otherwise treat it as the opening brace of an Argument Hole.
-                            pos--;
-                            break;
-                        }
-                    }
-                    // If it's neither then treat the character as just text.
-                    Append(ch);
-                }
 
-                //
-                // Start of parsing of Argument Hole.
-                // Argument Hole ::= { Index (, WS* Alignment WS*)? (: Formatting)? }
-                //
-                if (pos == len)
-                {
+                    ReadOnlySpan<char> remainder = format.AsSpan(pos);
+                    int countUntilNextBrace = remainder.IndexOfAny('{', '}');
+                    if (countUntilNextBrace < 0)
+                    {
+                        Append(remainder);
+                        return this;
+                    }
+
+                    // Append the text until the brace.
+                    Append(remainder.Slice(0, countUntilNextBrace));
+                    pos += countUntilNextBrace;
+
+                    // Get the brace.  It must be followed by another character, either a copy of itself in the case of being
+                    // escaped, or an arbitrary character that's part of the hole in the case of an opening brace.
+                    char brace = format[pos];
+                    ch = MoveNext(format, ref pos);
+                    if (brace == ch)
+                    {
+                        Append(ch);
+                        pos++;
+                        continue;
+                    }
+
+                    // This wasn't an escape, so it must be an opening brace.
+                    if (brace != '{')
+                    {
+                        ThrowHelper.ThrowFormatInvalidString(pos, ExceptionResource.Format_UnexpectedClosingBrace);
+                    }
+
+                    // Proceed to parse the hole.
                     break;
                 }
 
-                //
-                //  Start of parsing required Index parameter.
-                //  Index ::= ('0'-'9')+ WS*
-                //
-                pos++;
-                // If reached end of text then error (Unexpected end of text)
-                // or character is not a digit then error (Unexpected Character)
-                if (pos == len || (ch = format[pos]) < '0' || ch > '9') FormatError();
-                int index = 0;
-                do
-                {
-                    index = index * 10 + ch - '0';
-                    pos++;
-                    // If reached end of text then error (Unexpected end of text)
-                    if (pos == len)
-                    {
-                        FormatError();
-                    }
-                    ch = format[pos];
-                    // so long as character is digit and value of the index is less than 1000000 ( index limit )
-                }
-                while (ch >= '0' && ch <= '9' && index < IndexLimit);
-
-                // If value of index is not within the range of the arguments passed in then error (Index out of range)
-                if (index >= args.Length)
-                {
-                    throw new FormatException(SR.Format_IndexOutOfRange);
-                }
-
-                // Consume optional whitespace.
-                while (pos < len && (ch = format[pos]) == ' ') pos++;
-                // End of parsing index parameter.
-
-                //
-                //  Start of parsing of optional Alignment
-                //  Alignment ::= comma WS* minus? ('0'-'9')+ WS*
-                //
-                bool leftJustify = false;
+                // We're now positioned just after the opening brace of an argument hole, which consists of
+                // an opening brace, an index, an optional width preceded by a comma, and an optional format
+                // preceded by a colon, with arbitrary amounts of spaces throughout.
                 int width = 0;
-                // Is the character a comma, which indicates the start of alignment parameter.
-                if (ch == ',')
-                {
-                    pos++;
-
-                    // Consume Optional whitespace
-                    while (pos < len && format[pos] == ' ') pos++;
-
-                    // If reached the end of the text then error (Unexpected end of text)
-                    if (pos == len)
-                    {
-                        FormatError();
-                    }
-
-                    // Is there a minus sign?
-                    ch = format[pos];
-                    if (ch == '-')
-                    {
-                        // Yes, then alignment is left justified.
-                        leftJustify = true;
-                        pos++;
-                        // If reached end of text then error (Unexpected end of text)
-                        if (pos == len)
-                        {
-                            FormatError();
-                        }
-                        ch = format[pos];
-                    }
-
-                    // If current character is not a digit then error (Unexpected character)
-                    if (ch < '0' || ch > '9')
-                    {
-                        FormatError();
-                    }
-                    // Parse alignment digits.
-                    do
-                    {
-                        width = width * 10 + ch - '0';
-                        pos++;
-                        // If reached end of text then error. (Unexpected end of text)
-                        if (pos == len)
-                        {
-                            FormatError();
-                        }
-                        ch = format[pos];
-                        // So long a current character is a digit and the value of width is less than 100000 ( width limit )
-                    }
-                    while (ch >= '0' && ch <= '9' && width < WidthLimit);
-                    // end of parsing Argument Alignment
-                }
-
-                // Consume optional whitespace
-                while (pos < len && (ch = format[pos]) == ' ') pos++;
-
-                //
-                // Start of parsing of optional formatting parameter.
-                //
-                object? arg = args[index];
-
+                bool leftJustify = false;
                 ReadOnlySpan<char> itemFormatSpan = default; // used if itemFormat is null
-                // Is current character a colon? which indicates start of formatting parameter.
-                if (ch == ':')
+
+                // First up is the index parameter, which is of the form:
+                //     at least on digit
+                //     optional any number of spaces
+                // We've already read the first digit into ch.
+                Debug.Assert(format[pos - 1] == '{');
+                Debug.Assert(ch != '{');
+                int index = ch - '0';
+                if ((uint)index >= 10u)
                 {
-                    pos++;
-                    int startPos = pos;
-
-                    while (true)
-                    {
-                        // If reached end of text then error. (Unexpected end of text)
-                        if (pos == len)
-                        {
-                            FormatError();
-                        }
-                        ch = format[pos];
-
-                        if (ch == '}')
-                        {
-                            // Argument hole closed
-                            break;
-                        }
-                        else if (ch == '{')
-                        {
-                            // Braces inside the argument hole are not supported
-                            FormatError();
-                        }
-
-                        pos++;
-                    }
-
-                    if (pos > startPos)
-                    {
-                        itemFormatSpan = format.AsSpan(startPos, pos - startPos);
-                    }
+                    ThrowHelper.ThrowFormatInvalidString(pos, ExceptionResource.Format_ExpectedAsciiDigit);
                 }
-                else if (ch != '}')
+
+                // Common case is a single digit index followed by a closing brace.  If it's not a closing brace,
+                // proceed to finish parsing the full hole format.
+                ch = MoveNext(format, ref pos);
+                if (ch != '}')
                 {
-                    // Unexpected character
-                    FormatError();
+                    // Continue consuming optional additional digits.
+                    while (char.IsAsciiDigit(ch) && index < IndexLimit)
+                    {
+                        index = index * 10 + ch - '0';
+                        ch = MoveNext(format, ref pos);
+                    }
+
+                    // Consume optional whitespace.
+                    while (ch == ' ')
+                    {
+                        ch = MoveNext(format, ref pos);
+                    }
+
+                    // Parse the optional alignment, which is of the form:
+                    //     comma
+                    //     optional any number of spaces
+                    //     optional -
+                    //     at least one digit
+                    //     optional any number of spaces
+                    if (ch == ',')
+                    {
+                        // Consume optional whitespace.
+                        do
+                        {
+                            ch = MoveNext(format, ref pos);
+                        }
+                        while (ch == ' ');
+
+                        // Consume an optional minus sign indicating left alignment.
+                        if (ch == '-')
+                        {
+                            leftJustify = true;
+                            ch = MoveNext(format, ref pos);
+                        }
+
+                        // Parse alignment digits. The read character must be a digit.
+                        width = ch - '0';
+                        if ((uint)width >= 10u)
+                        {
+                            ThrowHelper.ThrowFormatInvalidString(pos, ExceptionResource.Format_ExpectedAsciiDigit);
+                        }
+                        ch = MoveNext(format, ref pos);
+                        while (char.IsAsciiDigit(ch) && width < WidthLimit)
+                        {
+                            width = width * 10 + ch - '0';
+                            ch = MoveNext(format, ref pos);
+                        }
+
+                        // Consume optional whitespace
+                        while (ch == ' ')
+                        {
+                            ch = MoveNext(format, ref pos);
+                        }
+                    }
+
+                    // The next character needs to either be a closing brace for the end of the hole,
+                    // or a colon indicating the start of the format.
+                    if (ch != '}')
+                    {
+                        if (ch != ':')
+                        {
+                            // Unexpected character
+                            ThrowHelper.ThrowFormatInvalidString(pos, ExceptionResource.Format_UnclosedFormatItem);
+                        }
+
+                        // Search for the closing brace; everything in between is the format,
+                        // but opening braces aren't allowed.
+                        int startingPos = pos;
+                        while (true)
+                        {
+                            ch = MoveNext(format, ref pos);
+
+                            if (ch == '}')
+                            {
+                                // Argument hole closed
+                                break;
+                            }
+
+                            if (ch == '{')
+                            {
+                                // Braces inside the argument hole are not supported
+                                ThrowHelper.ThrowFormatInvalidString(pos, ExceptionResource.Format_UnclosedFormatItem);
+                            }
+                        }
+
+                        startingPos++;
+                        itemFormatSpan = format.AsSpan(startingPos, pos - startingPos);
+                    }
                 }
 
                 // Construct the output for this arg hole.
+                Debug.Assert(format[pos] == '}');
                 pos++;
                 string? s = null;
                 string? itemFormat = null;
 
+                if ((uint)index >= (uint)args.Length)
+                {
+                    ThrowHelper.ThrowFormatIndexOutOfRange();
+                }
+                object? arg = args[index];
+
                 if (cf != null)
                 {
-                    if (itemFormatSpan.Length != 0)
+                    if (!itemFormatSpan.IsEmpty)
                     {
                         itemFormat = new string(itemFormatSpan);
                     }
+
                     s = cf.Format(itemFormat, arg, provider);
                 }
 
@@ -1758,17 +1766,24 @@ namespace System.Text
                 {
                     // If arg is ISpanFormattable and the beginning doesn't need padding,
                     // try formatting it into the remaining current chunk.
-                    if (arg is ISpanFormattable spanFormattableArg &&
-                        (leftJustify || width == 0) &&
+                    if ((leftJustify || width == 0) &&
+                        arg is ISpanFormattable spanFormattableArg &&
                         spanFormattableArg.TryFormat(RemainingCurrentChunk, out int charsWritten, itemFormatSpan, provider))
                     {
+                        if ((uint)charsWritten > (uint)RemainingCurrentChunk.Length)
+                        {
+                            // Untrusted ISpanFormattable implementations might return an erroneous charsWritten value,
+                            // and m_ChunkLength might end up being used in Unsafe code, so fail if we get back an
+                            // out-of-range charsWritten value.
+                            ThrowHelper.ThrowFormatInvalidString();
+                        }
+
                         m_ChunkLength += charsWritten;
 
                         // Pad the end, if needed.
-                        int padding = width - charsWritten;
-                        if (leftJustify && padding > 0)
+                        if (leftJustify && width > charsWritten)
                         {
-                            Append(' ', padding);
+                            Append(' ', width - charsWritten);
                         }
 
                         // Continue to parse other characters.
@@ -1784,30 +1799,185 @@ namespace System.Text
                         }
                         s = formattableArg.ToString(itemFormat, provider);
                     }
-                    else if (arg != null)
+                    else
                     {
-                        s = arg.ToString();
+                        s = arg?.ToString();
                     }
-                }
-                // Append it to the final output of the Format String.
-                if (s == null)
-                {
-                    s = string.Empty;
-                }
-                int pad = width - s.Length;
-                if (!leftJustify && pad > 0)
-                {
-                    Append(' ', pad);
+
+                    s ??= string.Empty;
                 }
 
-                Append(s);
-                if (leftJustify && pad > 0)
+                // Append it to the final output of the Format String.
+                if (width <= s.Length)
                 {
-                    Append(' ', pad);
+                    Append(s);
                 }
-                // Continue to parse other characters.
+                else if (leftJustify)
+                {
+                    Append(s);
+                    Append(' ', width - s.Length);
+                }
+                else
+                {
+                    Append(' ', width - s.Length);
+                    Append(s);
+                }
+
+                // Continue parsing the rest of the format string.
             }
-            return this;
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            static char MoveNext(string format, ref int pos)
+            {
+                pos++;
+                if ((uint)pos >= (uint)format.Length)
+                {
+                    ThrowHelper.ThrowFormatInvalidString(pos, ExceptionResource.Format_UnclosedFormatItem);
+                }
+                return format[pos];
+            }
+        }
+
+        /// <summary>
+        /// Appends the string returned by processing a composite format string, which contains zero or more format items, to this instance.
+        /// Each format item is replaced by the string representation of any of the arguments using a specified format provider.
+        /// </summary>
+        /// <typeparam name="TArg0">The type of the first object to format.</typeparam>
+        /// <param name="provider">An object that supplies culture-specific formatting information.</param>
+        /// <param name="format">A <see cref="CompositeFormat"/>.</param>
+        /// <param name="arg0">The first object to format.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="format"/> is null.</exception>
+        /// <exception cref="FormatException">The index of a format item is greater than or equal to the number of supplied arguments.</exception>
+        public StringBuilder AppendFormat<TArg0>(IFormatProvider? provider, CompositeFormat format, TArg0 arg0)
+        {
+            ArgumentNullException.ThrowIfNull(format);
+            format.ValidateNumberOfArgs(1);
+            return AppendFormat(provider, format, arg0, 0, 0, default);
+        }
+
+        /// <summary>
+        /// Appends the string returned by processing a composite format string, which contains zero or more format items, to this instance.
+        /// Each format item is replaced by the string representation of any of the arguments using a specified format provider.
+        /// </summary>
+        /// <typeparam name="TArg0">The type of the first object to format.</typeparam>
+        /// <typeparam name="TArg1">The type of the second object to format.</typeparam>
+        /// <param name="provider">An object that supplies culture-specific formatting information.</param>
+        /// <param name="format">A <see cref="CompositeFormat"/>.</param>
+        /// <param name="arg0">The first object to format.</param>
+        /// <param name="arg1">The second object to format.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="format"/> is null.</exception>
+        /// <exception cref="FormatException">The index of a format item is greater than or equal to the number of supplied arguments.</exception>
+        public StringBuilder AppendFormat<TArg0, TArg1>(IFormatProvider? provider, CompositeFormat format, TArg0 arg0, TArg1 arg1)
+        {
+            ArgumentNullException.ThrowIfNull(format);
+            format.ValidateNumberOfArgs(2);
+            return AppendFormat(provider, format, arg0, arg1, 0, default);
+        }
+
+        /// <summary>
+        /// Appends the string returned by processing a composite format string, which contains zero or more format items, to this instance.
+        /// Each format item is replaced by the string representation of any of the arguments using a specified format provider.
+        /// </summary>
+        /// <typeparam name="TArg0">The type of the first object to format.</typeparam>
+        /// <typeparam name="TArg1">The type of the second object to format.</typeparam>
+        /// <typeparam name="TArg2">The type of the third object to format.</typeparam>
+        /// <param name="provider">An object that supplies culture-specific formatting information.</param>
+        /// <param name="format">A <see cref="CompositeFormat"/>.</param>
+        /// <param name="arg0">The first object to format.</param>
+        /// <param name="arg1">The second object to format.</param>
+        /// <param name="arg2">The third object to format.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="format"/> is null.</exception>
+        /// <exception cref="FormatException">The index of a format item is greater than or equal to the number of supplied arguments.</exception>
+        public StringBuilder AppendFormat<TArg0, TArg1, TArg2>(IFormatProvider? provider, CompositeFormat format, TArg0 arg0, TArg1 arg1, TArg2 arg2)
+        {
+            ArgumentNullException.ThrowIfNull(format);
+            format.ValidateNumberOfArgs(3);
+            return AppendFormat(provider, format, arg0, arg1, arg2, default);
+        }
+
+        /// <summary>
+        /// Appends the string returned by processing a composite format string, which contains zero or more format items, to this instance.
+        /// Each format item is replaced by the string representation of any of the arguments using a specified format provider.
+        /// </summary>
+        /// <param name="provider">An object that supplies culture-specific formatting information.</param>
+        /// <param name="format">A <see cref="CompositeFormat"/>.</param>
+        /// <param name="args">An array of objects to format.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="format"/> is null.</exception>
+        /// <exception cref="ArgumentNullException"><paramref name="args"/> is null.</exception>
+        /// <exception cref="FormatException">The index of a format item is greater than or equal to the number of supplied arguments.</exception>
+        public StringBuilder AppendFormat(IFormatProvider? provider, CompositeFormat format, params object?[] args)
+        {
+            ArgumentNullException.ThrowIfNull(format);
+            ArgumentNullException.ThrowIfNull(args);
+            return AppendFormat(provider, format, (ReadOnlySpan<object?>)args);
+        }
+
+        /// <summary>
+        /// Appends the string returned by processing a composite format string, which contains zero or more format items, to this instance.
+        /// Each format item is replaced by the string representation of any of the arguments using a specified format provider.
+        /// </summary>
+        /// <param name="provider">An object that supplies culture-specific formatting information.</param>
+        /// <param name="format">A <see cref="CompositeFormat"/>.</param>
+        /// <param name="args">A span of objects to format.</param>
+        /// <returns>A reference to this instance after the append operation has completed.</returns>
+        /// <exception cref="ArgumentNullException"><paramref name="format"/> is null.</exception>
+        /// <exception cref="FormatException">The index of a format item is greater than or equal to the number of supplied arguments.</exception>
+        public StringBuilder AppendFormat(IFormatProvider? provider, CompositeFormat format, params ReadOnlySpan<object?> args)
+        {
+            ArgumentNullException.ThrowIfNull(format);
+            format.ValidateNumberOfArgs(args.Length);
+            return args.Length switch
+            {
+                0 => AppendFormat(provider, format, 0, 0, 0, args),
+                1 => AppendFormat(provider, format, args[0], 0, 0, args),
+                2 => AppendFormat(provider, format, args[0], args[1], 0, args),
+                _ => AppendFormat(provider, format, args[0], args[1], args[2], args),
+            };
+        }
+
+        private StringBuilder AppendFormat<TArg0, TArg1, TArg2>(IFormatProvider? provider, CompositeFormat format, TArg0 arg0, TArg1 arg1, TArg2 arg2, ReadOnlySpan<object?> args)
+        {
+            // Create the interpolated string handler.
+            var handler = new AppendInterpolatedStringHandler(format._literalLength, format._formattedCount, this, provider);
+
+            // Append each segment.
+            foreach ((string? Literal, int ArgIndex, int Alignment, string? Format) segment in format._segments)
+            {
+                if (segment.Literal is string literal)
+                {
+                    handler.AppendLiteral(literal);
+                }
+                else
+                {
+                    int index = segment.ArgIndex;
+                    switch (index)
+                    {
+                        case 0:
+                            handler.AppendFormatted(arg0, segment.Alignment, segment.Format);
+                            break;
+
+                        case 1:
+                            handler.AppendFormatted(arg1, segment.Alignment, segment.Format);
+                            break;
+
+                        case 2:
+                            handler.AppendFormatted(arg2, segment.Alignment, segment.Format);
+                            break;
+
+                        default:
+                            Debug.Assert(index > 2);
+                            handler.AppendFormatted(args[index], segment.Alignment, segment.Format);
+                            break;
+                    }
+                }
+            }
+
+            // Complete the operation.
+            return Append(ref handler);
         }
 
         /// <summary>
@@ -1822,10 +1992,21 @@ namespace System.Text
         public StringBuilder Replace(string oldValue, string? newValue) => Replace(oldValue, newValue, 0, Length);
 
         /// <summary>
+        /// Replaces all instances of one read-only character span with another in this builder.
+        /// </summary>
+        /// <param name="oldValue">The read-only character span to replace.</param>
+        /// <param name="newValue">The read-only character span to replace <paramref name="oldValue"/> with.</param>
+        /// <remarks>
+        /// If <paramref name="newValue"/> is empty, instances of <paramref name="oldValue"/>
+        /// are removed from this builder.
+        /// </remarks>
+        public StringBuilder Replace(ReadOnlySpan<char> oldValue, ReadOnlySpan<char> newValue) => Replace(oldValue, newValue, 0, Length);
+
+        /// <summary>
         /// Determines if the contents of this builder are equal to the contents of another builder.
         /// </summary>
         /// <param name="sb">The other builder.</param>
-        public bool Equals(StringBuilder? sb)
+        public bool Equals([NotNullWhen(true)] StringBuilder? sb)
         {
             if (sb == null)
             {
@@ -1931,28 +2112,38 @@ namespace System.Text
         /// </remarks>
         public StringBuilder Replace(string oldValue, string? newValue, int startIndex, int count)
         {
+            ArgumentException.ThrowIfNullOrEmpty(oldValue);
+            return Replace(oldValue.AsSpan(), newValue.AsSpan(), startIndex, count);
+        }
+
+        /// <summary>
+        /// Replaces all instances of one read-only character span with another in part of this builder.
+        /// </summary>
+        /// <param name="oldValue">The read-only character span to replace.</param>
+        /// <param name="newValue">The read-only character span to replace <paramref name="oldValue"/> with.</param>
+        /// <param name="startIndex">The index to start in this builder.</param>
+        /// <param name="count">The number of characters to read in this builder.</param>
+        /// <remarks>
+        /// If <paramref name="newValue"/> is empty, instances of <paramref name="oldValue"/>
+        /// are removed from this builder.
+        /// </remarks>
+        public unsafe StringBuilder Replace(ReadOnlySpan<char> oldValue, ReadOnlySpan<char> newValue, int startIndex, int count)
+        {
             int currentLength = Length;
             if ((uint)startIndex > (uint)currentLength)
             {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
             if (count < 0 || startIndex > currentLength - count)
             {
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_Index);
-            }
-            if (oldValue == null)
-            {
-                throw new ArgumentNullException(nameof(oldValue));
+                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
             if (oldValue.Length == 0)
             {
-                throw new ArgumentException(SR.Argument_EmptyName, nameof(oldValue));
+                throw new ArgumentException(SR.Arg_EmptySpan, nameof(oldValue));
             }
 
-            newValue ??= string.Empty;
-
-            int[]? replacements = null; // A list of replacement positions in a chunk to apply
-            int replacementsCount = 0;
+            var replacements = new ValueListBuilder<int>(stackalloc int[128]); // A list of replacement positions in a chunk to apply
 
             // Find the chunk, indexInChunk for the starting point
             StringBuilder chunk = FindChunkForIndex(startIndex);
@@ -1960,47 +2151,89 @@ namespace System.Text
             while (count > 0)
             {
                 Debug.Assert(chunk != null, "chunk was null in replace");
-                // Look for a match in the chunk,indexInChunk pointer
-                if (StartsWith(chunk, indexInChunk, count, oldValue))
+
+                // While the remaining search space is at least as large as the old value being replaced,
+                // find all occurrences of it contained entirely within the chunk. We stop searching
+                // once we're within oldValue.Length from the end of the chunk (or count limit), at which point
+                // we need to consider a value that bridges between two chunks.
+                ReadOnlySpan<char> remainingChunk = chunk.m_ChunkChars.AsSpan(indexInChunk, Math.Min(chunk.m_ChunkLength - indexInChunk, count));
+                while (oldValue.Length <= remainingChunk.Length)
                 {
-                    // Push it on the replacements array (with growth), we will do all replacements in a
-                    // given chunk in one operation below (see ReplaceAllInChunk) so we don't have to slide
-                    // many times.
-                    if (replacements == null)
+                    // Find the next match.
+                    int foundPos = remainingChunk.IndexOf(oldValue);
+                    if (foundPos >= 0)
                     {
-                        replacements = new int[5];
+                        // We found one.  Add it as a location for the replacement.
+                        indexInChunk += foundPos;
+                        replacements.Append(indexInChunk);
+
+                        // Move ahead to the next location.
+                        remainingChunk = remainingChunk.Slice(foundPos + oldValue.Length);
+                        indexInChunk += oldValue.Length;
+                        count -= foundPos + oldValue.Length;
+
+                        // If after accounting for moving past the match our count has
+                        // gone to 0, break out to stop searching.
+                        Debug.Assert(count >= 0, "count should never go negative");
+                        if (count == 0)
+                        {
+                            break;
+                        }
                     }
-                    else if (replacementsCount >= replacements.Length)
+                    else
                     {
-                        Array.Resize(ref replacements, replacements.Length * 3 / 2 + 4); // Grow by ~1.5x, but more in the beginning
+                        // No match found. Reposition to one character beyond the last starting
+                        // location searched, which will be oldValue.Length - 1 from the end.
+                        // Then break out so that we can start the cross-chunk matching from that location.
+                        int move = remainingChunk.Length - (oldValue.Length - 1);
+                        indexInChunk += move;
+                        count -= move;
+                        break;
                     }
-                    replacements[replacementsCount++] = indexInChunk;
-                    indexInChunk += oldValue.Length;
-                    count -= oldValue.Length;
                 }
-                else
+
+                Debug.Assert(oldValue.Length > Math.Min(count, chunk.m_ChunkLength - indexInChunk),
+                    $"oldValue.Length = {oldValue.Length}, chunk.m_ChunkLength - indexInChunk = {chunk.m_ChunkLength - indexInChunk}, count == {count}");
+
+                // Now do the more complicated cross-chunk matching.
+                while (indexInChunk < chunk.m_ChunkLength && count > 0)
                 {
-                    indexInChunk++;
-                    --count;
+                    if (StartsWith(chunk, indexInChunk, count, oldValue))
+                    {
+                        replacements.Append(indexInChunk);
+                        indexInChunk += oldValue.Length;
+                        count -= oldValue.Length;
+                    }
+                    else
+                    {
+                        indexInChunk++;
+                        --count;
+                    }
                 }
 
-                if (indexInChunk >= chunk.m_ChunkLength || count == 0) // Have we moved out of the current chunk?
+                // We've either fully explored the chunk or we've reached our count limit.
+                Debug.Assert(indexInChunk >= chunk.m_ChunkLength || count == 0,
+                    $"indexInChunk = {indexInChunk}, chunk.m_ChunkLength == {chunk.m_ChunkLength}, count == {count}");
+
+                // Replacing mutates the blocks, so we need to convert to a logical index and back afterwards.
+                int index = indexInChunk + chunk.m_ChunkOffset;
+
+                // Apply any replacements we accumulated.
+                if (replacements.Length != 0)
                 {
-                    // Replacing mutates the blocks, so we need to convert to a logical index and back afterwards.
-                    int index = indexInChunk + chunk.m_ChunkOffset;
-
-                    // See if we accumulated any replacements, if so apply them.
-                    Debug.Assert(replacements != null || replacementsCount == 0, "replacements was null and replacementsCount != 0");
-                    ReplaceAllInChunk(replacements, replacementsCount, chunk, oldValue.Length, newValue);
-                    // The replacement has affected the logical index.  Adjust it.
-                    index += ((newValue.Length - oldValue.Length) * replacementsCount);
-                    replacementsCount = 0;
-
-                    chunk = FindChunkForIndex(index);
-                    indexInChunk = index - chunk.m_ChunkOffset;
-                    Debug.Assert(chunk != null || count == 0, "Chunks ended prematurely!");
+                    // Perform all replacements, and adjust the logical index if the new and old values
+                    // have different lengths, such that the replacements would have impacted it.
+                    ReplaceAllInChunk(replacements.AsSpan(), chunk, oldValue.Length, newValue);
+                    index += (newValue.Length - oldValue.Length) * replacements.Length;
+                    replacements.Length = 0;
                 }
+
+                chunk = FindChunkForIndex(index);
+                indexInChunk = index - chunk.m_ChunkOffset;
+                Debug.Assert(chunk != null || count == 0, "Chunks ended prematurely!");
             }
+
+            replacements.Dispose();
 
             AssertInvariants();
             return this;
@@ -2028,12 +2261,12 @@ namespace System.Text
             int currentLength = Length;
             if ((uint)startIndex > (uint)currentLength)
             {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             if (count < 0 || startIndex > currentLength - count)
             {
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_Index);
+                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_IndexMustBeLessOrEqual);
             }
 
             int endIndex = startIndex + count;
@@ -2047,13 +2280,11 @@ namespace System.Text
                 {
                     int curInChunk = Math.Max(startIndexInChunk, 0);
                     int endInChunk = Math.Min(chunk.m_ChunkLength, endIndexInChunk);
-                    while (curInChunk < endInChunk)
-                    {
-                        if (chunk.m_ChunkChars[curInChunk] == oldChar)
-                            chunk.m_ChunkChars[curInChunk] = newChar;
-                        curInChunk++;
-                    }
+
+                    Span<char> span = chunk.m_ChunkChars.AsSpan(curInChunk, endInChunk - curInChunk);
+                    span.Replace(oldChar, newChar);
                 }
+
                 if (startIndexInChunk >= 0)
                 {
                     break;
@@ -2068,6 +2299,40 @@ namespace System.Text
         }
 
         /// <summary>
+        /// Replaces all occurrences of a specified rune in this instance with another specified rune using an ordinal comparison.
+        /// </summary>
+        /// <param name="oldRune">The rune to replace.</param>
+        /// <param name="newRune">The rune that replaces <paramref name="oldRune"/>.</param>
+        /// <returns>A reference to this instance with <paramref name="oldRune"/> replaced by <paramref name="newRune"/>.</returns>
+        public StringBuilder Replace(Rune oldRune, Rune newRune)
+        {
+            return Replace(oldRune, newRune, 0, Length);
+        }
+
+        /// <summary>
+        /// Replaces, within a substring of this instance, all occurrences of a specified rune with another specified rune using an ordinal comparison.
+        /// </summary>
+        /// <param name="oldRune">The rune to replace.</param>
+        /// <param name="newRune">The rune that replaces <paramref name="oldRune"/>.</param>
+        /// <param name="startIndex">The position in this instance where the substring begins.</param>
+        /// <param name="count">The length of the substring.</param>
+        /// <returns>
+        /// A reference to this instance with <paramref name="oldRune"/> replaced by <paramref name="newRune"/> in the range
+        /// from <paramref name="startIndex"/> to <paramref name="startIndex"/> + <paramref name="count"/> - 1.
+        /// </returns>
+        public unsafe StringBuilder Replace(Rune oldRune, Rune newRune, int startIndex, int count)
+        {
+            // Convert oldRune to span
+            ReadOnlySpan<char> oldChars = oldRune.AsSpan(stackalloc char[Rune.MaxUtf16CharsPerRune]);
+
+            // Convert newRune to span
+            ReadOnlySpan<char> newChars = newRune.AsSpan(stackalloc char[Rune.MaxUtf16CharsPerRune]);
+
+            // Replace span with span
+            return Replace(oldChars, newChars, startIndex, count);
+        }
+
+        /// <summary>
         /// Appends a character buffer to this builder.
         /// </summary>
         /// <param name="value">The pointer to the start of the buffer.</param>
@@ -2076,66 +2341,90 @@ namespace System.Text
         public unsafe StringBuilder Append(char* value, int valueCount)
         {
             // We don't check null value as this case will throw null reference exception anyway
-            if (valueCount < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(valueCount), SR.ArgumentOutOfRange_NegativeCount);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(valueCount);
 
-            // this is where we can check if the valueCount will put us over m_MaxCapacity
-            // We are doing the check here to prevent the corruption of the StringBuilder.
+            Append(ref *value, valueCount);
+            return this;
+        }
+
+        /// <summary>Appends a specified number of chars starting from the specified reference.</summary>
+        private void Append(ref char value, int valueCount)
+        {
+            Debug.Assert(valueCount >= 0, "Invalid length; should have been validated by caller.");
+            if (valueCount != 0)
+            {
+                char[] chunkChars = m_ChunkChars;
+                int chunkLength = m_ChunkLength;
+
+                if (((uint)chunkLength + (uint)valueCount) <= (uint)chunkChars.Length)
+                {
+                    ref char destination = ref Unsafe.Add(ref MemoryMarshal.GetArrayDataReference(chunkChars), chunkLength);
+                    if (valueCount <= 2)
+                    {
+                        destination = value;
+                        if (valueCount == 2)
+                        {
+                            Unsafe.Add(ref destination, 1) = Unsafe.Add(ref value, 1);
+                        }
+                    }
+                    else
+                    {
+                        Buffer.Memmove(ref destination, ref value, (nuint)valueCount);
+                    }
+
+                    m_ChunkLength = chunkLength + valueCount;
+                }
+                else
+                {
+                    AppendWithExpansion(ref value, valueCount);
+                }
+            }
+        }
+
+        private void AppendWithExpansion(ref char value, int valueCount)
+        {
+            // Check if the valueCount will put us over m_MaxCapacity.
+            // Doing the check here prevents corruption of the StringBuilder.
             int newLength = Length + valueCount;
             if (newLength > m_MaxCapacity || newLength < valueCount)
             {
                 throw new ArgumentOutOfRangeException(nameof(valueCount), SR.ArgumentOutOfRange_LengthGreaterThanCapacity);
             }
 
-            // This case is so common we want to optimize for it heavily.
-            int newIndex = valueCount + m_ChunkLength;
-            if (newIndex <= m_ChunkChars.Length)
+            // Copy the first chunk
+            int firstLength = m_ChunkChars.Length - m_ChunkLength;
+            if (firstLength > 0)
             {
-                ThreadSafeCopy(value, m_ChunkChars, m_ChunkLength, valueCount);
-                m_ChunkLength = newIndex;
+                new ReadOnlySpan<char>(ref value, firstLength).CopyTo(m_ChunkChars.AsSpan(m_ChunkLength));
+                m_ChunkLength = m_ChunkChars.Length;
             }
-            else
-            {
-                // Copy the first chunk
-                int firstLength = m_ChunkChars.Length - m_ChunkLength;
-                if (firstLength > 0)
-                {
-                    ThreadSafeCopy(value, m_ChunkChars, m_ChunkLength, firstLength);
-                    m_ChunkLength = m_ChunkChars.Length;
-                }
 
-                // Expand the builder to add another chunk.
-                int restLength = valueCount - firstLength;
-                ExpandByABlock(restLength);
-                Debug.Assert(m_ChunkLength == 0, "A new block was not created.");
+            // Expand the builder to add another chunk.
+            int restLength = valueCount - firstLength;
+            ExpandByABlock(restLength);
+            Debug.Assert(m_ChunkLength == 0, "A new block was not created.");
 
-                // Copy the second chunk
-                ThreadSafeCopy(value + firstLength, m_ChunkChars, 0, restLength);
-                m_ChunkLength = restLength;
-            }
+            // Copy the second chunk
+            new ReadOnlySpan<char>(ref Unsafe.Add(ref value, firstLength), restLength).CopyTo(m_ChunkChars);
+            m_ChunkLength = restLength;
+
             AssertInvariants();
-            return this;
         }
 
         /// <summary>
         /// Inserts a character buffer into this builder at the specified position.
         /// </summary>
         /// <param name="index">The index to insert in this builder.</param>
-        /// <param name="value">The pointer to the start of the buffer.</param>
+        /// <param name="value">The reference to the start of the buffer.</param>
         /// <param name="valueCount">The number of characters in the buffer.</param>
-        private unsafe void Insert(int index, char* value, int valueCount)
+        private void Insert(int index, ref char value, int valueCount)
         {
-            if ((uint)index > (uint)Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_Index);
-            }
+            Debug.Assert((uint)index <= (uint)Length, "Callers should check that index is a legal value.");
 
             if (valueCount > 0)
             {
                 MakeRoom(index, valueCount, out StringBuilder chunk, out int indexInChunk, false);
-                ReplaceInPlaceAtChunk(ref chunk!, ref indexInChunk, value, valueCount);
+                ReplaceInPlaceAtChunk(ref chunk!, ref indexInChunk, ref value, valueCount);
             }
         }
 
@@ -2143,78 +2432,66 @@ namespace System.Text
         /// Replaces strings at specified indices with a new string in a chunk.
         /// </summary>
         /// <param name="replacements">The list of indices, relative to the beginning of the chunk, to remove at.</param>
-        /// <param name="replacementsCount">The number of replacements to make.</param>
         /// <param name="sourceChunk">The source chunk.</param>
         /// <param name="removeCount">The number of characters to remove at each replacement.</param>
         /// <param name="value">The string to insert at each replacement.</param>
         /// <remarks>
         /// This routine is very efficient because it does replacements in bulk.
         /// </remarks>
-        private void ReplaceAllInChunk(int[]? replacements, int replacementsCount, StringBuilder sourceChunk, int removeCount, string value)
+        private void ReplaceAllInChunk(ReadOnlySpan<int> replacements, StringBuilder sourceChunk, int removeCount, ReadOnlySpan<char> value)
         {
-            if (replacementsCount <= 0)
+            Debug.Assert(!replacements.IsEmpty);
+
+            // calculate the total amount of extra space or space needed for all the replacements.
+            long longDelta = (value.Length - removeCount) * (long)replacements.Length;
+            int delta = (int)longDelta;
+            if (delta != longDelta)
             {
-                return;
+                throw new OutOfMemoryException();
             }
 
-            unsafe
+            StringBuilder targetChunk = sourceChunk;        // the target as we copy chars down
+            int targetIndexInChunk = replacements[0];
+
+            // Make the room needed for all the new characters if needed.
+            if (delta > 0)
             {
-                fixed (char* valuePtr = value)
+                MakeRoom(targetChunk.m_ChunkOffset + targetIndexInChunk, delta, out targetChunk, out targetIndexInChunk, true);
+            }
+
+            // We made certain that characters after the insertion point are not moved,
+            int i = 0;
+            while (true)
+            {
+                // Copy in the new string for the ith replacement
+                ReplaceInPlaceAtChunk(ref targetChunk!, ref targetIndexInChunk, ref MemoryMarshal.GetReference<char>(value), value.Length);
+                int gapStart = replacements[i] + removeCount;
+                i++;
+                if ((uint)i >= replacements.Length)
                 {
-                    Debug.Assert(replacements != null, "replacements was null when replacementsCount > 0");
-                    // calculate the total amount of extra space or space needed for all the replacements.
-                    long longDelta = (value.Length - removeCount) * (long)replacementsCount;
-                    int delta = (int)longDelta;
-                    if (delta != longDelta)
-                    {
-                        throw new OutOfMemoryException();
-                    }
-
-                    StringBuilder targetChunk = sourceChunk;        // the target as we copy chars down
-                    int targetIndexInChunk = replacements[0];
-
-                    // Make the room needed for all the new characters if needed.
-                    if (delta > 0)
-                    {
-                        MakeRoom(targetChunk.m_ChunkOffset + targetIndexInChunk, delta, out targetChunk, out targetIndexInChunk, true);
-                    }
-
-                    // We made certain that characters after the insertion point are not moved,
-                    int i = 0;
-                    while (true)
-                    {
-                        // Copy in the new string for the ith replacement
-                        ReplaceInPlaceAtChunk(ref targetChunk!, ref targetIndexInChunk, valuePtr, value.Length);
-                        int gapStart = replacements[i] + removeCount;
-                        i++;
-                        if (i >= replacementsCount)
-                        {
-                            break;
-                        }
-
-                        int gapEnd = replacements[i];
-                        Debug.Assert(gapStart < sourceChunk.m_ChunkChars.Length, "gap starts at end of buffer.  Should not happen");
-                        Debug.Assert(gapStart <= gapEnd, "negative gap size");
-                        Debug.Assert(gapEnd <= sourceChunk.m_ChunkLength, "gap too big");
-                        if (delta != 0)     // can skip the sliding of gaps if source an target string are the same size.
-                        {
-                            // Copy the gap data between the current replacement and the next replacement
-                            fixed (char* sourcePtr = &sourceChunk.m_ChunkChars[gapStart])
-                                ReplaceInPlaceAtChunk(ref targetChunk!, ref targetIndexInChunk, sourcePtr, gapEnd - gapStart);
-                        }
-                        else
-                        {
-                            targetIndexInChunk += gapEnd - gapStart;
-                            Debug.Assert(targetIndexInChunk <= targetChunk.m_ChunkLength, "gap not in chunk");
-                        }
-                    }
-
-                    // Remove extra space if necessary.
-                    if (delta < 0)
-                    {
-                        Remove(targetChunk.m_ChunkOffset + targetIndexInChunk, -delta, out targetChunk, out targetIndexInChunk);
-                    }
+                    break;
                 }
+
+                int gapEnd = replacements[i];
+                Debug.Assert(gapStart < sourceChunk.m_ChunkChars.Length, "gap starts at end of buffer.  Should not happen");
+                Debug.Assert(gapStart <= gapEnd, "negative gap size");
+                Debug.Assert(gapEnd <= sourceChunk.m_ChunkLength, "gap too big");
+                if (delta != 0)     // can skip the sliding of gaps if source an target string are the same size.
+                {
+                    // Copy the gap data between the current replacement and the next replacement
+                    ReplaceInPlaceAtChunk(ref targetChunk!, ref targetIndexInChunk, ref sourceChunk.m_ChunkChars[gapStart], gapEnd - gapStart);
+                }
+                else
+                {
+                    targetIndexInChunk += gapEnd - gapStart;
+                    Debug.Assert(targetIndexInChunk <= targetChunk.m_ChunkLength, "gap not in chunk");
+                }
+            }
+
+            // Remove extra space if necessary.
+            if (delta < 0)
+            {
+                Remove(targetChunk.m_ChunkOffset + targetIndexInChunk, -delta, out targetChunk, out targetIndexInChunk);
             }
         }
 
@@ -2225,7 +2502,7 @@ namespace System.Text
         /// <param name="indexInChunk">The index in <paramref name="chunk"/> at which the substring starts.</param>
         /// <param name="count">The logical count of the substring.</param>
         /// <param name="value">The prefix.</param>
-        private bool StartsWith(StringBuilder chunk, int indexInChunk, int count, string value)
+        private bool StartsWith(StringBuilder chunk, int indexInChunk, int count, ReadOnlySpan<char> value)
         {
             for (int i = 0; i < value.Length; i++)
             {
@@ -2268,9 +2545,9 @@ namespace System.Text
         /// The index in <paramref name="chunk"/> to start replacing characters at.
         /// Receives the index at which character replacement ends.
         /// </param>
-        /// <param name="value">The pointer to the start of the character buffer.</param>
+        /// <param name="value">The reference to the start of the character buffer.</param>
         /// <param name="count">The number of characters in the buffer.</param>
-        private unsafe void ReplaceInPlaceAtChunk(ref StringBuilder? chunk, ref int indexInChunk, char* value, int count)
+        private void ReplaceInPlaceAtChunk(ref StringBuilder? chunk, ref int indexInChunk, ref char value, int count)
         {
             if (count != 0)
             {
@@ -2281,7 +2558,7 @@ namespace System.Text
                     Debug.Assert(lengthInChunk >= 0, "Index isn't in the chunk.");
 
                     int lengthToCopy = Math.Min(lengthInChunk, count);
-                    ThreadSafeCopy(value, chunk.m_ChunkChars, indexInChunk, lengthToCopy);
+                    new ReadOnlySpan<char>(ref value, lengthToCopy).CopyTo(chunk.m_ChunkChars.AsSpan(indexInChunk));
 
                     // Advance the index.
                     indexInChunk += lengthToCopy;
@@ -2295,48 +2572,8 @@ namespace System.Text
                     {
                         break;
                     }
-                    value += lengthToCopy;
+                    value = ref Unsafe.Add(ref value, lengthToCopy);
                 }
-            }
-        }
-
-        /// <remarks>
-        /// This method prevents out-of-bounds writes in the case a different thread updates a field in the builder just before a copy begins.
-        /// All interesting variables are copied out of the heap into the parameters of this method, and then bounds checks are run.
-        /// </remarks>
-        private static unsafe void ThreadSafeCopy(char* sourcePtr, char[] destination, int destinationIndex, int count)
-        {
-            if (count > 0)
-            {
-                if ((uint)destinationIndex <= (uint)destination.Length && (destinationIndex + count) <= destination.Length)
-                {
-                    fixed (char* destinationPtr = &destination[destinationIndex])
-                        string.wstrcpy(destinationPtr, sourcePtr, count);
-                }
-                else
-                {
-                    throw new ArgumentOutOfRangeException(nameof(destinationIndex), SR.ArgumentOutOfRange_Index);
-                }
-            }
-        }
-
-        private static unsafe void ThreadSafeCopy(char[] source, int sourceIndex, Span<char> destination, int destinationIndex, int count)
-        {
-            if (count > 0)
-            {
-                if ((uint)sourceIndex > (uint)source.Length || count > source.Length - sourceIndex)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(sourceIndex), SR.ArgumentOutOfRange_Index);
-                }
-
-                if ((uint)destinationIndex > (uint)destination.Length || count > destination.Length - destinationIndex)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(destinationIndex), SR.ArgumentOutOfRange_Index);
-                }
-
-                fixed (char* sourcePtr = &source[sourceIndex])
-                fixed (char* destinationPtr = &MemoryMarshal.GetReference(destination))
-                    string.wstrcpy(destinationPtr + destinationIndex, sourcePtr, count);
             }
         }
 
@@ -2375,8 +2612,8 @@ namespace System.Text
         /// </summary>
         /// <param name="chunk">The chunk whose successor should be found.</param>
         /// <remarks>
-        /// Each chunk only stores the pointer to its logical predecessor, so this routine has to start
-        /// from the 'this' pointer (which is assumed to represent the whole StringBuilder) and work its
+        /// Each chunk only stores the reference to its logical predecessor, so this routine has to start
+        /// from the 'this' reference (which is assumed to represent the whole StringBuilder) and work its
         /// way down until it finds the specified chunk (which is O(n)). Thus, it is more expensive than
         /// a field fetch.
         /// </remarks>
@@ -2417,7 +2654,7 @@ namespace System.Text
             // Allocate the array before updating any state to avoid leaving inconsistent state behind in case of out of memory exception
             char[] chunkChars = GC.AllocateUninitializedArray<char>(newBlockLength);
 
-            // Move all of the data from this chunk to a new one, via a few O(1) pointer adjustments.
+            // Move all of the data from this chunk to a new one, via a few O(1) reference adjustments.
             // Then, have this chunk point to the new one as its predecessor.
             m_ChunkPrevious = new StringBuilder(this);
             m_ChunkOffset += m_ChunkLength;
@@ -2521,20 +2758,14 @@ namespace System.Text
             int copyCount1 = Math.Min(count, indexInChunk);
             if (copyCount1 > 0)
             {
-                unsafe
-                {
-                    fixed (char* chunkCharsPtr = &chunk.m_ChunkChars[0])
-                    {
-                        ThreadSafeCopy(chunkCharsPtr, newChunk.m_ChunkChars, 0, copyCount1);
+                new ReadOnlySpan<char>(chunk.m_ChunkChars, 0, copyCount1).CopyTo(newChunk.m_ChunkChars);
 
-                        // Slide characters over in the current buffer to make room.
-                        int copyCount2 = indexInChunk - copyCount1;
-                        if (copyCount2 >= 0)
-                        {
-                            ThreadSafeCopy(chunkCharsPtr + copyCount1, chunk.m_ChunkChars, 0, copyCount2);
-                            indexInChunk = copyCount2;
-                        }
-                    }
+                // Slide characters over in the current buffer to make room.
+                int copyCount2 = indexInChunk - copyCount1;
+                if (copyCount2 >= 0)
+                {
+                    new ReadOnlySpan<char>(chunk.m_ChunkChars, copyCount1, copyCount2).CopyTo(chunk.m_ChunkChars);
+                    indexInChunk = copyCount2;
                 }
             }
 
@@ -2644,11 +2875,420 @@ namespace System.Text
             // Remove any characters in the end chunk, by sliding the characters down.
             if (copyTargetIndexInChunk != endIndexInChunk) // Sometimes no move is necessary
             {
-                ThreadSafeCopy(endChunk.m_ChunkChars, endIndexInChunk, endChunk.m_ChunkChars, copyTargetIndexInChunk, copyCount);
+                new ReadOnlySpan<char>(endChunk.m_ChunkChars, endIndexInChunk, copyCount).CopyTo(endChunk.m_ChunkChars.AsSpan(copyTargetIndexInChunk));
             }
 
             Debug.Assert(chunk != null, "We fell off the beginning of the string!");
             AssertInvariants();
+        }
+
+        /// <summary>
+        /// Gets the <see cref="Rune"/> that begins at a specified position in this builder.
+        /// </summary>
+        /// <param name="index">The starting position in this builder at which to decode the rune.</param>
+        /// <returns>The rune obtained from this builder at the specified <paramref name="index"/>.</returns>
+        /// <exception cref="ArgumentOutOfRangeException">The index is out of the range of the builder.</exception>
+        /// <exception cref="ArgumentException">The rune at the specified index is not valid.</exception>
+        public Rune GetRuneAt(int index)
+        {
+            if (TryGetRuneAt(index, out Rune value))
+            {
+                return value;
+            }
+            ThrowHelper.ThrowArgumentException_CannotExtractScalar(ExceptionArgument.index);
+            return default;
+        }
+
+        /// <summary>
+        /// Attempts to get the <see cref="Rune"/> that begins at a specified position in this builder, and return a value that indicates whether the operation succeeded.
+        /// </summary>
+        /// <param name="index">The starting position in this builder at which to decode the rune.</param>
+        /// <param name="value">When this method returns, the decoded rune.</param>
+        /// <returns>
+        /// <see langword="true"/> if a scalar value was successfully extracted from the specified index;
+        /// <see langword="false"/> if a value could not be extracted because of invalid data.
+        /// </returns>
+        /// <exception cref="ArgumentOutOfRangeException">The index is out of the range of the builder.</exception>
+        public bool TryGetRuneAt(int index, out Rune value)
+        {
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(index, Length);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+
+            // Get span at StringBuilder index
+            Span<char> chars = index + 1 < Length
+                ? [this[index], this[index + 1]]
+                : [this[index]];
+
+            OperationStatus status = Rune.DecodeFromUtf16(chars, out Rune result, out _);
+            if (status is OperationStatus.Done)
+            {
+                value = result;
+                return true;
+            }
+
+            value = default;
+            return false;
+        }
+
+        /// <summary>Provides a handler used by the language compiler to append interpolated strings into <see cref="StringBuilder"/> instances.</summary>
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        [InterpolatedStringHandler]
+        public struct AppendInterpolatedStringHandler
+        {
+            // Implementation note:
+            // As this type is only intended to be targeted by the compiler, public APIs eschew argument validation logic
+            // in a variety of places, e.g. allowing a null input when one isn't expected to produce a NullReferenceException rather
+            // than an ArgumentNullException.
+
+            /// <summary>The associated StringBuilder to which to append.</summary>
+            internal readonly StringBuilder _stringBuilder;
+            /// <summary>Optional provider to pass to IFormattable.ToString or ISpanFormattable.TryFormat calls.</summary>
+            private readonly IFormatProvider? _provider;
+            /// <summary>Whether <see cref="_provider"/> provides an ICustomFormatter.</summary>
+            /// <remarks>
+            /// Custom formatters are very rare.  We want to support them, but it's ok if we make them more expensive
+            /// in order to make them as pay-for-play as possible.  So, we avoid adding another reference type field
+            /// to reduce the size of the handler and to reduce required zero'ing, by only storing whether the provider
+            /// provides a formatter, rather than actually storing the formatter.  This in turn means, if there is a
+            /// formatter, we pay for the extra interface call on each AppendFormatted that needs it.
+            /// </remarks>
+            private readonly bool _hasCustomFormatter;
+
+            /// <summary>Creates a handler used to append an interpolated string into a <see cref="StringBuilder"/>.</summary>
+            /// <param name="literalLength">The number of constant characters outside of interpolation expressions in the interpolated string.</param>
+            /// <param name="formattedCount">The number of interpolation expressions in the interpolated string.</param>
+            /// <param name="stringBuilder">The associated StringBuilder to which to append.</param>
+            /// <remarks>This is intended to be called only by compiler-generated code. Arguments are not validated as they'd otherwise be for members intended to be used directly.</remarks>
+            public AppendInterpolatedStringHandler(int literalLength, int formattedCount, StringBuilder stringBuilder)
+            {
+                _stringBuilder = stringBuilder;
+                _provider = null;
+                _hasCustomFormatter = false;
+            }
+
+            /// <summary>Creates a handler used to translate an interpolated string into a <see cref="string"/>.</summary>
+            /// <param name="literalLength">The number of constant characters outside of interpolation expressions in the interpolated string.</param>
+            /// <param name="formattedCount">The number of interpolation expressions in the interpolated string.</param>
+            /// <param name="stringBuilder">The associated StringBuilder to which to append.</param>
+            /// <param name="provider">An object that supplies culture-specific formatting information.</param>
+            /// <remarks>This is intended to be called only by compiler-generated code. Arguments are not validated as they'd otherwise be for members intended to be used directly.</remarks>
+            public AppendInterpolatedStringHandler(int literalLength, int formattedCount, StringBuilder stringBuilder, IFormatProvider? provider)
+            {
+                _stringBuilder = stringBuilder;
+                _provider = provider;
+                _hasCustomFormatter = provider is not null && DefaultInterpolatedStringHandler.HasCustomFormatter(provider);
+            }
+
+            /// <summary>Writes the specified string to the handler.</summary>
+            /// <param name="value">The string to write.</param>
+            public void AppendLiteral(string value) => _stringBuilder.Append(value);
+
+            #region AppendFormatted
+            // Design note:
+            // This provides the same set of overloads and semantics as DefaultInterpolatedStringHandler.
+
+            #region AppendFormatted T
+            /// <summary>Writes the specified value to the handler.</summary>
+            /// <param name="value">The value to write.</param>
+            /// <typeparam name="T">The type of the value to write.</typeparam>
+            public void AppendFormatted<T>(T value)
+            {
+                // This method could delegate to AppendFormatted with a null format, but explicitly passing
+                // default as the format to TryFormat helps to improve code quality in some cases when TryFormat is inlined,
+                // e.g. for Int32 it enables the JIT to eliminate code in the inlined method based on a length check on the format.
+
+                if (_hasCustomFormatter)
+                {
+                    // If there's a custom formatter, always use it.
+                    AppendCustomFormatter(value, format: null);
+                    return;
+                }
+
+                if (value is null)
+                {
+                    return;
+                }
+
+                if (value is IFormattable)
+                {
+                    // Check first for IFormattable, even though we'll prefer to use ISpanFormattable, as the latter
+                    // requires the former.  For value types, it won't matter as the type checks devolve into
+                    // JIT-time constants.  For reference types, they're more likely to implement IFormattable
+                    // than they are to implement ISpanFormattable: if they don't implement either, we save an
+                    // interface check over first checking for ISpanFormattable and then for IFormattable, and
+                    // if it only implements IFormattable, we come out even: only if it implements both do we
+                    // end up paying for an extra interface check.
+
+                    if (typeof(T).IsEnum)
+                    {
+                        if (Enum.TryFormatUnconstrained(value, _stringBuilder.RemainingCurrentChunk, out int charsWritten))
+                        {
+                            _stringBuilder.m_ChunkLength += charsWritten;
+                        }
+                        else
+                        {
+                            AppendFormattedWithTempSpace(value, 0, format: null);
+                        }
+                    }
+                    else if (value is ISpanFormattable)
+                    {
+                        Span<char> destination = _stringBuilder.RemainingCurrentChunk;
+                        if (((ISpanFormattable)value).TryFormat(destination, out int charsWritten, default, _provider)) // constrained call avoiding boxing for value types
+                        {
+                            if ((uint)charsWritten > (uint)destination.Length)
+                            {
+                                // Protect against faulty ISpanFormattable implementations returning invalid charsWritten values.
+                                // Other code in _stringBuilder uses Unsafe manipulation, and we want to ensure m_ChunkLength remains safe.
+                                ThrowHelper.ThrowFormatInvalidString();
+                            }
+
+                            _stringBuilder.m_ChunkLength += charsWritten;
+                        }
+                        else
+                        {
+                            // Not enough room in the current chunk.  Take the slow path that formats into temporary space
+                            // and then copies the result into the StringBuilder.
+                            AppendFormattedWithTempSpace(value, 0, format: null);
+                        }
+                    }
+                    else
+                    {
+                        _stringBuilder.Append(((IFormattable)value).ToString(format: null, _provider)); // constrained call avoiding boxing for value types
+                    }
+                }
+                else
+                {
+                    _stringBuilder.Append(value.ToString());
+                }
+            }
+
+            /// <summary>Writes the specified value to the handler.</summary>
+            /// <param name="value">The value to write.</param>
+            /// <param name="format">The format string.</param>
+            /// <typeparam name="T">The type of the value to write.</typeparam>
+            public void AppendFormatted<T>(T value, string? format)
+            {
+                if (_hasCustomFormatter)
+                {
+                    // If there's a custom formatter, always use it.
+                    AppendCustomFormatter(value, format);
+                    return;
+                }
+
+                if (value is null)
+                {
+                    return;
+                }
+
+                if (value is IFormattable)
+                {
+                    // Check first for IFormattable, even though we'll prefer to use ISpanFormattable, as the latter
+                    // requires the former.  For value types, it won't matter as the type checks devolve into
+                    // JIT-time constants.  For reference types, they're more likely to implement IFormattable
+                    // than they are to implement ISpanFormattable: if they don't implement either, we save an
+                    // interface check over first checking for ISpanFormattable and then for IFormattable, and
+                    // if it only implements IFormattable, we come out even: only if it implements both do we
+                    // end up paying for an extra interface check.
+
+                    if (typeof(T).IsEnum)
+                    {
+                        if (Enum.TryFormatUnconstrained(value, _stringBuilder.RemainingCurrentChunk, out int charsWritten, format))
+                        {
+                            _stringBuilder.m_ChunkLength += charsWritten;
+                        }
+                        else
+                        {
+                            AppendFormattedWithTempSpace(value, 0, format);
+                        }
+                    }
+                    else if (value is ISpanFormattable)
+                    {
+                        Span<char> destination = _stringBuilder.RemainingCurrentChunk;
+                        if (((ISpanFormattable)value).TryFormat(destination, out int charsWritten, format, _provider)) // constrained call avoiding boxing for value types
+                        {
+                            if ((uint)charsWritten > (uint)destination.Length)
+                            {
+                                // Protect against faulty ISpanFormattable implementations returning invalid charsWritten values.
+                                // Other code in _stringBuilder uses Unsafe manipulation, and we want to ensure m_ChunkLength remains safe.
+                                ThrowHelper.ThrowFormatInvalidString();
+                            }
+
+                            _stringBuilder.m_ChunkLength += charsWritten;
+                        }
+                        else
+                        {
+                            // Not enough room in the current chunk.  Take the slow path that formats into temporary space
+                            // and then copies the result into the StringBuilder.
+                            AppendFormattedWithTempSpace(value, 0, format);
+                        }
+                    }
+                    else
+                    {
+                        _stringBuilder.Append(((IFormattable)value).ToString(format, _provider)); // constrained call avoiding boxing for value types
+                    }
+                }
+                else
+                {
+                    _stringBuilder.Append(value.ToString());
+                }
+            }
+
+            /// <summary>Writes the specified value to the handler.</summary>
+            /// <param name="value">The value to write.</param>
+            /// <param name="alignment">Minimum number of characters that should be written for this value.  If the value is negative, it indicates left-aligned and the required minimum is the absolute value.</param>
+            /// <typeparam name="T">The type of the value to write.</typeparam>
+            public void AppendFormatted<T>(T value, int alignment) =>
+                AppendFormatted(value, alignment, format: null);
+
+            /// <summary>Writes the specified value to the handler.</summary>
+            /// <param name="value">The value to write.</param>
+            /// <param name="format">The format string.</param>
+            /// <param name="alignment">Minimum number of characters that should be written for this value.  If the value is negative, it indicates left-aligned and the required minimum is the absolute value.</param>
+            /// <typeparam name="T">The type of the value to write.</typeparam>
+            public void AppendFormatted<T>(T value, int alignment, string? format)
+            {
+                if (alignment == 0)
+                {
+                    // This overload is used as a fallback from several disambiguation overloads, so special-case 0.
+                    AppendFormatted(value, format);
+                }
+                else if (alignment < 0)
+                {
+                    // Left aligned: format into the handler, then append any additional padding required.
+                    int start = _stringBuilder.Length;
+                    AppendFormatted(value, format);
+                    int paddingRequired = -alignment - (_stringBuilder.Length - start);
+                    if (paddingRequired > 0)
+                    {
+                        _stringBuilder.Append(' ', paddingRequired);
+                    }
+                }
+                else
+                {
+                    // Right aligned: format into temporary space and then copy that into the handler, appropriately aligned.
+                    AppendFormattedWithTempSpace(value, alignment, format);
+                }
+            }
+
+            /// <summary>Formats into temporary space and then appends the result into the StringBuilder.</summary>
+            private unsafe void AppendFormattedWithTempSpace<T>(T value, int alignment, string? format)
+            {
+                // It's expected that either there's not enough space in the current chunk to store this formatted value,
+                // or we have a non-0 alignment that could require padding inserted. So format into temporary space and
+                // then append that written span into the StringBuilder: StringBuilder.Append(span) is able to split the
+                // span across the current chunk and any additional chunks required.
+
+                var handler = new DefaultInterpolatedStringHandler(0, 0, _provider, stackalloc char[string.StackallocCharBufferSizeLimit]);
+                handler.AppendFormatted(value, format);
+                AppendFormatted(handler.Text, alignment);
+                handler.Clear();
+            }
+            #endregion
+
+            #region AppendFormatted ReadOnlySpan<char>
+            /// <summary>Writes the specified character span to the handler.</summary>
+            /// <param name="value">The span to write.</param>
+            public void AppendFormatted(ReadOnlySpan<char> value) => _stringBuilder.Append(value);
+
+            /// <summary>Writes the specified string of chars to the handler.</summary>
+            /// <param name="value">The span to write.</param>
+            /// <param name="alignment">Minimum number of characters that should be written for this value.  If the value is negative, it indicates left-aligned and the required minimum is the absolute value.</param>
+            /// <param name="format">The format string.</param>
+            public void AppendFormatted(ReadOnlySpan<char> value, int alignment = 0, string? format = null)
+            {
+                if (alignment == 0)
+                {
+                    _stringBuilder.Append(value);
+                }
+                else
+                {
+                    bool leftAlign = false;
+                    if (alignment < 0)
+                    {
+                        leftAlign = true;
+                        alignment = -alignment;
+                    }
+
+                    int paddingRequired = alignment - value.Length;
+                    if (paddingRequired <= 0)
+                    {
+                        _stringBuilder.Append(value);
+                    }
+                    else if (leftAlign)
+                    {
+                        _stringBuilder.Append(value);
+                        _stringBuilder.Append(' ', paddingRequired);
+                    }
+                    else
+                    {
+                        _stringBuilder.Append(' ', paddingRequired);
+                        _stringBuilder.Append(value);
+                    }
+                }
+            }
+            #endregion
+
+            #region AppendFormatted string
+            /// <summary>Writes the specified value to the handler.</summary>
+            /// <param name="value">The value to write.</param>
+            public void AppendFormatted(string? value)
+            {
+                if (!_hasCustomFormatter)
+                {
+                    _stringBuilder.Append(value);
+                }
+                else
+                {
+                    AppendFormatted<string?>(value);
+                }
+            }
+
+            /// <summary>Writes the specified value to the handler.</summary>
+            /// <param name="value">The value to write.</param>
+            /// <param name="alignment">Minimum number of characters that should be written for this value.  If the value is negative, it indicates left-aligned and the required minimum is the absolute value.</param>
+            /// <param name="format">The format string.</param>
+            public void AppendFormatted(string? value, int alignment = 0, string? format = null) =>
+                // Format is meaningless for strings and doesn't make sense for someone to specify.  We have the overload
+                // simply to disambiguate between ROS<char> and object, just in case someone does specify a format, as
+                // string is implicitly convertible to both. Just delegate to the T-based implementation.
+                AppendFormatted<string?>(value, alignment, format);
+            #endregion
+
+            #region AppendFormatted object
+            /// <summary>Writes the specified value to the handler.</summary>
+            /// <param name="value">The value to write.</param>
+            /// <param name="alignment">Minimum number of characters that should be written for this value.  If the value is negative, it indicates left-aligned and the required minimum is the absolute value.</param>
+            /// <param name="format">The format string.</param>
+            public void AppendFormatted(object? value, int alignment = 0, string? format = null) =>
+                // This overload is expected to be used rarely, only if either a) something strongly typed as object is
+                // formatted with both an alignment and a format, or b) the compiler is unable to target type to T. It
+                // exists purely to help make cases from (b) compile. Just delegate to the T-based implementation.
+                AppendFormatted<object?>(value, alignment, format);
+            #endregion
+            #endregion
+
+            /// <summary>Formats the value using the custom formatter from the provider.</summary>
+            /// <param name="value">The value to write.</param>
+            /// <param name="format">The format string.</param>
+            /// <typeparam name="T">The type of the value to write.</typeparam>
+            [MethodImpl(MethodImplOptions.NoInlining)]
+            private void AppendCustomFormatter<T>(T value, string? format)
+            {
+                // This case is very rare, but we need to handle it prior to the other checks in case
+                // a provider was used that supplied an ICustomFormatter which wanted to intercept the particular value.
+                // We do the cast here rather than in the ctor, even though this could be executed multiple times per
+                // formatting, to make the cast pay for play.
+                Debug.Assert(_hasCustomFormatter);
+                Debug.Assert(_provider != null);
+
+                ICustomFormatter? formatter = (ICustomFormatter?)_provider.GetFormat(typeof(ICustomFormatter));
+                Debug.Assert(formatter != null, "An incorrectly written provider said it implemented ICustomFormatter, and then didn't");
+
+                if (formatter is not null)
+                {
+                    _stringBuilder.Append(formatter.Format(format, value, _provider));
+                }
+            }
         }
     }
 }

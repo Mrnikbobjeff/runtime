@@ -2,12 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using Microsoft.Xunit.Performance;
 using System;
 using System.Runtime.CompilerServices;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
+using TestLibrary;
 
 namespace Benchstone.BenchF
 {
@@ -20,12 +18,9 @@ public static class DMath
 #endif
 
     private const double Deg2Rad = 57.29577951;
-    private static volatile object s_volatileObject;
 
-    private static void Escape(object obj)
-    {
-        s_volatileObject = obj;
-    }
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void Escape(object _) { }
 
     private static double Fact(double n)
     {
@@ -86,27 +81,11 @@ public static class DMath
         return true;
     }
 
-    [Benchmark]
-    public static void Test()
-    {
-        foreach (var iteration in Benchmark.Iterations)
-        {
-            using (iteration.StartMeasurement())
-            {
-                Bench(Iterations);
-            }
-        }
-    }
-
-    private static bool TestBase()
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         bool result = Bench(Iterations);
-        return result;
-    }
-
-    public static int Main()
-    {
-        bool result = TestBase();
         return (result ? 100 : -1);
     }
 }

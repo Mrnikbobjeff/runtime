@@ -1,20 +1,20 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Xml;
 using System.Collections;
+using System.Xml;
 
 namespace System.Security.Cryptography.Xml
 {
     // This class does lexicographic sorting by NamespaceURI first and then by LocalName.
-    internal class AttributeSortOrder : IComparer
+    internal sealed class AttributeSortOrder : IComparer
     {
         internal AttributeSortOrder() { }
 
-        public int Compare(object a, object b)
+        public int Compare(object? a, object? b)
         {
-            XmlNode nodeA = a as XmlNode;
-            XmlNode nodeB = b as XmlNode;
+            XmlNode? nodeA = a as XmlNode;
+            XmlNode? nodeB = b as XmlNode;
             if ((nodeA == null) || (nodeB == null))
                 throw new ArgumentException();
             int namespaceCompare = string.CompareOrdinal(nodeA.NamespaceURI, nodeB.NamespaceURI);

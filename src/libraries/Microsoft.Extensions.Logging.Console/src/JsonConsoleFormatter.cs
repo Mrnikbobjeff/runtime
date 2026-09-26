@@ -4,41 +4,58 @@
 using System;
 using System.Buffers;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
-using System.Linq;
-using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 
 namespace Microsoft.Extensions.Logging.Console
 {
-    internal class JsonConsoleFormatter : ConsoleFormatter, IDisposable
+    internal sealed class JsonConsoleFormatter : ConsoleFormatter, IDisposable
     {
-        private IDisposable _optionsReloadToken;
+        private readonly IDisposable? _optionsReloadToken;
 
         public JsonConsoleFormatter(IOptionsMonitor<JsonConsoleFormatterOptions> options)
-            : base (ConsoleFormatterNames.Json)
+            : base(ConsoleFormatterNames.Json)
         {
             ReloadLoggerOptions(options.CurrentValue);
             _optionsReloadToken = options.OnChange(ReloadLoggerOptions);
         }
 
-        public override void Write<TState>(in LogEntry<TState> logEntry, IExternalScopeProvider scopeProvider, TextWriter textWriter)
+        public override void Write<TState>(in LogEntry<TState> logEntry, IExternalScopeProvider? scopeProvider, TextWriter textWriter)
         {
-            string message = logEntry.Formatter(logEntry.State, logEntry.Exception);
-            if (logEntry.Exception == null && message == null)
+            if (logEntry.State is BufferedLogRecord bufferedRecord)
             {
-                return;
+                string message = bufferedRecord.FormattedMessage ?? string.Empty;
+                WriteInternal(null, textWriter, message, bufferedRecord.LogLevel, logEntry.Category, bufferedRecord.EventId.Id, bufferedRecord.Exception,
+                    bufferedRecord.Attributes.Count > 0, null, bufferedRecord.Attributes, bufferedRecord.Timestamp);
             }
-            LogLevel logLevel = logEntry.LogLevel;
-            string category = logEntry.Category;
-            int eventId = logEntry.EventId.Id;
-            Exception exception = logEntry.Exception;
+            else
+            {
+                string message = logEntry.Formatter(logEntry.State, logEntry.Exception);
+                if (logEntry.Exception == null && message == null)
+                {
+                    return;
+                }
+
+                DateTimeOffset stamp = FormatterOptions.TimestampFormat != null
+                    ? (FormatterOptions.UseUtcTimestamp ? DateTimeOffset.UtcNow : DateTimeOffset.Now)
+                    : DateTimeOffset.MinValue;
+
+                // We extract most of the work into a non-generic method to save code size. If this was left in the generic
+                // method, we'd get generic specialization for all TState parameters, but that's unnecessary.
+                WriteInternal(scopeProvider, textWriter, message, logEntry.LogLevel, logEntry.Category, logEntry.EventId.Id, logEntry.Exception?.ToString(),
+                    logEntry.State != null, logEntry.State?.ToString(), logEntry.State as IReadOnlyList<KeyValuePair<string, object?>>, stamp);
+            }
+        }
+
+        private void WriteInternal(IExternalScopeProvider? scopeProvider, TextWriter textWriter, string? message, LogLevel logLevel,
+            string category, int eventId, string? exception, bool hasState, string? stateMessage, IReadOnlyList<KeyValuePair<string, object?>>? stateProperties,
+            DateTimeOffset stamp)
+        {
             const int DefaultBufferSize = 1024;
             using (var output = new PooledByteBufferWriter(DefaultBufferSize))
             {
@@ -48,31 +65,31 @@ namespace Microsoft.Extensions.Logging.Console
                     var timestampFormat = FormatterOptions.TimestampFormat;
                     if (timestampFormat != null)
                     {
-                        DateTimeOffset dateTimeOffset = FormatterOptions.UseUtcTimestamp ? DateTimeOffset.UtcNow : DateTimeOffset.Now;
-                        writer.WriteString("Timestamp", dateTimeOffset.ToString(timestampFormat));
+                        writer.WriteString("Timestamp", stamp.ToString(timestampFormat));
                     }
-                    writer.WriteNumber(nameof(logEntry.EventId), eventId);
-                    writer.WriteString(nameof(logEntry.LogLevel), GetLogLevelString(logLevel));
-                    writer.WriteString(nameof(logEntry.Category), category);
+                    writer.WriteNumber(nameof(LogEntry<object>.EventId), eventId);
+                    writer.WriteString(nameof(LogEntry<object>.LogLevel), GetLogLevelString(logLevel));
+                    writer.WriteString(nameof(LogEntry<object>.Category), category);
                     writer.WriteString("Message", message);
 
                     if (exception != null)
                     {
-                        string exceptionMessage = exception.ToString();
-                        if (!FormatterOptions.JsonWriterOptions.Indented)
-                        {
-                            exceptionMessage = exceptionMessage.Replace(Environment.NewLine, " ");
-                        }
-                        writer.WriteString(nameof(Exception), exceptionMessage);
+                        writer.WriteString(nameof(Exception), exception);
                     }
 
-                    if (logEntry.State != null)
+                    if (hasState)
                     {
-                        writer.WriteStartObject(nameof(logEntry.State));
-                        writer.WriteString("Message", logEntry.State.ToString());
-                        if (logEntry.State is IReadOnlyCollection<KeyValuePair<string, object>> stateProperties)
+                        writer.WriteStartObject(nameof(LogEntry<object>.State));
+
+                        // In many cases the message and stateMessage will be the same, so we only write the message if it differs from the stateMessage.
+                        // This helps reducing the size of the log entry.
+                        if (!string.Equals(message, stateMessage))
                         {
-                            foreach (KeyValuePair<string, object> item in stateProperties)
+                            writer.WriteString("Message", stateMessage);
+                        }
+                        if (stateProperties != null)
+                        {
+                            foreach (KeyValuePair<string, object?> item in stateProperties)
                             {
                                 WriteItem(writer, item);
                             }
@@ -83,11 +100,18 @@ namespace Microsoft.Extensions.Logging.Console
                     writer.WriteEndObject();
                     writer.Flush();
                 }
-#if NETCOREAPP
-                textWriter.Write(Encoding.UTF8.GetString(output.WrittenMemory.Span));
-#else
-                textWriter.Write(Encoding.UTF8.GetString(output.WrittenMemory.Span.ToArray()));
-#endif
+
+                var messageBytes = output.WrittenSpan;
+                var logMessageBuffer = ArrayPool<char>.Shared.Rent(Encoding.UTF8.GetMaxCharCount(messageBytes.Length));
+                try
+                {
+                    var charsWritten = Encoding.UTF8.GetChars(messageBytes, logMessageBuffer);
+                    textWriter.Write(logMessageBuffer, 0, charsWritten);
+                }
+                finally
+                {
+                    ArrayPool<char>.Shared.Return(logMessageBuffer);
+                }
             }
             textWriter.Write(Environment.NewLine);
         }
@@ -106,18 +130,18 @@ namespace Microsoft.Extensions.Logging.Console
             };
         }
 
-        private void WriteScopeInformation(Utf8JsonWriter writer, IExternalScopeProvider scopeProvider)
+        private void WriteScopeInformation(Utf8JsonWriter writer, IExternalScopeProvider? scopeProvider)
         {
             if (FormatterOptions.IncludeScopes && scopeProvider != null)
             {
                 writer.WriteStartArray("Scopes");
                 scopeProvider.ForEachScope((scope, state) =>
                 {
-                    if (scope is IReadOnlyCollection<KeyValuePair<string, object>> scopes)
+                    if (scope is IEnumerable<KeyValuePair<string, object?>> scopeItems)
                     {
                         state.WriteStartObject();
                         state.WriteString("Message", scope.ToString());
-                        foreach (KeyValuePair<string, object> item in scopes)
+                        foreach (KeyValuePair<string, object?> item in scopeItems)
                         {
                             WriteItem(state, item);
                         }
@@ -132,7 +156,7 @@ namespace Microsoft.Extensions.Logging.Console
             }
         }
 
-        private void WriteItem(Utf8JsonWriter writer, KeyValuePair<string, object> item)
+        private static void WriteItem(Utf8JsonWriter writer, KeyValuePair<string, object?> item)
         {
             var key = item.Key;
             switch (item.Value)
@@ -147,11 +171,7 @@ namespace Microsoft.Extensions.Logging.Console
                     writer.WriteNumber(key, sbyteValue);
                     break;
                 case char charValue:
-#if NETCOREAPP
-                    writer.WriteString(key, MemoryMarshal.CreateSpan(ref charValue, 1));
-#else
-                    writer.WriteString(key, charValue.ToString());
-#endif
+                    writer.WriteString(key, [charValue]);
                     break;
                 case decimal decimalValue:
                     writer.WriteNumber(key, decimalValue);
@@ -189,10 +209,11 @@ namespace Microsoft.Extensions.Logging.Console
             }
         }
 
-        private static string ToInvariantString(object obj) => Convert.ToString(obj, CultureInfo.InvariantCulture);
+        private static string? ToInvariantString(object? obj) => Convert.ToString(obj, CultureInfo.InvariantCulture);
 
         internal JsonConsoleFormatterOptions FormatterOptions { get; set; }
 
+        [MemberNotNull(nameof(FormatterOptions))]
         private void ReloadLoggerOptions(JsonConsoleFormatterOptions options)
         {
             FormatterOptions = options;

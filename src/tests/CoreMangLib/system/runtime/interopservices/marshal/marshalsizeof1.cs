@@ -3,7 +3,9 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Security;
+using Xunit;
 
+namespace MarshalSizeOf1Tests;
 
 [SecuritySafeCritical]
 public struct TestStruct
@@ -226,7 +228,7 @@ public class MarshalSizeOf1
             obj.TestDouble = TestLibrary.Generator.GetDouble(-55);
             int expectedSize;
 
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) || (RuntimeInformation.ProcessArchitecture != Architecture.X86))
+            if (OperatingSystem.IsWindows() || (RuntimeInformation.ProcessArchitecture != Architecture.X86))
             {
                 expectedSize = 16; // sizeof(double) + sizeof(int) + padding
             }
@@ -479,7 +481,7 @@ public class MarshalSizeOf1
         try
         {
             Object obj = new Object();
-            int size = Marshal.SizeOf(obj);
+            int size = Marshal.SizeOf<object>(obj);
 
             TestLibrary.TestFramework.LogError("103.1", "ArgumentException is not thrown when the value is a reference type");
             retVal = false;
@@ -499,7 +501,9 @@ public class MarshalSizeOf1
     #endregion
     #endregion
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         MarshalSizeOf1 test = new MarshalSizeOf1();
 

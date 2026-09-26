@@ -8,12 +8,12 @@ using System.IO;
 namespace Microsoft.Extensions.Configuration.Ini
 {
     /// <summary>
-    /// An INI file based <see cref="StreamConfigurationProvider"/>.
+    /// Provides configuration key-value pairs that are obtained from an INI stream.
     /// </summary>
     public class IniStreamConfigurationProvider : StreamConfigurationProvider
     {
         /// <summary>
-        /// Constructor.
+        /// Initializes a new instance of <see cref="IniStreamConfigurationProvider"/>.
         /// </summary>
         /// <param name="source">The <see cref="IniStreamConfigurationSource"/>.</param>
         public IniStreamConfigurationProvider(IniStreamConfigurationSource source) : base(source) { }
@@ -23,16 +23,16 @@ namespace Microsoft.Extensions.Configuration.Ini
         /// </summary>
         /// <param name="stream">The stream of INI data.</param>
         /// <returns>The <see cref="IDictionary{String, String}"/> which was read from the stream.</returns>
-        public static IDictionary<string, string> Read(Stream stream)
+        public static IDictionary<string, string?> Read(Stream stream)
         {
-            var data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var data = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
             using (var reader = new StreamReader(stream))
             {
                 string sectionPrefix = string.Empty;
 
                 while (reader.Peek() != -1)
                 {
-                    string rawLine = reader.ReadLine();
+                    string rawLine = reader.ReadLine()!; // Since Peak didn't return -1, stream hasn't ended.
                     string line = rawLine.Trim();
 
                     // Ignore blank lines
@@ -41,7 +41,7 @@ namespace Microsoft.Extensions.Configuration.Ini
                         continue;
                     }
                     // Ignore comments
-                    if (line[0] == ';' || line[0] == '#' || line[0] == '/')
+                    if (line[0] is ';' or '#' or '/')
                     {
                         continue;
                     }
@@ -49,7 +49,11 @@ namespace Microsoft.Extensions.Configuration.Ini
                     if (line[0] == '[' && line[line.Length - 1] == ']')
                     {
                         // remove the brackets
-                        sectionPrefix = line.Substring(1, line.Length - 2) + ConfigurationPath.KeyDelimiter;
+#if NET
+                        sectionPrefix = string.Concat(line.AsSpan(1, line.Length - 2).Trim(), ConfigurationPath.KeyDelimiter);
+#else
+                        sectionPrefix = line.Substring(1, line.Length - 2).Trim() + ConfigurationPath.KeyDelimiter;
+#endif
                         continue;
                     }
 
@@ -81,9 +85,9 @@ namespace Microsoft.Extensions.Configuration.Ini
         }
 
         /// <summary>
-        /// Loads INI configuration key/values from a stream into a provider.
+        /// Loads INI configuration key-value pairs from a stream into a provider.
         /// </summary>
-        /// <param name="stream">The <see cref="Stream"/> to load ini configuration data from.</param>
+        /// <param name="stream">The <see cref="Stream"/> to load INI configuration data from.</param>
         public override void Load(Stream stream)
         {
             Data = Read(stream);

@@ -9,10 +9,7 @@ namespace System.Security.Cryptography.Asn1
     {
         public X509ExtensionAsn(X509Extension extension)
         {
-            if (extension == null)
-            {
-                throw new ArgumentNullException(nameof(extension));
-            }
+            ArgumentNullException.ThrowIfNull(extension);
 
             ExtnId = extension.Oid!.Value!;
             Critical = extension.Critical;

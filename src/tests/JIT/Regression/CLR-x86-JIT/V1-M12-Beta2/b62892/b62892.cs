@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b62892
 {
     using System;
 
@@ -17,10 +18,11 @@ namespace Test
 
     public class BB
     {
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             AA.Static1();
-            return 100;
         }
     }
 

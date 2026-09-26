@@ -1,19 +1,20 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+
+using TestLibrary;
+using Xunit;
+using Server.Contract;
 namespace NetClient
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Runtime.CompilerServices;
-    using System.Runtime.InteropServices;
-
-    using TestLibrary;
-    using Server.Contract;
 
     using CoClass = Server.Contract.Servers;
 
-    class Program
+    public class Program
     {
         static void Validate_Activation()
         {
@@ -23,7 +24,32 @@ namespace NetClient
             test.ReleaseResources();
 
             // The CoClass should be the activated type, _not_ the activation interface.
-            Assert.AreEqual(test.GetType(), typeof(CoClass.ConsumeNETServerTestingClass));
+            Assert.Equal(typeof(CoClass.ConsumeNETServerTestingClass), test.GetType());
+            Assert.True(typeof(CoClass.ConsumeNETServerTestingClass).IsCOMObject);
+            Assert.False(typeof(CoClass.ConsumeNETServerTesting).IsCOMObject);
+            Assert.True(Marshal.IsComObject(test));
+        }
+
+        static void Validate_Activation_CreateInstance()
+        {
+            Console.WriteLine($"{nameof(Validate_Activation_CreateInstance)}...");
+
+            Type t = Type.GetTypeFromCLSID(Guid.Parse(Guids.ConsumeNETServerTesting));
+            Assert.True(t.IsCOMObject);
+
+            object obj = Activator.CreateInstance(t);
+            var test = (CoClass.ConsumeNETServerTesting)obj;
+            test.ReleaseResources();
+
+            Assert.True(Marshal.IsComObject(test));
+
+            // Use the overload that takes constructor arguments. This tests the path where the runtime searches for the
+            // constructor to use (which has some special-casing for COM) instead of just always using the default.
+            obj = Activator.CreateInstance(t, Array.Empty<object>());
+            test = (CoClass.ConsumeNETServerTesting)obj;
+            test.ReleaseResources();
+
+            Assert.True(Marshal.IsComObject(test));
         }
 
         static void Validate_CCW_Wasnt_Unwrapped()
@@ -36,7 +62,7 @@ namespace NetClient
             // The CoClass should be the activated type, _not_ the implementation class.
             // This indicates the real implementation class is wrapped in its CCW and exposed
             // to the runtime as an RCW.
-            Assert.AreNotEqual(test.GetType(), typeof(ConsumeNETServerTesting));
+            Assert.NotEqual(typeof(ConsumeNETServerTesting), test.GetType());
         }
 
         static void Validate_Client_CCW_RCW()
@@ -52,7 +78,7 @@ namespace NetClient
                 ccw = test.GetCCW();
                 object rcw = Marshal.GetObjectForIUnknown(ccw);
                 object inst = test.GetRCW();
-                Assert.AreEqual(rcw, inst);
+                Assert.Equal(rcw, inst);
             }
             finally
             {
@@ -68,8 +94,8 @@ namespace NetClient
             var test = new CoClass.ConsumeNETServerTesting();
             try
             {
-                Assert.IsTrue(test.EqualByCCW(test));
-                Assert.IsTrue(test.NotEqualByRCW(test));
+                Assert.True(test.EqualByCCW(test));
+                Assert.True(test.NotEqualByRCW(test));
             }
             finally
             {
@@ -77,7 +103,8 @@ namespace NetClient
             }
         }
 
-        static int Main(string[] doNotUse)
+        [Fact]
+        public static int ConsumeNETServerTests()
         {
             // RegFree COM is not supported on Windows Nano
             if (Utilities.IsWindowsNanoServer)
@@ -99,6 +126,7 @@ namespace NetClient
                     string.Empty))
                 {
                     Validate_Activation();
+                    Validate_Activation_CreateInstance();
                     Validate_CCW_Wasnt_Unwrapped();
                     Validate_Client_CCW_RCW();
                     Validate_Server_CCW_RCW();
@@ -112,5 +140,44 @@ namespace NetClient
 
             return 100;
         }
+
+        [Fact]
+        public static void Validate_IDispatch_Custom_DefaultInterface()
+        {
+            using (ComActivationHelpers.RegisterTypeForActivation<MyObject>())
+            {
+                var myObjectType = Type.GetTypeFromCLSID(typeof(MyObject).GUID, throwOnError: true)!;
+                object obj = Activator.CreateInstance(myObjectType)!;
+                var iSecond = (ISecond)obj;
+                iSecond.Invoke2(); // Verify that we can invoke a method on a non-default IDispatch non-dual interface.
+            }
+        }
     }
+}
+
+[ComVisible(true)]
+[ProgId("MyCompany.MyObject")]
+[Guid("CF824E95-642E-4F8D-8CD1-F67BC588B107")]
+[ClassInterface(ClassInterfaceType.None)]
+[ComDefaultInterface(typeof(IFirst))]
+public sealed class MyObject : IFirst, ISecond
+{
+    public void Invoke1() { }
+    public void Invoke2() { }
+}
+
+[ComVisible(true)]
+[Guid("59DAED5B-726B-4DDD-8F07-9236382038F7")]
+[InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+public interface IFirst
+{
+    void Invoke1();
+}
+
+[ComVisible(true)]
+[Guid("88C3FF65-0155-48A9-917D-E96DFAC8409B")]
+[InterfaceType(ComInterfaceType.InterfaceIsIDispatch)]
+public interface ISecond
+{
+    void Invoke2();
 }

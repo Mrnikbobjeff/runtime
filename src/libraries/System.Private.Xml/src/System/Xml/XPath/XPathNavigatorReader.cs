@@ -1,11 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Xml.Schema;
-using System.Collections;
-using System.Diagnostics;
-using System.Collections.Generic;
 
 namespace System.Xml.XPath
 {
@@ -43,7 +43,8 @@ namespace System.Xml.XPath
 
         internal const string space = "space";
 
-        internal static XmlNodeType[] convertFromXPathNodeType = {
+        private static ReadOnlySpan<XmlNodeType> ConvertFromXPathNodeType =>
+        [
             XmlNodeType.Document,               // XPathNodeType.Root
             XmlNodeType.Element,                // XPathNodeType.Element
             XmlNodeType.Attribute,              // XPathNodeType.Attribute
@@ -54,7 +55,7 @@ namespace System.Xml.XPath
             XmlNodeType.ProcessingInstruction,  // XPathNodeType.ProcessingInstruction
             XmlNodeType.Comment,                // XPathNodeType.Comment
             XmlNodeType.None                    // XPathNodeType.All
-        };
+        ];
 
         /// <summary>
         /// Translates an XPathNodeType value into the corresponding XmlNodeType value.
@@ -62,7 +63,7 @@ namespace System.Xml.XPath
         /// </summary>
         internal static XmlNodeType ToXmlNodeType(XPathNodeType typ)
         {
-            return XPathNavigatorReader.convertFromXPathNodeType[(int)typ];
+            return ConvertFromXPathNodeType[(int)typ];
         }
 
         internal object? UnderlyingObject
@@ -264,7 +265,7 @@ namespace System.Xml.XPath
                 {
                     if (tempNav.MoveToAttribute(XPathNavigatorReader.space, XmlReservedNs.NsXml))
                     {
-                        switch (XmlConvert.TrimString(tempNav.Value))
+                        switch (tempNav.Value.AsSpan().Trim(XmlConvert.WhitespaceChars))
                         {
                             case "default":
                                 return XmlSpace.Default;
@@ -457,8 +458,8 @@ namespace System.Xml.XPath
 
         public override string? GetAttribute(string localName, string? namespaceURI)
         {
-            if (null == localName)
-                throw new ArgumentNullException(nameof(localName));
+            ArgumentNullException.ThrowIfNull(localName);
+
             // reader allows calling GetAttribute, even when positioned inside attributes
             XPathNavigator nav = _nav;
             switch (nav.NodeType)
@@ -556,9 +557,9 @@ namespace System.Xml.XPath
 
         public override bool MoveToAttribute(string localName, string? namespaceName)
         {
-            if (null == localName)
-                throw new ArgumentNullException(nameof(localName));
-            int depth = _depth;
+            ArgumentNullException.ThrowIfNull(localName);
+
+            int depth;
             XPathNavigator? nav = GetElemNav(out depth);
             if (null != nav)
             {
@@ -711,7 +712,7 @@ namespace System.Xml.XPath
             ValidateNames.SplitQName(name, out prefix, out localname);
 
             // watch for a namespace name
-            bool IsXmlnsNoPrefix = false;
+            bool IsXmlnsNoPrefix;
             if ((IsXmlnsNoPrefix = (0 == prefix.Length && localname == "xmlns"))
                 || (prefix == "xmlns"))
             {
@@ -1024,7 +1025,7 @@ namespace System.Xml.XPath
                     }
                     else if (_depth > 0 && _nav.MoveToParent())
                     {
-                        Debug.Assert(_nav.NodeType == XPathNodeType.Element, _nav.NodeType.ToString() + " == XPathNodeType.Element");
+                        Debug.Assert(_nav.NodeType == XPathNodeType.Element, $"{_nav.NodeType} == XPathNodeType.Element");
                         _nodeType = XmlNodeType.EndElement;
                         _state = State.EndElement;
                         _depth--;
@@ -1081,7 +1082,7 @@ namespace System.Xml.XPath
     }
 
 #if NAVREADER_SUPPORTSLINEINFO
-    internal class XPathNavigatorReaderWithLI : XPathNavigatorReader, System.Xml.IXmlLineInfo {
+    internal sealed class XPathNavigatorReaderWithLI : XPathNavigatorReader, System.Xml.IXmlLineInfo {
         internal XPathNavigatorReaderWithLI( XPathNavigator navToRead, IXmlLineInfo xli, IXmlSchemaInfo? xsi )
             : base( navToRead, xli, xsi ) {
         }
@@ -1095,7 +1096,7 @@ namespace System.Xml.XPath
         public virtual int LinePosition { get { return IsReading ? this.lineInfo.LinePosition : 0; } }
     }
 
-    internal class XPathNavigatorReaderWithLIAndSI : XPathNavigatorReaderWithLI, System.Xml.IXmlLineInfo, System.Xml.Schema.IXmlSchemaInfo {
+    internal sealed class XPathNavigatorReaderWithLIAndSI : XPathNavigatorReaderWithLI, System.Xml.IXmlLineInfo, System.Xml.Schema.IXmlSchemaInfo {
         internal XPathNavigatorReaderWithLIAndSI( XPathNavigator navToRead, IXmlLineInfo xli, IXmlSchemaInfo xsi )
             : base( navToRead, xli, xsi ) {
         }
@@ -1114,7 +1115,7 @@ namespace System.Xml.XPath
     }
 #endif
 
-    internal class XPathNavigatorReaderWithSI : XPathNavigatorReader, System.Xml.Schema.IXmlSchemaInfo
+    internal sealed class XPathNavigatorReaderWithSI : XPathNavigatorReader, System.Xml.Schema.IXmlSchemaInfo
     {
         internal XPathNavigatorReaderWithSI(XPathNavigator navToRead, IXmlLineInfo? xli, IXmlSchemaInfo xsi)
             : base(navToRead, xli, xsi)
@@ -1126,13 +1127,13 @@ namespace System.Xml.XPath
         // IXmlSchemaInfo
         //-----------------------------------------------
 
-        public virtual XmlSchemaValidity Validity { get { return IsReading ? this.schemaInfo!.Validity : XmlSchemaValidity.NotKnown; } }
+        public XmlSchemaValidity Validity { get { return IsReading ? this.schemaInfo!.Validity : XmlSchemaValidity.NotKnown; } }
         public override bool IsDefault { get { return IsReading ? this.schemaInfo!.IsDefault : false; } }
-        public virtual bool IsNil { get { return IsReading ? this.schemaInfo!.IsNil : false; } }
-        public virtual XmlSchemaSimpleType? MemberType { get { return IsReading ? this.schemaInfo!.MemberType : null; } }
-        public virtual XmlSchemaType? SchemaType { get { return IsReading ? this.schemaInfo!.SchemaType : null; } }
-        public virtual XmlSchemaElement? SchemaElement { get { return IsReading ? this.schemaInfo!.SchemaElement : null; } }
-        public virtual XmlSchemaAttribute? SchemaAttribute { get { return IsReading ? this.schemaInfo!.SchemaAttribute : null; } }
+        public bool IsNil { get { return IsReading ? this.schemaInfo!.IsNil : false; } }
+        public XmlSchemaSimpleType? MemberType { get { return IsReading ? this.schemaInfo!.MemberType : null; } }
+        public XmlSchemaType? SchemaType { get { return IsReading ? this.schemaInfo!.SchemaType : null; } }
+        public XmlSchemaElement? SchemaElement { get { return IsReading ? this.schemaInfo!.SchemaElement : null; } }
+        public XmlSchemaAttribute? SchemaAttribute { get { return IsReading ? this.schemaInfo!.SchemaAttribute : null; } }
     }
 
     /// <summary>
@@ -1140,23 +1141,15 @@ namespace System.Xml.XPath
     /// Only one XmlEmptyNavigator exists per AppDomain (Singleton).  That's why the constructor is private.
     /// Use the Singleton property to get the EmptyNavigator.
     /// </summary>
-    internal class XmlEmptyNavigator : XPathNavigator
+    internal sealed class XmlEmptyNavigator : XPathNavigator
     {
-        private static volatile XmlEmptyNavigator? s_singleton;
+        private static XmlEmptyNavigator? s_singleton;
 
         private XmlEmptyNavigator()
         {
         }
 
-        public static XmlEmptyNavigator Singleton
-        {
-            get
-            {
-                if (XmlEmptyNavigator.s_singleton == null)
-                    XmlEmptyNavigator.s_singleton = new XmlEmptyNavigator();
-                return XmlEmptyNavigator.s_singleton;
-            }
-        }
+        public static XmlEmptyNavigator Singleton => XmlEmptyNavigator.s_singleton ??= new XmlEmptyNavigator();
 
         //-----------------------------------------------
         // XmlReader

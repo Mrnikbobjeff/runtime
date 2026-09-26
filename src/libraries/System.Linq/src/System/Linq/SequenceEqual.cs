@@ -12,23 +12,23 @@ namespace System.Linq
 
         public static bool SequenceEqual<TSource>(this IEnumerable<TSource> first, IEnumerable<TSource> second, IEqualityComparer<TSource>? comparer)
         {
-            if (comparer == null)
-            {
-                comparer = EqualityComparer<TSource>.Default;
-            }
-
-            if (first == null)
+            if (first is null)
             {
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.first);
             }
 
-            if (second == null)
+            if (second is null)
             {
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.second);
             }
 
             if (first is ICollection<TSource> firstCol && second is ICollection<TSource> secondCol)
             {
+                if (first.TryGetSpan(out ReadOnlySpan<TSource> firstSpan) && second.TryGetSpan(out ReadOnlySpan<TSource> secondSpan))
+                {
+                    return firstSpan.SequenceEqual(secondSpan, comparer);
+                }
+
                 if (firstCol.Count != secondCol.Count)
                 {
                     return false;
@@ -36,6 +36,8 @@ namespace System.Linq
 
                 if (firstCol is IList<TSource> firstList && secondCol is IList<TSource> secondList)
                 {
+                    comparer ??= EqualityComparer<TSource>.Default;
+
                     int count = firstCol.Count;
                     for (int i = 0; i < count; i++)
                     {
@@ -49,19 +51,19 @@ namespace System.Linq
                 }
             }
 
-            using (IEnumerator<TSource> e1 = first.GetEnumerator())
-            using (IEnumerator<TSource> e2 = second.GetEnumerator())
-            {
-                while (e1.MoveNext())
-                {
-                    if (!(e2.MoveNext() && comparer.Equals(e1.Current, e2.Current)))
-                    {
-                        return false;
-                    }
-                }
+            using IEnumerator<TSource> e1 = first.GetEnumerator();
+            using IEnumerator<TSource> e2 = second.GetEnumerator();
+            comparer ??= EqualityComparer<TSource>.Default;
 
-                return !e2.MoveNext();
+            while (e1.MoveNext())
+            {
+                if (!(e2.MoveNext() && comparer.Equals(e1.Current, e2.Current)))
+                {
+                    return false;
+                }
             }
+
+            return !e2.MoveNext();
         }
     }
 }

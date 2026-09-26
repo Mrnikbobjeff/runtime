@@ -33,9 +33,8 @@ namespace System.Reflection.TypeLoading
 
         public sealed override Type ReflectedType => _reflectedType;
 
-        public sealed override string Name => _lazyName ?? (_lazyName = ComputeName());
+        public sealed override string Name => field ??= ComputeName();
         protected abstract string ComputeName();
-        private volatile string? _lazyName;
 
         public sealed override Module Module => GetRoModule();
         internal abstract RoModule GetRoModule();
@@ -51,9 +50,45 @@ namespace System.Reflection.TypeLoading
         private const PropertyAttributes PropertyAttributesSentinel = (PropertyAttributes)(-1);
         private volatile PropertyAttributes _lazyPropertyAttributes = PropertyAttributesSentinel;
 
-        public sealed override Type PropertyType => _lazyPropertyType ?? (_lazyPropertyType = ComputePropertyType());
+        public sealed override Type PropertyType
+        {
+            get
+            {
+                InitializeFieldType();
+                return _lazyPropertyType!;
+            }
+        }
+
+        protected RoModifiedType ModifiedType
+        {
+            get
+            {
+                InitializeFieldType();
+                _modifiedType ??= RoModifiedType.Create((RoType)PropertyType);
+                return _modifiedType;
+            }
+        }
+
+        private void InitializeFieldType()
+        {
+            if (_lazyPropertyType is null)
+            {
+                Type type = ComputePropertyType();
+                if (type is RoModifiedType modifiedType)
+                {
+                    _modifiedType = modifiedType;
+                    _lazyPropertyType = modifiedType.UnderlyingSystemType;
+                }
+                else
+                {
+                    _lazyPropertyType = type;
+                }
+            }
+        }
+
         protected abstract Type ComputePropertyType();
-        private volatile Type? _lazyPropertyType;
+        private Type? _lazyPropertyType;
+        protected RoModifiedType? _modifiedType;
 
         public sealed override MethodInfo? GetGetMethod(bool nonPublic) => GetRoGetMethod()?.FilterAccessor(nonPublic);
         public sealed override MethodInfo? GetSetMethod(bool nonPublic) => GetRoSetMethod()?.FilterAccessor(nonPublic);
@@ -64,8 +99,8 @@ namespace System.Reflection.TypeLoading
         protected abstract RoMethod? ComputeGetterMethod();
         protected abstract RoMethod? ComputeSetterMethod();
 
-        private volatile RoMethod? _lazyGetter = Sentinels.RoMethod;
-        private volatile RoMethod? _lazySetter = Sentinels.RoMethod;
+        private RoMethod? _lazyGetter = Sentinels.RoMethod;
+        private RoMethod? _lazySetter = Sentinels.RoMethod;
 
         public sealed override bool CanRead => GetMethod != null;
         public sealed override bool CanWrite => SetMethod != null;
@@ -91,7 +126,7 @@ namespace System.Reflection.TypeLoading
             return accessors;
         }
 
-        public sealed override ParameterInfo[] GetIndexParameters() => (_lazyIndexedParameters ?? (_lazyIndexedParameters = ComputeIndexParameters())).CloneArray<ParameterInfo>();
+        public sealed override ParameterInfo[] GetIndexParameters() => (_lazyIndexedParameters ??= ComputeIndexParameters()).CloneArray<ParameterInfo>();
         private RoPropertyIndexParameter[] ComputeIndexParameters()
         {
             bool useGetter = CanRead;
@@ -112,7 +147,7 @@ namespace System.Reflection.TypeLoading
             }
             return indexParameters;
         }
-        private volatile RoPropertyIndexParameter[]? _lazyIndexedParameters;
+        private RoPropertyIndexParameter[]? _lazyIndexedParameters;
 
         public sealed override object? GetRawConstantValue()
         {

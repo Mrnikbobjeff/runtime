@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Common.Tests
 {
-    public class procfsTests
+    public class procfsTests : FileCleanupTestBase
     {
         [Theory]
         [InlineData("1 (systemd) S 0 1 1 0 -1 4194560 11536 2160404 55 593 70 169 4213 1622 20 0 1 0 4 189767680 1491 18446744073709551615 1 1 0 0 0 0 671173123 4096 1260 0 0 0 17 4 0 0 25 0 0 0 0 0 0 0 0 0 0", 1, "systemd", 'S', 1, 70, 169, 0, 4, 189767680, 1491, 18446744073709551615)]
@@ -33,33 +33,51 @@ namespace Common.Tests
         [InlineData("5955 (a(((b) S 1806 5955 5955 34823 5955 4194304 1426 5872 0 3 16 3 16 4 20 0 1 0 674762 32677888 1447 18446744073709551615 4194304 5192652 140725672538992 140725672534152 140236068968880 0 0 3670020 1266777851 1 0 0 17 4 0 0 0 0 0 7290352 7326856 21204992 140725672540419 140725672540424 140725672540424 140725672542190 0", 5955, "a(((b", 'S', 5955, 16, 3, 0, 674762, 32677888, 1447, 18446744073709551615)]
         [InlineData("5955 (a)( ) b (() () S 1806 5955 5955 34823 5955 4194304 1426 5872 0 3 16 3 16 4 20 0 1 0 674762 32677888 1447 18446744073709551615 4194304 5192652 140725672538992 140725672534152 140236068968880 0 0 3670020 1266777851 1 0 0 17 4 0 0 0 0 0 7290352 7326856 21204992 140725672540419 140725672540424 140725672540424 140725672542190 0", 5955, "a)( ) b (() (", 'S', 5955, 16, 3, 0, 674762, 32677888, 1447, 18446744073709551615)]
         [InlineData("5955 (has\\backslash) S 1806 5955 5955 34823 5955 4194304 1426 5872 0 3 16 3 16 4 20 0 1 0 674762 32677888 1447 18446744073709551615 4194304 5192652 140725672538992 140725672534152 140236068968880 0 0 3670020 1266777851 1 0 0 17 4 0 0 0 0 0 7290352 7326856 21204992 140725672540419 140725672540424 140725672540424 140725672542190 0", 5955, "has\\backslash", 'S', 5955, 16, 3, 0, 674762, 32677888, 1447, 18446744073709551615)]
-        public static void ParseValidStatFiles_Success(
+        public void ParseValidStatFiles_Success(
             string statFileText,
             int expectedPid, string expectedComm, char expectedState, int expectedSession,
             ulong expectedUtime, ulong expectedStime, long expectedNice, ulong expectedStarttime,
             ulong expectedVsize, long expectedRss, ulong expectedRsslim)
         {
-            string path = Path.GetTempFileName();
-            try
-            {
-                File.WriteAllText(path, statFileText);
+            string path = GetTestFilePath();
+            File.WriteAllText(path, statFileText);
 
-                Interop.procfs.ParsedStat result;
-                Assert.True(Interop.procfs.TryParseStatFile(path, out result, new ReusableTextReader()));
+            Interop.procfs.ParsedStat result;
+            Assert.True(Interop.procfs.TryParseStatFile(path, out result));
 
-                Assert.Equal(expectedPid, result.pid);
-                Assert.Equal(expectedComm, result.comm);
-                Assert.Equal(expectedState, result.state);
-                Assert.Equal(expectedSession, result.session);
-                Assert.Equal(expectedUtime, result.utime);
-                Assert.Equal(expectedStime, result.stime);
-                Assert.Equal(expectedNice, result.nice);
-                Assert.Equal(expectedStarttime, result.starttime);
-                Assert.Equal(expectedVsize, result.vsize);
-                Assert.Equal(expectedRss, result.rss);
-                Assert.Equal(expectedRsslim, result.rsslim);
-            }
-            finally { File.Delete(path); }
+            Assert.Equal(expectedPid, result.pid);
+            Assert.Equal(expectedComm, result.comm);
+            Assert.Equal(expectedState, result.state);
+            Assert.Equal(expectedSession, result.session);
+            Assert.Equal(expectedUtime, result.utime);
+            Assert.Equal(expectedStime, result.stime);
+            Assert.Equal(expectedNice, result.nice);
+            Assert.Equal(expectedStarttime, result.starttime);
+            Assert.Equal(expectedVsize, result.vsize);
+            Assert.Equal(expectedRss, result.rss);
+            Assert.Equal(expectedRsslim, result.rsslim);
+        }
+
+        [Theory]
+        [InlineData("37 79 0:6 / /dev rw,nosuid shared:2 - devtmpfs devtmpfs rw,seclabel,size=4096k,nr_inodes=4070495,mode=755,inode64", "/", "/dev", "devtmpfs", "rw,seclabel,size=4096k,nr_inodes=4070495,mode=755,inode64")]
+        [InlineData("42 40 0:28 / /sys/fs/cgroup rw,nosuid,nodev,noexec,relatime shared:7 - cgroup2 cgroup2 rw,seclabel,nsdelegate,memory_recursiveprot", "/", "/sys/fs/cgroup", "cgroup2", "rw,seclabel,nsdelegate,memory_recursiveprot")]
+        [InlineData("34 28 0:28 / /sys/fs/cgroup/cpu,cpuacct rw,nosuid,nodev,noexec,relatime shared:16 - cgroup cgroup rw,cpu,cpuacct", "/", "/sys/fs/cgroup/cpu,cpuacct", "cgroup", "rw,cpu,cpuacct")]
+        [InlineData("396 394 0:21 /kubepods/besteffort/pod9a18ffb8-8513-11e7-b26e-7e29fbe2a5a3/d28e0087cf8f3f0429f755d60b0de415b20fcf76736ded7bab6e30e7b739ee36 /sys/fs/cgroup/cpu ro,nosuid,nodev,noexec,relatime - cgroup cgroup rw,cpu", "/kubepods/besteffort/pod9a18ffb8-8513-11e7-b26e-7e29fbe2a5a3/d28e0087cf8f3f0429f755d60b0de415b20fcf76736ded7bab6e30e7b739ee36", "/sys/fs/cgroup/cpu", "cgroup", "rw,cpu")]
+        [InlineData("55 79 259:2 / /boot rw,relatime shared:111 - ext4 /dev/nvme0n1p2 rw,seclabel", "/", "/boot", "ext4", "rw,seclabel")]
+        public void ParseMountInfoLine_Success(
+            string line,
+            string expectedRoot,
+            string expectedMountPoint,
+            string expectedFileSystemType,
+            string expectedSuperOptions)
+        {
+            Interop.procfs.ParsedMount result;
+            Assert.True(Interop.procfs.TryParseMountInfoLine(line, out result));
+
+            Assert.Equal(expectedRoot, result.Root);
+            Assert.Equal(expectedMountPoint, result.MountPoint);
+            Assert.Equal(expectedFileSystemType, result.FileSystemType);
+            Assert.Equal(expectedSuperOptions, result.SuperOptions);
         }
     }
 }

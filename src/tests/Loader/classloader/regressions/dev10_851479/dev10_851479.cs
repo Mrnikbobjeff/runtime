@@ -3,25 +3,21 @@
 
 using System;
 
+using Xunit;
+using TestLibrary;
+
 /// <summary>
 /// Regression test case for Dev10 851479 bug: Stackoverflow in .NET when using self referencing generics along with type constraints to another type parameter.
 /// </summary>
-class Program
+public class Program
 {
-    static Int32 Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static void TestEntryPoint()
     {
         Program p = new Program();
 
-        if (p.Run())
-        {
-            Console.WriteLine("PASS");
-            return 100;
-        }
-        else
-        {
-            Console.WriteLine("FAIL");
-            return -1;
-        }
+        Assert.True(p.Run());
     }
 
     public Boolean Run()

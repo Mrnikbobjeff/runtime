@@ -13,6 +13,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography.X509Certificates;
 using System.Xml;
+using Test.Cryptography;
 using Xunit;
 
 namespace System.Security.Cryptography.Xml.Tests
@@ -68,7 +69,7 @@ namespace System.Security.Cryptography.Xml.Tests
         // private static string xmlDSA = "<DSAKeyValue><P>" + dsaP + "</P><Q>" + dsaQ + "</Q><G>" + dsaG + "</G><Y>" + dsaY + "</Y><J>" + dsaJ + "</J><Seed>" + dsaSeed + "</Seed><PgenCounter>" + dsaPgenCounter + "</PgenCounter></DSAKeyValue>";
         private static string xmlDSA = "<DSAKeyValue><P>" + dsaP + "</P><Q>" + dsaQ + "</Q><G>" + dsaG + "</G><Y>" + dsaY + "</Y></DSAKeyValue>";
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformSupport), nameof(PlatformSupport.IsDSASupported))]
         public void DSAKeyValue()
         {
             using (DSA key = DSA.Create())
@@ -132,6 +133,7 @@ namespace System.Security.Cryptography.Xml.Tests
             0xD9,0xB2,0xAB,0x8A,0x12,0xB6,0x30,0x78,0x68,0x11,0x7C,0x0D,0xF1,0x49,0x4D,0xA3,0xFD,0xB2,0xE9,0xFF,0x1D,0xF0,0x91,0xFA,0x54,0x85,0xFF,0x33,0x90,0xE8,0xC1,0xBF,0xA4,0x9B,0xA4,0x62,0x46,0xBD,0x61,0x12,0x59,0x98,0x41,0x89 };
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51370", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void X509Data()
         {
             using (X509Certificate x509 = new X509Certificate(cert))
@@ -145,7 +147,7 @@ namespace System.Security.Cryptography.Xml.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformSupport), nameof(PlatformSupport.IsDSASupported))]
         public void Complex()
         {
             KeyInfoName name = new KeyInfoName();
@@ -195,7 +197,7 @@ namespace System.Security.Cryptography.Xml.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformSupport), nameof(PlatformSupport.IsDSASupported))]
         public void ImportKeyNode()
         {
             string keyName = "Mono::";
@@ -331,7 +333,7 @@ namespace System.Security.Cryptography.Xml.Tests
                 }
                 else
                 {
-                    Assert.True(false, $"Unexpected clause type: {clause.GetType().FullName}");
+                    Assert.Fail($"Unexpected clause type: {clause.GetType().FullName}");
                 }
             }
 
@@ -364,7 +366,7 @@ namespace System.Security.Cryptography.Xml.Tests
             XmlDocument doc = new XmlDocument();
             doc.LoadXml(bad);
             info.LoadXml(doc.DocumentElement);
-            // no expection but Xml isn't loaded
+            // no exception but Xml isn't loaded
             Assert.Equal("<KeyInfo xmlns=\"http://www.w3.org/2000/09/xmldsig#\" />", (info.GetXml().OuterXml));
             Assert.Equal(0, info.Count);
         }

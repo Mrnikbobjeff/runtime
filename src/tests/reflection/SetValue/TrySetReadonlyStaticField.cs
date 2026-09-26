@@ -3,8 +3,10 @@
 
 using System;
 using System.Reflection;
+using Xunit;
+using TestLibrary;
 
-class X
+public class X
 {
     readonly static string S;
     readonly static string S_Expected;
@@ -94,7 +96,10 @@ class X
         return (shouldThrow == threw) && !unexpected;
     }
 
-    public static int Main()
+    [ActiveIssue("https://github.com/dotnet/runtimelab/issues/200", typeof(Utilities), nameof(Utilities.IsNativeAot))]
+    [ActiveIssue("needs triage", TestRuntimes.Mono)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         var s = S;
         bool b0 = Set("3", true);

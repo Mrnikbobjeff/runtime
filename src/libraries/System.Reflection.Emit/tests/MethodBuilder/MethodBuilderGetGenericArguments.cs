@@ -9,12 +9,11 @@ namespace System.Reflection.Emit.Tests
     public class MethodBuilderGetGenericArguments
     {
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/2389", TestRuntimes.Mono)]
         public void GetGenericArguments_NonGenericMethod_ReturnsEmptyArray()
         {
             TypeBuilder type = Helpers.DynamicType(TypeAttributes.Abstract);
             MethodBuilder method = type.DefineMethod("Name", MethodAttributes.Public);
-            Assert.Equal(Array.Empty<Type>(), method.GetGenericArguments());
+            Assert.Equal(Type.EmptyTypes, method.GetGenericArguments());
         }
 
         [Fact]

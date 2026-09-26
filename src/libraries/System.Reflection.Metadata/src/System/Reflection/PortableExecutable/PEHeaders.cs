@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Immutable;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Reflection.Internal;
 using System.Reflection.Metadata;
@@ -72,9 +73,9 @@ namespace System.Reflection.PortableExecutable
         /// <exception cref="ArgumentOutOfRangeException">Size is negative or extends past the end of the stream.</exception>
         public PEHeaders(Stream peStream, int size, bool isLoadedImage)
         {
-            if (peStream == null)
+            if (peStream is null)
             {
-                throw new ArgumentNullException(nameof(peStream));
+                Throw.ArgumentNull(nameof(peStream));
             }
 
             if (!peStream.CanRead || !peStream.CanSeek)
@@ -87,27 +88,39 @@ namespace System.Reflection.PortableExecutable
             int actualSize = StreamExtensions.GetAndValidateSize(peStream, size, nameof(peStream));
             var reader = new PEBinaryReader(peStream, actualSize);
 
-            bool isCoffOnly;
-            SkipDosHeader(ref reader, out isCoffOnly);
+            SkipDosHeader(ref reader, out bool isCoffOnly);
 
-            _coffHeaderStartOffset = reader.CurrentOffset;
+            if (isCoffOnly && isLoadedImage)
+            {
+                // Only images can be loaded.
+                throw new BadImageFormatException(SR.InvalidPESignature);
+            }
+
+            _coffHeaderStartOffset = reader.Offset;
             _coffHeader = new CoffHeader(ref reader);
 
-            if (!isCoffOnly)
+            if (isCoffOnly)
             {
-                _peHeaderStartOffset = reader.CurrentOffset;
+                // In COFF files the size of the optional header must be zero.
+                if (_coffHeader.SizeOfOptionalHeader != 0)
+                {
+                    throw new BadImageFormatException(SR.UnknownFileFormat);
+                }
+            }
+            else
+            {
+                _peHeaderStartOffset = reader.Offset;
                 _peHeader = new PEHeader(ref reader);
             }
 
-            _sectionHeaders = this.ReadSectionHeaders(ref reader);
+            _sectionHeaders = ReadSectionHeaders(ref reader, actualSize);
 
             if (!isCoffOnly)
             {
-                int offset;
-                if (TryCalculateCorHeaderOffset(actualSize, out offset))
+                if (TryCalculateCorHeaderOffset(out int offset))
                 {
                     _corHeaderStartOffset = offset;
-                    reader.Seek(offset);
+                    reader.Offset = offset;
                     _corHeader = new CorHeader(ref reader);
                 }
             }
@@ -229,7 +242,7 @@ namespace System.Reflection.PortableExecutable
             }
         }
 
-        private bool TryCalculateCorHeaderOffset(long peStreamSize, out int startOffset)
+        private bool TryCalculateCorHeaderOffset(out int startOffset)
         {
             if (!TryGetDirectoryOffset(_peHeader!.CorHeaderTableDirectory, out startOffset, canCrossSectionBoundary: false))
             {
@@ -246,7 +259,7 @@ namespace System.Reflection.PortableExecutable
             return true;
         }
 
-        private void SkipDosHeader(ref PEBinaryReader reader, out bool isCOFFOnly)
+        private static void SkipDosHeader(ref PEBinaryReader reader, out bool isCOFFOnly)
         {
             // Look for DOS Signature "MZ"
             ushort dosSig = reader.ReadUInt16();
@@ -260,7 +273,7 @@ namespace System.Reflection.PortableExecutable
                 if (dosSig != 0 || reader.ReadUInt16() != 0xffff)
                 {
                     isCOFFOnly = true;
-                    reader.Seek(0);
+                    reader.Offset = 0;
                 }
                 else
                 {
@@ -276,10 +289,10 @@ namespace System.Reflection.PortableExecutable
             if (!isCOFFOnly)
             {
                 // Skip the DOS Header
-                reader.Seek(PESignatureOffsetLocation);
+                reader.Offset = PESignatureOffsetLocation;
 
                 int ntHeaderOffset = reader.ReadInt32();
-                reader.Seek(ntHeaderOffset);
+                reader.Offset = ntHeaderOffset;
 
                 // Look for PESignature "PE\0\0"
                 uint ntSignature = reader.ReadUInt32();
@@ -290,10 +303,10 @@ namespace System.Reflection.PortableExecutable
             }
         }
 
-        private ImmutableArray<SectionHeader> ReadSectionHeaders(ref PEBinaryReader reader)
+        private ImmutableArray<SectionHeader> ReadSectionHeaders(ref PEBinaryReader reader, int size)
         {
             int numberOfSections = _coffHeader.NumberOfSections;
-            if (numberOfSections < 0)
+            if (numberOfSections < 0 || numberOfSections * SectionHeader.Size > size - reader.Offset)
             {
                 throw new BadImageFormatException(SR.InvalidNumberOfSections);
             }
@@ -385,16 +398,8 @@ namespace System.Reflection.PortableExecutable
                     return;
                 }
 
-                if (_isLoadedImage)
-                {
-                    start = SectionHeaders[cormeta].VirtualAddress;
-                    size = SectionHeaders[cormeta].VirtualSize;
-                }
-                else
-                {
-                    start = SectionHeaders[cormeta].PointerToRawData;
-                    size = SectionHeaders[cormeta].SizeOfRawData;
-                }
+                start = SectionHeaders[cormeta].PointerToRawData;
+                size = SectionHeaders[cormeta].SizeOfRawData;
             }
             else if (_corHeader == null)
             {

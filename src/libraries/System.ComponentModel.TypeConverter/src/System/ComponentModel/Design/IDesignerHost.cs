@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace System.ComponentModel.Design
 {
     /// <summary>
@@ -9,6 +11,12 @@ namespace System.ComponentModel.Design
     /// </summary>
     public interface IDesignerHost : IServiceContainer
     {
+        [FeatureSwitchDefinition("System.ComponentModel.Design.IDesignerHost.IsSupported")]
+        [FeatureGuard(typeof(RequiresUnreferencedCodeAttribute))]
+#pragma warning disable IL4000
+        internal static bool IsSupported => AppContext.TryGetSwitch("System.ComponentModel.Design.IDesignerHost.IsSupported", out bool isSupported) ? isSupported : true;
+#pragma warning restore IL4000
+
         /// <summary>
         /// Gets or sets a value indicating whether the designer host
         /// is currently loading the document.
@@ -118,11 +126,11 @@ namespace System.ComponentModel.Design
         /// <summary>
         /// Gets the designer instance for the specified component.
         /// </summary>
-        IDesigner GetDesigner(IComponent component);
+        IDesigner? GetDesigner(IComponent component);
 
         /// <summary>
         /// Gets the type instance for the specified fully qualified type name <paramref name="typeName"/>.
         /// </summary>
-        Type GetType(string typeName);
+        Type? GetType(string typeName);
     }
 }

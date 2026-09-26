@@ -1,34 +1,32 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.IO;
+using System.Net;
+using System.Reflection;
+using System.Security;
+using System.Threading;
+using System.Xml.Schema;
+using System.Xml.Serialization;
+
 namespace System.Xml.Serialization
 {
-    using System.Collections;
-    using System.Collections.Generic;
-    using System.IO;
-    using System;
-    using System.Globalization;
-    using System.ComponentModel;
-    using System.Xml.Serialization;
-    using System.Xml.Schema;
-    using System.Diagnostics;
-    using System.Threading;
-    using System.Security;
-    using System.Net;
-    using System.Reflection;
-    using System.Diagnostics.CodeAnalysis;
-
     public class XmlSchemas : CollectionBase, IEnumerable<XmlSchema>
     {
         private XmlSchemaSet? _schemaSet;
-        private Hashtable? _references;
         private SchemaObjectCache? _cache; // cached schema top-level items
         private bool _shareTypes;
-        private Hashtable? _mergedSchemas;
         internal Hashtable delayedSchemas = new Hashtable();
         private bool _isCompiled;
-        private static volatile XmlSchema? s_xsd;
-        private static volatile XmlSchema? s_xml;
+        private static XmlSchema? s_xsd;
+        private static XmlSchema? s_xml;
 
         public XmlSchema this[int index]
         {
@@ -55,35 +53,11 @@ namespace System.Xml.Serialization
             return (IList)SchemaSet.Schemas(ns);
         }
 
-        internal SchemaObjectCache Cache
-        {
-            get
-            {
-                if (_cache == null)
-                    _cache = new SchemaObjectCache();
-                return _cache;
-            }
-        }
+        internal SchemaObjectCache Cache => _cache ??= new SchemaObjectCache();
 
-        internal Hashtable MergedSchemas
-        {
-            get
-            {
-                if (_mergedSchemas == null)
-                    _mergedSchemas = new Hashtable();
-                return _mergedSchemas;
-            }
-        }
+        internal Hashtable MergedSchemas => field ??= new Hashtable();
 
-        internal Hashtable References
-        {
-            get
-            {
-                if (_references == null)
-                    _references = new Hashtable();
-                return _references;
-            }
-        }
+        internal Hashtable References => field ??= new Hashtable();
 
         internal XmlSchemaSet SchemaSet
         {
@@ -204,7 +178,7 @@ namespace System.Xml.Serialization
             }
         }
 
-        private void Prepare(XmlSchema schema)
+        private static void Prepare(XmlSchema schema)
         {
             // need to remove illegal <import> externals;
             ArrayList removes = new ArrayList();
@@ -288,7 +262,7 @@ namespace System.Xml.Serialization
 #endif
 
                 if (ret != null && _shareTypes && checkCache && !IsReference(ret))
-                    ret = Cache.AddItem(ret, name, this);
+                    ret = Cache.AddItem(ret, name);
                 if (ret != null)
                 {
                     return ret;
@@ -324,9 +298,8 @@ namespace System.Xml.Serialization
         {
             foreach (XmlSchemaObject o in schema.Items)
             {
-                if (o is XmlSchemaElement)
+                if (o is XmlSchemaElement e)
                 {
-                    XmlSchemaElement e = (XmlSchemaElement)o;
                     if (e.UnhandledAttributes != null)
                     {
                         foreach (XmlAttribute a in e.UnhandledAttributes)
@@ -343,6 +316,8 @@ namespace System.Xml.Serialization
             return false;
         }
 
+        [RequiresUnreferencedCode("calls Merge")]
+        [RequiresDynamicCode(XmlSerializer.AotSerializationWarning)]
         private void Merge(XmlSchema schema)
         {
             if (MergedSchemas[schema] != null)
@@ -360,7 +335,7 @@ namespace System.Xml.Serialization
             }
         }
 
-        private void AddImport(IList schemas, string? ns)
+        private static void AddImport(IList schemas, string? ns)
         {
             foreach (XmlSchema s in schemas)
             {
@@ -382,6 +357,8 @@ namespace System.Xml.Serialization
             }
         }
 
+        [RequiresUnreferencedCode("Calls MergeFailedMessage")]
+        [RequiresDynamicCode(XmlSerializer.AotSerializationWarning)]
         private void Merge(IList originals, XmlSchema schema)
         {
             foreach (XmlSchema s in originals)
@@ -489,10 +466,9 @@ namespace System.Xml.Serialization
         {
             while (item.Parent != null)
             {
-                if (item.Parent is XmlSchemaType)
+                if (item.Parent is XmlSchemaType type)
                 {
-                    XmlSchemaType type = (XmlSchemaType)item.Parent;
-                    if (type.Name != null && type.Name.Length != 0)
+                    if (!string.IsNullOrEmpty(type.Name))
                     {
                         return type.QualifiedName;
                     }
@@ -502,7 +478,7 @@ namespace System.Xml.Serialization
             return XmlQualifiedName.Empty;
         }
 
-        [return: NotNullIfNotNull("o")]
+        [return: NotNullIfNotNull(nameof(o))]
         private static string? GetSchemaItem(XmlSchemaObject? o, string? ns, string? details)
         {
             if (o == null)
@@ -513,7 +489,7 @@ namespace System.Xml.Serialization
             {
                 o = o.Parent;
             }
-            if (ns == null || ns.Length == 0)
+            if (string.IsNullOrEmpty(ns))
             {
                 XmlSchemaObject tmp = o;
                 while (tmp.Parent != null)
@@ -525,7 +501,7 @@ namespace System.Xml.Serialization
                     ns = ((XmlSchema)tmp).TargetNamespace;
                 }
             }
-            string? item = null;
+            string? item;
             if (o is XmlSchemaNotation)
             {
                 item = SR.Format(SR.XmlSchemaNamedItem, ns, "notation", ((XmlSchemaNotation)o).Name, details);
@@ -534,10 +510,9 @@ namespace System.Xml.Serialization
             {
                 item = SR.Format(SR.XmlSchemaNamedItem, ns, "group", ((XmlSchemaGroup)o).Name, details);
             }
-            else if (o is XmlSchemaElement)
+            else if (o is XmlSchemaElement e)
             {
-                XmlSchemaElement e = ((XmlSchemaElement)o);
-                if (e.Name == null || e.Name.Length == 0)
+                if (string.IsNullOrEmpty(e.Name))
                 {
                     XmlQualifiedName parentName = XmlSchemas.GetParentName(o);
                     // Element reference '{0}' declared in schema type '{1}' from namespace '{2}'
@@ -556,10 +531,9 @@ namespace System.Xml.Serialization
             {
                 item = SR.Format(SR.XmlSchemaNamedItem, ns, "attributeGroup", ((XmlSchemaAttributeGroup)o).Name, details);
             }
-            else if (o is XmlSchemaAttribute)
+            else if (o is XmlSchemaAttribute a)
             {
-                XmlSchemaAttribute a = ((XmlSchemaAttribute)o);
-                if (a.Name == null || a.Name.Length == 0)
+                if (string.IsNullOrEmpty(a.Name))
                 {
                     XmlQualifiedName parentName = XmlSchemas.GetParentName(o);
                     // Attribure reference '{0}' declared in schema type '{1}' from namespace '{2}'
@@ -593,6 +567,8 @@ namespace System.Xml.Serialization
             return item;
         }
 
+        [RequiresUnreferencedCode("Creates XmlSerializer")]
+        [RequiresDynamicCode(XmlSerializer.AotSerializationWarning)]
         private static string Dump(XmlSchemaObject o)
         {
             XmlWriterSettings settings = new XmlWriterSettings();
@@ -606,15 +582,17 @@ namespace System.Xml.Serialization
             s.Serialize(xmlWriter, o, ns);
             return sw.ToString();
         }
+
+        [RequiresUnreferencedCode("calls Dump")]
+        [RequiresDynamicCode(XmlSerializer.AotSerializationWarning)]
         private static string MergeFailedMessage(XmlSchemaObject src, XmlSchemaObject dest, string? ns)
         {
             string err = SR.Format(SR.XmlSerializableMergeItem, ns, GetSchemaItem(src, ns, null));
-            err += "\r\n" + Dump(src);
-            err += "\r\n" + Dump(dest);
+            err += $"{Environment.NewLine}{Dump(src)}{Environment.NewLine}{Dump(dest)}";
             return err;
         }
 
-        internal XmlSchemaObject? Find(XmlSchemaObject o, IList originals)
+        internal static XmlSchemaObject? Find(XmlSchemaObject o, IList originals)
         {
             string? name = ItemName(o);
             if (name == null)
@@ -640,6 +618,8 @@ namespace System.Xml.Serialization
             get { return _isCompiled; }
         }
 
+        [RequiresUnreferencedCode(XmlSerializer.TrimSerializationWarning)]
+        [RequiresDynamicCode(XmlSerializer.AotSerializationWarning)]
         public void Compile(ValidationEventHandler? handler, bool fullCompile)
         {
             if (_isCompiled)
@@ -736,29 +716,11 @@ namespace System.Xml.Serialization
             return;
         }
 
-        internal static XmlSchema XsdSchema
-        {
-            get
-            {
-                if (s_xsd == null)
-                {
-                    s_xsd = CreateFakeXsdSchema(XmlSchema.Namespace, "schema");
-                }
-                return s_xsd;
-            }
-        }
+        internal static XmlSchema XsdSchema =>
+            s_xsd ??= CreateFakeXsdSchema(XmlSchema.Namespace, "schema");
 
-        internal static XmlSchema XmlSchema
-        {
-            get
-            {
-                if (s_xml == null)
-                {
-                    s_xml = XmlSchema.Read(new StringReader(xmlSchema), null)!;
-                }
-                return s_xml;
-            }
-        }
+        internal static XmlSchema XmlSchema =>
+            s_xml ??= XmlSchema.Read(new StringReader(xmlSchema), null)!;
 
         private static XmlSchema CreateFakeXsdSchema(string ns, string name)
         {
@@ -779,6 +741,8 @@ namespace System.Xml.Serialization
             return schema;
         }
 
+        [RequiresUnreferencedCode("calls GenerateSchemaGraph")]
+        [RequiresDynamicCode(XmlSerializer.AotSerializationWarning)]
         internal void SetCache(SchemaObjectCache cache, bool shareTypes)
         {
             _shareTypes = shareTypes;

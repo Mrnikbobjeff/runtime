@@ -1,19 +1,19 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.Win32.SafeHandles;
 using System;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
-internal partial class Interop
+internal static partial class Interop
 {
     public static unsafe void CheckForAvailableVirtualMemory(ulong nativeSize)
     {
         Interop.Kernel32.MEMORYSTATUSEX memoryStatus = default;
         memoryStatus.dwLength = (uint)sizeof(Interop.Kernel32.MEMORYSTATUSEX);
-        if (Interop.Kernel32.GlobalMemoryStatusEx(ref memoryStatus))
+        if (Interop.Kernel32.GlobalMemoryStatusEx(&memoryStatus) != Interop.BOOL.FALSE)
         {
             ulong totalVirtual = memoryStatus.ullTotalVirtual;
             if (nativeSize >= totalVirtual)
@@ -74,7 +74,7 @@ internal partial class Interop
 
     public static IntPtr VirtualAlloc(
             SafeHandle baseAddress,
-            UIntPtr size,
+            nuint size,
             int allocationType,
             int protection)
     {

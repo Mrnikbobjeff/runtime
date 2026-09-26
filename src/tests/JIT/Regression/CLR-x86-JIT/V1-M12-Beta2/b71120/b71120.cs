@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b71120
 {
     using System;
 
@@ -34,7 +35,9 @@ namespace Test
             }
             return new double[] { 42.0 };
         }
-        static int Main()
+
+        [ConditionalFact(typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsVarArgSupported))]
+        public static int TestEntryPoint()
         {
             try
             {

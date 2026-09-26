@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -22,6 +23,9 @@ namespace System.Net.Sockets
         // Used by the class to indicate that the stream is writable.
         private bool _writeable;
 
+        // Whether Dispose has been called.
+        private bool _disposed;
+
         // Creates a new instance of the System.Net.Sockets.NetworkStream class for the specified System.Net.Sockets.Socket.
         public NetworkStream(Socket socket)
             : this(socket, FileAccess.ReadWrite, ownsSocket: false)
@@ -40,25 +44,23 @@ namespace System.Net.Sockets
 
         public NetworkStream(Socket socket, FileAccess access, bool ownsSocket)
         {
-            if (socket == null)
-            {
-                throw new ArgumentNullException(nameof(socket));
-            }
-            if (!socket.Blocking)
+            ArgumentNullException.ThrowIfNull(socket);
+
+            if (!OperatingSystem.IsWasi() && !socket.Blocking)
             {
                 // Stream.Read*/Write* are incompatible with the semantics of non-blocking sockets, and
                 // allowing non-blocking sockets could result in non-deterministic failures from those
                 // operations. A developer that requires using NetworkStream with a non-blocking socket can
                 // temporarily flip Socket.Blocking as a workaround.
-                throw GetCustomNetworkException(SR.net_sockets_blocking);
+                throw new IOException(SR.net_sockets_blocking);
             }
             if (!socket.Connected)
             {
-                throw GetCustomNetworkException(SR.net_notconnected);
+                throw new IOException(SR.net_notconnected);
             }
             if (socket.SocketType != SocketType.Stream)
             {
-                throw GetCustomNetworkException(SR.net_notstream);
+                throw new IOException(SR.net_notstream);
             }
 
             _streamSocket = socket;
@@ -116,6 +118,8 @@ namespace System.Net.Sockets
         {
             get
             {
+                if (OperatingSystem.IsWasi()) throw new PlatformNotSupportedException(); // https://github.com/dotnet/runtime/issues/108151
+
                 int timeout = (int)_streamSocket.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReceiveTimeout)!;
                 if (timeout == 0)
                 {
@@ -125,6 +129,8 @@ namespace System.Net.Sockets
             }
             set
             {
+                if (OperatingSystem.IsWasi()) throw new PlatformNotSupportedException(); // https://github.com/dotnet/runtime/issues/108151
+
                 if (value <= 0 && value != System.Threading.Timeout.Infinite)
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), SR.net_io_timeout_use_gt_zero);
@@ -139,6 +145,8 @@ namespace System.Net.Sockets
         {
             get
             {
+                if (OperatingSystem.IsWasi()) throw new PlatformNotSupportedException(); // https://github.com/dotnet/runtime/issues/108151
+
                 int timeout = (int)_streamSocket.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.SendTimeout)!;
                 if (timeout == 0)
                 {
@@ -148,6 +156,8 @@ namespace System.Net.Sockets
             }
             set
             {
+                if (OperatingSystem.IsWasi()) throw new PlatformNotSupportedException(); // https://github.com/dotnet/runtime/issues/108151
+
                 if (value <= 0 && value != System.Threading.Timeout.Infinite)
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), SR.net_io_timeout_use_gt_zero);
@@ -214,45 +224,31 @@ namespace System.Net.Sockets
         // Returns:
         //
         //     Number of bytes we read, or 0 if the socket is closed.
-        public override int Read(byte[] buffer, int offset, int size)
+        public override int Read(byte[] buffer, int offset, int count)
         {
-            bool canRead = CanRead;  // Prevent race with Dispose.
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
+
+            ValidateBufferArguments(buffer, offset, count);
             ThrowIfDisposed();
-            if (!canRead)
+            if (!CanRead)
             {
                 throw new InvalidOperationException(SR.net_writeonlystream);
             }
 
-            // Validate input parameters.
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if ((uint)offset > buffer.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            }
-            if ((uint)size > buffer.Length - offset)
-            {
-                throw new ArgumentOutOfRangeException(nameof(size));
-            }
-
             try
             {
-                return _streamSocket.Receive(buffer, offset, size, 0);
-            }
-            catch (SocketException socketException)
-            {
-                throw NetworkErrorHelper.MapSocketException(socketException);
+                return _streamSocket.Receive(buffer, offset, count, 0);
             }
             catch (Exception exception) when (!(exception is OutOfMemoryException))
             {
-                throw GetCustomNetworkException(SR.Format(SR.net_io_readfailure, exception.Message), exception);
+                throw WrapException(SR.net_io_readfailure, exception);
             }
         }
 
         public override int Read(Span<byte> buffer)
         {
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
+
             if (GetType() != typeof(NetworkStream))
             {
                 // NetworkStream is not sealed, and a derived type may have overridden Read(byte[], int, int) prior
@@ -264,17 +260,20 @@ namespace System.Net.Sockets
             ThrowIfDisposed();
             if (!CanRead) throw new InvalidOperationException(SR.net_writeonlystream);
 
-            int bytesRead = _streamSocket.Receive(buffer, SocketFlags.None, out SocketError errorCode);
-            if (errorCode != SocketError.Success)
+            try
             {
-                var exception = new SocketException((int)errorCode);
-                throw NetworkErrorHelper.MapSocketException(exception);
+                return _streamSocket.Receive(buffer, SocketFlags.None);
             }
-            return bytesRead;
+            catch (Exception exception) when (!(exception is OutOfMemoryException))
+            {
+                throw WrapException(SR.net_io_readfailure, exception);
+            }
         }
 
         public override unsafe int ReadByte()
         {
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
+
             byte b;
             return Read(new Span<byte>(&b, 1)) == 0 ? -1 : b;
         }
@@ -295,47 +294,33 @@ namespace System.Net.Sockets
         //     Number of bytes written. We'll throw an exception if we
         //     can't write everything. It's brutal, but there's no other
         //     way to indicate an error.
-        public override void Write(byte[] buffer, int offset, int size)
+        public override void Write(byte[] buffer, int offset, int count)
         {
-            bool canWrite = CanWrite; // Prevent race with Dispose.
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
+
+            ValidateBufferArguments(buffer, offset, count);
             ThrowIfDisposed();
-            if (!canWrite)
+            if (!CanWrite)
             {
                 throw new InvalidOperationException(SR.net_readonlystream);
-            }
-
-            // Validate input parameters.
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if ((uint)offset > buffer.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            }
-            if ((uint)size > buffer.Length - offset)
-            {
-                throw new ArgumentOutOfRangeException(nameof(size));
             }
 
             try
             {
                 // Since the socket is in blocking mode this will always complete
                 // after ALL the requested number of bytes was transferred.
-                _streamSocket.Send(buffer, offset, size, SocketFlags.None);
-            }
-            catch (SocketException socketException)
-            {
-                throw NetworkErrorHelper.MapSocketException(socketException);
+                _streamSocket.Send(buffer, offset, count, SocketFlags.None);
             }
             catch (Exception exception) when (!(exception is OutOfMemoryException))
             {
-                throw GetCustomNetworkException(SR.Format(SR.net_io_writefailure, exception.Message), exception);
+                throw WrapException(SR.net_io_writefailure, exception);
             }
         }
 
         public override void Write(ReadOnlySpan<byte> buffer)
         {
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
+
             if (GetType() != typeof(NetworkStream))
             {
                 // NetworkStream is not sealed, and a derived type may have overridden Write(byte[], int, int) prior
@@ -348,11 +333,13 @@ namespace System.Net.Sockets
             ThrowIfDisposed();
             if (!CanWrite) throw new InvalidOperationException(SR.net_readonlystream);
 
-            _streamSocket.Send(buffer, SocketFlags.None, out SocketError errorCode);
-            if (errorCode != SocketError.Success)
+            try
             {
-                var exception = new SocketException((int)errorCode);
-                throw NetworkErrorHelper.MapSocketException(exception);
+                _streamSocket.Send(buffer, SocketFlags.None);
+            }
+            catch (Exception exception) when (!(exception is OutOfMemoryException))
+            {
+                throw WrapException(SR.net_io_writefailure, exception);
             }
         }
 
@@ -361,22 +348,51 @@ namespace System.Net.Sockets
 
         private int _closeTimeout = Socket.DefaultCloseTimeout; // -1 = respect linger options
 
+        /// <summary>Closes the <see cref="NetworkStream"/> after waiting the specified time to allow data to be sent.</summary>
+        /// <param name="timeout">The number of milliseconds to wait to send any remaining data before closing.</param>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout"/> is less than -1.</exception>
+        /// <remarks>
+        /// The Close method frees both unmanaged and managed resources associated with the <see cref="NetworkStream"/>.
+        /// If the <see cref="NetworkStream"/> owns the underlying <see cref="Socket"/>, it is closed as well.
+        /// If a <see cref="NetworkStream"/> was associated with a <see cref="TcpClient"/>, the <see cref="Close(int)"/> method
+        /// will close the TCP connection, but not dispose of the associated <see cref="TcpClient"/>.
+        /// </remarks>
         public void Close(int timeout)
         {
-            if (timeout < -1)
-            {
-                throw new ArgumentOutOfRangeException(nameof(timeout));
-            }
+            ArgumentOutOfRangeException.ThrowIfLessThan(timeout, -1);
             _closeTimeout = timeout;
             Dispose();
         }
-        private volatile bool _disposed;
+
+        /// <summary>Closes the <see cref="NetworkStream"/> after waiting the specified time to allow data to be sent.</summary>
+        /// <param name="timeout">The amount of time to wait to send any remaining data before closing.</param>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="timeout"/> is less than -1 milliseconds or greater than <see cref="int.MaxValue"/> milliseconds.</exception>
+        /// <remarks>
+        /// The Close method frees both unmanaged and managed resources associated with the <see cref="NetworkStream"/>.
+        /// If the <see cref="NetworkStream"/> owns the underlying <see cref="Socket"/>, it is closed as well.
+        /// If a <see cref="NetworkStream"/> was associated with a <see cref="TcpClient"/>, the <see cref="Close(int)"/> method
+        /// will close the TCP connection, but not dispose of the associated <see cref="TcpClient"/>.
+        /// </remarks>
+        public void Close(TimeSpan timeout) => Close(ToTimeoutMilliseconds(timeout));
+
+        private static int ToTimeoutMilliseconds(TimeSpan timeout)
+        {
+            long totalMilliseconds = (long)timeout.TotalMilliseconds;
+
+            ArgumentOutOfRangeException.ThrowIfLessThan(totalMilliseconds, -1, nameof(timeout));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(totalMilliseconds, int.MaxValue, nameof(timeout));
+
+            return (int)totalMilliseconds;
+        }
+
         protected override void Dispose(bool disposing)
         {
-            // Mark this as disposed before changing anything else.
-            bool disposed = _disposed;
-            _disposed = true;
-            if (!disposed && disposing)
+            if (Interlocked.Exchange(ref _disposed, true))
+            {
+                return;
+            }
+
+            if (disposing)
             {
                 // The only resource we need to free is the network stream, since this
                 // is based on the client socket, closing the stream will cause us
@@ -414,27 +430,15 @@ namespace System.Net.Sockets
         // Returns:
         //
         //     An IASyncResult, representing the read.
-        public override IAsyncResult BeginRead(byte[] buffer, int offset, int size, AsyncCallback? callback, object? state)
+        public override IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state)
         {
-            bool canRead = CanRead; // Prevent race with Dispose.
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
+
+            ValidateBufferArguments(buffer, offset, count);
             ThrowIfDisposed();
-            if (!canRead)
+            if (!CanRead)
             {
                 throw new InvalidOperationException(SR.net_writeonlystream);
-            }
-
-            // Validate input parameters.
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if ((uint)offset > buffer.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            }
-            if ((uint)size > buffer.Length - offset)
-            {
-                throw new ArgumentOutOfRangeException(nameof(size));
             }
 
             try
@@ -442,18 +446,14 @@ namespace System.Net.Sockets
                 return _streamSocket.BeginReceive(
                         buffer,
                         offset,
-                        size,
+                        count,
                         SocketFlags.None,
                         callback,
                         state);
             }
-            catch (SocketException socketException)
-            {
-                throw NetworkErrorHelper.MapSocketException(socketException);
-            }
             catch (Exception exception) when (!(exception is OutOfMemoryException))
             {
-                throw GetCustomNetworkException(SR.Format(SR.net_io_readfailure, exception.Message), exception);
+                throw WrapException(SR.net_io_readfailure, exception);
             }
         }
 
@@ -467,25 +467,18 @@ namespace System.Net.Sockets
         //     The number of bytes read. May throw an exception.
         public override int EndRead(IAsyncResult asyncResult)
         {
-            ThrowIfDisposed();
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
 
-            // Validate input parameters.
-            if (asyncResult == null)
-            {
-                throw new ArgumentNullException(nameof(asyncResult));
-            }
+            ThrowIfDisposed();
+            ArgumentNullException.ThrowIfNull(asyncResult);
 
             try
             {
                 return _streamSocket.EndReceive(asyncResult);
             }
-            catch (SocketException socketException)
-            {
-                throw NetworkErrorHelper.MapSocketException(socketException);
-            }
             catch (Exception exception) when (!(exception is OutOfMemoryException))
             {
-                throw GetCustomNetworkException(SR.Format(SR.net_io_readfailure, exception.Message), exception);
+                throw WrapException(SR.net_io_readfailure, exception);
             }
         }
 
@@ -503,27 +496,15 @@ namespace System.Net.Sockets
         // Returns:
         //
         //     An IASyncResult, representing the write.
-        public override IAsyncResult BeginWrite(byte[] buffer, int offset, int size, AsyncCallback? callback, object? state)
+        public override IAsyncResult BeginWrite(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state)
         {
-            bool canWrite = CanWrite; // Prevent race with Dispose.
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
+
+            ValidateBufferArguments(buffer, offset, count);
             ThrowIfDisposed();
-            if (!canWrite)
+            if (!CanWrite)
             {
                 throw new InvalidOperationException(SR.net_readonlystream);
-            }
-
-            // Validate input parameters.
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if ((uint)offset > buffer.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            }
-            if ((uint)size > buffer.Length - offset)
-            {
-                throw new ArgumentOutOfRangeException(nameof(size));
             }
 
             try
@@ -532,18 +513,14 @@ namespace System.Net.Sockets
                 return _streamSocket.BeginSend(
                         buffer,
                         offset,
-                        size,
+                        count,
                         SocketFlags.None,
                         callback,
                         state);
             }
-            catch (SocketException socketException)
-            {
-                throw NetworkErrorHelper.MapSocketException(socketException);
-            }
             catch (Exception exception) when (!(exception is OutOfMemoryException))
             {
-                throw GetCustomNetworkException(SR.Format(SR.net_io_writefailure, exception.Message), exception);
+                throw WrapException(SR.net_io_writefailure, exception);
             }
         }
 
@@ -553,25 +530,18 @@ namespace System.Net.Sockets
         // Returns:  The number of bytes read. May throw an exception.
         public override void EndWrite(IAsyncResult asyncResult)
         {
-            ThrowIfDisposed();
+            if (!Socket.OSSupportsThreads) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
 
-            // Validate input parameters.
-            if (asyncResult == null)
-            {
-                throw new ArgumentNullException(nameof(asyncResult));
-            }
+            ThrowIfDisposed();
+            ArgumentNullException.ThrowIfNull(asyncResult);
 
             try
             {
                 _streamSocket.EndSend(asyncResult);
             }
-            catch (SocketException socketException)
-            {
-                throw NetworkErrorHelper.MapSocketException(socketException);
-            }
             catch (Exception exception) when (!(exception is OutOfMemoryException))
             {
-                throw GetCustomNetworkException(SR.Format(SR.net_io_writefailure, exception.Message), exception);
+                throw WrapException(SR.net_io_writefailure, exception);
             }
         }
 
@@ -590,48 +560,30 @@ namespace System.Net.Sockets
         // Returns:
         //
         //     A Task<int> representing the read.
-        public override Task<int> ReadAsync(byte[] buffer, int offset, int size, CancellationToken cancellationToken)
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
-            bool canRead = CanRead; // Prevent race with Dispose.
+            ValidateBufferArguments(buffer, offset, count);
             ThrowIfDisposed();
-            if (!canRead)
+            if (!CanRead)
             {
                 throw new InvalidOperationException(SR.net_writeonlystream);
-            }
-
-            // Validate input parameters.
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if ((uint)offset > buffer.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            }
-            if ((uint)size > buffer.Length - offset)
-            {
-                throw new ArgumentOutOfRangeException(nameof(size));
             }
 
             try
             {
                 return _streamSocket.ReceiveAsync(
-                    new Memory<byte>(buffer, offset, size),
+                    new Memory<byte>(buffer, offset, count),
                     SocketFlags.None,
                     fromNetworkStream: true,
                     cancellationToken).AsTask();
             }
-            catch (SocketException socketException)
-            {
-                throw NetworkErrorHelper.MapSocketException(socketException);
-            }
             catch (Exception exception) when (!(exception is OutOfMemoryException))
             {
-                throw GetCustomNetworkException(SR.Format(SR.net_io_readfailure, exception.Message), exception);
+                throw WrapException(SR.net_io_readfailure, exception);
             }
         }
 
-        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken)
+        public override ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
             bool canRead = CanRead; // Prevent race with Dispose.
             ThrowIfDisposed();
@@ -648,13 +600,9 @@ namespace System.Net.Sockets
                     fromNetworkStream: true,
                     cancellationToken: cancellationToken);
             }
-            catch (SocketException socketException)
-            {
-                throw NetworkErrorHelper.MapSocketException(socketException);
-            }
             catch (Exception exception) when (!(exception is OutOfMemoryException))
             {
-                throw GetCustomNetworkException(SR.Format(SR.net_io_readfailure, exception.Message), exception);
+                throw WrapException(SR.net_io_readfailure, exception);
             }
         }
 
@@ -673,47 +621,29 @@ namespace System.Net.Sockets
         // Returns:
         //
         //     A Task representing the write.
-        public override Task WriteAsync(byte[] buffer, int offset, int size, CancellationToken cancellationToken)
+        public override Task WriteAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
-            bool canWrite = CanWrite; // Prevent race with Dispose.
+            ValidateBufferArguments(buffer, offset, count);
             ThrowIfDisposed();
-            if (!canWrite)
+            if (!CanWrite)
             {
                 throw new InvalidOperationException(SR.net_readonlystream);
-            }
-
-            // Validate input parameters.
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if ((uint)offset > buffer.Length)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            }
-            if ((uint)size > buffer.Length - offset)
-            {
-                throw new ArgumentOutOfRangeException(nameof(size));
             }
 
             try
             {
                 return _streamSocket.SendAsyncForNetworkStream(
-                    new ReadOnlyMemory<byte>(buffer, offset, size),
+                    new ReadOnlyMemory<byte>(buffer, offset, count),
                     SocketFlags.None,
                     cancellationToken).AsTask();
             }
-            catch (SocketException socketException)
-            {
-                throw NetworkErrorHelper.MapSocketException(socketException);
-            }
             catch (Exception exception) when (!(exception is OutOfMemoryException))
             {
-                throw GetCustomNetworkException(SR.Format(SR.net_io_writefailure, exception.Message), exception);
+                throw WrapException(SR.net_io_writefailure, exception);
             }
         }
 
-        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken)
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
         {
             bool canWrite = CanWrite; // Prevent race with Dispose.
             ThrowIfDisposed();
@@ -729,13 +659,9 @@ namespace System.Net.Sockets
                     SocketFlags.None,
                     cancellationToken);
             }
-            catch (SocketException socketException)
-            {
-                throw NetworkErrorHelper.MapSocketException(socketException);
-            }
             catch (Exception exception) when (!(exception is OutOfMemoryException))
             {
-                throw GetCustomNetworkException(SR.Format(SR.net_io_writefailure, exception.Message), exception);
+                throw WrapException(SR.net_io_writefailure, exception);
             }
         }
 
@@ -759,6 +685,8 @@ namespace System.Net.Sockets
         private int _currentWriteTimeout = -1;
         internal void SetSocketTimeoutOption(SocketShutdown mode, int timeout, bool silent)
         {
+            if (OperatingSystem.IsWasi()) throw new PlatformNotSupportedException(); // https://github.com/dotnet/runtime/issues/108151
+
             if (timeout < 0)
             {
                 timeout = 0; // -1 becomes 0 for the winsock stack
@@ -785,17 +713,12 @@ namespace System.Net.Sockets
 
         private void ThrowIfDisposed()
         {
-            if (_disposed)
-            {
-                ThrowObjectDisposedException();
-            }
-
-            void ThrowObjectDisposedException() => throw new ObjectDisposedException(GetType().FullName);
+            ObjectDisposedException.ThrowIf(_disposed, this);
         }
 
-        private static NetworkException GetCustomNetworkException(string message, Exception? innerException = null)
+        private static IOException WrapException(string resourceFormatString, Exception innerException)
         {
-            return new NetworkException(message, NetworkError.Other, innerException);
+            return new IOException(SR.Format(resourceFormatString, innerException.Message), innerException);
         }
     }
 }

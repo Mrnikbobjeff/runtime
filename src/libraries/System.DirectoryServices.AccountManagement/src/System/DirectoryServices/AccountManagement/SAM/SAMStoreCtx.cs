@@ -1,15 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Security.Principal;
 
 namespace System.DirectoryServices.AccountManagement
 {
-    internal partial class SAMStoreCtx : StoreCtx
+    internal sealed partial class SAMStoreCtx : StoreCtx
     {
         private readonly DirectoryEntry _ctxBase;
         private readonly object _ctxBaseLock = new object(); // when mutating ctxBase
@@ -131,8 +131,7 @@ namespace System.DirectoryServices.AccountManagement
                 //                {
                 foreach (Hashtable propertyMappingTableByProperty in byPropertyTables)
                 {
-                    if (propertyMappingTableByProperty[propertyName] == null)
-                        propertyMappingTableByProperty[propertyName] = new ArrayList();
+                    propertyMappingTableByProperty[propertyName] ??= new ArrayList();
 
                     ((ArrayList)propertyMappingTableByProperty[propertyName]).Add(propertyEntry);
                 }
@@ -147,8 +146,7 @@ namespace System.DirectoryServices.AccountManagement
 
                     foreach (Hashtable propertyMappingTableByWinNT in byWinNTTables)
                     {
-                        if (propertyMappingTableByWinNT[winNTAttributeLower] == null)
-                            propertyMappingTableByWinNT[winNTAttributeLower] = new ArrayList();
+                        propertyMappingTableByWinNT[winNTAttributeLower] ??= new ArrayList();
 
                         ((ArrayList)propertyMappingTableByWinNT[winNTAttributeLower]).Add(propertyEntry);
                     }
@@ -219,8 +217,8 @@ namespace System.DirectoryServices.AccountManagement
         // have been set, prior to persisting the Principal.
         internal override void Insert(Principal p)
         {
-            Debug.Assert(p.unpersisted == true);
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(p.unpersisted);
+            Debug.Assert(!p.fakePrincipal);
 
             try
             {
@@ -268,8 +266,8 @@ namespace System.DirectoryServices.AccountManagement
         {
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "SAMStoreCtx", "Update");
 
-            Debug.Assert(p.fakePrincipal == false);
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.fakePrincipal);
+            Debug.Assert(!p.unpersisted);
             Debug.Assert(p.UnderlyingObject != null);
             Debug.Assert(p.UnderlyingObject is DirectoryEntry);
 
@@ -296,10 +294,10 @@ namespace System.DirectoryServices.AccountManagement
         internal override void Delete(Principal p)
         {
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "SAMStoreCtx", "Delete");
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
             // Principal.Delete() shouldn't be calling us on an unpersisted Principal.
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
             Debug.Assert(p.UnderlyingObject != null);
 
             Debug.Assert(p.UnderlyingObject is DirectoryEntry);
@@ -368,8 +366,8 @@ namespace System.DirectoryServices.AccountManagement
         internal override void InitializeUserAccountControl(AuthenticablePrincipal p)
         {
             Debug.Assert(p != null);
-            Debug.Assert(p.fakePrincipal == false);
-            Debug.Assert(p.unpersisted == true); // should only ever be called for new principals
+            Debug.Assert(!p.fakePrincipal);
+            Debug.Assert(p.unpersisted); // should only ever be called for new principals
 
             // set the userAccountControl bits on the underlying directory entry
             DirectoryEntry de = (DirectoryEntry)p.UnderlyingObject;
@@ -384,9 +382,9 @@ namespace System.DirectoryServices.AccountManagement
 
         internal override bool IsLockedOut(AuthenticablePrincipal p)
         {
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
 
             DirectoryEntry de = (DirectoryEntry)p.UnderlyingObject;
             Debug.Assert(de != null);
@@ -410,9 +408,9 @@ namespace System.DirectoryServices.AccountManagement
         {
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "SAMStoreCtx", "UnlockAccount");
 
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
 
             // Computer accounts are never locked out, so nothing to do
             if (p is ComputerPrincipal)
@@ -445,20 +443,19 @@ namespace System.DirectoryServices.AccountManagement
             }
             finally
             {
-                if (copyOfDe != null)
-                    copyOfDe.Dispose();
+                copyOfDe?.Dispose();
             }
         }
 
         // methods for manipulating passwords
         internal override void SetPassword(AuthenticablePrincipal p, string newPassword)
         {
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
             Debug.Assert(p is UserPrincipal || p is ComputerPrincipal);
 
             // Shouldn't be being called if this is the case
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
 
             // ********** In SAM, computer accounts don't have a set password method
             if (p is ComputerPrincipal)
@@ -478,12 +475,12 @@ namespace System.DirectoryServices.AccountManagement
 
         internal override void ChangePassword(AuthenticablePrincipal p, string oldPassword, string newPassword)
         {
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
             Debug.Assert(p is UserPrincipal || p is ComputerPrincipal);
 
             // Shouldn't be being called if this is the case
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
 
             // ********** In SAM, computer accounts don't have a change password method
             if (p is ComputerPrincipal)
@@ -504,7 +501,7 @@ namespace System.DirectoryServices.AccountManagement
 
         internal override void ExpirePassword(AuthenticablePrincipal p)
         {
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
             // ********** In SAM, computer accounts don't have a password-expired property
             if (p is ComputerPrincipal)
@@ -518,7 +515,7 @@ namespace System.DirectoryServices.AccountManagement
 
         internal override void UnexpirePassword(AuthenticablePrincipal p)
         {
-            Debug.Assert(p.fakePrincipal == false);
+            Debug.Assert(!p.fakePrincipal);
 
             // ********** In SAM, computer accounts don't have a password-expired property
             if (p is ComputerPrincipal)
@@ -575,7 +572,7 @@ namespace System.DirectoryServices.AccountManagement
             return FindByDate(FindByDateMatcher.DateProperty.AccountExpirationTime, matchType, dt, principalType);
         }
 
-        private ResultSet FindByDate(
+        private SAMQuerySet FindByDate(
                         FindByDateMatcher.DateProperty property,
                         MatchType matchType,
                         DateTime value,
@@ -611,7 +608,7 @@ namespace System.DirectoryServices.AccountManagement
         internal override ResultSet GetGroupsMemberOf(Principal p)
         {
             // Enforced by the methods that call us
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
 
             if (!p.fakePrincipal)
             {
@@ -651,14 +648,15 @@ namespace System.DirectoryServices.AccountManagement
                 List<string> schemaTypes = GetSchemaFilter(typeof(GroupPrincipal));
 
                 SecurityIdentifier principalSid = p.Sid;
-                byte[] SidB = new byte[principalSid.BinaryLength];
-                principalSid.GetBinaryForm(SidB, 0);
 
                 if (principalSid == null)
                 {
                     GlobalDebug.WriteLineIf(GlobalDebug.Warn, "SAMStoreCtx", "GetGroupsMemberOf: bad SID IC");
                     throw new InvalidOperationException(SR.StoreCtxNeedValueSecurityIdentityClaimToQuery);
                 }
+
+                byte[] SidB = new byte[principalSid.BinaryLength];
+                principalSid.GetBinaryForm(SidB, 0);
 
                 // Create the ResultSet that will perform the client-side filtering
                 SAMQuerySet resultSet = new SAMQuerySet(
@@ -714,7 +712,7 @@ namespace System.DirectoryServices.AccountManagement
         internal override ResultSet GetGroupsMemberOfAZ(Principal p)
         {
             // Enforced by the methods that call us
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
             Debug.Assert(p is UserPrincipal);
 
             // Get the user SID that AuthZ will use.
@@ -749,7 +747,7 @@ namespace System.DirectoryServices.AccountManagement
         internal override BookmarkableResultSet GetGroupMembership(GroupPrincipal g, bool recursive)
         {
             // Enforced by the methods that call us
-            Debug.Assert(g.unpersisted == false);
+            Debug.Assert(!g.unpersisted);
 
             // Fake groups are a member of other groups, but they themselves have no members
             // (they don't even exist in the store)
@@ -853,18 +851,7 @@ namespace System.DirectoryServices.AccountManagement
             // Since this is SAM, the remote principal must be an AD principal.
             // Build a PrincipalContext for the store which owns the principal
             // Use the ad default options so we turn sign and seal back on.
-#if USE_CTX_CACHE
             PrincipalContext remoteCtx = SDSCache.Domain.GetContext(domainName, _credentials, DefaultContextOptions.ADDefaultContextOption);
-#else
-            PrincipalContext remoteCtx = new PrincipalContext(
-                            ContextType.Domain,
-                            domainName,
-                            null,
-                            (this.credentials != null ? credentials.UserName : null),
-                            (this.credentials != null ? credentials.Password : null),
-                            DefaultContextOptions.ADDefaultContextOption);
-
-#endif
 
             SecurityIdentifier sidObj = new SecurityIdentifier(sid, 0);
 
@@ -1063,11 +1050,11 @@ namespace System.DirectoryServices.AccountManagement
             try
             {
                 // This function takes in a flat or DNS name, and returns the flat name of the computer
-                int err = UnsafeNativeMethods.NetWkstaGetInfo(_machineUserSuppliedName, 100, ref buffer);
+                int err = Interop.Wkscli.NetWkstaGetInfo(_machineUserSuppliedName, 100, ref buffer);
                 if (err == 0)
                 {
                     UnsafeNativeMethods.WKSTA_INFO_100 wkstaInfo =
-                        (UnsafeNativeMethods.WKSTA_INFO_100)Marshal.PtrToStructure(buffer, typeof(UnsafeNativeMethods.WKSTA_INFO_100));
+                        Marshal.PtrToStructure<UnsafeNativeMethods.WKSTA_INFO_100>(buffer);
 
                     _machineFlatName = wkstaInfo.wki100_computername;
                     GlobalDebug.WriteLineIf(GlobalDebug.Info, "SAMStoreCtx", "LoadComputerInfo: machineFlatName={0}", _machineFlatName);
@@ -1083,7 +1070,7 @@ namespace System.DirectoryServices.AccountManagement
             finally
             {
                 if (buffer != IntPtr.Zero)
-                    UnsafeNativeMethods.NetApiBufferFree(buffer);
+                    Interop.Netutils.NetApiBufferFree(buffer);
             }
         }
 
@@ -1103,5 +1090,3 @@ namespace System.DirectoryServices.AccountManagement
         }
     }
 }
-
-// #endif  // PAPI_REGSAM

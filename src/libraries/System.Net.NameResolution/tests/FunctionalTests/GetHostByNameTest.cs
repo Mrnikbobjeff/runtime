@@ -4,20 +4,22 @@
 #pragma warning disable 0618 // use of obsolete methods
 
 using System.Net.Sockets;
+
+using Microsoft.DotNet.XUnitExtensions;
 using Xunit;
 
 namespace System.Net.NameResolution.Tests
 {
     public class GetHostByNameTest
     {
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void DnsObsoleteBeginGetHostByName_BadName_Throws()
         {
             IAsyncResult asyncObject = Dns.BeginGetHostByName("BadName", null, null);
             Assert.ThrowsAny<SocketException>(() => Dns.EndGetHostByName(asyncObject));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void DnsObsoleteBeginGetHostByName_IPv4String_ReturnsOnlyGivenIP()
         {
             IAsyncResult asyncObject = Dns.BeginGetHostByName(IPAddress.Loopback.ToString(), null, null);
@@ -28,7 +30,7 @@ namespace System.Net.NameResolution.Tests
             Assert.Equal(IPAddress.Loopback, entry.AddressList[0]);
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void DnsObsoleteBeginGetHostByName_MachineNameWithIPv4_MatchesGetHostByName()
         {
             IAsyncResult asyncObject = Dns.BeginGetHostByName(TestSettings.LocalHost, null, null);
@@ -103,6 +105,8 @@ namespace System.Net.NameResolution.Tests
 
         [ActiveIssue("https://github.com/dotnet/runtime/issues/1488", TestPlatforms.OSX)]
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotArm64Process))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/27622")]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51377", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/107339", TestPlatforms.Wasi)]
         public void DnsObsoleteGetHostByName_EmptyString_ReturnsHostName()
         {
             IPHostEntry entry = Dns.GetHostByName("");
@@ -111,8 +115,9 @@ namespace System.Net.NameResolution.Tests
             Assert.Contains(Dns.GetHostName(), entry.HostName, StringComparison.OrdinalIgnoreCase);
         }
 
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotArm64Process), nameof(PlatformDetection.IsMultithreadingSupported))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/27622")]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/1488", TestPlatforms.OSX)]
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotArm64Process), nameof(PlatformDetection.IsThreadingSupported))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/27622")]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51377", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void DnsObsoleteBeginEndGetHostByName_EmptyString_ReturnsHostName()
         {
             IPHostEntry entry = Dns.EndGetHostByName(Dns.BeginGetHostByName("", null, null));

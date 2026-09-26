@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b39951
 {
     using System;
 
@@ -12,13 +13,14 @@ namespace Test
         public static void Static1(double param1, uint param4) { }
     }
 
-    class BB
+    public class BB
     {
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             double local3 = 133.28;
             AA.Static1(local3, AA.m_auForward3[2]);
-            return 100;
         }
     }
 }

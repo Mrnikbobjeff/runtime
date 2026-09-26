@@ -7,6 +7,7 @@
   .ver 4:0:0:0
 }
 .assembly extern mscorlib {}
+.assembly extern System.Runtime { .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A ) }
 
 //  arglist should verify within vararg method
 .assembly arglist_pos
@@ -14,7 +15,9 @@
   .hash algorithm 0x00008004
   .ver 0:0:0:0
 }
-.module arglist_pos.exe
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
 
 .class public auto ansi arglist_pos extends [mscorlib]System.Object
 {
@@ -33,6 +36,10 @@
 
   .method public hidebysig static int32 Main() il managed
   {
+    .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ConditionalFactAttribute::.ctor(class [System.Runtime]System.Type, string[]) = {
+        type([TestLibrary]TestLibrary.PlatformDetection)
+        string[1] ('IsVarArgSupported')
+    }
 	.entrypoint
 	.try
 	{

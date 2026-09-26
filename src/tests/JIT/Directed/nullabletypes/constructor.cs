@@ -6,6 +6,11 @@
 // The HasValue property will be set to true, and the Value property will get the value of the constructor
 //</Description>
 
+namespace JitTest_Directed_nullabletypes_constructor;
+
+using JitTest_Directed_nullabletypes_invokecommon;
+using Xunit;
+
 #pragma warning disable 0649
 
 using System;
@@ -32,21 +37,23 @@ class NullableTest1
 
     public static void Run()
     {
-        Test.Eval(i.HasValue);
-        Test.Eval(i.Value, 1);
-        Test.Eval(s.HasValue);
-        Test.Eval(s.Value, default(Struct));
-        Test.Eval(imps.HasValue);
-        Test.Eval(imps.Value, default(ImplStruct));
-        Test.Eval(genfoo.HasValue);
-        Test.Eval(genfoo.Value, default(OpenGenImplStruct<Foo>));
-        Test.Eval(genint.HasValue);
-        Test.Eval(genint.Value, default(CloseGenImplStruct));
+        Test_nullabletypes.Eval(i.HasValue);
+        Test_nullabletypes.Eval(i.Value, 1);
+        Test_nullabletypes.Eval(s.HasValue);
+        Test_nullabletypes.Eval(s.Value, default(Struct));
+        Test_nullabletypes.Eval(imps.HasValue);
+        Test_nullabletypes.Eval(imps.Value, default(ImplStruct));
+        Test_nullabletypes.Eval(genfoo.HasValue);
+        Test_nullabletypes.Eval(genfoo.Value, default(OpenGenImplStruct<Foo>));
+        Test_nullabletypes.Eval(genint.HasValue);
+        Test_nullabletypes.Eval(genint.Value, default(CloseGenImplStruct));
     }
 }
 
-class NullableTests
+public class NullableTests
 {
+    [OuterLoop]
+    [Fact]
     public static void Run()
     {
         NullableTest1.Run();

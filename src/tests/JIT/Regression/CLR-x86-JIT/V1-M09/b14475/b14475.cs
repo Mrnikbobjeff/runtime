@@ -3,9 +3,10 @@
 
 
 using System;
+using Xunit;
 
 
-namespace DefaultNamespace
+namespace b14475
 {
     public class Bug_Cb4270
     {
@@ -32,11 +33,12 @@ namespace DefaultNamespace
             return true;
         }
 
-        public static int Main(String[] args)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             Console.WriteLine("Character.IsWhitespace() -- Bug_Cb4270 runTest started.");
             (new Bug_Cb4270()).runTest();
-            return 100;
         }
     }
 }

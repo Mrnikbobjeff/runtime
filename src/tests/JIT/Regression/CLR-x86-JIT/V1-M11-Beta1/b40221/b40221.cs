@@ -2,11 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b40221
 {
     using System;
 
-    struct AA
+    public struct AA
     {
         static void Func()
         {
@@ -14,7 +15,9 @@ namespace Test
             while (a == 1)
                 throw new Exception();
         }
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

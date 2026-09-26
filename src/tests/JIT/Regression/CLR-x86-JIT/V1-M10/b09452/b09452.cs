@@ -2,15 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b09452
 {
     //@BEGINRENAME; Verify this renames
     //@ENDRENAME; Verify this renames
     using System;
 
-    class X
+    public class X
     {
-        public static int Main(String[] argv)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             Object[,] obj = new Object[1, 1];
             //			IL_0000:  ldc.i4.1
@@ -27,7 +30,6 @@ namespace DefaultNamespace
 
             //    		IL_0015:  ret 
 
-            return 100;
         } // main
 
     } // X

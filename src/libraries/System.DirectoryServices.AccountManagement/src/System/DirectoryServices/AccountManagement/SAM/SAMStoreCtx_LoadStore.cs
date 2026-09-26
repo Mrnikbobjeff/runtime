@@ -2,22 +2,21 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Diagnostics;
-using System.Collections.Generic;
 using System.Collections;
-using System.Text;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.DirectoryServices;
 using System.Globalization;
-using System.Security.Cryptography.X509Certificates;
+using System.Net;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
-using System.Net;
+using System.Security.Cryptography.X509Certificates;
 using System.Security.Principal;
-
-using System.DirectoryServices;
+using System.Text;
 
 namespace System.DirectoryServices.AccountManagement
 {
-    internal partial class SAMStoreCtx : StoreCtx
+    internal sealed partial class SAMStoreCtx : StoreCtx
     {
         //
         // Native <--> Principal
@@ -354,7 +353,7 @@ namespace System.DirectoryServices.AccountManagement
                 {
                     pSid = Utils.ConvertByteArrayToIntPtr(sid);
 
-                    if (UnsafeNativeMethods.IsValidSid(pSid) && (Utils.ClassifySID(pSid) == SidType.FakeObject))
+                    if (Interop.Advapi32.IsValidSid(pSid) && (Utils.ClassifySID(pSid) == SidType.FakeObject))
                     {
                         GlobalDebug.WriteLineIf(GlobalDebug.Info,
                                                 "SAMStoreCtx",
@@ -419,7 +418,7 @@ namespace System.DirectoryServices.AccountManagement
                         {
                             pSid = Utils.ConvertByteArrayToIntPtr(sid);
 
-                            if (UnsafeNativeMethods.IsValidSid(pSid) && (Utils.ClassifySID(pSid) == SidType.FakeObject))
+                            if (Interop.Advapi32.IsValidSid(pSid) && (Utils.ClassifySID(pSid) == SidType.FakeObject))
                             {
                                 GlobalDebug.WriteLineIf(GlobalDebug.Info,
                                                         "SAMStoreCtx",
@@ -743,7 +742,7 @@ namespace System.DirectoryServices.AccountManagement
             Principal = User | Computer | Group
         }
 
-        private class PropertyMappingTableEntry
+        private sealed class PropertyMappingTableEntry
         {
             internal string propertyName;                  // PAPI name
             internal string suggestedWinNTPropertyName;    // WinNT attribute name
@@ -853,7 +852,7 @@ namespace System.DirectoryServices.AccountManagement
         private static void ElapsedTimeFromWinNTConverter(DirectoryEntry de, string suggestedWinNTProperty, Principal p, string propertyName)
         {
             // These properties are expressed as "seconds passed since the event of interest".  So to convert
-            // to a DateTime, we substract them from DateTime.UtcNow.
+            // to a DateTime, we subtract them from DateTime.UtcNow.
 
             PropertyValueCollection values = de.Properties[suggestedWinNTProperty];
 
@@ -1006,7 +1005,7 @@ namespace System.DirectoryServices.AccountManagement
 
         private static void UpdateGroupMembership(Principal group, DirectoryEntry de, NetCred credentials, AuthenticationTypes authTypes)
         {
-            Debug.Assert(group.fakePrincipal == false);
+            Debug.Assert(!group.fakePrincipal);
 
             PrincipalCollection members = (PrincipalCollection)group.GetValueForProperty(PropertyNames.GroupMembers);
 
@@ -1113,10 +1112,10 @@ namespace System.DirectoryServices.AccountManagement
                 {
                     // Since we don't allow any of these to be inserted, none of them should ever
                     // show up in the removal list
-                    Debug.Assert(member.unpersisted == false);
+                    Debug.Assert(!member.unpersisted);
 
                     // If the collection was cleared, there should be no original members to remove
-                    Debug.Assert(members.Cleared == false);
+                    Debug.Assert(!members.Cleared);
 
                     // Like insertion, we'll remove by SID.
 
@@ -1147,7 +1146,7 @@ namespace System.DirectoryServices.AccountManagement
 
         private static string GetSidADsPathFromPrincipal(Principal p)
         {
-            Debug.Assert(p.unpersisted == false);
+            Debug.Assert(!p.unpersisted);
 
             // Get the member's SID from its Security IdentityClaim
 
@@ -1175,5 +1174,3 @@ namespace System.DirectoryServices.AccountManagement
         }
     }
 }
-
-// #endif   // PAPI_REGSAM

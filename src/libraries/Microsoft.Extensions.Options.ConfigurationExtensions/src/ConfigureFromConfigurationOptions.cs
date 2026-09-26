@@ -2,7 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Microsoft.Extensions.Options
 {
@@ -16,16 +18,16 @@ namespace Microsoft.Extensions.Options
         where TOptions : class
     {
         /// <summary>
-        /// Constructor that takes the <see cref="IConfiguration"/> instance to bind against.
+        /// Initializes a new instance of the <see cref="ConfigureFromConfigurationOptions{TOptions}"/> class using the specified <see cref="IConfiguration"/> instance to bind against.
         /// </summary>
         /// <param name="config">The <see cref="IConfiguration"/> instance.</param>
+        //Even though TOptions is annotated, we need to annotate as RUC as we can't guarantee properties on referenced types are preserved.
+        [RequiresDynamicCode(OptionsBuilderConfigurationExtensions.RequiresDynamicCodeMessage)]
+        [RequiresUnreferencedCode(OptionsBuilderConfigurationExtensions.TrimmingRequiredUnreferencedCodeMessage)]
         public ConfigureFromConfigurationOptions(IConfiguration config)
             : base(options => ConfigurationBinder.Bind(config, options))
         {
-            if (config == null)
-            {
-                throw new ArgumentNullException(nameof(config));
-            }
+            ArgumentNullException.ThrowIfNull(config);
         }
     }
 }

@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using StructLayoutAttribute = System.Runtime.InteropServices.StructLayoutAttribute;
 
@@ -14,28 +15,63 @@ namespace System.Reflection.TypeLoading
     {
         private const TypeAttributes TypeAttributesSentinel = (TypeAttributes)(-1);
 
-        protected private RoType()
-            : base()
-        {
-        }
+        private protected RoType() : base() { }
 
         public sealed override Type AsType() => this;
-        public sealed override Type UnderlyingSystemType => this;
+        public override Type UnderlyingSystemType => this;
 
-        // Type classifiers
+        public override bool Equals([NotNullWhen(true)] object? obj)
+        {
+            if (obj is RoType objType)
+            {
+                if (obj is not RoModifiedType)
+                {
+                    return base.Equals(objType);
+                }
+            }
+
+            return false;
+        }
+
+        public override int GetHashCode() => base.GetHashCode();
         public abstract override bool IsTypeDefinition { get; }
         public abstract override bool IsGenericTypeDefinition { get; }
         protected abstract override bool HasElementTypeImpl();
+        internal bool Call_HasElementTypeImpl() => HasElementTypeImpl();
         protected abstract override bool IsArrayImpl();
+        internal bool Call_IsArrayImpl() => IsArrayImpl();
         public abstract override bool IsSZArray { get; }
         public abstract override bool IsVariableBoundArray { get; }
         protected abstract override bool IsByRefImpl();
+        internal bool Call_IsByRefImpl() => IsByRefImpl();
         protected abstract override bool IsPointerImpl();
+        internal bool Call_IsPointerImpl() => IsPointerImpl();
         public abstract override bool IsConstructedGenericType { get; }
         public abstract override bool IsGenericParameter { get; }
         public abstract override bool IsGenericTypeParameter { get; }
         public abstract override bool IsGenericMethodParameter { get; }
         public sealed override bool IsByRefLike => (GetClassification() & TypeClassification.IsByRefLike) != 0;
+
+        public abstract override bool IsFunctionPointer { get; }
+        public abstract override bool IsUnmanagedFunctionPointer { get; }
+
+        public override Type[] GetFunctionPointerCallingConventions()
+        {
+            if (!IsFunctionPointer)
+            {
+                throw new InvalidOperationException(SR.InvalidOperation_NotFunctionPointer);
+            }
+
+            // Requires a modified type to return the modifiers.
+            return EmptyTypes;
+        }
+
+        public abstract override Type GetFunctionPointerReturnType();
+        public abstract override Type[] GetFunctionPointerParameterTypes();
+
+        // RoModifiedType overrides these.
+        public override Type[] GetOptionalCustomModifiers() => EmptyTypes;
+        public override Type[] GetRequiredCustomModifiers() => EmptyTypes;
 
         public abstract override bool ContainsGenericParameters { get; }
 
@@ -62,23 +98,25 @@ namespace System.Reflection.TypeLoading
 
         // .NET 2.0 apis for detecting/deconstructing generic type definition/constructed generic types.
         public sealed override bool IsGenericType => IsConstructedGenericType || IsGenericTypeDefinition;
-        public sealed override Type[] GetGenericArguments() => GetGenericArgumentsNoCopy().CloneArray<Type>();
+
+        //  Don't seal since we may need to convert any modified types to unmodified.
+        public override Type[] GetGenericArguments() => GetGenericArgumentsNoCopy().CloneArray<Type>();
+
         protected internal abstract RoType[] GetGenericArgumentsNoCopy();
 
         // Naming
-        public sealed override string Name => _lazyName ?? (_lazyName = ComputeName());
+        public sealed override string Name => field ??= ComputeName();
         protected abstract string ComputeName();
-        private volatile string? _lazyName;
+        internal string Call_ComputeName() => ComputeName();
 
-        public sealed override string? Namespace => _lazyNamespace ?? (_lazyNamespace = ComputeNamespace());
+        public sealed override string? Namespace => field ??= ComputeNamespace();
         protected abstract string? ComputeNamespace();
-        private volatile string? _lazyNamespace;
+        internal string? Call_ComputeNamespace() => ComputeNamespace();
 
-        public sealed override string? FullName => _lazyFullName ?? (_lazyFullName = ComputeFullName());
+        public sealed override string? FullName => field ??= ComputeFullName();
         protected abstract string? ComputeFullName();
-        private volatile string? _lazyFullName;
-
-        public sealed override string? AssemblyQualifiedName => _lazyAssemblyQualifiedFullName ?? (_lazyAssemblyQualifiedFullName = ComputeAssemblyQualifiedName());
+        internal string? Call_ComputeFullName() => ComputeFullName();
+        public override string? AssemblyQualifiedName => field ??= ComputeAssemblyQualifiedName();
         private string? ComputeAssemblyQualifiedName()
         {
             string? fullName = FullName;
@@ -87,7 +125,6 @@ namespace System.Reflection.TypeLoading
             string? assemblyName = Assembly.FullName;
             return fullName + ", " + assemblyName;
         }
-        private volatile string? _lazyAssemblyQualifiedFullName;
 
         // Assembly and module
         public sealed override Assembly Assembly => Module.Assembly;
@@ -97,8 +134,9 @@ namespace System.Reflection.TypeLoading
         // Nesting
         public sealed override Type? DeclaringType => GetRoDeclaringType();
         protected abstract RoType? ComputeDeclaringType();
-        internal RoType? GetRoDeclaringType() => _lazyDeclaringType ?? (_lazyDeclaringType = ComputeDeclaringType());
-        private volatile RoType? _lazyDeclaringType;
+        internal RoType? GetRoDeclaringType() => _lazyDeclaringType ??= ComputeDeclaringType();
+        internal RoType? Call_ComputeDeclaringType() => ComputeDeclaringType();
+        private RoType? _lazyDeclaringType;
 
         public abstract override MethodBase? DeclaringMethod { get; }
         // .NET Framework compat: For types, ReflectedType == DeclaringType. Nested types are always looked up as if BindingFlags.DeclaredOnly was passed.
@@ -129,7 +167,7 @@ namespace System.Reflection.TypeLoading
             }
             return baseType;
         }
-        private volatile RoType? _lazyBaseType = Sentinels.RoType;
+        private RoType? _lazyBaseType = Sentinels.RoType;
 
         //
         // This internal method implements BaseType without the following .NET Framework quirk:
@@ -148,7 +186,7 @@ namespace System.Reflection.TypeLoading
         // To implement this with the least amount of code smell, we'll implement the idealized version of BaseType here
         // and make the special-case adjustment in the public version of BaseType.
         //
-        protected abstract RoType? ComputeBaseTypeWithoutDesktopQuirk();
+        internal abstract RoType? ComputeBaseTypeWithoutDesktopQuirk();
 
         public sealed override Type[] GetInterfaces() => GetInterfacesNoCopy().CloneArray<Type>();
 
@@ -163,9 +201,9 @@ namespace System.Reflection.TypeLoading
             }
         }
 
-        protected abstract IEnumerable<RoType> ComputeDirectlyImplementedInterfaces();
+        internal abstract IEnumerable<RoType> ComputeDirectlyImplementedInterfaces();
 
-        internal RoType[] GetInterfacesNoCopy() => _lazyInterfaces ?? (_lazyInterfaces = ComputeInterfaceClosure());
+        internal RoType[] GetInterfacesNoCopy() => _lazyInterfaces ??= ComputeInterfaceClosure();
         private RoType[] ComputeInterfaceClosure()
         {
             HashSet<RoType> ifcs = new HashSet<RoType>();
@@ -201,7 +239,7 @@ namespace System.Reflection.TypeLoading
             return arr;
         }
 
-        private volatile RoType[]? _lazyInterfaces;
+        private RoType[]? _lazyInterfaces;
 
         public sealed override InterfaceMapping GetInterfaceMap(Type interfaceType) => throw new NotSupportedException(SR.NotSupported_InterfaceMapping);
 
@@ -224,8 +262,8 @@ namespace System.Reflection.TypeLoading
 
         // Identify interesting subgroups of Types
         protected sealed override bool IsCOMObjectImpl() => false;   // RCW's are irrelevant in a MetadataLoadContext without object creation.
-        public sealed override bool IsEnum => (GetBaseTypeClassification() & BaseTypeClassification.IsEnum) != 0;
-        protected sealed override bool IsValueTypeImpl() => (GetBaseTypeClassification() & BaseTypeClassification.IsValueType) != 0;
+        public override bool IsEnum => (GetBaseTypeClassification() & BaseTypeClassification.IsEnum) != 0;
+        protected override bool IsValueTypeImpl() => (GetBaseTypeClassification() & BaseTypeClassification.IsValueType) != 0;
 
         // Metadata
         public abstract override int MetadataToken { get; }
@@ -234,11 +272,13 @@ namespace System.Reflection.TypeLoading
         // TypeAttributes
         protected sealed override TypeAttributes GetAttributeFlagsImpl() => (_lazyTypeAttributes == TypeAttributesSentinel) ? (_lazyTypeAttributes = ComputeAttributeFlags()) : _lazyTypeAttributes;
         protected abstract TypeAttributes ComputeAttributeFlags();
+        internal TypeAttributes Call_ComputeAttributeFlags() => ComputeAttributeFlags();
         private volatile TypeAttributes _lazyTypeAttributes = TypeAttributesSentinel;
 
         // Miscellaneous properties
         public sealed override MemberTypes MemberType => IsPublic || IsNotPublic ? MemberTypes.TypeInfo : MemberTypes.NestedType;
         protected abstract override TypeCode GetTypeCodeImpl();
+        internal TypeCode Call_GetTypeCodeImpl() => GetTypeCodeImpl();
         public abstract override string ToString();
 
         // Random interop stuff
@@ -278,13 +318,66 @@ namespace System.Reflection.TypeLoading
 
         public sealed override Type MakeByRefType() => this.GetUniqueByRefType();
         public sealed override Type MakePointerType() => this.GetUniquePointerType();
+        [RequiresUnreferencedCode("If some of the generic arguments are annotated (either with DynamicallyAccessedMembersAttribute, or generic constraints), trimming can't validate that the requirements of those annotations are met.")]
         public abstract override Type MakeGenericType(params Type[] typeArguments);
 
         // Enum methods
-        public sealed override Type GetEnumUnderlyingType() => _lazyUnderlyingEnumType ?? (_lazyUnderlyingEnumType = ComputeEnumUnderlyingType());
+        public sealed override Type GetEnumUnderlyingType() => _lazyUnderlyingEnumType ??= ComputeEnumUnderlyingType();
         protected internal abstract RoType ComputeEnumUnderlyingType();
-        private volatile RoType? _lazyUnderlyingEnumType;
+        private RoType? _lazyUnderlyingEnumType;
         public sealed override Array GetEnumValues() => throw new InvalidOperationException(SR.Arg_InvalidOperation_Reflection);
+
+        // Nullable methods
+#if NET11_0_OR_GREATER
+        public override Type? GetNullableUnderlyingType()
+        {
+            if (IsGenericType)
+            {
+                RoType? nullableOfT = Loader.TryGetCoreType(CoreType.NullableT);
+                if (nullableOfT is not null && GetGenericTypeDefinition() == nullableOfT)
+                {
+                    // Use GetGenericArguments() to cover both constructed Nullable<T>
+                    // (returns T) and the generic type definition Nullable<>
+                    // (returns the generic type parameter).
+                    return GetGenericArguments()[0];
+                }
+            }
+
+            return null;
+        }
+#endif
+
+#if NET
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2085:UnrecognizedReflectionPattern",
+            Justification = "Enum Types are not trimmed.")]
+        public override Array GetEnumValuesAsUnderlyingType()
+        {
+            if (!IsEnum)
+                throw new ArgumentException(SR.Arg_MustBeEnum, "enumType");
+
+            FieldInfo[] enumFields = GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+            int numValues = enumFields.Length;
+            Array ret = Type.GetTypeCode(GetEnumUnderlyingType()) switch
+            {
+                TypeCode.Byte => new byte[numValues],
+                TypeCode.SByte => new sbyte[numValues],
+                TypeCode.UInt16 => new ushort[numValues],
+                TypeCode.Int16 => new short[numValues],
+                TypeCode.UInt32 => new uint[numValues],
+                TypeCode.Int32 => new int[numValues],
+                TypeCode.UInt64 => new ulong[numValues],
+                TypeCode.Int64 => new long[numValues],
+                _ => throw new NotSupportedException(),
+            };
+
+            for (int i = 0; i < numValues; i++)
+            {
+                ret.SetValue(enumFields[i].GetRawConstantValue(), i);
+            }
+
+            return ret;
+        }
+#endif
 
         // No trust environment to apply these to.
         public sealed override bool IsSecurityCritical => throw new InvalidOperationException(SR.InvalidOperation_IsSecurity);

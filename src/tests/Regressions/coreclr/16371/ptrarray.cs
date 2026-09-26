@@ -1,7 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-unsafe class Program
+using Xunit;
+using TestLibrary;
+public unsafe class Program
 {
     static int*[,] s_mdArray;
 
@@ -17,7 +19,9 @@ unsafe class Program
         s_mdArray[1, 1] = (int*)2;
     }
 
-    static int Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static int TestEntryPoint()
     {
         return (int)s_mdArray[0, 0] + (int)s_mdArray[1, 1];
     }

@@ -44,7 +44,7 @@ namespace System.IO.Ports.Tests
 
         #region Test Cases
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasOneSerialPort))]
         public void ReadWithoutOpen()
         {
             using (SerialPort com = new SerialPort())
@@ -54,7 +54,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasOneSerialPort))]
         public void ReadAfterFailedOpen()
         {
             using (SerialPort com = new SerialPort("BAD_PORT_NAME"))
@@ -68,12 +68,12 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasOneSerialPort))]
         public void ReadAfterClose()
         {
             using (SerialPort com = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
             {
-                Debug.WriteLine("Verifying read method throws exception after a call to Cloes()");
+                Debug.WriteLine("Verifying read method throws exception after a call to Close()");
                 com.Open();
                 com.Close();
                 VerifyReadException(com, typeof(InvalidOperationException));
@@ -81,7 +81,7 @@ namespace System.IO.Ports.Tests
         }
 
         [Trait(XunitConstants.Category, XunitConstants.IgnoreForCI)]  // Timing-sensitive
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasOneSerialPort))]
         public void Timeout()
         {
             using (SerialPort com = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -97,7 +97,7 @@ namespace System.IO.Ports.Tests
         }
 
         [Trait(XunitConstants.Category, XunitConstants.IgnoreForCI)]  // Timing-sensitive
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasOneSerialPort))]
         public void SuccessiveReadTimeoutNoData()
         {
             using (SerialPort com = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -116,7 +116,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasNullModem))]
         public void SuccessiveReadTimeoutSomeData()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -165,14 +165,14 @@ namespace System.IO.Ports.Tests
         }
 
         [KnownFailure]
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasNullModem))]
         public void DefaultParityReplaceByte()
         {
             VerifyParityReplaceByte(-1, numRndBytesPairty - 2);
         }
 
         [KnownFailure]
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasNullModem))]
         public void NoParityReplaceByte()
         {
             Random rndGen = new Random(-55);
@@ -180,7 +180,7 @@ namespace System.IO.Ports.Tests
         }
 
         [KnownFailure]
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasNullModem))]
         public void RNDParityReplaceByte()
         {
             Random rndGen = new Random(-55);
@@ -188,7 +188,7 @@ namespace System.IO.Ports.Tests
         }
 
         [KnownFailure]
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasNullModem))]
         public void ParityErrorOnLastByte()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -202,7 +202,7 @@ namespace System.IO.Ports.Tests
                  We are verifying that besides this everything gets read in correctly. See NDP Whidbey: 24216 for more info on this */
                 Debug.WriteLine("Verifying default ParityReplace byte with a parity errro on the last byte");
 
-                //Genrate random characters without an parity error
+                // Generate random characters without an parity error
                 for (int i = 0; i < bytesToWrite.Length; i++)
                 {
                     byte randByte = (byte)rndGen.Next(0, 128);
@@ -248,20 +248,20 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasNullModem))]
         public void BytesToRead_RND_Buffer_Size()
         {
             Random rndGen = new Random(-55);
             VerifyBytesToRead(rndGen.Next(1, 2 * numRndBytesToRead));
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasNullModem))]
         public void BytesToRead_1_Buffer_Size()
         {
             VerifyBytesToRead(1);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ReadLine_Generic), nameof(HasNullModem))]
         public void BytesToRead_Equal_Buffer_Size()
         {
             VerifyBytesToRead(numRndBytesToRead);
@@ -316,7 +316,7 @@ namespace System.IO.Ports.Tests
                 char[] expectedChars = new char[numRndBytesPairty + 1]; //Plus one to accomidate the NewLineByte
                 byte expectedByte;
 
-                //Genrate random characters without an parity error
+                // Generate random characters without an parity error
                 for (int i = 0; i < numRndBytesPairty; i++)
                 {
                     byte randByte = (byte)rndGen.Next(0, 128);
@@ -378,7 +378,7 @@ namespace System.IO.Ports.Tests
                 byte[] bytesToWrite = new byte[numBytesRead + 1]; //Plus one to accomidate the NewLineByte
                 ASCIIEncoding encoding = new ASCIIEncoding();
 
-                //Genrate random characters
+                // Generate random characters
                 for (int i = 0; i < numBytesRead; i++)
                 {
                     byte randByte = (byte)rndGen.Next(0, 256);

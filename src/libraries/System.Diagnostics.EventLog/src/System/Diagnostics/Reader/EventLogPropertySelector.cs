@@ -15,13 +15,11 @@ namespace System.Diagnostics.Eventing.Reader
     {
         public EventLogPropertySelector(IEnumerable<string> propertyQueries)
         {
-            if (propertyQueries == null)
-                throw new ArgumentNullException(nameof(propertyQueries));
+            ArgumentNullException.ThrowIfNull(propertyQueries);
 
             string[] paths;
 
-            ICollection<string> coll = propertyQueries as ICollection<string>;
-            if (coll != null)
+            if (propertyQueries is ICollection<string> coll)
             {
                 paths = new string[coll.Count];
                 coll.CopyTo(paths, 0);

@@ -1,13 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Security;
+using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using System.Runtime.Versioning;
+using System.Security;
 using System.Text;
-
-using Internal.Runtime.CompilerServices;
-using System.Diagnostics.CodeAnalysis;
 
 namespace System.Runtime.InteropServices
 {
@@ -28,7 +28,7 @@ namespace System.Runtime.InteropServices
         /// </summary>
         public static readonly int SystemMaxDBCSCharSize = GetSystemMaxDBCSCharSize();
 
-        public static IntPtr AllocHGlobal(int cb) => AllocHGlobal((IntPtr)cb);
+        public static IntPtr AllocHGlobal(int cb) => AllocHGlobal((nint)cb);
 
         public static unsafe string? PtrToStringAnsi(IntPtr ptr)
         {
@@ -42,14 +42,8 @@ namespace System.Runtime.InteropServices
 
         public static unsafe string PtrToStringAnsi(IntPtr ptr, int len)
         {
-            if (ptr == IntPtr.Zero)
-            {
-                throw new ArgumentNullException(nameof(ptr));
-            }
-            if (len < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(len), len, SR.ArgumentOutOfRange_NeedNonNegNum);
-            }
+            ArgumentNullException.ThrowIfNull(ptr);
+            ArgumentOutOfRangeException.ThrowIfNegative(len);
 
             return new string((sbyte*)ptr, 0, len);
         }
@@ -66,14 +60,8 @@ namespace System.Runtime.InteropServices
 
         public static unsafe string PtrToStringUni(IntPtr ptr, int len)
         {
-            if (ptr == IntPtr.Zero)
-            {
-                throw new ArgumentNullException(nameof(ptr));
-            }
-            if (len < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(len), len, SR.ArgumentOutOfRange_NeedNonNegNum);
-            }
+            ArgumentNullException.ThrowIfNull(ptr);
+            ArgumentOutOfRangeException.ThrowIfNegative(len);
 
             return new string((char*)ptr, 0, len);
         }
@@ -91,79 +79,104 @@ namespace System.Runtime.InteropServices
 
         public static unsafe string PtrToStringUTF8(IntPtr ptr, int byteLen)
         {
-            if (ptr == IntPtr.Zero)
-            {
-                throw new ArgumentNullException(nameof(ptr));
-            }
-            if (byteLen < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(byteLen), byteLen, SR.ArgumentOutOfRange_NeedNonNegNum);
-            }
+            ArgumentNullException.ThrowIfNull(ptr);
+            ArgumentOutOfRangeException.ThrowIfNegative(byteLen);
 
             return string.CreateStringFromEncoding((byte*)ptr, byteLen, Encoding.UTF8);
         }
 
+        [RequiresDynamicCode("Marshalling code for the object might not be available. Use the SizeOf<T> overload instead.")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public static int SizeOf(object structure)
         {
-            if (structure is null)
-            {
-                throw new ArgumentNullException(nameof(structure));
-            }
+            ArgumentNullException.ThrowIfNull(structure);
 
-            return SizeOfHelper(structure.GetType(), throwIfNotMarshalable: true);
+            return SizeOfHelper((RuntimeType)structure.GetType(), throwIfNotMarshalable: true);
         }
 
         public static int SizeOf<T>(T structure)
         {
-            if (structure is null)
-            {
-                throw new ArgumentNullException(nameof(structure));
-            }
+            ArgumentNullException.ThrowIfNull(structure);
 
-            return SizeOfHelper(structure.GetType(), throwIfNotMarshalable: true);
+            return SizeOfHelper((RuntimeType)structure.GetType(), throwIfNotMarshalable: true);
         }
 
+        [RequiresDynamicCode("Marshalling code for the object might not be available. Use the SizeOf<T> overload instead.")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public static int SizeOf(Type t)
         {
-            if (t is null)
-            {
-                throw new ArgumentNullException(nameof(t));
-            }
-            if (!t.IsRuntimeImplemented())
+            ArgumentNullException.ThrowIfNull(t);
+
+            if (t is not RuntimeType rt)
             {
                 throw new ArgumentException(SR.Argument_MustBeRuntimeType, nameof(t));
             }
-            if (t.IsGenericType)
+            if (rt.IsGenericType)
             {
                 throw new ArgumentException(SR.Argument_NeedNonGenericType, nameof(t));
+            }
+
+            return SizeOfHelper(rt, throwIfNotMarshalable: true);
+        }
+
+        public static int SizeOf<T>()
+        {
+            RuntimeType t = (RuntimeType)typeof(T);
+            if (t.IsGenericType)
+            {
+                throw new ArgumentException(SR.Argument_NeedNonGenericType, nameof(T));
             }
 
             return SizeOfHelper(t, throwIfNotMarshalable: true);
         }
 
-        public static int SizeOf<T>() => SizeOf(typeof(T));
+        public static unsafe int QueryInterface(IntPtr pUnk, in Guid iid, out IntPtr ppv)
+        {
+            ArgumentNullException.ThrowIfNull(pUnk);
+
+            fixed (Guid* pIID = &iid)
+            fixed (IntPtr* p = &ppv)
+            {
+                return ((delegate* unmanaged<IntPtr, Guid*, IntPtr*, int>)(*(*(void***)pUnk + 0 /* IUnknown.QueryInterface slot */)))(pUnk, pIID, p);
+            }
+        }
+
+        public static unsafe int AddRef(IntPtr pUnk)
+        {
+            ArgumentNullException.ThrowIfNull(pUnk);
+
+            return ((delegate* unmanaged<IntPtr, int>)(*(*(void***)pUnk + 1 /* IUnknown.AddRef slot */)))(pUnk);
+        }
+
+        public static unsafe int Release(IntPtr pUnk)
+        {
+            ArgumentNullException.ThrowIfNull(pUnk);
+
+            return ((delegate* unmanaged<IntPtr, int>)(*(*(void***)pUnk + 2 /* IUnknown.Release slot */)))(pUnk);
+        }
 
         /// <summary>
         /// IMPORTANT NOTICE: This method does not do any verification on the array.
         /// It must be used with EXTREME CAUTION since passing in invalid index or
         /// an array that is not pinned can cause unexpected results.
         /// </summary>
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public static unsafe IntPtr UnsafeAddrOfPinnedArrayElement(Array arr, int index)
         {
-            if (arr is null)
-                throw new ArgumentNullException(nameof(arr));
+            ArgumentNullException.ThrowIfNull(arr);
 
-            void* pRawData = Unsafe.AsPointer(ref arr.GetRawArrayData());
+            // Unsafe.AsPointer is safe since array must be pinned
+            void* pRawData = Unsafe.AsPointer(ref MemoryMarshal.GetArrayDataReference(arr));
             return (IntPtr)((byte*)pRawData + (uint)index * (nuint)arr.GetElementSize());
         }
 
         public static unsafe IntPtr UnsafeAddrOfPinnedArrayElement<T>(T[] arr, int index)
         {
-            if (arr is null)
-                throw new ArgumentNullException(nameof(arr));
+            ArgumentNullException.ThrowIfNull(arr);
 
+            // Unsafe.AsPointer is safe since array must be pinned
             void* pRawData = Unsafe.AsPointer(ref MemoryMarshal.GetArrayDataReference(arr));
-            return (IntPtr)((byte*)pRawData + (uint)index * (nuint)Unsafe.SizeOf<T>());
+            return (IntPtr)((byte*)pRawData + (uint)index * (nuint)sizeof(T));
         }
 
         public static IntPtr OffsetOf<T>(string fieldName) => OffsetOf(typeof(T), fieldName);
@@ -210,13 +223,11 @@ namespace System.Runtime.InteropServices
 
         private static unsafe void CopyToNative<T>(T[] source, int startIndex, IntPtr destination, int length)
         {
-            if (source is null)
-                throw new ArgumentNullException(nameof(source));
-            if (destination == IntPtr.Zero)
-                throw new ArgumentNullException(nameof(destination));
+            ArgumentNullException.ThrowIfNull(source);
+
+            ArgumentNullException.ThrowIfNull(destination);
 
             // The rest of the argument validation is done by CopyTo
-
             new Span<T>(source, startIndex, length).CopyTo(new Span<T>((void*)destination, length));
         }
 
@@ -262,14 +273,11 @@ namespace System.Runtime.InteropServices
 
         private static unsafe void CopyToManaged<T>(IntPtr source, T[] destination, int startIndex, int length)
         {
-            if (source == IntPtr.Zero)
-                throw new ArgumentNullException(nameof(source));
-            if (destination is null)
-                throw new ArgumentNullException(nameof(destination));
-            if (startIndex < 0)
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_StartIndex);
-            if (length < 0)
-                throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentNullException.ThrowIfNull(destination);
+
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
+            ArgumentOutOfRangeException.ThrowIfNegative(length);
 
             // The rest of the argument validation is done by CopyTo
 
@@ -285,7 +293,7 @@ namespace System.Runtime.InteropServices
             }
             catch (NullReferenceException)
             {
-                // this method is documented to throw AccessViolationException on any AV
+                // Convert NRE for null/near-null pointers to match the documented AccessViolationException.
                 throw new AccessViolationException();
             }
         }
@@ -309,7 +317,7 @@ namespace System.Runtime.InteropServices
             }
             catch (NullReferenceException)
             {
-                // this method is documented to throw AccessViolationException on any AV
+                // Convert NRE for null/near-null pointers to match the documented AccessViolationException.
                 throw new AccessViolationException();
             }
         }
@@ -333,32 +341,35 @@ namespace System.Runtime.InteropServices
             }
             catch (NullReferenceException)
             {
-                // this method is documented to throw AccessViolationException on any AV
+                // Convert NRE for null/near-null pointers to match the documented AccessViolationException.
                 throw new AccessViolationException();
             }
         }
 
         public static int ReadInt32(IntPtr ptr) => ReadInt32(ptr, 0);
 
-        public static IntPtr ReadIntPtr(object ptr, int ofs)
+        [RequiresDynamicCode("Marshalling code for the object might not be available")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        [Obsolete("ReadIntPtr(Object, Int32) may be unavailable in future releases.")]
+        public static nint ReadIntPtr(object ptr, int ofs)
         {
 #if TARGET_64BIT
-            return (IntPtr)ReadInt64(ptr, ofs);
+            return (nint)ReadInt64(ptr, ofs);
 #else // 32
-            return (IntPtr)ReadInt32(ptr, ofs);
+            return (nint)ReadInt32(ptr, ofs);
 #endif
         }
 
-        public static IntPtr ReadIntPtr(IntPtr ptr, int ofs)
+        public static nint ReadIntPtr(IntPtr ptr, int ofs)
         {
 #if TARGET_64BIT
-            return (IntPtr)ReadInt64(ptr, ofs);
+            return (nint)ReadInt64(ptr, ofs);
 #else // 32
-            return (IntPtr)ReadInt32(ptr, ofs);
+            return (nint)ReadInt32(ptr, ofs);
 #endif
         }
 
-        public static IntPtr ReadIntPtr(IntPtr ptr) => ReadIntPtr(ptr, 0);
+        public static nint ReadIntPtr(IntPtr ptr) => ReadIntPtr(ptr, 0);
 
         public static unsafe long ReadInt64(IntPtr ptr, int ofs)
         {
@@ -377,7 +388,7 @@ namespace System.Runtime.InteropServices
             }
             catch (NullReferenceException)
             {
-                // this method is documented to throw AccessViolationException on any AV
+                // Convert NRE for null/near-null pointers to match the documented AccessViolationException.
                 throw new AccessViolationException();
             }
         }
@@ -393,7 +404,7 @@ namespace System.Runtime.InteropServices
             }
             catch (NullReferenceException)
             {
-                // this method is documented to throw AccessViolationException on any AV
+                // Convert NRE for null/near-null pointers to match the documented AccessViolationException.
                 throw new AccessViolationException();
             }
         }
@@ -417,7 +428,7 @@ namespace System.Runtime.InteropServices
             }
             catch (NullReferenceException)
             {
-                // this method is documented to throw AccessViolationException on any AV
+                // Convert NRE for null/near-null pointers to match the documented AccessViolationException.
                 throw new AccessViolationException();
             }
         }
@@ -426,7 +437,10 @@ namespace System.Runtime.InteropServices
 
         public static void WriteInt16(IntPtr ptr, int ofs, char val) => WriteInt16(ptr, ofs, (short)val);
 
-        public static void WriteInt16([In, Out]object ptr, int ofs, char val) => WriteInt16(ptr, ofs, (short)val);
+        [RequiresDynamicCode("Marshalling code for the object might not be available")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        [Obsolete("WriteInt16(Object, Int32, Char) may be unavailable in future releases.")]
+        public static void WriteInt16([In, Out] object ptr, int ofs, char val) => WriteInt16(ptr, ofs, (short)val);
 
         public static void WriteInt16(IntPtr ptr, char val) => WriteInt16(ptr, 0, (short)val);
 
@@ -447,14 +461,14 @@ namespace System.Runtime.InteropServices
             }
             catch (NullReferenceException)
             {
-                // this method is documented to throw AccessViolationException on any AV
+                // Convert NRE for null/near-null pointers to match the documented AccessViolationException.
                 throw new AccessViolationException();
             }
         }
 
         public static void WriteInt32(IntPtr ptr, int val) => WriteInt32(ptr, 0, val);
 
-        public static void WriteIntPtr(IntPtr ptr, int ofs, IntPtr val)
+        public static void WriteIntPtr(IntPtr ptr, int ofs, nint val)
         {
 #if TARGET_64BIT
             WriteInt64(ptr, ofs, (long)val);
@@ -463,7 +477,10 @@ namespace System.Runtime.InteropServices
 #endif
         }
 
-        public static void WriteIntPtr(object ptr, int ofs, IntPtr val)
+        [RequiresDynamicCode("Marshalling code for the object might not be available")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        [Obsolete("WriteIntPtr(Object, Int32, IntPtr) may be unavailable in future releases.")]
+        public static void WriteIntPtr(object ptr, int ofs, nint val)
         {
 #if TARGET_64BIT
             WriteInt64(ptr, ofs, (long)val);
@@ -472,7 +489,7 @@ namespace System.Runtime.InteropServices
 #endif
         }
 
-        public static void WriteIntPtr(IntPtr ptr, IntPtr val) => WriteIntPtr(ptr, 0, val);
+        public static void WriteIntPtr(IntPtr ptr, nint val) => WriteIntPtr(ptr, 0, val);
 
         public static unsafe void WriteInt64(IntPtr ptr, int ofs, long val)
         {
@@ -491,7 +508,7 @@ namespace System.Runtime.InteropServices
             }
             catch (NullReferenceException)
             {
-                // this method is documented to throw AccessViolationException on any AV
+                // Convert NRE for null/near-null pointers to match the documented AccessViolationException.
                 throw new AccessViolationException();
             }
         }
@@ -500,10 +517,7 @@ namespace System.Runtime.InteropServices
 
         public static void Prelink(MethodInfo m)
         {
-            if (m is null)
-            {
-                throw new ArgumentNullException(nameof(m));
-            }
+            ArgumentNullException.ThrowIfNull(m);
 
             PrelinkCore(m);
         }
@@ -512,10 +526,7 @@ namespace System.Runtime.InteropServices
             Justification = "This only needs to prelink methods that are actually used")]
         public static void PrelinkAll(Type c)
         {
-            if (c is null)
-            {
-                throw new ArgumentNullException(nameof(c));
-            }
+            ArgumentNullException.ThrowIfNull(c);
 
             MethodInfo[] mi = c.GetMethods();
 
@@ -525,62 +536,123 @@ namespace System.Runtime.InteropServices
             }
         }
 
+        [UnconditionalSuppressMessage("AotAnalysis", "IL3050:AotUnfriendlyApi",
+            Justification = "AOT compilers can see the T.")]
         public static void StructureToPtr<T>([DisallowNull] T structure, IntPtr ptr, bool fDeleteOld)
         {
             StructureToPtr((object)structure!, ptr, fDeleteOld);
         }
 
         /// <summary>
-        /// Creates a new instance of "structuretype" and marshals data from a
+        /// Creates a new instance of <paramref name="structureType"/> and marshals data from a
         /// native memory block to it.
         /// </summary>
+        [RequiresDynamicCode("Marshalling code for the object might not be available")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public static object? PtrToStructure(IntPtr ptr,
-            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors)]
             Type structureType)
         {
+            ArgumentNullException.ThrowIfNull(structureType);
+
             if (ptr == IntPtr.Zero)
             {
                 return null;
             }
 
-            if (structureType is null)
-            {
-                throw new ArgumentNullException(nameof(structureType));
-            }
             if (structureType.IsGenericType)
             {
                 throw new ArgumentException(SR.Argument_NeedNonGenericType, nameof(structureType));
             }
-            if (!structureType.IsRuntimeImplemented())
+            if (structureType is not RuntimeType)
             {
                 throw new ArgumentException(SR.Argument_MustBeRuntimeType, nameof(structureType));
             }
 
-            return PtrToStructureHelper(ptr, structureType);
+            object structure = Activator.CreateInstance(structureType, nonPublic: true)!;
+            PtrToStructureHelper(ptr, structure, allowValueClasses: true);
+            return structure;
         }
 
         /// <summary>
         /// Marshals data from a native memory block to a preallocated structure class.
         /// </summary>
+        [RequiresDynamicCode("Marshalling code for the object might not be available")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public static void PtrToStructure(IntPtr ptr, object structure)
         {
+            ArgumentNullException.ThrowIfNull(ptr);
+            ArgumentNullException.ThrowIfNull(structure);
+
             PtrToStructureHelper(ptr, structure, allowValueClasses: false);
         }
 
         public static void PtrToStructure<T>(IntPtr ptr, [DisallowNull] T structure)
         {
-            PtrToStructure(ptr, (object)structure!);
+            ArgumentNullException.ThrowIfNull(ptr);
+
+            object boxedStructure = structure;
+            ArgumentNullException.ThrowIfNull(boxedStructure, nameof(structure));
+
+            PtrToStructureHelper(ptr, boxedStructure, allowValueClasses: false);
         }
 
-        public static T? PtrToStructure<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]T>(IntPtr ptr) => (T)PtrToStructure(ptr, typeof(T))!;
+        public static T? PtrToStructure<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors)] T>(IntPtr ptr)
+        {
+            if (ptr == IntPtr.Zero)
+            {
+                // Compat: this was originally implemented as a call to the non-generic version+cast.
+                // It would throw for non-nullable valuetypes here and return null for Nullable<T> even
+                // though it's generic.
+                return (T)(object)null!;
+            }
 
+            Type structureType = typeof(T);
+            if (structureType.IsGenericType)
+            {
+                throw new ArgumentException(SR.Argument_NeedNonGenericType, nameof(T));
+            }
+
+            object structure = Activator.CreateInstance(structureType, nonPublic: true)!;
+            PtrToStructureHelper(ptr, structure, allowValueClasses: true);
+            return (T)structure;
+        }
+
+        [UnconditionalSuppressMessage("AotAnalysis", "IL3050:AotUnfriendlyApi",
+            Justification = "AOT compilers can see the T.")]
         public static void DestroyStructure<T>(IntPtr ptr) => DestroyStructure(ptr, typeof(T));
 
+        // CoreCLR has a different implementation for Windows only
+#if !CORECLR || !TARGET_WINDOWS
+        [RequiresAssemblyFiles("Windows only assigns HINSTANCE to assemblies loaded from disk. " +
+            "This API will return -1 for modules without a file on disk.")]
+        public static IntPtr GetHINSTANCE(Module m)
+        {
+            ArgumentNullException.ThrowIfNull(m);
+
+            return (IntPtr)(-1);
+        }
+#endif
+
         /// <summary>
-        /// Converts the HRESULT to a CLR exception.
+        /// Converts an HRESULT value to a corresponding CLR <see cref="Exception"/>.
         /// </summary>
+        /// <param name="errorCode">The HRESULT value to convert.</param>
+        /// <returns>
+        /// An <see cref="Exception"/> that represents the supplied HRESULT, or
+        /// <see langword="null"/> if <paramref name="errorCode"/> indicates success (non-negative HRESULT).
+        /// </returns>
         public static Exception? GetExceptionForHR(int errorCode) => GetExceptionForHR(errorCode, IntPtr.Zero);
 
+        /// <summary>
+        /// Converts an HRESULT value and optional error information into a CLR <see cref="Exception"/>.
+        /// </summary>
+        /// <param name="errorCode">The HRESULT value to convert.</param>
+        /// <param name="errorInfo">Optional platform-specific error information (for example IErrorInfo on COM platforms), or <see cref="IntPtr.Zero"/> when not provided.</param>
+        /// <returns>
+        /// An <see cref="Exception"/> that represents the supplied HRESULT and error information, or
+        /// <see langword="null"/> if <paramref name="errorCode"/> indicates success (non-negative HRESULT).
+        /// </returns>
         public static Exception? GetExceptionForHR(int errorCode, IntPtr errorInfo)
         {
             if (errorCode >= 0)
@@ -592,16 +664,286 @@ namespace System.Runtime.InteropServices
         }
 
         /// <summary>
-        /// Throws a CLR exception based on the HRESULT.
+        /// Converts an HRESULT value that is associated with a COM interface call into a CLR <see cref="Exception"/>, using extended COM error information if the provided COM object supports it.
         /// </summary>
+        /// <param name="errorCode">The HRESULT value to convert.</param>
+        /// <param name="iid">The interface ID that was involved in the failing call. This ID can be used when probing for additional error information.</param>
+        /// <param name="pUnk">A pointer to the COM object involved in the failing call, or <see cref="IntPtr.Zero"/> if unavailable.</param>
+        /// <returns>
+        /// An <see cref="Exception"/> that represents the supplied HRESULT and COM context, or
+        /// <see langword="null"/> if <paramref name="errorCode"/> indicates success (non-negative HRESULT).
+        /// </returns>
+        public static Exception? GetExceptionForHR(int errorCode, in Guid iid, IntPtr pUnk)
+        {
+            if (errorCode >= 0)
+            {
+                return null;
+            }
+
+            return GetExceptionForHRInternal(errorCode, in iid, pUnk);
+        }
+
+        private static unsafe Exception? GetExceptionForHRInternal(int errorCode, in Guid iid, IntPtr pUnk)
+        {
+            const IntPtr NoErrorInfo = -1; // Use -1 to indicate no error info available
+
+            // Normally, we would check if the interface supports IErrorInfo first. However,
+            // built-in COM calls GetErrorInfo first to clear the error info, so we follow
+            // that pattern here.
+            IntPtr errorInfo = NoErrorInfo;
+
+#if TARGET_WINDOWS
+            Interop.OleAut32.GetErrorInfo(0, out errorInfo);
+            if (errorInfo == IntPtr.Zero)
+            {
+                errorInfo = NoErrorInfo;
+            }
+
+            // If there is error info and we have a pointer to the interface,
+            // we check if it supports ISupportErrorInfo.
+            if (errorInfo != NoErrorInfo && pUnk != IntPtr.Zero)
+            {
+                Guid IID_ISupportErrorInfo = new(0xDF0B3D60, 0x548F, 0x101B, 0x8E, 0x65, 0x08, 0x00, 0x2B, 0x2B, 0xD1, 0x19);
+                int hr = QueryInterface(pUnk, in IID_ISupportErrorInfo, out IntPtr supportErrorInfo);
+                if (hr == 0)
+                {
+                    // Check if the target interface is supported.
+                    // ISupportErrorInfo.InterfaceSupportsErrorInfo slot
+                    fixed (Guid* piid = &iid)
+                    {
+                        hr = ((delegate* unmanaged[MemberFunction]<IntPtr, Guid*, int>)(*(*(void***)supportErrorInfo + 3)))(supportErrorInfo, piid);
+                    }
+                    Release(supportErrorInfo);
+                }
+
+                // If ISupportErrorInfo isn't supported or the target interface doesn't support IErrorInfo,
+                // release the error info and mark it as NoErrorInfo to avoid querying for IErrorInfo again.
+                if (hr != 0)
+                {
+                    Release(errorInfo);
+                    errorInfo = NoErrorInfo;
+                }
+            }
+#endif
+
+            // If the error info is valid, its lifetime will be handled by GetExceptionForHRInternal().
+            return GetExceptionForHRInternal(errorCode, errorInfo);
+        }
+
+#if !CORECLR
+#pragma warning disable IDE0060
+        private static Exception? GetExceptionForHRInternal(int errorCode, IntPtr errorInfo)
+        {
+            switch (errorCode)
+            {
+                case HResults.COR_E_AMBIGUOUSMATCH:
+                    return new System.Reflection.AmbiguousMatchException();
+                case HResults.COR_E_APPLICATION:
+                    return new System.ApplicationException();
+                case HResults.COR_E_ARGUMENT:
+                    return new System.ArgumentException();
+                case HResults.COR_E_ARGUMENTOUTOFRANGE:
+                    return new System.ArgumentOutOfRangeException();
+                case HResults.COR_E_ARITHMETIC:
+                    return new System.ArithmeticException();
+                case HResults.COR_E_ARRAYTYPEMISMATCH:
+                    return new System.ArrayTypeMismatchException();
+                case HResults.COR_E_BADEXEFORMAT:
+                    return new System.BadImageFormatException();
+                case HResults.COR_E_BADIMAGEFORMAT:
+                    return new System.BadImageFormatException();
+                //case HResults.COR_E_CODECONTRACTFAILED:
+                //return new System.Diagnostics.Contracts.ContractException ();
+                //case HResults.COR_E_COMEMULATE:
+                case HResults.COR_E_CUSTOMATTRIBUTEFORMAT:
+                    return new System.Reflection.CustomAttributeFormatException();
+                case HResults.COR_E_DATAMISALIGNED:
+                    return new System.DataMisalignedException();
+                case HResults.COR_E_DIRECTORYNOTFOUND:
+                    return new System.IO.DirectoryNotFoundException();
+                case HResults.COR_E_DIVIDEBYZERO:
+                    return new System.DivideByZeroException();
+                case HResults.COR_E_DLLNOTFOUND:
+                    return new System.DllNotFoundException();
+                case HResults.COR_E_DUPLICATEWAITOBJECT:
+                    return new System.DuplicateWaitObjectException();
+                case HResults.COR_E_ENDOFSTREAM:
+                    return new System.IO.EndOfStreamException();
+                case HResults.COR_E_ENTRYPOINTNOTFOUND:
+                    return new System.EntryPointNotFoundException();
+                case HResults.COR_E_EXCEPTION:
+                    return new System.Exception();
+                case HResults.COR_E_EXECUTIONENGINE:
+#pragma warning disable CS0618 // ExecutionEngineException is obsolete
+                    return new System.ExecutionEngineException();
+#pragma warning restore CS0618
+                case HResults.COR_E_FIELDACCESS:
+                    return new System.FieldAccessException();
+                case HResults.COR_E_FILELOAD:
+                    return new System.IO.FileLoadException();
+                case HResults.COR_E_FILENOTFOUND:
+                    return new System.IO.FileNotFoundException();
+                case HResults.COR_E_FORMAT:
+                    return new System.FormatException();
+                case HResults.COR_E_INDEXOUTOFRANGE:
+                    return new System.IndexOutOfRangeException();
+                case HResults.COR_E_INSUFFICIENTEXECUTIONSTACK:
+                    return new System.InsufficientExecutionStackException();
+                case HResults.COR_E_INVALIDCAST:
+                    return new System.InvalidCastException();
+                case HResults.COR_E_INVALIDFILTERCRITERIA:
+                    return new System.Reflection.InvalidFilterCriteriaException();
+#if FEATURE_COMINTEROP
+                case HResults.COR_E_INVALIDOLEVARIANTTYPE:
+                    return new System.Runtime.InteropServices.InvalidOleVariantTypeException();
+#endif
+                case HResults.COR_E_INVALIDOPERATION:
+                    return new System.InvalidOperationException();
+                case HResults.COR_E_INVALIDPROGRAM:
+                    return new System.InvalidProgramException();
+                case HResults.COR_E_IO:
+                    return new System.IO.IOException();
+                case HResults.COR_E_MARSHALDIRECTIVE:
+                    return new System.Runtime.InteropServices.MarshalDirectiveException();
+                case HResults.COR_E_MEMBERACCESS:
+                    return new System.MemberAccessException();
+                case HResults.COR_E_METHODACCESS:
+                    return new System.MethodAccessException();
+                case HResults.COR_E_MISSINGFIELD:
+                    return new System.MissingFieldException();
+                case HResults.COR_E_MISSINGMANIFESTRESOURCE:
+                    return new System.Resources.MissingManifestResourceException();
+                case HResults.COR_E_MISSINGMEMBER:
+                    return new System.MissingMemberException();
+                case HResults.COR_E_MISSINGMETHOD:
+                    return new System.MissingMethodException();
+                case HResults.COR_E_MULTICASTNOTSUPPORTED:
+                    return new System.MulticastNotSupportedException();
+                case HResults.COR_E_NOTFINITENUMBER:
+                    return new System.NotFiniteNumberException();
+                case HResults.COR_E_NOTSUPPORTED:
+                    return new System.NotSupportedException();
+                case HResults.E_POINTER:
+                    return new System.NullReferenceException();
+                case HResults.COR_E_OPERATIONCANCELED:
+                    return new System.OperationCanceledException();
+                case HResults.COR_E_OUTOFMEMORY:
+                    return new System.OutOfMemoryException();
+                case HResults.COR_E_OVERFLOW:
+                    return new System.OverflowException();
+                case HResults.COR_E_PATHTOOLONG:
+                    return new System.IO.PathTooLongException();
+                case HResults.COR_E_PLATFORMNOTSUPPORTED:
+                    return new System.PlatformNotSupportedException();
+                case HResults.COR_E_RANK:
+                    return new System.RankException();
+                case HResults.COR_E_REFLECTIONTYPELOAD:
+                    return new System.MissingMethodException();
+                case HResults.COR_E_RUNTIMEWRAPPED:
+                    return new System.MissingMethodException();
+                case HResults.COR_E_SECURITY:
+                    return new System.Security.SecurityException();
+                case HResults.COR_E_SERIALIZATION:
+                    return new System.Runtime.Serialization.SerializationException();
+                case HResults.COR_E_STACKOVERFLOW:
+                    return new System.StackOverflowException();
+                case HResults.COR_E_SYNCHRONIZATIONLOCK:
+                    return new System.Threading.SynchronizationLockException();
+                case HResults.COR_E_SYSTEM:
+                    return new System.SystemException();
+                case HResults.COR_E_TARGET:
+                    return new System.Reflection.TargetException();
+                case HResults.COR_E_TARGETINVOCATION:
+                    return new System.MissingMethodException();
+                case HResults.COR_E_TARGETPARAMCOUNT:
+                    return new System.Reflection.TargetParameterCountException();
+                case HResults.COR_E_THREADABORTED:
+                    return new System.Threading.ThreadAbortException();
+                case HResults.COR_E_THREADINTERRUPTED:
+                    return new System.Threading.ThreadInterruptedException();
+                case HResults.COR_E_THREADSTART:
+                    return new System.Threading.ThreadStartException();
+                case HResults.COR_E_THREADSTATE:
+                    return new System.Threading.ThreadStateException();
+                case HResults.COR_E_TYPEACCESS:
+                    return new System.TypeAccessException();
+                case HResults.COR_E_TYPEINITIALIZATION:
+                    return new System.TypeInitializationException(null);
+                case HResults.COR_E_TYPELOAD:
+                    return new System.TypeLoadException();
+                case HResults.COR_E_TYPEUNLOADED:
+                    return new System.TypeUnloadedException();
+                case HResults.COR_E_UNAUTHORIZEDACCESS:
+                    return new System.UnauthorizedAccessException();
+                //case HResults.COR_E_UNSUPPORTEDFORMAT:
+                case HResults.COR_E_VERIFICATION:
+                    return new System.Security.VerificationException();
+                //case HResults.E_INVALIDARG:
+                case HResults.E_NOTIMPL:
+                    return new System.NotImplementedException();
+                //case HResults.E_POINTER:
+                case HResults.RO_E_CLOSED:
+                case HResults.COR_E_OBJECTDISPOSED:
+                    return new System.ObjectDisposedException(null);
+
+                case HResults.STG_E_PATHNOTFOUND:
+                case HResults.CTL_E_PATHNOTFOUND:
+                    {
+                        return new System.IO.DirectoryNotFoundException
+                        {
+                            HResult = errorCode
+                        };
+                    }
+                case HResults.FUSION_E_INVALID_NAME:
+                case HResults.FUSION_E_REF_DEF_MISMATCH:
+                case HResults.ERROR_TOO_MANY_OPEN_FILES:
+                case HResults.ERROR_SHARING_VIOLATION:
+                case HResults.ERROR_LOCK_VIOLATION:
+                case HResults.ERROR_OPEN_FAILED:
+                case HResults.ERROR_DISK_CORRUPT:
+                case HResults.ERROR_UNRECOGNIZED_VOLUME:
+                case HResults.ERROR_DLL_INIT_FAILED:
+                case HResults.MSEE_E_ASSEMBLYLOADINPROGRESS:
+                case HResults.ERROR_FILE_INVALID:
+                    {
+                        return new System.IO.FileLoadException
+                        {
+                            HResult = errorCode
+                        };
+                    }
+                case HResults.CTL_E_FILENOTFOUND:
+                    {
+                        return new System.IO.FileNotFoundException
+                        {
+                            HResult = errorCode
+                        };
+                    }
+                default:
+                    return new COMException(null, errorCode);
+            }
+        }
+#pragma warning restore IDE0060
+#endif
+
+        /// <summary>
+        /// Throws a CLR exception that corresponds to the given HRESULT if it represents a failure.
+        /// </summary>
+        /// <param name="errorCode">The HRESULT value to evaluate.</param>
+        /// <exception cref="Exception">An exception corresponding to <paramref name="errorCode"/> when it is a failure (negative HRESULT).</exception>
         public static void ThrowExceptionForHR(int errorCode)
         {
             if (errorCode < 0)
             {
-                throw GetExceptionForHR(errorCode, IntPtr.Zero)!;
+                throw GetExceptionForHR(errorCode)!;
             }
         }
 
+        /// <summary>
+        /// Throws a CLR exception that corresponds to the given HRESULT and error information if it represents a failure.
+        /// </summary>
+        /// <param name="errorCode">The HRESULT value to evaluate.</param>
+        /// <param name="errorInfo">Optional platform-specific error information to be used when constructing the exception.</param>
+        /// <exception cref="Exception">An exception corresponding to <paramref name="errorCode"/> when it is a failure (negative HRESULT).</exception>
         public static void ThrowExceptionForHR(int errorCode, IntPtr errorInfo)
         {
             if (errorCode < 0)
@@ -610,11 +952,26 @@ namespace System.Runtime.InteropServices
             }
         }
 
+        /// <summary>
+        /// Throws a CLR exception that corresponds to the given HRESULT and COM context if it represents a failure, using extended COM error information if the provided COM object supports it.
+        /// </summary>
+        /// <param name="errorCode">The HRESULT value to evaluate.</param>
+        /// <param name="iid">The interface ID that was involved in the failing call.</param>
+        /// <param name="pUnk">A pointer to the COM object involved in the failing call, or <see cref="IntPtr.Zero"/> if unavailable.</param>
+        /// <exception cref="Exception">An exception corresponding to <paramref name="errorCode"/> when it is a failure (negative HRESULT).</exception>
+        public static void ThrowExceptionForHR(int errorCode, in Guid iid, IntPtr pUnk)
+        {
+            if (errorCode < 0)
+            {
+                throw GetExceptionForHR(errorCode, in iid, pUnk)!;
+            }
+        }
+
         public static IntPtr SecureStringToBSTR(SecureString s)
         {
             if (s is null)
             {
-                throw new ArgumentNullException(nameof(s));
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
             }
 
             return s.MarshalToBSTR();
@@ -624,7 +981,7 @@ namespace System.Runtime.InteropServices
         {
             if (s is null)
             {
-                throw new ArgumentNullException(nameof(s));
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
             }
 
             return s.MarshalToString(globalAlloc: false, unicode: false);
@@ -634,7 +991,7 @@ namespace System.Runtime.InteropServices
         {
             if (s is null)
             {
-                throw new ArgumentNullException(nameof(s));
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
             }
 
             return s.MarshalToString(globalAlloc: false, unicode: true);
@@ -644,7 +1001,7 @@ namespace System.Runtime.InteropServices
         {
             if (s is null)
             {
-                throw new ArgumentNullException(nameof(s));
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
             }
 
             return s.MarshalToString(globalAlloc: true, unicode: false);
@@ -654,7 +1011,7 @@ namespace System.Runtime.InteropServices
         {
             if (s is null)
             {
-                throw new ArgumentNullException(nameof(s));
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.s);
             }
 
             return s.MarshalToString(globalAlloc: true, unicode: true);
@@ -673,13 +1030,13 @@ namespace System.Runtime.InteropServices
             // Overflow checking
             if (nb != lnb)
             {
-                throw new ArgumentOutOfRangeException(nameof(s));
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.s);
             }
 
-            IntPtr hglobal = AllocHGlobal((IntPtr)nb);
+            IntPtr ptr = AllocHGlobal((IntPtr)nb);
 
-            StringToAnsiString(s, (byte*)hglobal, nb);
-            return hglobal;
+            StringToAnsiString(s, (byte*)ptr, nb);
+            return ptr;
         }
 
         public static unsafe IntPtr StringToHGlobalUni(string? s)
@@ -694,16 +1051,15 @@ namespace System.Runtime.InteropServices
             // Overflow checking
             if (nb < s.Length)
             {
-                throw new ArgumentOutOfRangeException(nameof(s));
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.s);
             }
 
-            IntPtr hglobal = AllocHGlobal((IntPtr)nb);
+            IntPtr ptr = AllocHGlobal((IntPtr)nb);
 
-            fixed (char* firstChar = s)
-            {
-                string.wstrcpy((char*)hglobal, firstChar, s.Length + 1);
-            }
-            return hglobal;
+            s.CopyTo(new Span<char>((char*)ptr, s.Length));
+            ((char*)ptr)[s.Length] = '\0';
+
+            return ptr;
         }
 
         private static unsafe IntPtr StringToHGlobalUTF8(string? s)
@@ -715,19 +1071,13 @@ namespace System.Runtime.InteropServices
 
             int nb = Encoding.UTF8.GetMaxByteCount(s.Length);
 
-            IntPtr pMem = AllocHGlobal(nb + 1);
+            IntPtr ptr = AllocHGlobal(checked(nb + 1));
 
-            int nbWritten;
-            byte* pbMem = (byte*)pMem;
-
-            fixed (char* firstChar = s)
-            {
-                nbWritten = Encoding.UTF8.GetBytes(firstChar, s.Length, pbMem, nb);
-            }
-
+            byte* pbMem = (byte*)ptr;
+            int nbWritten = Encoding.UTF8.GetBytes(s, new Span<byte>(pbMem, nb));
             pbMem[nbWritten] = 0;
 
-            return pMem;
+            return ptr;
         }
 
         public static unsafe IntPtr StringToCoTaskMemUni(string? s)
@@ -742,16 +1092,15 @@ namespace System.Runtime.InteropServices
             // Overflow checking
             if (nb < s.Length)
             {
-                throw new ArgumentOutOfRangeException(nameof(s));
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.s);
             }
 
-            IntPtr hglobal = AllocCoTaskMem(nb);
+            IntPtr ptr = AllocCoTaskMem(nb);
 
-            fixed (char* firstChar = s)
-            {
-                string.wstrcpy((char*)hglobal, firstChar, s.Length + 1);
-            }
-            return hglobal;
+            s.CopyTo(new Span<char>((char*)ptr, s.Length));
+            ((char*)ptr)[s.Length] = '\0';
+
+            return ptr;
         }
 
         public static unsafe IntPtr StringToCoTaskMemUTF8(string? s)
@@ -763,19 +1112,13 @@ namespace System.Runtime.InteropServices
 
             int nb = Encoding.UTF8.GetMaxByteCount(s.Length);
 
-            IntPtr pMem = AllocCoTaskMem(nb + 1);
+            IntPtr ptr = AllocCoTaskMem(checked(nb + 1));
 
-            int nbWritten;
-            byte* pbMem = (byte*)pMem;
-
-            fixed (char* firstChar = s)
-            {
-                nbWritten = Encoding.UTF8.GetBytes(firstChar, s.Length, pbMem, nb);
-            }
-
+            byte* pbMem = (byte*)ptr;
+            int nbWritten = Encoding.UTF8.GetBytes(s, new Span<byte>(pbMem, nb));
             pbMem[nbWritten] = 0;
 
-            return pMem;
+            return ptr;
         }
 
         public static unsafe IntPtr StringToCoTaskMemAnsi(string? s)
@@ -791,13 +1134,13 @@ namespace System.Runtime.InteropServices
             // Overflow checking
             if (nb != lnb)
             {
-                throw new ArgumentOutOfRangeException(nameof(s));
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.s);
             }
 
-            IntPtr hglobal = AllocCoTaskMem(nb);
+            IntPtr ptr = AllocCoTaskMem(nb);
 
-            StringToAnsiString(s, (byte*)hglobal, nb);
-            return hglobal;
+            StringToAnsiString(s, (byte*)ptr, nb);
+            return ptr;
         }
 
         /// <summary>
@@ -807,11 +1150,9 @@ namespace System.Runtime.InteropServices
         /// </summary>
         public static Guid GenerateGuidForType(Type type)
         {
-            if (type is null)
-            {
-                throw new ArgumentNullException(nameof(type));
-            }
-            if (!type.IsRuntimeImplemented())
+            ArgumentNullException.ThrowIfNull(type);
+
+            if (type is not RuntimeType)
             {
                 throw new ArgumentException(SR.Argument_MustBeRuntimeType, nameof(type));
             }
@@ -824,12 +1165,11 @@ namespace System.Runtime.InteropServices
         /// a PROGID in the metadata then it is returned otherwise a stable PROGID
         /// is generated based on the fully qualified name of the type.
         /// </summary>
+        [RequiresUnreferencedCode("Built-in COM support is not trim compatible", Url = "https://aka.ms/dotnet-illink/com")]
         public static string? GenerateProgIdForType(Type type)
         {
-            if (type is null)
-            {
-                throw new ArgumentNullException(nameof(type));
-            }
+            ArgumentNullException.ThrowIfNull(type);
+
             if (type.IsImport)
             {
                 throw new ArgumentException(SR.Argument_TypeMustNotBeComImport, nameof(type));
@@ -845,56 +1185,69 @@ namespace System.Runtime.InteropServices
                 return progIdAttribute.Value ?? string.Empty;
             }
 
-            // If there is no prog ID attribute then use the full name of the type as the prog id.
+            // If there is no prog ID attribute then use the full name of the type as the prog ID.
             return type.FullName;
         }
 
+        [RequiresDynamicCode("Marshalling code for the delegate might not be available. Use the GetDelegateForFunctionPointer<TDelegate> overload instead.")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public static Delegate GetDelegateForFunctionPointer(IntPtr ptr, Type t)
         {
-            if (ptr == IntPtr.Zero)
-            {
-                throw new ArgumentNullException(nameof(ptr));
-            }
-            if (t is null)
-            {
-                throw new ArgumentNullException(nameof(t));
-            }
-            if (!t.IsRuntimeImplemented())
+            ArgumentNullException.ThrowIfNull(t);
+
+            ArgumentNullException.ThrowIfNull(ptr);
+            if (t is not RuntimeType rt)
             {
                 throw new ArgumentException(SR.Argument_MustBeRuntimeType, nameof(t));
             }
-            if (t.IsGenericType)
+            if (rt.IsGenericType)
             {
                 throw new ArgumentException(SR.Argument_NeedNonGenericType, nameof(t));
             }
 
-            // COMPAT: This block of code isn't entirely correct.
-            // Users passing in typeof(MulticastDelegate) as 't' skip this check
-            // since Delegate is a base type of MulticastDelegate.
-            Type? c = t.BaseType;
-            if (c != typeof(Delegate) && c != typeof(MulticastDelegate))
+            // For backward compatibility, we allow lookup of existing delegate to
+            // function pointer mappings using abstract MulticastDelegate type. We will check
+            // for the non-abstract delegate type later if no existing mapping is found.
+            if (rt.BaseType != typeof(MulticastDelegate) && rt != typeof(MulticastDelegate))
             {
                 throw new ArgumentException(SR.Arg_MustBeDelegate, nameof(t));
             }
 
-            return GetDelegateForFunctionPointerInternal(ptr, t);
+            return GetDelegateForFunctionPointerInternal(ptr, rt);
         }
 
         public static TDelegate GetDelegateForFunctionPointer<TDelegate>(IntPtr ptr)
         {
-            return (TDelegate)(object)GetDelegateForFunctionPointer(ptr, typeof(TDelegate));
+            ArgumentNullException.ThrowIfNull(ptr);
+
+            RuntimeType rt = (RuntimeType)typeof(TDelegate);
+            if (rt.IsGenericType)
+            {
+                throw new ArgumentException(SR.Argument_NeedNonGenericType, nameof(TDelegate));
+            }
+
+            // For backward compatibility, we allow lookup of existing delegate to
+            // function pointer mappings using abstract MulticastDelegate type. We will check
+            // for the non-abstract delegate type later if no existing mapping is found.
+            if (rt.BaseType != typeof(MulticastDelegate) && rt != typeof(MulticastDelegate))
+            {
+                throw new ArgumentException(SR.Arg_MustBeDelegate, nameof(TDelegate));
+            }
+
+            return (TDelegate)(object)GetDelegateForFunctionPointerInternal(ptr, rt);
         }
 
+        [RequiresDynamicCode("Marshalling code for the delegate might not be available. Use the GetFunctionPointerForDelegate<TDelegate> overload instead.")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public static IntPtr GetFunctionPointerForDelegate(Delegate d)
         {
-            if (d is null)
-            {
-                throw new ArgumentNullException(nameof(d));
-            }
+            ArgumentNullException.ThrowIfNull(d);
 
             return GetFunctionPointerForDelegateInternal(d);
         }
 
+        [UnconditionalSuppressMessage("AotAnalysis", "IL3050:AotUnfriendlyApi",
+            Justification = "AOT compilers can see the T.")]
         public static IntPtr GetFunctionPointerForDelegate<TDelegate>(TDelegate d) where TDelegate : notnull
         {
             return GetFunctionPointerForDelegate((Delegate)(object)d);
@@ -902,7 +1255,7 @@ namespace System.Runtime.InteropServices
 
         public static int GetHRForLastWin32Error()
         {
-            int dwLastError = GetLastWin32Error();
+            int dwLastError = GetLastPInvokeError();
             if ((dwLastError & 0x80000000) == 0x80000000)
             {
                 return dwLastError;
@@ -917,11 +1270,11 @@ namespace System.Runtime.InteropServices
             {
                 return;
             }
-            Buffer.ZeroMemory((byte*)s, SysStringByteLen(s));
+            NativeMemory.Clear((void*)s, SysStringByteLen(s));
             FreeBSTR(s);
         }
 
-        public static unsafe void ZeroFreeCoTaskMemAnsi(IntPtr s)
+        public static void ZeroFreeCoTaskMemAnsi(IntPtr s)
         {
             ZeroFreeCoTaskMemUTF8(s);
         }
@@ -932,7 +1285,7 @@ namespace System.Runtime.InteropServices
             {
                 return;
             }
-            Buffer.ZeroMemory((byte*)s, (nuint)string.wcslen((char*)s) * sizeof(char));
+            NativeMemory.Clear((void*)s, (nuint)string.wcslen((char*)s) * sizeof(char));
             FreeCoTaskMem(s);
         }
 
@@ -942,7 +1295,7 @@ namespace System.Runtime.InteropServices
             {
                 return;
             }
-            Buffer.ZeroMemory((byte*)s, (nuint)string.strlen((byte*)s));
+            NativeMemory.Clear((void*)s, (nuint)string.strlen((byte*)s));
             FreeCoTaskMem(s);
         }
 
@@ -952,7 +1305,7 @@ namespace System.Runtime.InteropServices
             {
                 return;
             }
-            Buffer.ZeroMemory((byte*)s, (nuint)string.strlen((byte*)s));
+            NativeMemory.Clear((void*)s, (nuint)string.strlen((byte*)s));
             FreeHGlobal(s);
         }
 
@@ -962,13 +1315,62 @@ namespace System.Runtime.InteropServices
             {
                 return;
             }
-            Buffer.ZeroMemory((byte*)s, (nuint)string.wcslen((char*)s) * sizeof(char));
+            NativeMemory.Clear((void*)s, (nuint)string.wcslen((char*)s) * sizeof(char));
             FreeHGlobal(s);
+        }
+
+        public static unsafe IntPtr StringToBSTR(string? s)
+        {
+            if (s is null)
+            {
+                return IntPtr.Zero;
+            }
+
+            IntPtr bstr = AllocBSTR(s.Length);
+
+            s.CopyTo(new Span<char>((char*)bstr, s.Length)); // AllocBSTR already included the null terminator
+
+            return bstr;
+        }
+
+        public static string PtrToStringBSTR(IntPtr ptr)
+        {
+            ArgumentNullException.ThrowIfNull(ptr);
+
+            return PtrToStringUni(ptr, (int)(SysStringByteLen(ptr) / sizeof(char)));
         }
 
         internal static unsafe uint SysStringByteLen(IntPtr s)
         {
             return *(((uint*)s) - 1);
+        }
+
+        [SupportedOSPlatform("windows")]
+        public static Type? GetTypeFromCLSID(Guid clsid) => GetTypeFromCLSID(clsid, null, throwOnError: false);
+
+        /// <summary>
+        /// Initializes the underlying handle of a newly created <see cref="SafeHandle" /> to the provided value.
+        /// </summary>
+        /// <param name="safeHandle">The <see cref="SafeHandle"/> instance to update.</param>
+        /// <param name="handle">The pre-existing handle.</param>
+        public static void InitHandle(SafeHandle safeHandle, IntPtr handle)
+        {
+            // To help maximize performance of P/Invokes, don't check if safeHandle is null.
+            safeHandle.SetHandle(handle);
+        }
+
+        public static int GetLastWin32Error()
+        {
+            return GetLastPInvokeError();
+        }
+
+        /// <summary>
+        /// Gets the system error message for the last PInvoke error code.
+        /// </summary>
+        /// <returns>The error message associated with the last PInvoke error code.</returns>
+        public static string GetLastPInvokeErrorMessage()
+        {
+            return GetPInvokeErrorMessage(GetLastPInvokeError());
         }
     }
 }

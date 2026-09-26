@@ -2,8 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b08020;
+
 using System;
-class AA
+using Xunit;
+public class AA
 {
     static void f(ref Array param)
     {
@@ -24,11 +28,12 @@ class AA
         }
     }
 
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         f(ref m_arr);
         Console.WriteLine("Passed.");
-        return 100;
     }
 
     static Array m_arr;

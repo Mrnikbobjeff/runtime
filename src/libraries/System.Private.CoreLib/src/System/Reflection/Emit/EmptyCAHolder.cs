@@ -3,13 +3,13 @@
 
 namespace System.Reflection.Emit
 {
-    internal class EmptyCAHolder : ICustomAttributeProvider
+    internal sealed class EmptyCAHolder : ICustomAttributeProvider
     {
         internal EmptyCAHolder() { }
 
-        object[] ICustomAttributeProvider.GetCustomAttributes(Type attributeType, bool inherit) => Array.Empty<object>();
+        object[] ICustomAttributeProvider.GetCustomAttributes(Type attributeType, bool inherit) => [];
 
-        object[] ICustomAttributeProvider.GetCustomAttributes(bool inherit) => Array.Empty<object>();
+        object[] ICustomAttributeProvider.GetCustomAttributes(bool inherit) => [];
 
         bool ICustomAttributeProvider.IsDefined(Type attributeType, bool inherit) => false;
     }

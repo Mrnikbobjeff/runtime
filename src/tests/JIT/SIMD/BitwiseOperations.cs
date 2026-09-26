@@ -3,11 +3,20 @@
 using System;
 using System.Collections.Generic;
 using Point = System.Numerics.Vector2;
+using Xunit;
 
-namespace VectorMathTests
+namespace SIMDTests.BitwiseOperationsTests
 {
-    class Program
+    public class Program
     {
+        public const int DefaultSeed = 20010415;
+        public static int Seed = Environment.GetEnvironmentVariable("CORECLR_SEED") switch
+        {
+            string seedStr when seedStr.Equals("random", StringComparison.OrdinalIgnoreCase) => new Random().Next(),
+            string seedStr when int.TryParse(seedStr, out int envSeed) => envSeed,
+            _ => DefaultSeed
+        };
+
         static float NextFloat(Random random)
         {
             double mantissa = (random.NextDouble() * 2.0) - 1.0;
@@ -15,11 +24,22 @@ namespace VectorMathTests
             return (float)(mantissa * exponent);
         }
 
-        static int TestDouble()
+        static double[] GenerateDoubleArray(int size, Random random)
         {
-            Random random = new Random(11);
-            double[] arr1 = new double[] { NextFloat(random), NextFloat(random), NextFloat(random), NextFloat(random) };
-            double[] arr2 = new double[] { NextFloat(random), NextFloat(random), NextFloat(random), NextFloat(random) };
+            double[] arr = new double[size];
+            for (int i = 0; i < size; ++i)
+            {
+                arr[i] = NextFloat(random);
+            }
+            return arr;
+        }
+
+        [Fact]
+        public static int TestDouble()
+        {
+            Random random = new Random(Seed);
+            double[] arr1 = GenerateDoubleArray(System.Numerics.Vector<double>.Count, random);
+            double[] arr2 = GenerateDoubleArray(System.Numerics.Vector<double>.Count, random);
             var a = new System.Numerics.Vector<double>(arr1);
             var b = new System.Numerics.Vector<double>(arr2);
             var xorR = a ^ b;
@@ -67,11 +87,12 @@ namespace VectorMathTests
             return arr;
         }
 
-        static int TestBool()
+        [Fact]
+        public static int TestBool()
         {
-            Random random = new Random(13);
-            byte[] arr1 = GenerateByteArray(64, random);
-            byte[] arr2 = GenerateByteArray(64, random);
+            Random random = new Random(Seed);
+            byte[] arr1 = GenerateByteArray(System.Numerics.Vector<byte>.Count, random);
+            byte[] arr2 = GenerateByteArray(System.Numerics.Vector<byte>.Count, random);
             var a = new System.Numerics.Vector<byte>(arr1);
             var b = new System.Numerics.Vector<byte>(arr2);
 
@@ -97,20 +118,6 @@ namespace VectorMathTests
                     return 0;
                 }
             }
-            return 100;
-        }
-
-        static int Main(string[] args)
-        {
-            if (TestDouble() != 100)
-            {
-                return 0;
-            }
-            if (TestBool() != 100)
-            {
-                return 0;
-            }
-
             return 100;
         }
     }

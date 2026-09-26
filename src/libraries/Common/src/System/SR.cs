@@ -1,41 +1,45 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System.Resources;
-using System.Runtime.CompilerServices;
 
 namespace System
 {
-    internal partial class SR
+    internal static partial class SR
     {
-#if (!NETSTANDARD1_0 && !NETSTANDARD1_1 && !NET45) // AppContext is not supported on < NetStandard1.3 or < .NET Framework 4.5
-        private static readonly bool s_usingResourceKeys = AppContext.TryGetSwitch("System.Resources.UseSystemResourceKeys", out bool usingResourceKeys) ? usingResourceKeys : false;
-#endif
+        private static readonly bool s_usingResourceKeys = GetUsingResourceKeysSwitchValue();
+
+        // This method is a target of ILLink substitution.
+        private static bool GetUsingResourceKeysSwitchValue() => AppContext.TryGetSwitch("System.Resources.UseSystemResourceKeys", out bool usingResourceKeys) ? usingResourceKeys : false;
 
         // This method is used to decide if we need to append the exception message parameters to the message when calling SR.Format.
         // by default it returns the value of System.Resources.UseSystemResourceKeys AppContext switch or false if not specified.
         // Native code generators can replace the value this returns based on user input at the time of native code generation.
-        // The Linker is also capable of replacing the value of this method when the application is being trimmed.
-        private static bool UsingResourceKeys() =>
-#if (!NETSTANDARD1_0 && !NETSTANDARD1_1 && !NET45) // AppContext is not supported on < NetStandard1.3 or < .NET Framework 4.5
-            s_usingResourceKeys;
-#else
-            false;
-#endif
+        // The trimming tools are also capable of replacing the value of this method when the application is being trimmed.
+        internal static bool UsingResourceKeys() => s_usingResourceKeys;
 
-        internal static string GetResourceString(string resourceKey, string? defaultString = null)
+        // We can optimize out the resource string blob if we can see all accesses to it happening
+        // through the generated SR.XXX properties.
+        // If a call to GetResourceString is left, the optimization gets defeated and we need to keep
+        // the whole resource blob. It's important to keep this private. CoreCLR's CoreLib gets a free
+        // pass because the VM needs to be able to call into this, but that's a known set of constants.
+#if CORECLR || LEGACY_GETRESOURCESTRING_USER
+        internal
+#else
+        private
+#endif
+        static string GetResourceString(string resourceKey)
         {
             if (UsingResourceKeys())
             {
-                return defaultString ?? resourceKey;
+                return resourceKey;
             }
 
             string? resourceString = null;
             try
             {
                 resourceString =
-#if SYSTEM_PRIVATE_CORELIB
+#if SYSTEM_PRIVATE_CORELIB || NATIVEAOT
                     InternalGetResourceString(resourceKey);
 #else
                     ResourceManager.GetString(resourceKey);
@@ -43,12 +47,19 @@ namespace System
             }
             catch (MissingManifestResourceException) { }
 
-            if (defaultString != null && resourceKey.Equals(resourceString))
-            {
-                return defaultString;
-            }
-
             return resourceString!; // only null if missing resources
+        }
+
+#if LEGACY_GETRESOURCESTRING_USER
+        internal
+#else
+        private
+#endif
+        static string GetResourceString(string resourceKey, string defaultString)
+        {
+            string resourceString = GetResourceString(resourceKey);
+
+            return resourceKey == resourceString || resourceString == null ? defaultString : resourceString;
         }
 
         internal static string Format(string resourceFormat, object? p1)

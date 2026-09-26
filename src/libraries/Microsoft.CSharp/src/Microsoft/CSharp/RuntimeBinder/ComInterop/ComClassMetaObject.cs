@@ -1,12 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic;
 using System.Linq.Expressions;
 
 namespace Microsoft.CSharp.RuntimeBinder.ComInterop
 {
-    internal class ComClassMetaObject : DynamicMetaObject
+    [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+    internal sealed class ComClassMetaObject : DynamicMetaObject
     {
         internal ComClassMetaObject(Expression expression, ComTypeClassDesc cls)
             : base(expression, BindingRestrictions.Empty, cls)

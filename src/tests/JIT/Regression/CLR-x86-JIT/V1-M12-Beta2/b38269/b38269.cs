@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b38269
 {
     using System;
 
@@ -15,17 +16,18 @@ namespace Test
         ~AA() { }
     }
 
-    class App
+    public class App
     {
         static AA s_aa = new AA(0);
 
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             s_aa = null;
             GC.Collect();
             GC.WaitForPendingFinalizers();
             Console.WriteLine("If you see this, test passed.");
-            return 100;
         }
     }
 }

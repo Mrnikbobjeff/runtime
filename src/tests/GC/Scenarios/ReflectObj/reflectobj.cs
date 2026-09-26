@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Xunit;
+using TestLibrary;
 /**************************************************************/
 /* TEST: ReflectObj
 /* Purpose: test if GC can handle objects create by reflect
@@ -16,10 +18,11 @@
 namespace App {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics.CodeAnalysis;
     using System.Reflection;
     using System.Runtime.CompilerServices;
 
-    class ReflectObj
+    public class ReflectObj
     {
         Object obj;
         public static int icCreat = 0;
@@ -31,7 +34,7 @@ namespace App {
             icCreat++;
         }
 
-        public ReflectObj( int l )
+        internal ReflectObj( int l )
         {
             obj = new long[l];
             icCreat++;
@@ -48,7 +51,10 @@ namespace App {
             icFinal++;
         }
 
-        public static int Main( String [] str )
+        [ActiveIssue("needs triage", TestRuntimes.Mono)]
+        [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             Console.WriteLine("Test should return with ExitCode 100 ...");
             CreateObj temp = new CreateObj();
@@ -64,6 +70,7 @@ namespace App {
         class CreateObj
         {
             private Object[] v;
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors)]
             private Type myClass;
             private Type [] rtype;
             private ConstructorInfo CInfo;
@@ -75,7 +82,7 @@ namespace App {
                 for( int i=0; i< 2000; i++ )
                 {
                     v[0] = i;
-                    Activator.CreateInstance(myClass, v );
+                    Activator.CreateInstance(myClass, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic, null, v, null);
                 }
             }
 

@@ -20,21 +20,19 @@ namespace System.DirectoryServices.AccountManagement
     // These are the default options used when a user does not specify a context option to connect to the store.
     internal static class DefaultContextOptions
     {
-        internal static ContextOptions MachineDefaultContextOption = ContextOptions.Negotiate;
-        internal static ContextOptions ADDefaultContextOption = ContextOptions.Negotiate | ContextOptions.Signing | ContextOptions.Sealing;
+        internal const ContextOptions MachineDefaultContextOption = ContextOptions.Negotiate;
+        internal const ContextOptions ADDefaultContextOption = ContextOptions.Negotiate | ContextOptions.Signing | ContextOptions.Sealing;
     }
 
-    internal class LdapConstants
+    internal static class LdapConstants
     {
-        public static int LDAP_SSL_PORT = 636;
-        public static int LDAP_PORT = 389;
-        internal static DateTime defaultUtcTime = new DateTime(1601, 1, 1, 0, 0, 0);
-        private LdapConstants() { }
+        public const int LDAP_SSL_PORT = 636;
+        public const int LDAP_PORT = 389;
+        internal static readonly DateTime defaultUtcTime = new DateTime(1601, 1, 1, 0, 0, 0);
     }
     // The string constants used internally to specify each property
-    internal class PropertyNames
+    internal static class PropertyNames
     {
-        private PropertyNames() { }
         // Principal
         internal const string PrincipalDisplayName = "Principal.DisplayName";
         internal const string PrincipalDescription = "Principal.Description";
@@ -95,16 +93,14 @@ namespace System.DirectoryServices.AccountManagement
 
         // these two are not publicly exposed properties, but are used internally to track ResetPassword/ExpirePasswordNow
         // operations against unpersisted principals, so that they can be performed once the principal has been Saved
-        // [SuppressMessage("Microsoft.Security", "CS002:SecretInNextLine", Justification="Not a password.")]
+        // [SuppressMessage("Microsoft.Security", "CS002:SecretInNextLine", Justification="Suppression approved. Not a password.")]
         internal const string PwdInfoPassword = "AuthenticablePrincipal.PasswordInfo.Password";
         internal const string PwdInfoExpireImmediately = "AuthenticablePrincipal.PasswordInfo.ExpireImmediately";
     }
 
     // Given an internal property name (from PropertyNames), returns the external form of the name for use in error-reporting
-    internal class PropertyNamesExternal
+    internal static class PropertyNamesExternal
     {
-        private PropertyNamesExternal() { }
-
         private static readonly int s_acctInfoPrefixLength = PropertyNames.AcctInfoPrefix.Length;
         private static readonly int s_pwdInfoPrefixLength = PropertyNames.PwdInfoPrefix.Length;
 

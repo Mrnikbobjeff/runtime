@@ -4,6 +4,8 @@
 using System;
 
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 public class Program
 {
@@ -36,7 +38,10 @@ public class Program
 
     }
 
-    public static int Main()
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/5933", TestRuntimes.CoreCLR)]
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static void TestEntryPoint()
     {
 
         Program p = new Program();
@@ -56,9 +61,5 @@ public class Program
 
             if (g_completed >= g_interations) break; 
         }
-
-        return 100;
-
     }
-
 }

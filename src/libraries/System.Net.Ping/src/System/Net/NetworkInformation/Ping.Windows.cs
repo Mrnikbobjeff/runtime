@@ -1,24 +1,21 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.Win32.SafeHandles;
-
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.Win32.SafeHandles;
 
 namespace System.Net.NetworkInformation
 {
     public partial class Ping
     {
-        private const int MaxUdpPacket = 0xFFFF + 256; // Marshal.SizeOf(typeof(Icmp6EchoReply)) * 2 + ip header info;
+        private const int MaxUdpPacket = 0xFFFF + 256; // Marshal.SizeOf(typeof(ICMPV6_ECHO_REPLY)) * 2 + ip header info;
 
         private static readonly SafeWaitHandle s_nullSafeWaitHandle = new SafeWaitHandle(IntPtr.Zero, true);
-        private static readonly object s_socketInitializationLock = new object();
-        private static bool s_socketInitialized;
 
         private int _sendSize;  // Needed to determine what the reply size is for ipv6 in callback.
         private bool _ipv6;
@@ -59,10 +56,7 @@ namespace System.Net.NetworkInformation
             // Cache correct handle.
             InitialiseIcmpHandle();
 
-            if (_replyBuffer == null)
-            {
-                _replyBuffer = SafeLocalAllocHandle.LocalAlloc(MaxUdpPacket);
-            }
+            _replyBuffer ??= SafeLocalAllocHandle.LocalAlloc(MaxUdpPacket);
 
             int error;
             try
@@ -84,7 +78,7 @@ namespace System.Net.NetworkInformation
 
             if (error == 0)
             {
-                error = Marshal.GetLastWin32Error();
+                error = Marshal.GetLastPInvokeError();
 
                 // Only skip Async IO Pending error value.
                 if (!isAsync || error != Interop.IpHlpApi.ERROR_IO_PENDING)
@@ -150,6 +144,7 @@ namespace System.Net.NetworkInformation
                 _handlePingV4 = Interop.IpHlpApi.IcmpCreateFile();
                 if (_handlePingV4.IsInvalid)
                 {
+                    _handlePingV4.Dispose();
                     _handlePingV4 = null;
                     throw new Win32Exception(); // Gets last error.
                 }
@@ -159,15 +154,16 @@ namespace System.Net.NetworkInformation
                 _handlePingV6 = Interop.IpHlpApi.Icmp6CreateFile();
                 if (_handlePingV6.IsInvalid)
                 {
+                    _handlePingV6.Dispose();
                     _handlePingV6 = null;
                     throw new Win32Exception(); // Gets last error.
                 }
             }
         }
 
-        private int SendEcho(IPAddress address, byte[] buffer, int timeout, PingOptions? options, bool isAsync)
+        private unsafe int SendEcho(IPAddress address, byte[] buffer, int timeout, PingOptions? options, bool isAsync)
         {
-            Interop.IpHlpApi.IPOptions ipOptions = new Interop.IpHlpApi.IPOptions(options);
+            Interop.IpHlpApi.IP_OPTION_INFORMATION ipOptions = new Interop.IpHlpApi.IP_OPTION_INFORMATION(options);
             if (!_ipv6)
             {
                 return (int)Interop.IpHlpApi.IcmpSendEcho2(
@@ -186,9 +182,11 @@ namespace System.Net.NetworkInformation
                     (uint)timeout);
             }
 
-            IPEndPoint ep = new IPEndPoint(address, 0);
-            Internals.SocketAddress remoteAddr = IPEndPointExtensions.Serialize(ep);
-            byte[] sourceAddr = new byte[28];
+            Span<byte> remoteAddr = stackalloc byte[SocketAddressPal.IPv6AddressSize];
+            IPEndPointExtensions.SetIPAddress(remoteAddr, address);
+
+            Span<byte> sourceAddr = stackalloc byte[SocketAddressPal.IPv6AddressSize];
+            sourceAddr.Clear();
 
             return (int)Interop.IpHlpApi.Icmp6SendEcho2(
                 _handlePingV6!,
@@ -196,7 +194,7 @@ namespace System.Net.NetworkInformation
                 IntPtr.Zero,
                 IntPtr.Zero,
                 sourceAddr,
-                remoteAddr.Buffer,
+                remoteAddr,
                 _requestBuffer!,
                 (ushort)buffer.Length,
                 ref ipOptions,
@@ -205,19 +203,19 @@ namespace System.Net.NetworkInformation
                 (uint)timeout);
         }
 
-        private PingReply CreatePingReply()
+        private unsafe PingReply CreatePingReply()
         {
             SafeLocalAllocHandle buffer = _replyBuffer!;
 
             // Marshals and constructs new reply.
             if (_ipv6)
             {
-                Interop.IpHlpApi.Icmp6EchoReply icmp6Reply = Marshal.PtrToStructure<Interop.IpHlpApi.Icmp6EchoReply>(buffer.DangerousGetHandle());
-                return CreatePingReplyFromIcmp6EchoReply(icmp6Reply, buffer.DangerousGetHandle(), _sendSize);
+                ref Interop.IpHlpApi.ICMPV6_ECHO_REPLY icmp6Reply = ref *(Interop.IpHlpApi.ICMPV6_ECHO_REPLY*)buffer.DangerousGetHandle();
+                return CreatePingReplyFromIcmp6EchoReply(in icmp6Reply, buffer.DangerousGetHandle(), _sendSize);
             }
 
-            Interop.IpHlpApi.IcmpEchoReply icmpReply = Marshal.PtrToStructure<Interop.IpHlpApi.IcmpEchoReply>(buffer.DangerousGetHandle());
-            return CreatePingReplyFromIcmpEchoReply(icmpReply);
+            ref Interop.IpHlpApi.ICMP_ECHO_REPLY icmpReply = ref *(Interop.IpHlpApi.ICMP_ECHO_REPLY*)buffer.DangerousGetHandle();
+            return CreatePingReplyFromIcmpEchoReply(in icmpReply);
         }
 
         private void Cleanup(bool isAsync)
@@ -339,28 +337,28 @@ namespace System.Net.NetworkInformation
             return (IPStatus)statusCode;
         }
 
-        private static PingReply CreatePingReplyFromIcmpEchoReply(Interop.IpHlpApi.IcmpEchoReply reply)
+        private static PingReply CreatePingReplyFromIcmpEchoReply(in Interop.IpHlpApi.ICMP_ECHO_REPLY reply)
         {
             const int DontFragmentFlag = 2;
 
             IPAddress address = new IPAddress(reply.address);
             IPStatus ipStatus = GetStatusFromCode((int)reply.status);
 
-            long rtt;
+            // The ICMP_ECHO_REPLY RoundTripTime field is always populated by the OS
+            // for any received reply, regardless of status (e.g. TTL expired, unreachable).
+            long rtt = reply.roundTripTime;
             PingOptions? options;
             byte[] buffer;
 
             if (ipStatus == IPStatus.Success)
             {
                 // Only copy the data if we succeed w/ the ping operation.
-                rtt = reply.roundTripTime;
                 options = new PingOptions(reply.options.ttl, (reply.options.flags & DontFragmentFlag) > 0);
                 buffer = new byte[reply.dataSize];
                 Marshal.Copy(reply.data, buffer, 0, reply.dataSize);
             }
             else
             {
-                rtt = 0;
                 options = null;
                 buffer = Array.Empty<byte>();
             }
@@ -368,47 +366,28 @@ namespace System.Net.NetworkInformation
             return new PingReply(address, options, ipStatus, rtt, buffer);
         }
 
-        private static PingReply CreatePingReplyFromIcmp6EchoReply(Interop.IpHlpApi.Icmp6EchoReply reply, IntPtr dataPtr, int sendSize)
+        private static PingReply CreatePingReplyFromIcmp6EchoReply(in Interop.IpHlpApi.ICMPV6_ECHO_REPLY reply, IntPtr dataPtr, int sendSize)
         {
             IPAddress address = new IPAddress(reply.Address.Address, reply.Address.ScopeID);
             IPStatus ipStatus = GetStatusFromCode((int)reply.Status);
 
-            long rtt;
+            // The ICMPV6_ECHO_REPLY RoundTripTime field is always populated by the OS
+            // for any received reply, regardless of status (e.g. TTL expired, unreachable).
+            long rtt = reply.RoundTripTime;
             byte[] buffer;
 
             if (ipStatus == IPStatus.Success)
             {
                 // Only copy the data if we succeed w/ the ping operation.
-                rtt = reply.RoundTripTime;
                 buffer = new byte[sendSize];
                 Marshal.Copy(dataPtr + 36, buffer, 0, sendSize);
             }
             else
             {
-                rtt = 0;
                 buffer = Array.Empty<byte>();
             }
 
             return new PingReply(address, null, ipStatus, rtt, buffer);
-        }
-
-        static partial void InitializeSockets()
-        {
-            if (!Volatile.Read(ref s_socketInitialized))
-            {
-                lock (s_socketInitializationLock)
-                {
-                    if (!s_socketInitialized)
-                    {
-                        // Ensure that WSAStartup has been called once per process.
-                        // The System.Net.NameResolution contract is responsible with the initialization.
-                        Dns.GetHostName();
-
-                        // Cache some settings locally.
-                        s_socketInitialized = true;
-                    }
-                }
-            }
         }
     }
 }

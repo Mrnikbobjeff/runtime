@@ -2,15 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b37636
 {
     using System;
 
-    class AA
+    public class AA
     {
         static float[] m_af = new float[2];
 
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             while (m_af[0] < m_af[1])
             {

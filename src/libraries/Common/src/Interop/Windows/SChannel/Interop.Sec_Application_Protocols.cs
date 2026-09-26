@@ -14,11 +14,11 @@ internal static partial class Interop
     {
         public uint ProtocolListsSize;
         public ApplicationProtocolNegotiationExt ProtocolExtensionType;
-        public short ProtocolListSize;
+        public ushort ProtocolListSize;
 
-        public static unsafe byte[] ToByteArray(List<SslApplicationProtocol> applicationProtocols)
+        public static int GetProtocolLength(List<SslApplicationProtocol> applicationProtocols)
         {
-            long protocolListSize = 0;
+            int protocolListSize = 0;
             for (int i = 0; i < applicationProtocols.Count; i++)
             {
                 int protocolLength = applicationProtocols[i].Protocol.Length;
@@ -30,11 +30,18 @@ internal static partial class Interop
 
                 protocolListSize += protocolLength + 1;
 
-                if (protocolListSize > short.MaxValue)
+                if (protocolListSize > ushort.MaxValue)
                 {
                     throw new ArgumentException(SR.net_ssl_app_protocols_invalid, nameof(applicationProtocols));
                 }
             }
+
+            return protocolListSize;
+        }
+
+        public static unsafe byte[] ToByteArray(List<SslApplicationProtocol> applicationProtocols)
+        {
+            int protocolListSize = GetProtocolLength(applicationProtocols);
 
             Sec_Application_Protocols protocols = default;
 
@@ -42,12 +49,12 @@ internal static partial class Interop
             protocols.ProtocolListsSize = (uint)(protocolListConstSize + protocolListSize);
 
             protocols.ProtocolExtensionType = ApplicationProtocolNegotiationExt.ALPN;
-            protocols.ProtocolListSize = (short)protocolListSize;
+            protocols.ProtocolListSize = (ushort)protocolListSize;
 
             byte[] buffer = new byte[sizeof(Sec_Application_Protocols) + protocolListSize];
             int index = 0;
 
-            MemoryMarshal.Write(buffer.AsSpan(index), ref protocols);
+            MemoryMarshal.Write(buffer.AsSpan(index), in protocols);
             index += sizeof(Sec_Application_Protocols);
 
             for (int i = 0; i < applicationProtocols.Count; i++)
@@ -59,6 +66,25 @@ internal static partial class Interop
             }
 
             return buffer;
+        }
+
+        public static unsafe void SetProtocols(Span<byte> buffer, List<SslApplicationProtocol> applicationProtocols, int protocolLength)
+        {
+            Span<Sec_Application_Protocols> alpn = MemoryMarshal.Cast<byte, Sec_Application_Protocols>(buffer);
+            alpn[0].ProtocolListsSize = (uint)(sizeof(Sec_Application_Protocols) - sizeof(uint) + protocolLength);
+            alpn[0].ProtocolExtensionType = ApplicationProtocolNegotiationExt.ALPN;
+            alpn[0].ProtocolListSize = (ushort)protocolLength;
+
+            Span<byte> data = buffer.Slice(sizeof(Sec_Application_Protocols));
+            for (int i = 0; i < applicationProtocols.Count; i++)
+            {
+                ReadOnlySpan<byte> protocol = applicationProtocols[i].Protocol.Span;
+
+                data[0] = (byte)protocol.Length;
+                data = data.Slice(1);
+                protocol.CopyTo(data);
+                data = data.Slice(protocol.Length);
+            }
         }
     }
 }

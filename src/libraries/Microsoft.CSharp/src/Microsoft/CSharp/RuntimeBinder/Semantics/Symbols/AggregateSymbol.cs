@@ -3,6 +3,7 @@
 
 using System;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using Microsoft.CSharp.RuntimeBinder.Syntax;
 
@@ -13,8 +14,8 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
     // AggregateSymbol - a symbol representing an aggregate type. These are classes,
     // interfaces, and structs. Parent is a namespace or class. Children are methods,
     // properties, and member variables, and types (including its own AGGTYPESYMs).
-
-    internal class AggregateSymbol : NamespaceOrAggregateSymbol
+    [RequiresDynamicCode(Binder.DynamicCodeWarning)]
+    internal sealed class AggregateSymbol : NamespaceOrAggregateSymbol
     {
         public Type AssociatedSystemType;
         public Assembly AssociatedAssembly;
@@ -210,7 +211,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
 
         public bool IsSealed()
         {
-            return _isSealed == true;
+            return _isSealed;
         }
 
         public void SetSealed(bool @sealed)
@@ -220,6 +221,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
 
         ////////////////////////////////////////////////////////////////////////////////
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         public bool HasConversion()
         {
             SymbolTable.AddConversionsForType(AssociatedSystemType);
@@ -246,7 +248,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
 
         public bool HasPubNoArgCtor()
         {
-            return _hasPubNoArgCtor == true;
+            return _hasPubNoArgCtor;
         }
 
         public void SetHasPubNoArgCtor(bool hasPubNoArgCtor)
@@ -256,7 +258,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
 
         public bool IsSkipUDOps()
         {
-            return _isSkipUDOps == true;
+            return _isSkipUDOps;
         }
 
         public void SetSkipUDOps(bool skipUDOps)

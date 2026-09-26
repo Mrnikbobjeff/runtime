@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Text;
 using Microsoft.CSharp.RuntimeBinder.Semantics;
@@ -16,10 +17,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Errors
         private void BeginString()
         {
             Debug.Assert(_strBuilder == null || _strBuilder.Length == 0);
-            if (_strBuilder == null)
-            {
-                _strBuilder = new StringBuilder();
-            }
+            _strBuilder ??= new StringBuilder();
         }
 
         private string EndString()
@@ -72,6 +70,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Errors
          * Does NOT include ()
          */
 
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private void ErrAppendParamList(TypeArray @params, bool isParamArray)
         {
             if (null == @params)
@@ -120,11 +119,13 @@ namespace Microsoft.CSharp.RuntimeBinder.Errors
             }
         }
 
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private void ErrAppendParentSym(Symbol sym, SubstContext pctx)
         {
             ErrAppendParentCore(sym.parent, pctx);
         }
 
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private void ErrAppendParentCore(Symbol parent, SubstContext pctx)
         {
             if (parent == null || parent == NamespaceSymbol.Root)
@@ -144,6 +145,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Errors
             ErrAppendChar('.');
         }
 
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private void ErrAppendTypeParameters(TypeArray @params, SubstContext pctx)
         {
             if (@params != null && @params.Count != 0)
@@ -159,6 +161,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Errors
             }
         }
 
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private void ErrAppendMethod(MethodSymbol meth, SubstContext pctx, bool fArgs)
         {
             if (meth.IsExpImpl() && meth.swtSlot)
@@ -272,12 +275,15 @@ namespace Microsoft.CSharp.RuntimeBinder.Errors
             }
         }
 
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private void ErrAppendIndexer(IndexerSymbol indexer, SubstContext pctx)
         {
             ErrAppendString("this[");
             ErrAppendParamList(TypeManager.SubstTypeArray(indexer.Params, pctx), indexer.isParamArray);
             ErrAppendChar(']');
         }
+
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private void ErrAppendProperty(PropertySymbol prop, SubstContext pctx)
         {
             ErrAppendParentSym(prop, pctx);
@@ -309,11 +315,13 @@ namespace Microsoft.CSharp.RuntimeBinder.Errors
         /*
          * Create a fill-in string describing a symbol.
          */
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private void ErrAppendSym(Symbol sym, SubstContext pctx)
         {
             ErrAppendSym(sym, pctx, true);
         }
 
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private void ErrAppendSym(Symbol sym, SubstContext pctx, bool fArgs)
         {
             switch (sym.getKind())
@@ -391,6 +399,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Errors
             }
         }
 
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private void ErrAppendType(CType pType, SubstContext pctx)
         {
             if (pctx != null && !pctx.IsNop)
@@ -538,6 +547,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Errors
         }
 
         // Returns true if the argument could be converted to a string.
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public bool ErrArgToString(out string psz, ErrArg parg, out bool fUserStrings)
         {
             fUserStrings = false;

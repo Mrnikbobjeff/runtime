@@ -4,11 +4,11 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Xml.Schema;
 using System.Xml.XPath;
-using System.Diagnostics;
-using System.Diagnostics.CodeAnalysis;
 
 namespace System.Xml
 {
@@ -40,10 +40,7 @@ namespace System.Xml
 
         public override void SetValue(string value)
         {
-            if (value == null)
-            {
-                throw new ArgumentNullException(nameof(value));
-            }
+            ArgumentNullException.ThrowIfNull(value);
 
             XmlNode node = _source;
             XmlNode end;
@@ -180,10 +177,6 @@ namespace System.Xml
                         return ValueText;
                     default:
                         Debug.Assert(_source.Value != null);
-                        // TODO-NULLABLE: Consider switching this.Value to nullable even if that implies switching it in the base type.
-                        // Also consider the following:
-                        //   * this.SetValue() does not accept null.
-                        //   * _source.Value is nullable.
                         return _source.Value;
                 }
             }
@@ -223,8 +216,7 @@ namespace System.Xml
                            && nextSibling.IsText);
                     value = builder.ToString();
                 }
-                // TODO-NULLABLE: Consider making this nullable given that _source.Value is nullable,
-                // OR we could change this getter to return string.Empty if _source.Value == null.
+
                 Debug.Assert(value != null);
                 return value;
             }
@@ -1231,7 +1223,7 @@ namespace System.Xml
             return false;
         }
 
-        public override bool IsDescendant(XPathNavigator? other)
+        public override bool IsDescendant([NotNullWhen(true)] XPathNavigator? other)
         {
             if (other is DocumentXPathNavigator that)
             {
@@ -1310,7 +1302,7 @@ namespace System.Xml
 
         //Assuming that node1 and node2 are in the same level; Except when they are namespace nodes, they should have the same parent node
         //the returned value is node2's position corresponding to node1
-        private XmlNodeOrder Compare(XmlNode node1, XmlNode node2)
+        private static XmlNodeOrder Compare(XmlNode node1, XmlNode node2)
         {
             Debug.Assert(node1 != null);
             Debug.Assert(node2 != null);
@@ -1604,14 +1596,8 @@ namespace System.Xml
         {
             if (!(lastSiblingToReplace is DocumentXPathNavigator that))
             {
-                if (lastSiblingToReplace == null)
-                {
-                    throw new ArgumentNullException(nameof(lastSiblingToReplace));
-                }
-                else
-                {
-                    throw new NotSupportedException();
-                }
+                ArgumentNullException.ThrowIfNull(lastSiblingToReplace);
+                throw new NotSupportedException();
             }
 
             this.CalibrateText();
@@ -1661,14 +1647,8 @@ namespace System.Xml
         {
             if (!(lastSiblingToDelete is DocumentXPathNavigator that))
             {
-                if (lastSiblingToDelete == null)
-                {
-                    throw new ArgumentNullException(nameof(lastSiblingToDelete));
-                }
-                else
-                {
-                    throw new NotSupportedException();
-                }
+                ArgumentNullException.ThrowIfNull(lastSiblingToDelete);
+                throw new NotSupportedException();
             }
 
             this.CalibrateText();
@@ -1925,7 +1905,7 @@ namespace System.Xml
             return ParentNodeTail(parent);
         }
 
-        private XmlNode? ParentNodeTail(XmlNode? parent)
+        private static XmlNode? ParentNodeTail(XmlNode? parent)
         {
             while (parent != null
                    && parent.NodeType == XmlNodeType.EntityReference)
@@ -1946,7 +1926,7 @@ namespace System.Xml
             return FirstChildTail(child);
         }
 
-        private XmlNode? FirstChildTail(XmlNode? child)
+        private static XmlNode? FirstChildTail(XmlNode? child)
         {
             while (child != null
                    && child.NodeType == XmlNodeType.EntityReference)
@@ -1967,7 +1947,7 @@ namespace System.Xml
             return NextSiblingTail(node, sibling);
         }
 
-        private XmlNode? NextSiblingTail(XmlNode node, XmlNode? sibling)
+        private static XmlNode? NextSiblingTail(XmlNode node, XmlNode? sibling)
         {
             XmlNode? current = node;
             while (sibling == null)
@@ -1999,7 +1979,7 @@ namespace System.Xml
             return PreviousSiblingTail(node, sibling);
         }
 
-        private XmlNode? PreviousSiblingTail(XmlNode node, XmlNode? sibling)
+        private static XmlNode? PreviousSiblingTail(XmlNode node, XmlNode? sibling)
         {
             XmlNode? current = node;
             while (sibling == null)
@@ -2031,7 +2011,7 @@ namespace System.Xml
             return PreviousTextTail(node, text);
         }
 
-        private XmlNode? PreviousTextTail(XmlNode node, XmlNode? text)
+        private static XmlNode? PreviousTextTail(XmlNode node, XmlNode? text)
         {
             if (text != null)
             {

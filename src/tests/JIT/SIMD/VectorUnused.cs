@@ -9,8 +9,11 @@
 
 using System;
 using System.Numerics;
+using Xunit;
 
-internal partial class VectorTest
+namespace SIMDTests.VectorUnusedTests;
+
+public partial class VectorTest : VectorTestBase
 {
     private const int Pass = 100;
     private const int Fail = -1;
@@ -61,7 +64,8 @@ internal partial class VectorTest
         }
     }
 
-    private static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int returnVal = Pass;
 
@@ -75,6 +79,8 @@ internal partial class VectorTest
         if (VectorUnusedTest<sbyte>.VectorUnused(3, 2) != Pass) returnVal = Fail;
         if (VectorUnusedTest<uint>.VectorUnused(3, 2) != Pass) returnVal = Fail;
         if (VectorUnusedTest<ulong>.VectorUnused(3, 2) != Pass) returnVal = Fail;
+        if (VectorUnusedTest<nint>.VectorUnused(3, 2) != Pass) returnVal = Fail;
+        if (VectorUnusedTest<nuint>.VectorUnused(3, 2) != Pass) returnVal = Fail;
         if (Vector4Test.VectorUnused() != Pass) returnVal = Fail;
         if (Vector3Test.VectorUnused() != Pass) returnVal = Fail;
         if (Vector2Test.VectorUnused() != Pass) returnVal = Fail;

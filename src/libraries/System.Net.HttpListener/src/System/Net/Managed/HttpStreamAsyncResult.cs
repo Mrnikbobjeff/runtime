@@ -1,5 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+
 //
 // System.Net.HttpStreamAsyncResult
 //
@@ -33,9 +34,9 @@ using System.Threading.Tasks;
 
 namespace System.Net
 {
-    internal class HttpStreamAsyncResult : IAsyncResult
+    internal sealed class HttpStreamAsyncResult : IAsyncResult
     {
-        private object _locker = new object();
+        private readonly object _locker = new object();
         private ManualResetEvent? _handle;
         private bool _completed;
 
@@ -68,8 +69,7 @@ namespace System.Net
                     return;
 
                 _completed = true;
-                if (_handle != null)
-                    _handle.Set();
+                _handle?.Set();
 
                 if (_callback != null)
                     Task.Run(() => _callback(this));
@@ -87,8 +87,7 @@ namespace System.Net
             {
                 lock (_locker)
                 {
-                    if (_handle == null)
-                        _handle = new ManualResetEvent(_completed);
+                    _handle ??= new ManualResetEvent(_completed);
                 }
 
                 return _handle;

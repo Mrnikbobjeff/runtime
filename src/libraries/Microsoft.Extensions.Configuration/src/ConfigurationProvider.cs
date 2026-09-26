@@ -3,39 +3,39 @@
 
 using System;
 using System.Collections.Generic;
-using System.Linq;
+using System.Diagnostics;
 using System.Threading;
 using Microsoft.Extensions.Primitives;
 
 namespace Microsoft.Extensions.Configuration
 {
     /// <summary>
-    /// Base helper class for implementing an <see cref="IConfigurationProvider"/>
+    /// Defines the core behavior of configuration providers and provides a base for derived classes.
     /// </summary>
     public abstract class ConfigurationProvider : IConfigurationProvider
     {
         private ConfigurationReloadToken _reloadToken = new ConfigurationReloadToken();
 
         /// <summary>
-        /// Initializes a new <see cref="IConfigurationProvider"/>
+        /// Initializes a new <see cref="IConfigurationProvider"/>.
         /// </summary>
         protected ConfigurationProvider()
         {
-            Data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            Data = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         }
 
         /// <summary>
-        /// The configuration key value pairs for this provider.
+        /// Gets or sets the configuration key-value pairs for this provider.
         /// </summary>
-        protected IDictionary<string, string> Data { get; set; }
+        protected IDictionary<string, string?> Data { get; set; }
 
         /// <summary>
-        /// Attempts to find a value with the given key, returns true if one is found, false otherwise.
+        /// Attempts to find a value with the given key.
         /// </summary>
         /// <param name="key">The key to lookup.</param>
-        /// <param name="value">The value found at key if one is found.</param>
-        /// <returns>True if key has a value, false otherwise.</returns>
-        public virtual bool TryGet(string key, out string value)
+        /// <param name="value">When this method returns, contains the value if one is found.</param>
+        /// <returns><see langword="true" /> if <paramref name="key" /> has a value; otherwise <see langword="false" />.</returns>
+        public virtual bool TryGet(string key, out string? value)
             => Data.TryGetValue(key, out value);
 
         /// <summary>
@@ -43,7 +43,7 @@ namespace Microsoft.Extensions.Configuration
         /// </summary>
         /// <param name="key">The configuration key to set.</param>
         /// <param name="value">The value to set.</param>
-        public virtual void Set(string key, string value)
+        public virtual void Set(string key, string? value)
             => Data[key] = value;
 
         /// <summary>
@@ -60,20 +60,43 @@ namespace Microsoft.Extensions.Configuration
         /// <returns>The list of keys for this provider.</returns>
         public virtual IEnumerable<string> GetChildKeys(
             IEnumerable<string> earlierKeys,
-            string parentPath)
+            string? parentPath)
         {
-            string prefix = parentPath == null ? string.Empty : parentPath + ConfigurationPath.KeyDelimiter;
+            var results = new List<string>();
 
-            return Data
-                .Where(kv => kv.Key.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                .Select(kv => Segment(kv.Key, prefix.Length))
-                .Concat(earlierKeys)
-                .OrderBy(k => k, ConfigurationKeyComparer.Instance);
+            if (parentPath is null)
+            {
+                foreach (KeyValuePair<string, string?> kv in Data)
+                {
+                    results.Add(Segment(kv.Key, 0));
+                }
+            }
+            else
+            {
+                Debug.Assert(ConfigurationPath.KeyDelimiter == ":");
+
+                foreach (KeyValuePair<string, string?> kv in Data)
+                {
+                    if (kv.Key.Length > parentPath.Length &&
+                        kv.Key.StartsWith(parentPath, StringComparison.OrdinalIgnoreCase) &&
+                        kv.Key[parentPath.Length] == ':')
+                    {
+                        results.Add(Segment(kv.Key, parentPath.Length + 1));
+                    }
+                }
+            }
+
+            results.AddRange(earlierKeys);
+
+            results.Sort(ConfigurationKeyComparer.Comparison);
+
+            return results;
         }
 
         private static string Segment(string key, int prefixLength)
         {
-            int indexOf = key.IndexOf(ConfigurationPath.KeyDelimiter, prefixLength, StringComparison.OrdinalIgnoreCase);
+            Debug.Assert(ConfigurationPath.KeyDelimiter == ":");
+            int indexOf = key.IndexOf(':', prefixLength);
             return indexOf < 0 ? key.Substring(prefixLength) : key.Substring(prefixLength, indexOf - prefixLength);
         }
 
@@ -98,7 +121,7 @@ namespace Microsoft.Extensions.Configuration
         /// <summary>
         /// Generates a string representing this provider name and relevant details.
         /// </summary>
-        /// <returns> The configuration name. </returns>
-        public override string ToString() => $"{GetType().Name}";
+        /// <returns>The configuration name.</returns>
+        public override string ToString() => GetType().Name;
     }
 }

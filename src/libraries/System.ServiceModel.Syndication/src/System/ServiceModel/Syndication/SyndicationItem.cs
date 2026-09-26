@@ -3,12 +3,13 @@
 
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Xml;
 using System.Diagnostics.CodeAnalysis;
+using System.Xml;
 
 namespace System.ServiceModel.Syndication
 {
     // NOTE: This class implements Clone so if you add any members, please update the copy ctor
+    [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
     public class SyndicationItem : IExtensibleSyndicationObject
     {
         private Collection<SyndicationPerson> _authors;
@@ -50,15 +51,12 @@ namespace System.ServiceModel.Syndication
 
         protected SyndicationItem(SyndicationItem source)
         {
-            if (source == null)
-            {
-                throw new ArgumentNullException(nameof(source));
-            }
+            ArgumentNullException.ThrowIfNull(source);
 
             _extensions = source._extensions.Clone();
             _authors = FeedUtils.ClonePersons(source._authors);
             _categories = FeedUtils.CloneCategories(source._categories);
-            Content = (source.Content != null) ? source.Content.Clone() : null;
+            Content = source.Content?.Clone();
             _contributors = FeedUtils.ClonePersons(source._contributors);
             Copyright = FeedUtils.CloneTextContent(source.Copyright);
             Id = source.Id;
@@ -79,21 +77,21 @@ namespace System.ServiceModel.Syndication
 
         public Collection<SyndicationPerson> Authors
         {
-            get => _authors ?? (_authors = new NullNotAllowedCollection<SyndicationPerson>());
+            get => _authors ??= new NullNotAllowedCollection<SyndicationPerson>();
         }
 
         public Uri BaseUri { get; set; }
 
         public Collection<SyndicationCategory> Categories
         {
-            get => _categories ?? (_categories = new NullNotAllowedCollection<SyndicationCategory>());
+            get => _categories ??= new NullNotAllowedCollection<SyndicationCategory>();
         }
 
         public SyndicationContent Content { get; set; }
 
         public Collection<SyndicationPerson> Contributors
         {
-            get => _contributors ?? (_contributors = new NullNotAllowedCollection<SyndicationPerson>());
+            get => _contributors ??= new NullNotAllowedCollection<SyndicationPerson>();
         }
 
         public TextSyndicationContent Copyright { get; set; }
@@ -124,7 +122,7 @@ namespace System.ServiceModel.Syndication
 
         public Collection<SyndicationLink> Links
         {
-            get => _links ?? (_links = new NullNotAllowedCollection<SyndicationLink>());
+            get => _links ??= new NullNotAllowedCollection<SyndicationLink>();
         }
 
         internal Exception PublishDateException { get; set; }
@@ -157,10 +155,7 @@ namespace System.ServiceModel.Syndication
 
         public static TSyndicationItem Load<TSyndicationItem>(XmlReader reader) where TSyndicationItem : SyndicationItem, new()
         {
-            if (reader == null)
-            {
-                throw new ArgumentNullException(nameof(reader));
-            }
+            ArgumentNullException.ThrowIfNull(reader);
 
             Atom10ItemFormatter<TSyndicationItem> atomSerializer = new Atom10ItemFormatter<TSyndicationItem>();
             if (atomSerializer.CanRead(reader))
@@ -181,10 +176,7 @@ namespace System.ServiceModel.Syndication
 
         public void AddPermalink(Uri permalink)
         {
-            if (permalink == null)
-            {
-                throw new ArgumentNullException(nameof(permalink));
-            }
+            ArgumentNullException.ThrowIfNull(permalink);
 
             Id = permalink.AbsoluteUri;
             Links.Add(SyndicationLink.CreateAlternateLink(permalink));

@@ -28,7 +28,7 @@ namespace System.Linq.Expressions.Interpreter
             Instruction[] cache = Cache;
             if (cache != null && offset >= 0 && offset < cache.Length)
             {
-                return cache[offset] ?? (cache[offset] = this);
+                return cache[offset] ??= this;
             }
 
             return this;
@@ -47,19 +47,7 @@ namespace System.Linq.Expressions.Interpreter
 
     internal sealed class BranchFalseInstruction : OffsetInstruction
     {
-        private static Instruction[]? s_cache;
-
-        public override Instruction[] Cache
-        {
-            get
-            {
-                if (s_cache == null)
-                {
-                    s_cache = new Instruction[CacheSize];
-                }
-                return s_cache;
-            }
-        }
+        public override Instruction[] Cache => field ??= new Instruction[CacheSize];
 
         public override string InstructionName => "BranchFalse";
         public override int ConsumedStack => 1;
@@ -79,19 +67,7 @@ namespace System.Linq.Expressions.Interpreter
 
     internal sealed class BranchTrueInstruction : OffsetInstruction
     {
-        private static Instruction[]? s_cache;
-
-        public override Instruction[] Cache
-        {
-            get
-            {
-                if (s_cache == null)
-                {
-                    s_cache = new Instruction[CacheSize];
-                }
-                return s_cache;
-            }
-        }
+        public override Instruction[] Cache => field ??= new Instruction[CacheSize];
 
         public override string InstructionName => "BranchTrue";
         public override int ConsumedStack => 1;
@@ -111,19 +87,7 @@ namespace System.Linq.Expressions.Interpreter
 
     internal sealed class CoalescingBranchInstruction : OffsetInstruction
     {
-        private static Instruction[]? s_cache;
-
-        public override Instruction[] Cache
-        {
-            get
-            {
-                if (s_cache == null)
-                {
-                    s_cache = new Instruction[CacheSize];
-                }
-                return s_cache;
-            }
-        }
+        public override Instruction[] Cache => field ??= new Instruction[CacheSize];
 
         public override string InstructionName => "CoalescingBranch";
         public override int ConsumedStack => 1;
@@ -142,7 +106,7 @@ namespace System.Linq.Expressions.Interpreter
         }
     }
 
-    internal class BranchInstruction : OffsetInstruction
+    internal sealed class BranchInstruction : OffsetInstruction
     {
         private static Instruction[][][]? s_caches;
 
@@ -150,11 +114,8 @@ namespace System.Linq.Expressions.Interpreter
         {
             get
             {
-                if (s_caches == null)
-                {
-                    s_caches = new Instruction[2][][] { new Instruction[2][], new Instruction[2][] };
-                }
-                return s_caches[ConsumedStack][ProducedStack] ?? (s_caches[ConsumedStack][ProducedStack] = new Instruction[CacheSize]);
+                s_caches ??= new Instruction[2][][] { new Instruction[2][], new Instruction[2][] };
+                return s_caches[ConsumedStack][ProducedStack] ??= new Instruction[CacheSize];
             }
         }
 
@@ -272,7 +233,7 @@ namespace System.Linq.Expressions.Interpreter
             if (labelIndex < CacheSize)
             {
                 int index = Variants * labelIndex | (labelTargetGetsValue ? 4 : 0) | (hasResult ? 2 : 0) | (hasValue ? 1 : 0);
-                return s_cache[index] ?? (s_cache[index] = new GotoInstruction(labelIndex, hasResult, hasValue, labelTargetGetsValue));
+                return s_cache[index] ??= new GotoInstruction(labelIndex, hasResult, hasValue, labelTargetGetsValue);
             }
             return new GotoInstruction(labelIndex, hasResult, hasValue, labelTargetGetsValue);
         }
@@ -528,7 +489,7 @@ namespace System.Linq.Expressions.Interpreter
         {
             if (labelIndex < CacheSize)
             {
-                return s_cache[labelIndex] ?? (s_cache[labelIndex] = new EnterFinallyInstruction(labelIndex));
+                return s_cache[labelIndex] ??= new EnterFinallyInstruction(labelIndex);
             }
             return new EnterFinallyInstruction(labelIndex);
         }
@@ -589,7 +550,7 @@ namespace System.Linq.Expressions.Interpreter
         {
             if (labelIndex < CacheSize)
             {
-                return s_cache[labelIndex] ?? (s_cache[labelIndex] = new EnterFaultInstruction(labelIndex));
+                return s_cache[labelIndex] ??= new EnterFaultInstruction(labelIndex);
             }
 
             return new EnterFaultInstruction(labelIndex);
@@ -720,7 +681,7 @@ namespace System.Linq.Expressions.Interpreter
             if (labelIndex < CacheSize)
             {
                 int index = (2 * labelIndex) | (hasValue ? 1 : 0);
-                return s_cache[index] ?? (s_cache[index] = new LeaveExceptionHandlerInstruction(labelIndex, hasValue));
+                return s_cache[index] ??= new LeaveExceptionHandlerInstruction(labelIndex, hasValue);
             }
             return new LeaveExceptionHandlerInstruction(labelIndex, hasValue);
         }

@@ -11,6 +11,7 @@
 // <Code> 
 
 using System;
+using Xunit;
 
 public class GenException<T> : Exception {}
 
@@ -26,17 +27,17 @@ public struct Gen
 		}
 		catch(Ex E)
 		{
-			Test.Eval(Object.ReferenceEquals(e,E));
+			Test_typeparameter016.Eval(Object.ReferenceEquals(e,E));
 		}
 		catch
 		{
 			Console.WriteLine("Caught Wrong Exception");
-			Test.Eval(false);
+			Test_typeparameter016.Eval(false);
 		}
 	}
 }
 
-public class Test
+public class Test_typeparameter016
 {
 	public static int counter = 0;
 	public static bool result = true;
@@ -51,7 +52,8 @@ public class Test
 	
 	}
 	
-	public static int Main()
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		new Gen().ExceptionTest<GenException<int>,int>(new GenExceptionSub<int>());
 		new Gen().ExceptionTest<GenException<string>,string>(new GenExceptionSub<string>());

@@ -7,37 +7,47 @@ using DiagnosticsTraceSource = System.Diagnostics.TraceSource;
 
 namespace Microsoft.Extensions.Logging.TraceSource
 {
-    internal class TraceSourceLogger : ILogger
+    /// <summary>
+    /// A logger that writes a trace source log message.
+    /// </summary>
+    internal sealed class TraceSourceLogger : ILogger
     {
         private readonly DiagnosticsTraceSource _traceSource;
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="TraceSourceLogger"/> class.
+        /// </summary>
+        /// <param name="traceSource">trace source</param>
         public TraceSourceLogger(DiagnosticsTraceSource traceSource)
         {
             _traceSource = traceSource;
         }
 
-        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
+        /// <inheritdoc />
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             if (!IsEnabled(logLevel))
             {
                 return;
             }
+
             string message = string.Empty;
+
             if (formatter != null)
             {
                 message = formatter(state, exception);
             }
-            else
+            else if (state != null)
             {
-                if (state != null)
-                {
-                    message += state;
-                }
-                if (exception != null)
-                {
-                    message += Environment.NewLine + exception;
-                }
+                message += state;
             }
+
+            if (exception != null)
+            {
+                string exceptionDelimiter = string.IsNullOrEmpty(message) ? string.Empty : " ";
+                message += exceptionDelimiter + exception;
+            }
+
             if (!string.IsNullOrEmpty(message))
             {
                 _traceSource.TraceEvent(GetEventType(logLevel), eventId.Id, message);
@@ -68,7 +78,7 @@ namespace Microsoft.Extensions.Logging.TraceSource
             }
         }
 
-        public IDisposable BeginScope<TState>(TState state)
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull
         {
             return new TraceSourceScope(state);
         }

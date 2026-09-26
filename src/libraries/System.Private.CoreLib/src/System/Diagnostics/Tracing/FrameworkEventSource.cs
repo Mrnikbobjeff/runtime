@@ -1,13 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Internal.Runtime.CompilerServices;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 
 namespace System.Diagnostics.Tracing
 {
     [EventSource(Guid = "8E9F5090-2D75-4d03-8A81-E5AFBF85DAF1", Name = "System.Diagnostics.Eventing.FrameworkEventSource")]
-    internal sealed class FrameworkEventSource : EventSource
+    internal sealed partial class FrameworkEventSource : EventSource
     {
+        private const string EventSourceSuppressMessage = "Parameters to this method are primitive and are trimmer safe";
         public static readonly FrameworkEventSource Log = new FrameworkEventSource();
 
         // Keyword definitions.  These represent logical groups of events that can be turned on and off independently
@@ -27,10 +29,9 @@ namespace System.Diagnostics.Tracing
             public const EventTask ThreadTransfer = (EventTask)3;
         }
 
-        // The FrameworkEventSource GUID is {8E9F5090-2D75-4d03-8A81-E5AFBF85DAF1}
-        private FrameworkEventSource() : base(new Guid(0x8e9f5090, 0x2d75, 0x4d03, 0x8a, 0x81, 0xe5, 0xaf, 0xbf, 0x85, 0xda, 0xf1), "System.Diagnostics.Eventing.FrameworkEventSource") { }
-
         // optimized for common signatures (used by the ThreadTransferSend/Receive events)
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:UnrecognizedReflectionPattern",
+                   Justification = EventSourceSuppressMessage)]
         [NonEvent]
         private unsafe void WriteEvent(int eventId, long arg1, int arg2, string? arg3, bool arg4, int arg5, int arg6)
         {
@@ -39,7 +40,7 @@ namespace System.Diagnostics.Tracing
                 arg3 ??= "";
                 fixed (char* string3Bytes = arg3)
                 {
-                    EventSource.EventData* descrs = stackalloc EventSource.EventData[6];
+                    EventData* descrs = stackalloc EventData[6];
                     descrs[0].DataPointer = (IntPtr)(&arg1);
                     descrs[0].Size = 8;
                     descrs[0].Reserved = 0;
@@ -64,6 +65,8 @@ namespace System.Diagnostics.Tracing
         }
 
         // optimized for common signatures (used by the ThreadTransferSend/Receive events)
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:UnrecognizedReflectionPattern",
+                   Justification = EventSourceSuppressMessage)]
         [NonEvent]
         private unsafe void WriteEvent(int eventId, long arg1, int arg2, string? arg3)
         {
@@ -72,7 +75,7 @@ namespace System.Diagnostics.Tracing
                 arg3 ??= "";
                 fixed (char* string3Bytes = arg3)
                 {
-                    EventSource.EventData* descrs = stackalloc EventSource.EventData[3];
+                    EventData* descrs = stackalloc EventData[3];
                     descrs[0].DataPointer = (IntPtr)(&arg1);
                     descrs[0].Size = 8;
                     descrs[0].Reserved = 0;
@@ -93,12 +96,13 @@ namespace System.Diagnostics.Tracing
             WriteEvent(30, workID);
         }
 
+        // The object's current location in memory was being used before. Since objects can be moved, it may be difficult to
+        // associate Enqueue/Dequeue events with the object's at-the-time location in memory, the ETW listeners would have to
+        // know specifics about the events and track GC movements to associate events. The hash code is a stable value and
+        // easier to use for association, though there may be collisions.
         [NonEvent]
-        public unsafe void ThreadPoolEnqueueWorkObject(object workID)
-        {
-            // convert the Object Id to a long
-            ThreadPoolEnqueueWork((long)*((void**)Unsafe.AsPointer(ref workID)));
-        }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public void ThreadPoolEnqueueWorkObject(object workID) => ThreadPoolEnqueueWork(workID.GetHashCode());
 
         [Event(31, Level = EventLevel.Verbose, Keywords = Keywords.ThreadPool | Keywords.ThreadTransfer)]
         public void ThreadPoolDequeueWork(long workID)
@@ -106,12 +110,13 @@ namespace System.Diagnostics.Tracing
             WriteEvent(31, workID);
         }
 
+        // The object's current location in memory was being used before. Since objects can be moved, it may be difficult to
+        // associate Enqueue/Dequeue events with the object's at-the-time location in memory, the ETW listeners would have to
+        // know specifics about the events and track GC movements to associate events. The hash code is a stable value and
+        // easier to use for association, though there may be collisions.
         [NonEvent]
-        public unsafe void ThreadPoolDequeueWorkObject(object workID)
-        {
-            // convert the Object Id to a long
-            ThreadPoolDequeueWork((long)*((void**)Unsafe.AsPointer(ref workID)));
-        }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public void ThreadPoolDequeueWorkObject(object workID) => ThreadPoolDequeueWork(workID.GetHashCode());
 
         // id -   represents a correlation ID that allows correlation of two activities, one stamped by
         //        ThreadTransferSend, the other by ThreadTransferReceive
@@ -127,17 +132,17 @@ namespace System.Diagnostics.Tracing
             WriteEvent(150, id, kind, info, multiDequeues, intInfo1, intInfo2);
         }
 
-        // id - is a managed object. it gets translated to the object's address. ETW listeners must
-        //      keep track of GC movements in order to correlate the value passed to XyzSend with the
-        //      (possibly changed) value passed to XyzReceive
+        // id - is a managed object's hash code
         [NonEvent]
-        public unsafe void ThreadTransferSendObj(object id, int kind, string info, bool multiDequeues, int intInfo1, int intInfo2)
-        {
-            ThreadTransferSend((long)*((void**)Unsafe.AsPointer(ref id)), kind, info, multiDequeues, intInfo1, intInfo2);
-        }
+        public void ThreadTransferSendObj(object id, int kind, string info, bool multiDequeues, int intInfo1, int intInfo2) =>
+            ThreadTransferSend(id.GetHashCode(), kind, info, multiDequeues, intInfo1, intInfo2);
 
         // id -   represents a correlation ID that allows correlation of two activities, one stamped by
         //        ThreadTransferSend, the other by ThreadTransferReceive
+        //    -   The object's current location in memory was being used before. Since objects can be moved, it may be difficult to
+        //        associate Enqueue/Dequeue events with the object's at-the-time location in memory, the ETW listeners would have to
+        //        know specifics about the events and track GC movements to associate events. The hash code is a stable value and
+        //        easier to use for association, though there may be collisions.
         // kind - identifies the transfer: values below 64 are reserved for the runtime. Currently used values:
         //        1 - managed Timers ("roaming" ID)
         //        2 - managed async IO operations (FileStream, PipeStream, a.o.)
@@ -148,13 +153,14 @@ namespace System.Diagnostics.Tracing
         {
             WriteEvent(151, id, kind, info);
         }
-        // id - is a managed object. it gets translated to the object's address. ETW listeners must
-        //      keep track of GC movements in order to correlate the value passed to XyzSend with the
-        //      (possibly changed) value passed to XyzReceive
+
+        // id - is a managed object. it gets translated to the object's address.
+        //    - The object's current location in memory was being used before. Since objects can be moved, it may be difficult to
+        //      associate Enqueue/Dequeue events with the object's at-the-time location in memory, the ETW listeners would have to
+        //      know specifics about the events and track GC movements to associate events. The hash code is a stable value and
+        //      easier to use for association, though there may be collisions.
         [NonEvent]
-        public unsafe void ThreadTransferReceiveObj(object id, int kind, string? info)
-        {
-            ThreadTransferReceive((long)*((void**)Unsafe.AsPointer(ref id)), kind, info);
-        }
+        public void ThreadTransferReceiveObj(object id, int kind, string? info) =>
+            ThreadTransferReceive(id.GetHashCode(), kind, info);
     }
 }

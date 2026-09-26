@@ -1,13 +1,19 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b11553;
+
 using System;
 using System.IO;
 using System.Reflection;
+using Xunit;
 
-internal class test
+public class test
 {
-    public static int Main(String[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         Type t = typeof(int);
         Type t2 = typeof(long);

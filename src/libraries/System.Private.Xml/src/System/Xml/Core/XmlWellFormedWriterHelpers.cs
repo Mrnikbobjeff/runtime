@@ -2,19 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Text;
-using System.Diagnostics;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Text;
 
 namespace System.Xml
 {
-    internal partial class XmlWellFormedWriter : XmlWriter
+    internal sealed partial class XmlWellFormedWriter : XmlWriter
     {
         //
         // Private types
         //
-        private class NamespaceResolverProxy : IXmlNamespaceResolver
+        private sealed class NamespaceResolverProxy : IXmlNamespaceResolver
         {
             private readonly XmlWellFormedWriter _wfWriter;
 
@@ -146,7 +146,7 @@ namespace System.Xml
             XmlLang
         }
 
-        private partial class AttributeValueCache
+        private sealed partial class AttributeValueCache
         {
             private enum ItemType
             {
@@ -161,7 +161,7 @@ namespace System.Xml
                 ValueString,
             }
 
-            private class Item
+            private sealed class Item
             {
                 internal ItemType type;
                 internal object data;
@@ -180,7 +180,7 @@ namespace System.Xml
                 }
             }
 
-            private class BufferChunk
+            private sealed class BufferChunk
             {
                 internal char[] buffer;
                 internal int index;
@@ -403,15 +403,14 @@ namespace System.Xml
 
                 // trim the string in StringBuilder
                 string valBefore = _stringValue.ToString();
-                string valAfter = XmlConvert.TrimString(valBefore);
+                ReadOnlySpan<char> valAfter = valBefore.AsSpan().Trim(XmlConvert.WhitespaceChars);
                 if (valBefore != valAfter)
                 {
-                    _stringValue = new StringBuilder(valAfter);
+                    _stringValue = new StringBuilder();
+                    _stringValue.Append(valAfter);
                 }
 
                 // trim the beginning of the recorded writer events
-                XmlCharType xmlCharType = XmlCharType.Instance;
-
                 int i = _firstItem;
                 while (i == _firstItem && i <= _lastItem)
                 {
@@ -435,7 +434,7 @@ namespace System.Xml
                         case ItemType.RawChars:
                             BufferChunk bufChunk = (BufferChunk)item.data;
                             int endIndex = bufChunk.index + bufChunk.count;
-                            while (bufChunk.index < endIndex && xmlCharType.IsWhiteSpace(bufChunk.buffer[bufChunk.index]))
+                            while (bufChunk.index < endIndex && XmlCharType.IsWhiteSpace(bufChunk.buffer[bufChunk.index]))
                             {
                                 bufChunk.index++;
                                 bufChunk.count--;
@@ -475,7 +474,7 @@ namespace System.Xml
                         case ItemType.StringChars:
                         case ItemType.RawChars:
                             BufferChunk bufChunk = (BufferChunk)item.data;
-                            while (bufChunk.count > 0 && xmlCharType.IsWhiteSpace(bufChunk.buffer[bufChunk.index + bufChunk.count - 1]))
+                            while (bufChunk.count > 0 && XmlCharType.IsWhiteSpace(bufChunk.buffer[bufChunk.index + bufChunk.count - 1]))
                             {
                                 bufChunk.count--;
                             }

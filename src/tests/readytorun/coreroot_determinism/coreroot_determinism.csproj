@@ -1,17 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk" ToolsVersion="Current">
   <PropertyGroup>
-    <OutputType>exe</OutputType>
-    <CLRTestKind>BuildAndRun</CLRTestKind>
-    <CLRTestPriority>0</CLRTestPriority>
-    <!-- Crossgen2 currently targets only x64 -->
-    <CLRTestTargetUnsupported Condition="'$(TargetArchitecture)' != 'x64'">true</CLRTestTargetUnsupported>
-    <!-- Known not to work with GCStress for now: https://github.com/dotnet/runtime/issues/13394 -->
-    <GCStressIncompatible>true</GCStressIncompatible>
+    <!-- Needed for CLRTestTargetUnsupported, CrossGenTest -->
+    <RequiresProcessIsolation>true</RequiresProcessIsolation>
+    <!-- TODO: Re-enable when WASM R2R host tooling can compare emitted components for determinism.
+         Tracked by https://github.com/dotnet/runtime/issues/131321. -->
+    <CLRTestTargetUnsupported Condition="'$(RuntimeFlavor)' == 'coreclr' and '$(TargetOS)' == 'browser'">true</CLRTestTargetUnsupported>
+    <CLRTestTargetUnsupported Condition="'$(RuntimeFlavor)' != 'coreclr'">true</CLRTestTargetUnsupported>
     <!-- This is an explicit crossgen test -->
     <CrossGenTest>false</CrossGenTest>
-    <OldToolsVersion>2.0</OldToolsVersion>
+    <!-- We skip the ReadyToRun tests when sanitized due to build complexity -->
+    <DisableProjectBuild Condition="'$(EnableNativeSanitizers)' != ''">true</DisableProjectBuild>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Program.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(TestLibraryProjectPath)" />
   </ItemGroup>
 </Project>

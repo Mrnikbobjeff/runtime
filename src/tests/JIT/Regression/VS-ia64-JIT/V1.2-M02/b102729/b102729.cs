@@ -2,6 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b102729;
+
+using Xunit;
 struct Foo
 {
 #pragma warning disable 0414
@@ -11,16 +15,18 @@ struct Foo
 #pragma warning restore 0414
 }
 
-class Bar
+public class Bar
 {
     static Foo[] _myArray;
 
-    public static void Bork(ref Foo arg)
+    static void Bork(ref Foo arg)
     {
         arg = _myArray[3];
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         _myArray = new Foo[10];
 
@@ -31,7 +37,5 @@ class Bar
         duh.c = 3;
 
         Bork(ref duh);
-
-        return 100;
     }
 }

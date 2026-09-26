@@ -2,10 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Reflection;
+using Xunit;
+using TestLibrary;
 
-class Program
+public class Program
 {
-    static int Main()
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/36113", TestRuntimes.Mono)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         if ((int)typeof(IFoo).GetMethod("StaticMethod").Invoke(null, new object[] { 1 }) != 31)
             return 1;
@@ -42,7 +47,7 @@ class Program
             typeof(IFoo).GetMethod("DefaultMethod").Invoke(new Reabstractor(), new object[] { 1 });
             return 501;
         }
-        catch (EntryPointNotFoundException)
+        catch (TargetInvocationException ie) when (ie.InnerException is EntryPointNotFoundException)
         {
         }
 

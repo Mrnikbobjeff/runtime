@@ -8,10 +8,12 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Collections.Generic;
-using Microsoft.Diagnostics.Tools.RuntimeClient;
 using Microsoft.Diagnostics.Tracing;
 using Tracing.Tests.Common;
 using Microsoft.Diagnostics.Tracing.Parsers.Clr;
+using Microsoft.Diagnostics.NETCore.Client;
+using Xunit;
+using TestLibrary;
 
 namespace Tracing.Tests.EventSourceError
 {
@@ -22,7 +24,6 @@ namespace Tracing.Tests.EventSourceError
     {
         public IllegalTypesEventSource()
         {
-
         }
 
         [Event(1, Level = EventLevel.LogAlways)]
@@ -45,18 +46,22 @@ namespace Tracing.Tests.EventSourceError
 
     public class EventSourceError
     {
-        public static int Main(string[] args)
+        [ActiveIssue("needs triage", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [ActiveIssue("Can't find file dotnet-diagnostic-{pid}-*-socket", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoRuntime), nameof(PlatformDetection.IsRiscv64Process))]
+        [SkipOnCoreClr("This test is sensitive to JIT optimizations.", RuntimeTestModes.AnyJitOptimizationStress)]
+        [SkipOnCoreClr("Tracing tests routinely time out with JIT stress and GC stress.", RuntimeTestModes.AnyGCStress)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             // This test validates that if an EventSource generates an error
             // during construction it gets emitted over EventPipe
 
-            List<Provider> providers = new List<Provider>
+            var providers = new List<EventPipeProvider>
             {
-                new Provider("IllegalTypesEventSource")
+                new EventPipeProvider("IllegalTypesEventSource", EventLevel.Verbose)
             };
 
-            var configuration = new SessionConfiguration(circularBufferSizeMB: 1024, format: EventPipeSerializationFormat.NetTrace,  providers: providers);
-            return IpcTraceTest.RunAndValidateEventCounts(_expectedEventCounts, _eventGeneratingAction, configuration, _DoesRundownContainMethodEvents);
+            return IpcTraceTest.RunAndValidateEventCounts(_expectedEventCounts, _eventGeneratingAction, providers, 1024, _DoesRundownContainMethodEvents);
         }
 
         private static Dictionary<string, ExpectedEventCount> _expectedEventCounts = new Dictionary<string, ExpectedEventCount>()

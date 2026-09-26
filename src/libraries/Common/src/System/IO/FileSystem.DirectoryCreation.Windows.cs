@@ -1,20 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
-using Microsoft.Win32.SafeHandles;
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Runtime.InteropServices;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 
-#if MS_IO_REDIST
-namespace Microsoft.IO
-#else
 namespace System.IO
-#endif
 {
     internal static partial class FileSystem
     {
@@ -82,21 +77,17 @@ namespace System.IO
 
             fixed (byte* pSecurityDescriptor = securityDescriptor)
             {
-                Interop.Kernel32.SECURITY_ATTRIBUTES secAttrs = new Interop.Kernel32.SECURITY_ATTRIBUTES
-                {
-                    nLength = (uint)sizeof(Interop.Kernel32.SECURITY_ATTRIBUTES),
-                    lpSecurityDescriptor = (IntPtr)pSecurityDescriptor
-                };
+                Interop.Kernel32.SECURITY_ATTRIBUTES secAttrs = Interop.Kernel32.SECURITY_ATTRIBUTES.Create(pSecurityDescriptor);
 
                 while (stackDir.Count > 0)
                 {
-                    string name = stackDir[stackDir.Count - 1];
+                    string name = stackDir[^1];
                     stackDir.RemoveAt(stackDir.Count - 1);
 
-                    r = Interop.Kernel32.CreateDirectory(name, ref secAttrs);
+                    r = Interop.Kernel32.CreateDirectory(name, &secAttrs);
                     if (!r && (firstError == 0))
                     {
-                        int currentError = Marshal.GetLastWin32Error();
+                        int currentError = Marshal.GetLastPInvokeError();
                         // While we tried to avoid creating directories that don't
                         // exist above, there are at least two cases that will
                         // cause us to see ERROR_ALREADY_EXISTS here.  FileExists

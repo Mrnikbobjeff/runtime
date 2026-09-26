@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Diagnostics;
 using System.Threading;
 using Microsoft.Extensions.Logging;
 
@@ -10,6 +11,9 @@ namespace Microsoft.Extensions.Hosting.Internal
     /// <summary>
     /// Allows consumers to perform cleanup during a graceful shutdown.
     /// </summary>
+    [DebuggerDisplay("ApplicationStarted = {ApplicationStarted.IsCancellationRequested}, " +
+        "ApplicationStopping = {ApplicationStopping.IsCancellationRequested}, " +
+        "ApplicationStopped = {ApplicationStopped.IsCancellationRequested}")]
 #pragma warning disable CS0618 // Type or member is obsolete
     public class ApplicationLifetime : IApplicationLifetime, IHostApplicationLifetime
 #pragma warning restore CS0618 // Type or member is obsolete
@@ -19,32 +23,26 @@ namespace Microsoft.Extensions.Hosting.Internal
         private readonly CancellationTokenSource _stoppedSource = new CancellationTokenSource();
         private readonly ILogger<ApplicationLifetime> _logger;
 
+        /// <summary>
+        /// Initializes an <see cref="ApplicationLifetime"/> instance using the specified logger.
+        /// </summary>
+        /// <param name="logger">The logger to initialize this instance with.</param>
         public ApplicationLifetime(ILogger<ApplicationLifetime> logger)
         {
             _logger = logger;
         }
 
-        /// <summary>
-        /// Triggered when the application host has fully started and is about to wait
-        /// for a graceful shutdown.
-        /// </summary>
+        /// <inheritdoc />
         public CancellationToken ApplicationStarted => _startedSource.Token;
 
-        /// <summary>
-        /// Triggered when the application host is performing a graceful shutdown.
-        /// Request may still be in flight. Shutdown will block until this event completes.
-        /// </summary>
+        /// <inheritdoc />
         public CancellationToken ApplicationStopping => _stoppingSource.Token;
 
-        /// <summary>
-        /// Triggered when the application host is performing a graceful shutdown.
-        /// All requests should be complete at this point. Shutdown will block
-        /// until this event completes.
-        /// </summary>
+        /// <inheritdoc />
         public CancellationToken ApplicationStopped => _stoppedSource.Token;
 
         /// <summary>
-        /// Signals the ApplicationStopping event and blocks until it completes.
+        /// Triggers <see cref="ApplicationStopping" /> and blocks until it completes.
         /// </summary>
         public void StopApplication()
         {
@@ -55,7 +53,7 @@ namespace Microsoft.Extensions.Hosting.Internal
             {
                 try
                 {
-                    ExecuteHandlers(_stoppingSource);
+                    _stoppingSource.Cancel();
                 }
                 catch (Exception ex)
                 {
@@ -67,13 +65,13 @@ namespace Microsoft.Extensions.Hosting.Internal
         }
 
         /// <summary>
-        /// Signals the ApplicationStarted event and blocks until it completes.
+        /// Triggers <see cref="ApplicationStarted" /> and blocks until it completes.
         /// </summary>
         public void NotifyStarted()
         {
             try
             {
-                ExecuteHandlers(_startedSource);
+                _startedSource.Cancel();
             }
             catch (Exception ex)
             {
@@ -84,13 +82,13 @@ namespace Microsoft.Extensions.Hosting.Internal
         }
 
         /// <summary>
-        /// Signals the ApplicationStopped event and blocks until it completes.
+        /// Triggers <see cref="ApplicationStopped" /> and blocks until it completes.
         /// </summary>
         public void NotifyStopped()
         {
             try
             {
-                ExecuteHandlers(_stoppedSource);
+                _stoppedSource.Cancel();
             }
             catch (Exception ex)
             {
@@ -98,18 +96,6 @@ namespace Microsoft.Extensions.Hosting.Internal
                                          "An error occurred stopping the application",
                                          ex);
             }
-        }
-
-        private void ExecuteHandlers(CancellationTokenSource cancel)
-        {
-            // Noop if this is already cancelled
-            if (cancel.IsCancellationRequested)
-            {
-                return;
-            }
-
-            // Run the cancellation token callbacks
-            cancel.Cancel(throwOnFirstException: false);
         }
     }
 }

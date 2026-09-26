@@ -34,9 +34,8 @@ namespace System.Reflection.TypeLoading
 
         public sealed override Type ReflectedType => _reflectedType;
 
-        public sealed override string Name => _lazyName ?? (_lazyName = ComputeName());
+        public sealed override string Name => field ??= ComputeName();
         protected abstract string ComputeName();
-        private volatile string? _lazyName;
 
         public sealed override Module Module => GetRoModule();
         internal abstract RoModule GetRoModule();
@@ -82,9 +81,50 @@ namespace System.Reflection.TypeLoading
         private const FieldAttributes FieldAttributesSentinel = (FieldAttributes)(-1);
         private volatile FieldAttributes _lazyFieldAttributes = FieldAttributesSentinel;
 
-        public sealed override Type FieldType => _lazyFieldType ?? (_lazyFieldType = ComputeFieldType());
+        public sealed override Type FieldType
+        {
+            get
+            {
+                InitializeFieldType();
+                return _lazyFieldType!;
+            }
+        }
+
+        protected RoModifiedType ModifiedType
+        {
+            get
+            {
+                InitializeFieldType();
+                _modifiedType ??= RoModifiedType.Create((RoType)FieldType);
+                return _modifiedType;
+            }
+        }
+
+        public sealed override Type GetModifiedFieldType()
+        {
+            return ModifiedType;
+        }
+
+        private void InitializeFieldType()
+        {
+            if (_lazyFieldType is null)
+            {
+                Type type = ComputeFieldType();
+                if (type is RoModifiedType modifiedType)
+                {
+                    _modifiedType = modifiedType;
+                    _lazyFieldType = modifiedType.UnderlyingSystemType;
+                }
+                else
+                {
+                    _lazyFieldType = type;
+                }
+            }
+        }
+
         protected abstract Type ComputeFieldType();
-        private volatile Type? _lazyFieldType;
+        private Type? _lazyFieldType;
+        protected RoModifiedType? _modifiedType;
 
         public sealed override object? GetRawConstantValue() => IsLiteral ? ComputeRawConstantValue() : throw new InvalidOperationException();
         protected abstract object? ComputeRawConstantValue();

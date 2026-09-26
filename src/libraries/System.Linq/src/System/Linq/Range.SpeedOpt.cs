@@ -2,88 +2,110 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Numerics;
 
 namespace System.Linq
 {
     public static partial class Enumerable
     {
-        private sealed partial class RangeIterator : IPartition<int>
+        private sealed partial class RangeIterator<T> : IList<T>, IReadOnlyList<T> where T : INumber<T>
         {
-            public override IEnumerable<TResult> Select<TResult>(Func<int, TResult> selector)
+            public override IEnumerable<TResult> Select<TResult>(Func<T, TResult> selector)
             {
-                return new SelectRangeIterator<TResult>(_start, _end, selector);
+                return new RangeSelectIterator<T, TResult>(_start, _endExclusive, selector);
             }
 
-            public int[] ToArray()
+            public override T[] ToArray()
             {
-                int[] array = new int[_end - _start];
-                int cur = _start;
-                for (int i = 0; i != array.Length; ++i)
-                {
-                    array[i] = cur;
-                    ++cur;
-                }
-
+                T start = _start;
+                T[] array = new T[Count];
+                FillIncrementing(array, start);
                 return array;
             }
 
-            public List<int> ToList()
+            public override List<T> ToList()
             {
-                List<int> list = new List<int>(_end - _start);
-                for (int cur = _start; cur != _end; cur++)
-                {
-                    list.Add(cur);
-                }
-
+                (T start, T end) = (_start, _endExclusive);
+                int count = int.CreateTruncating(end - start);
+                List<T> list = new List<T>(count);
+                FillIncrementing(SetCountAndGetSpan(list, count), start);
                 return list;
             }
 
-            public int GetCount(bool onlyIfCheap) => unchecked(_end - _start);
+            public void CopyTo(T[] array, int arrayIndex) =>
+                FillIncrementing(array.AsSpan(arrayIndex, Count), _start);
 
-            public IPartition<int> Skip(int count)
+            public override int GetCount(bool onlyIfCheap) => Count;
+
+            public int Count => int.CreateTruncating(_endExclusive - _start);
+
+            public override Iterator<T>? Skip(int count) =>
+                count >= Count ? null :
+                new RangeIterator<T>(_start + T.CreateTruncating(count), _endExclusive);
+
+            public override Iterator<T> Take(int count) =>
+                count >= Count ? this :
+                new RangeIterator<T>(_start, _start + T.CreateTruncating(count));
+
+            public override T TryGetElementAt(int index, out bool found)
             {
-                if (count >= _end - _start)
-                {
-                    return EmptyPartition<int>.Instance;
-                }
-
-                return new RangeIterator(_start + count, _end - _start - count);
-            }
-
-            public IPartition<int> Take(int count)
-            {
-                int curCount = _end - _start;
-                if (count >= curCount)
-                {
-                    return this;
-                }
-
-                return new RangeIterator(_start, count);
-            }
-
-            public int TryGetElementAt(int index, out bool found)
-            {
-                if (unchecked((uint)index < (uint)(_end - _start)))
+                if ((uint)index < (uint)Count)
                 {
                     found = true;
-                    return _start + index;
+                    return _start + T.CreateTruncating(index);
                 }
 
                 found = false;
-                return 0;
+                return T.Zero;
             }
 
-            public int TryGetFirst(out bool found)
+            public override T TryGetFirst(out bool found)
             {
                 found = true;
                 return _start;
             }
 
-            public int TryGetLast(out bool found)
+            public override T TryGetLast(out bool found)
             {
                 found = true;
-                return _end - 1;
+                return _endExclusive - T.One;
             }
+
+            public override bool Contains(T item) =>
+                uint.CreateTruncating(item - _start) < (uint)Count;
+
+            public int IndexOf(T item)
+            {
+                uint index = uint.CreateTruncating(item - _start);
+                if (index < (uint)Count)
+                {
+                    return (int)index;
+                }
+
+                return -1;
+            }
+
+            public T this[int index]
+            {
+                get
+                {
+                    if ((uint)index >= (uint)Count)
+                    {
+                        ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.index);
+                    }
+
+                    return _start + T.CreateTruncating(index);
+                }
+                set => ThrowHelper.ThrowNotSupportedException();
+            }
+
+            public bool IsReadOnly => true;
+
+            void ICollection<T>.Add(T item) => ThrowHelper.ThrowNotSupportedException();
+            void ICollection<T>.Clear() => ThrowHelper.ThrowNotSupportedException();
+            void IList<T>.Insert(int index, T item) => ThrowHelper.ThrowNotSupportedException();
+            bool ICollection<T>.Remove(T item) => ThrowHelper.ThrowNotSupportedException_Boolean();
+            void IList<T>.RemoveAt(int index) => ThrowHelper.ThrowNotSupportedException();
         }
     }
 }

@@ -13,7 +13,7 @@ namespace System.IO.Ports.Tests
     {
         #region Test Cases
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DtrEnable_Property), nameof(HasNullModem))]
         public void DtrEnable_Default()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -32,28 +32,28 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DtrEnable_Property), nameof(HasNullModem))]
         public void DtrEnable_true_BeforeOpen()
         {
             Debug.WriteLine("Verifying true DtrEnable before open");
             VerifyDtrEnableBeforeOpen(true);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DtrEnable_Property), nameof(HasNullModem))]
         public void DtrEnable_false_BeforeOpen()
         {
             Debug.WriteLine("Verifying false DtrEnable before open");
             VerifyDtrEnableBeforeOpen(false);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DtrEnable_Property), nameof(HasNullModem))]
         public void DtrEnable_true_false_BeforeOpen()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
             {
                 SerialPortProperties serPortProp = new SerialPortProperties();
 
-                Debug.WriteLine("Verifying seting DtrEnable to true then false before open");
+                Debug.WriteLine("Verifying setting DtrEnable to true then false before open");
 
                 com1.DtrEnable = true;
 
@@ -70,28 +70,28 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DtrEnable_Property), nameof(HasNullModem))]
         public void DtrEnable_true_AfterOpen()
         {
             Debug.WriteLine("Verifying true DtrEnable after open");
             VerifyDtrEnableAfterOpen(true);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DtrEnable_Property), nameof(HasNullModem))]
         public void DtrEnable_false_AfterOpen()
         {
             Debug.WriteLine("Verifying false DtrEnable after open");
             VerifyDtrEnableAfterOpen(false);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DtrEnable_Property), nameof(HasNullModem))]
         public void DtrEnable_true_false_AfterOpen()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
             {
                 SerialPortProperties serPortProp = new SerialPortProperties();
 
-                Debug.WriteLine("Verifying seting DtrEnable to true then false after open");
+                Debug.WriteLine("Verifying setting DtrEnable to true then false after open");
 
                 com1.Open();
 

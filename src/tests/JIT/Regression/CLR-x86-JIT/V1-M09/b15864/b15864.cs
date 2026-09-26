@@ -2,14 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b15864
 {
     //@BEGINRENAME; Verify this renames
     using System.Security;
     //@ENDRENAME; Verify this renames
     using System;
 
-    class TestClass
+    public class TestClass
     {
         public static int iExitCode;
 
@@ -49,11 +50,11 @@ namespace DefaultNamespace
 
         }
 
-        public static int Main(String[] args)
+        [Fact]
+        public static void TestEntryPoint()
         {
             (new TestClass()).TestMain();
             Console.WriteLine("Passed.");
-            return 100;
         }
 
     };

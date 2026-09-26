@@ -20,13 +20,8 @@
 #include "utils/mono-compiler.h"
 #include "mach-support.h"
 
-/* _mcontext.h now defines __darwin_mcontext32, not __darwin_mcontext, starting with Xcode 5.1 */
-#ifdef _STRUCT_MCONTEXT32
-       #define __darwin_mcontext       __darwin_mcontext32
-#endif
-
 int
-mono_mach_arch_get_mcontext_size ()
+mono_mach_arch_get_mcontext_size (void)
 {
 	return sizeof (struct __darwin_mcontext64);
 }
@@ -63,23 +58,31 @@ mono_mach_arch_thread_states_to_mono_context (thread_state_t state, thread_state
 	for (i = 0; i < 29; ++i)
 		context->regs [i] = arch_state->ts_64.__x [i];
 
+#if __has_feature(ptrauth_calls)
+	/* arm64e */
+	context->regs [ARMREG_R29] = __darwin_arm_thread_state64_get_fp (arch_state->ts_64);
+	context->regs [ARMREG_R30] = __darwin_arm_thread_state64_get_lr (arch_state->ts_64);
+	context->regs [ARMREG_SP] = __darwin_arm_thread_state64_get_sp (arch_state->ts_64);
+	context->pc = (host_mgreg_t)__darwin_arm_thread_state64_get_pc_fptr (arch_state->ts_64);
+#else
 	context->regs [ARMREG_R29] = arch_state->ts_64.__fp;
 	context->regs [ARMREG_R30] = arch_state->ts_64.__lr;
 	context->regs [ARMREG_SP] = arch_state->ts_64.__sp;
 	context->pc = arch_state->ts_64.__pc;
+#endif
 
 	for (i = 0; i < 32; ++i)
 		context->fregs [i] = arch_fpstate->__v [i];
 }
 
 int
-mono_mach_arch_get_thread_state_size ()
+mono_mach_arch_get_thread_state_size (void)
 {
 	return sizeof (arm_unified_thread_state_t);
 }
 
 int
-mono_mach_arch_get_thread_fpstate_size ()
+mono_mach_arch_get_thread_fpstate_size (void)
 {
 	return sizeof (arm_neon_state64_t);
 }
@@ -119,5 +122,11 @@ mono_mach_arch_set_thread_states (thread_port_t thread, thread_state_t state, ma
 	return ret;
 #endif
 }
+
+#else
+
+#include <mono/utils/mono-compiler.h>
+
+MONO_EMPTY_SOURCE_FILE (mach_support_arm64);
 
 #endif

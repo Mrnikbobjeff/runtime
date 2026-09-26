@@ -2,7 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
 using System.Runtime.InteropServices;
-using TestLibrary;
+using Xunit;
 
 partial class FunctionPtr
 {
@@ -12,13 +12,14 @@ partial class FunctionPtr
     public static DelegateWithLong s_DelWithLongBool = new DelegateWithLong(MethodWithLongBool);
     public static MultiDelegateWithLong s_MultidelWithLong = new MultiDelegateWithLong(MethodWithLong);
 
+    [Fact]
     public static void RunGetFcnPtrSingleMulticastTest()
     {
         Console.WriteLine($"Running {nameof(RunGetFcnPtrSingleMulticastTest)}...");
 
         {
             IntPtr fcnptr = Marshal.GetFunctionPointerForDelegate<DelegateWithLong>(s_DelWithLongBool);
-            Assert.IsTrue(FunctionPointerNative.CheckFcnPtr(fcnptr));
+            Assert.True(FunctionPointerNative.CheckFcnPtr(fcnptr));
         }
 
         {

@@ -103,12 +103,26 @@ namespace System.Net.Http.Functional.Tests
             {
                 var ex = Assert.Throws<HttpRequestException>(() => m.EnsureSuccessStatusCode());
                 Assert.Equal(HttpStatusCode.MultipleChoices, ex.StatusCode);
+                Assert.Contains(((int)HttpStatusCode.MultipleChoices).ToString(), ex.Message);
+                Assert.Contains("(", ex.Message);
             }
 
             using (var m = new HttpResponseMessage(HttpStatusCode.BadGateway))
             {
                 var ex = Assert.Throws<HttpRequestException>(() => m.EnsureSuccessStatusCode());
                 Assert.Equal(HttpStatusCode.BadGateway, ex.StatusCode);
+                Assert.Contains(((int)HttpStatusCode.BadGateway).ToString(), ex.Message);
+                Assert.Contains("(", ex.Message);
+            }
+
+            using (var m = new HttpResponseMessage(HttpStatusCode.BadGateway))
+            {
+                m.ReasonPhrase = " \t ";
+                var ex = Assert.Throws<HttpRequestException>(() => m.EnsureSuccessStatusCode());
+                Assert.Equal(HttpStatusCode.BadGateway, ex.StatusCode);
+                Assert.Contains(((int)HttpStatusCode.BadGateway).ToString(), ex.Message);
+                Assert.DoesNotContain("(", ex.Message);
+                Assert.DoesNotContain(" \t ", ex.Message);
             }
 
             using (var response = new HttpResponseMessage(HttpStatusCode.OK))
@@ -309,8 +323,7 @@ namespace System.Net.Http.Functional.Tests
                 Assert.Equal(
                     "StatusCode: 400, ReasonPhrase: 'Bad Request', Version: 1.0, Content: " + typeof(StringContent).ToString() + ", Headers:" + Environment.NewLine +
                     "{" + Environment.NewLine +
-                    "  Accept-Ranges: bytes" + Environment.NewLine +
-                    "  Accept-Ranges: pages" + Environment.NewLine +
+                    "  Accept-Ranges: bytes, pages" + Environment.NewLine +
                     "  Custom-Response-Header: value1" + Environment.NewLine +
                     "  Content-Type: text/plain; charset=utf-8" + Environment.NewLine +
                     "  Custom-Content-Header: value2" + Environment.NewLine +
@@ -322,8 +335,7 @@ namespace System.Net.Http.Functional.Tests
                 Assert.Equal(
                     "StatusCode: 400, ReasonPhrase: 'Bad Request', Version: 1.0, Content: " + typeof(StringContent).ToString() + ", Headers:" + Environment.NewLine +
                     "{" + Environment.NewLine +
-                    "  Accept-Ranges: bytes" + Environment.NewLine +
-                    "  Accept-Ranges: pages" + Environment.NewLine +
+                    "  Accept-Ranges: bytes, pages" + Environment.NewLine +
                     "  Custom-Response-Header: value1" + Environment.NewLine +
                     "  Content-Type: text/plain; charset=utf-8" + Environment.NewLine +
                     "  Custom-Content-Header: value2" + Environment.NewLine +

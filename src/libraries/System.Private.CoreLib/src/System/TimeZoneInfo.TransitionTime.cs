@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.Serialization;
 
 namespace System
@@ -29,7 +30,7 @@ namespace System
 
             public bool IsFixedDateRule => _isFixedDateRule;
 
-            public override bool Equals(object? obj) =>
+            public override bool Equals([NotNullWhen(true)] object? obj) =>
                 obj is TransitionTime && Equals((TransitionTime)obj);
 
             public static bool operator ==(TransitionTime t1, TransitionTime t2) => t1.Equals(t2);
@@ -98,8 +99,7 @@ namespace System
                     throw new ArgumentOutOfRangeException(nameof(dayOfWeek), SR.ArgumentOutOfRange_DayOfWeek);
                 }
 
-                timeOfDay.GetDate(out int timeOfDayYear, out int timeOfDayMonth, out int timeOfDayDay);
-                if (timeOfDayYear != 1 || timeOfDayMonth != 1 || timeOfDayDay != 1 || (timeOfDay.Ticks % TimeSpan.TicksPerMillisecond != 0))
+                if (timeOfDay.Ticks >= TimeSpan.TicksPerDay || (ulong)timeOfDay.Ticks % TimeSpan.TicksPerMillisecond != 0)
                 {
                     throw new ArgumentException(SR.Argument_DateTimeHasTicks, nameof(timeOfDay));
                 }
@@ -128,10 +128,7 @@ namespace System
 
             void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
             {
-                if (info == null)
-                {
-                    throw new ArgumentNullException(nameof(info));
-                }
+                ArgumentNullException.ThrowIfNull(info);
 
                 info.AddValue("TimeOfDay", _timeOfDay); // Do not rename (binary serialization)
                 info.AddValue("Month", _month); // Do not rename (binary serialization)
@@ -143,10 +140,7 @@ namespace System
 
             private TransitionTime(SerializationInfo info, StreamingContext context)
             {
-                if (info == null)
-                {
-                    throw new ArgumentNullException(nameof(info));
-                }
+                ArgumentNullException.ThrowIfNull(info);
 
                 _timeOfDay = (DateTime)info.GetValue("TimeOfDay", typeof(DateTime))!; // Do not rename (binary serialization)
                 _month = (byte)info.GetValue("Month", typeof(byte))!; // Do not rename (binary serialization)

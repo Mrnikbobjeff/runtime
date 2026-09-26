@@ -8,22 +8,16 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace System.Net
 {
-    internal static unsafe partial class UnmanagedCertificateContext
+    internal static partial class UnmanagedCertificateContext
     {
-        internal static X509Certificate2Collection GetRemoteCertificatesFromStoreContext(IntPtr certContext)
+        internal static unsafe void GetRemoteCertificatesFromStoreContext(IntPtr certContext, X509Certificate2Collection result)
         {
-            X509Certificate2Collection result = new X509Certificate2Collection();
-
             if (certContext == IntPtr.Zero)
             {
-                return result;
+                return;
             }
 
-            Interop.Crypt32.CERT_CONTEXT context;
-            unsafe
-            {
-                context = *(Interop.Crypt32.CERT_CONTEXT*)certContext;
-            }
+            Interop.Crypt32.CERT_CONTEXT context = *(Interop.Crypt32.CERT_CONTEXT*)certContext;
 
             if (context.hCertStore != IntPtr.Zero)
             {
@@ -39,15 +33,17 @@ namespace System.Net
                         break;
                     }
 
-                    var cert = new X509Certificate2(new IntPtr(next));
-                    if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(certContext, $"Adding remote certificate:{cert}");
+                    if ((IntPtr)next != certContext)
+                    {
+                        var cert = new X509Certificate2(new IntPtr(next));
+                        if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(certContext, $"Adding remote certificate:{cert}");
 
-                    result.Add(cert);
+                        result.Add(cert);
+                    }
+
                     last = next;
                 }
             }
-
-            return result;
         }
     }
 }

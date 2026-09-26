@@ -11,9 +11,45 @@ namespace System.Reflection.Metadata
         [System.CLSCompliantAttribute(false)]
         public unsafe static bool TryGetRawMetadata(this System.Reflection.Assembly assembly, out byte* blob, out int length) { throw null; }
     }
+    [System.AttributeUsageAttribute(System.AttributeTargets.Assembly, AllowMultiple=true)]
+    public sealed partial class MetadataUpdateHandlerAttribute : System.Attribute
+    {
+        public MetadataUpdateHandlerAttribute([System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods)] System.Type handlerType) { }
+        [System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods | System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.PublicMethods)]
+        public System.Type HandlerType { get { throw null; } }
+    }
+    public static partial class MetadataUpdater
+    {
+        [System.Diagnostics.CodeAnalysis.FeatureSwitchDefinitionAttribute("System.Reflection.Metadata.MetadataUpdater.IsSupported")]
+        public static bool IsSupported { get { throw null; } }
+        public static void ApplyUpdate(System.Reflection.Assembly assembly, System.ReadOnlySpan<byte> metadataDelta, System.ReadOnlySpan<byte> ilDelta, System.ReadOnlySpan<byte> pdbDelta) { }
+    }
+}
+namespace System.Runtime.CompilerServices
+{
+    [System.AttributeUsageAttribute(System.AttributeTargets.Class | System.AttributeTargets.Struct, AllowMultiple=false)]
+    public sealed partial class CreateNewOnMetadataUpdateAttribute : System.Attribute
+    {
+        public CreateNewOnMetadataUpdateAttribute() { }
+    }
+    [System.AttributeUsageAttribute(System.AttributeTargets.All, AllowMultiple=false, Inherited=false)]
+    public sealed partial class MetadataUpdateDeletedAttribute : System.Attribute
+    {
+        public MetadataUpdateDeletedAttribute() { }
+    }
+    [System.AttributeUsageAttribute(System.AttributeTargets.Class | System.AttributeTargets.Struct, AllowMultiple=false, Inherited=false)]
+    public partial class MetadataUpdateOriginalTypeAttribute : System.Attribute
+    {
+        public MetadataUpdateOriginalTypeAttribute(System.Type originalType) { }
+        public System.Type OriginalType { get { throw null; } }
+    }
 }
 namespace System.Runtime.Loader
 {
+    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("android")]
+    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("browser")]
+    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("ios")]
+    [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("tvos")]
     public sealed partial class AssemblyDependencyResolver
     {
         public AssemblyDependencyResolver(string componentAssemblyPath) { }
@@ -51,6 +87,7 @@ namespace System.Runtime.Loader
         public System.Reflection.Assembly LoadFromStream(System.IO.Stream assembly, System.IO.Stream? assemblySymbols) { throw null; }
         protected virtual System.IntPtr LoadUnmanagedDll(string unmanagedDllName) { throw null; }
         protected System.IntPtr LoadUnmanagedDllFromPath(string unmanagedDllPath) { throw null; }
+        public static void SetAssemblyLocationOverride(System.Func<System.Reflection.Assembly, string, string> locationOverride) { }
         public void SetProfileOptimizationRoot(string directoryPath) { }
         public void StartProfileOptimization(string? profile) { }
         public override string ToString() { throw null; }

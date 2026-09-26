@@ -2,11 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Composition.Convention;
 using System.Composition.Hosting.Core;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
-using System.Composition.Convention;
 
 namespace System.Composition.TypedParts.ActivationFeatures
 {
@@ -14,7 +14,7 @@ namespace System.Composition.TypedParts.ActivationFeatures
     /// Modifies activators of parts with property imports so that the properties
     /// are set appropriately.
     /// </summary>
-    internal class PropertyInjectionFeature : ActivationFeature
+    internal sealed class PropertyInjectionFeature : ActivationFeature
     {
         private readonly AttributedModelProvider _attributeContext;
         private static readonly MethodInfo s_activatorInvokeMethod = typeof(CompositeActivator).GetTypeInfo().GetDeclaredMethod("Invoke");

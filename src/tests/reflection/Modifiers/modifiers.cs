@@ -3,10 +3,15 @@
 
 using System;
 using System.Reflection;
+using Xunit;
+using TestLibrary;
 
-class Program
+public class Program
 {
-    static int Main()
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/91381", typeof(Utilities), nameof(Utilities.IsNativeAot))]
+    [ActiveIssue("needs triage", TestRuntimes.Mono)]
+    [Fact]
+    public static unsafe int TestEntryPoint()
     {
         var baseClass = new BaseClass();
         var derivedClass = new DerivedClass();

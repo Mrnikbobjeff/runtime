@@ -45,7 +45,7 @@ namespace System.Net.Tests
 
             do
             {
-                readLength = await TaskTimeoutExtensions.TimeoutAfter(stream.ReadAsync(array, offset, remaining), TimeoutMilliseconds);
+                readLength = await stream.ReadAsync(array, offset, remaining).WaitAsync(TimeSpan.FromMilliseconds(TimeoutMilliseconds));
                 if (readLength <= 0)
                 {
                     break;
@@ -229,10 +229,7 @@ namespace System.Net.Tests
         public async Task Read_LargeLengthAsynchronous_Success(bool transferEncodingChunked)
         {
             var rand = new Random(42);
-            byte[] expected = Enumerable
-                .Range(0, 128*1024 + 1) // More than 128kb
-                .Select(_ => (byte)('a' + rand.Next(0, 26)))
-                .ToArray();
+            byte[] expected = rand.GetItems("abcdefghijklmnopqrstuvwxyz"u8, 128 * 1024 + 1);
 
             Task<HttpListenerContext> contextTask = _listener.GetContextAsync();
 
@@ -269,10 +266,7 @@ namespace System.Net.Tests
         public async Task Read_LargeLengthSynchronous_Success(bool transferEncodingChunked)
         {
             var rand = new Random(42);
-            byte[] expected = Enumerable
-                .Range(0, 128 * 1024 + 1) // More than 128kb
-                .Select(_ => (byte)('a' + rand.Next(0, 26)))
-                .ToArray();
+            byte[] expected = rand.GetItems("abcdefghijklmnopqrstuvwxyz"u8, 128 * 1024 + 1);
 
             Task<HttpListenerContext> contextTask = _listener.GetContextAsync();
 
@@ -531,8 +525,8 @@ namespace System.Net.Tests
 
                 using (Stream inputStream = request.InputStream)
                 {
-                    AssertExtensions.Throws<ArgumentOutOfRangeException>("offset", () => inputStream.Read(new byte[2], offset, 0));
-                    await AssertExtensions.ThrowsAsync<ArgumentOutOfRangeException>("offset", () => inputStream.ReadAsync(new byte[2], offset, 0));
+                    Assert.Throws<ArgumentOutOfRangeException>(() => inputStream.Read(new byte[2], offset, 0));
+                    await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => inputStream.ReadAsync(new byte[2], offset, 0));
                 }
 
                 context.Response.Close();
@@ -560,8 +554,8 @@ namespace System.Net.Tests
 
                 using (Stream inputStream = request.InputStream)
                 {
-                    AssertExtensions.Throws<ArgumentOutOfRangeException>("size", () => inputStream.Read(new byte[2], offset, size));
-                    await AssertExtensions.ThrowsAsync<ArgumentOutOfRangeException>("size", () => inputStream.ReadAsync(new byte[2], offset, size));
+                    Assert.Throws<ArgumentOutOfRangeException>(() => inputStream.Read(new byte[2], offset, size));
+                    await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => inputStream.ReadAsync(new byte[2], offset, size));
                 }
 
                 context.Response.Close();
@@ -669,7 +663,7 @@ namespace System.Net.Tests
                 // If the content is missing, then the HttpListener needs
                 // to get the content. However, the socket has been closed
                 // before the reading of the content, so reading should fail.
-                client.Send(_factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
+                await client.SendAsync(_factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
                 HttpListenerContext context = await _listener.GetContextAsync();
 
                 // Disconnect the Socket from the HttpListener.
@@ -695,7 +689,7 @@ namespace System.Net.Tests
                 // If the content is missing, then the HttpListener needs
                 // to get the content. However, the socket has been closed
                 // before the reading of the content, so reading should fail.
-                client.Send(_factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
+                await client.SendAsync(_factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
                 HttpListenerContext context = await _listener.GetContextAsync();
 
                 // Disconnect the Socket from the HttpListener.
@@ -705,6 +699,67 @@ namespace System.Net.Tests
                 byte[] buffer = new byte[expected.Length];
                 Assert.Throws<HttpListenerException>(() => context.Request.InputStream.Read(buffer, 0, buffer.Length));
                 Assert.Throws<HttpListenerException>(() => context.Request.InputStream.Read(buffer, 0, buffer.Length));
+            }
+        }
+
+        // http.sys tolerates whitespace around the chunk size and delivers the body, so this
+        // is asserting the behavior of the managed implementation only. Gating on the
+        // implementation rather than the platform keeps it running on Windows when the
+        // managed implementation is force-enabled.
+        [ConditionalTheory(typeof(Helpers), nameof(Helpers.IsManagedImplementation))]
+        [InlineData("5 ")]
+        [InlineData(" 5")]
+        [InlineData(" 5 ")]
+        [InlineData("5\t")]
+        [InlineData("\t5")]
+        [InlineData("5 ;foo=bar")]
+        public async Task Read_ChunkSizeWithWhitespace_ThrowsHttpListenerException(string chunkSizeLine)
+        {
+            using (Socket client = _factory.GetConnectedSocket())
+            {
+                Uri listeningUri = new Uri(_factory.ListeningUrl);
+                string request =
+                    $"POST {listeningUri.PathAndQuery} HTTP/1.1\r\n" +
+                    $"Host: {listeningUri.Host}\r\n" +
+                    "Transfer-Encoding: chunked\r\n" +
+                    "\r\n" +
+                    $"{chunkSizeLine}\r\n" +
+                    "Hello\r\n" +
+                    "0\r\n" +
+                    "\r\n";
+
+                await client.SendAsync(Encoding.ASCII.GetBytes(request));
+                HttpListenerContext context = await _listener.GetContextAsync();
+
+                byte[] buffer = new byte[5];
+                await Assert.ThrowsAsync<HttpListenerException>(() => ReadLengthAsync(context.Request.InputStream, buffer, 0, buffer.Length));
+            }
+        }
+
+        [ConditionalTheory(typeof(Helpers), nameof(Helpers.IsManagedImplementation))]
+        [InlineData("80000000")]
+        [InlineData("FFFFFFFF")]
+        [InlineData("80000000;foo=bar")]
+        public async Task Read_ChunkSizeOverflow_ThrowsHttpListenerException(string chunkSizeLine)
+        {
+            using (Socket client = _factory.GetConnectedSocket())
+            {
+                Uri listeningUri = new Uri(_factory.ListeningUrl);
+                string request =
+                    $"POST {listeningUri.PathAndQuery} HTTP/1.1\r\n" +
+                    $"Host: {listeningUri.Host}\r\n" +
+                    "Transfer-Encoding: chunked\r\n" +
+                    "\r\n" +
+                    $"{chunkSizeLine}\r\n" +
+                    "Hello\r\n" +
+                    "0\r\n" +
+                    "\r\n";
+
+                await client.SendAsync(Encoding.ASCII.GetBytes(request));
+                HttpListenerContext context = await _listener.GetContextAsync();
+
+                byte[] buffer = new byte[5];
+                await Assert.ThrowsAsync<HttpListenerException>(() => ReadLengthAsync(context.Request.InputStream, buffer, 0, buffer.Length));
             }
         }
     }

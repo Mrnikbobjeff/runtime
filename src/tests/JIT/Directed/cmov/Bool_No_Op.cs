@@ -2,10 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Directed_cmov_Bool_No_Op;
+
 #pragma warning disable
 
 using System;
-class testout1
+using Xunit;
+public class testout1
 {
     static bool static_field_bool;
     static bool sfb_false;
@@ -891,7 +894,9 @@ class testout1
         return (True_Sum * 2) - False_Sum;
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int Sum = 0;
         Sum += Sub_Funclet_0();

@@ -2,12 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
-using System.Reflection;
 using System.Composition.Convention;
+using System.Reflection;
 
 namespace System.Composition.TypedParts.Util
 {
-    internal class DirectAttributeContext : AttributedModelProvider
+    internal sealed class DirectAttributeContext : AttributedModelProvider
     {
         public override IEnumerable<Attribute> GetCustomAttributes(Type reflectedType, Reflection.MemberInfo member)
         {
@@ -22,8 +22,9 @@ namespace System.Composition.TypedParts.Util
 
         public override IEnumerable<Attribute> GetCustomAttributes(Type reflectedType, Reflection.ParameterInfo parameter)
         {
+            ArgumentNullException.ThrowIfNull(parameter);
+
             if (reflectedType == null) throw new ArgumentNullException(nameof(reflectedType));
-            if (parameter == null) throw new ArgumentNullException(nameof(parameter));
 
             return Attribute.GetCustomAttributes(parameter, false);
         }

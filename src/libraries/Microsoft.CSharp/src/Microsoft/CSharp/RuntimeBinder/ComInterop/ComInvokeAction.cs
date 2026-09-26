@@ -4,6 +4,7 @@
 using System;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic;
 using System.Linq.Expressions;
 using System.Runtime.CompilerServices;
@@ -13,6 +14,8 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
     /// <summary>
     /// Invokes the object. If it falls back, just produce an error.
     /// </summary>
+    [RequiresDynamicCode(Binder.DynamicCodeWarning)]
+    [RequiresUnreferencedCode(Binder.TrimmerWarning)]
     internal sealed class ComInvokeAction : InvokeBinder
     {
         internal ComInvokeAction(CallInfo callInfo)
@@ -44,9 +47,18 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
     /// Splats the arguments to another nested dynamic site, which does the
     /// real invocation of the IDynamicMetaObjectProvider.
     /// </summary>
+    [RequiresDynamicCode(Binder.DynamicCodeWarning)]
+    [RequiresUnreferencedCode(Binder.TrimmerWarning)]
     internal sealed class SplatInvokeBinder : CallSiteBinder
     {
-        internal static readonly SplatInvokeBinder s_instance = new SplatInvokeBinder();
+        private static readonly SplatInvokeBinder s_instance = new SplatInvokeBinder();
+
+        internal static SplatInvokeBinder Instance
+        {
+            get => s_instance;
+        }
+
+        private SplatInvokeBinder() { }
 
         // Just splat the args and dispatch through a nested site
         public override Expression Bind(object[] args, ReadOnlyCollection<ParameterExpression> parameters, LabelTarget returnLabel)

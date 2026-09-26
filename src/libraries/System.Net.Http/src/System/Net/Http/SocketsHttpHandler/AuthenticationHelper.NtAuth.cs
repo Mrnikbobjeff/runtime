@@ -2,21 +2,26 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Security;
+using System.Security.Authentication.ExtendedProtection;
+using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Security.Authentication.ExtendedProtection;
 
 namespace System.Net.Http
 {
-    internal partial class AuthenticationHelper
+    internal static partial class AuthenticationHelper
     {
+        private static bool UsePortInSpn => LocalAppContextSwitches.UsePortInSpn;
+
         private static Task<HttpResponseMessage> InnerSendAsync(HttpRequestMessage request, bool async, bool isProxyAuth, HttpConnectionPool pool, HttpConnection connection, CancellationToken cancellationToken)
         {
             return isProxyAuth ?
-                connection.SendAsyncCore(request, async, cancellationToken) :
+                connection.SendAsync(request, async, cancellationToken) :
                 pool.SendWithNtProxyAuthAsync(connection, request, async, cancellationToken);
         }
 
@@ -29,7 +34,7 @@ namespace System.Net.Http
 
             foreach (string v in values)
             {
-                if (v == "Session-Based-Authentication")
+                if (v.Equals("Session-Based-Authentication", StringComparison.OrdinalIgnoreCase))
                 {
                     return true;
                 }
@@ -38,7 +43,7 @@ namespace System.Net.Http
             return false;
         }
 
-        private static async Task<HttpResponseMessage> SendWithNtAuthAsync(HttpRequestMessage request, Uri authUri, bool async, ICredentials credentials, bool isProxyAuth, HttpConnection connection, HttpConnectionPool connectionPool, CancellationToken cancellationToken)
+        private static async Task<HttpResponseMessage> SendWithNtAuthAsync(HttpRequestMessage request, Uri authUri, bool async, ICredentials credentials, TokenImpersonationLevel impersonationLevel, bool isProxyAuth, HttpConnection connection, HttpConnectionPool connectionPool, CancellationToken cancellationToken)
         {
             HttpResponseMessage response = await InnerSendAsync(request, async, isProxyAuth, connectionPool, connection, cancellationToken).ConfigureAwait(false);
             if (!isProxyAuth && connection.Kind == HttpConnectionKind.Proxy && !ProxySupportsConnectionAuth(response))
@@ -63,15 +68,12 @@ namespace System.Net.Http
                         if (response.Headers.ConnectionClose.GetValueOrDefault())
                         {
                             // Server is closing the connection and asking us to authenticate on a new connection.
-#pragma warning disable CS8600 // expression returns null connection on error, was not able to use '!' for the expression
-                            (connection, response) = await connectionPool.CreateHttp11ConnectionAsync(request, async, cancellationToken).ConfigureAwait(false);
-#pragma warning restore CS8600
-                            if (response != null)
-                            {
-                                return response;
-                            }
 
-                            connectionPool.IncrementConnectionCount();
+                            // First, detach the current connection from the pool. This means it will no longer count against the connection limit.
+                            // Instead, it will be replaced by the new connection below.
+                            connection.DetachFromPool();
+
+                            connection = await connectionPool.CreateHttp11ConnectionAsync(request, async, cancellationToken).ConfigureAwait(false);
                             connection!.Acquire();
                             isNewConnection = true;
                             needDrain = false;
@@ -79,7 +81,7 @@ namespace System.Net.Http
 
                         if (NetEventSource.Log.IsEnabled())
                         {
-                            NetEventSource.Info(connection, $"Authentication: {challenge.AuthenticationType}, Uri: {authUri.AbsoluteUri.ToString()}");
+                            NetEventSource.Info(connection, $"Authentication: {challenge.AuthenticationType}, Uri: {authUri.AbsoluteUri}");
                         }
 
                         // Calculate SPN (Service Principal Name) using the host name of the request.
@@ -109,13 +111,13 @@ namespace System.Net.Http
                             }
                             else
                             {
-                                IPHostEntry result = await Dns.GetHostEntryAsync(authUri.IdnHost).ConfigureAwait(false);
+                                IPHostEntry result = await Dns.GetHostEntryAsync(authUri.IdnHost, cancellationToken).ConfigureAwait(false);
                                 hostName = result.HostName;
                             }
 
-                            if (!isProxyAuth && !authUri.IsDefaultPort)
+                            if (!isProxyAuth && !authUri.IsDefaultPort && UsePortInSpn)
                             {
-                                hostName = $"{hostName}:{authUri.Port}";
+                                hostName = string.Create(null, stackalloc char[128], $"{hostName}:{authUri.Port}");
                             }
                         }
 
@@ -125,39 +127,66 @@ namespace System.Net.Http
                             NetEventSource.Info(connection, $"Authentication: {challenge.AuthenticationType}, SPN: {spn}");
                         }
 
-                        ChannelBinding? channelBinding = connection.TransportContext?.GetChannelBinding(ChannelBindingKind.Endpoint);
-                        NTAuthentication authContext = new NTAuthentication(isServer: false, challenge.SchemeName, challenge.Credential, spn, ContextFlagsPal.Connection, channelBinding);
-                        string? challengeData = challenge.ChallengeData;
-                        try
+                        ProtectionLevel requiredProtectionLevel = ProtectionLevel.None;
+                        // When connecting to proxy server don't enforce the integrity to avoid
+                        // compatibility issues. The assumption is that the proxy server comes
+                        // from a trusted source. On macOS we always need to enforce the integrity
+                        // to avoid the GSSAPI implementation generating corrupted authentication
+                        // tokens.
+                        if (!isProxyAuth || OperatingSystem.IsMacOS())
                         {
-                            while (true)
-                            {
-                                string? challengeResponse = authContext.GetOutgoingBlob(challengeData);
-                                if (challengeResponse == null)
-                                {
-                                    // Response indicated denial even after login, so stop processing and return current response.
-                                    break;
-                                }
-
-                                if (needDrain)
-                                {
-                                    await connection.DrainResponseAsync(response!, cancellationToken).ConfigureAwait(false);
-                                }
-
-                                SetRequestAuthenticationHeaderValue(request, new AuthenticationHeaderValue(challenge.SchemeName, challengeResponse), isProxyAuth);
-
-                                response = await InnerSendAsync(request, async, isProxyAuth, connectionPool, connection, cancellationToken).ConfigureAwait(false);
-                                if (authContext.IsCompleted || !TryGetRepeatedChallenge(response, challenge.SchemeName, isProxyAuth, out challengeData))
-                                {
-                                    break;
-                                }
-
-                                needDrain = true;
-                            }
+                            requiredProtectionLevel = ProtectionLevel.Sign;
                         }
-                        finally
+
+                        NegotiateAuthenticationClientOptions authClientOptions = new NegotiateAuthenticationClientOptions
                         {
-                            authContext.CloseContext();
+                            Package = challenge.SchemeName,
+                            Credential = challenge.Credential,
+                            TargetName = spn,
+                            RequiredProtectionLevel = requiredProtectionLevel,
+                            Binding = connection.TransportContext?.GetChannelBinding(ChannelBindingKind.Endpoint),
+                            AllowedImpersonationLevel = impersonationLevel
+                        };
+
+                        using NegotiateAuthentication authContext = new NegotiateAuthentication(authClientOptions);
+                        string? challengeData = challenge.ChallengeData;
+                        NegotiateAuthenticationStatusCode statusCode;
+                        while (true)
+                        {
+                            string? challengeResponse = authContext.GetOutgoingBlob(challengeData, out statusCode);
+                            if (statusCode > NegotiateAuthenticationStatusCode.ContinueNeeded || challengeResponse == null)
+                            {
+                                // Response indicated denial even after login, so stop processing and return current response.
+                                break;
+                            }
+
+                            if (needDrain)
+                            {
+                                await connection.DrainResponseAsync(response!, cancellationToken).ConfigureAwait(false);
+                            }
+
+                            SetRequestAuthenticationHeaderValue(request, new AuthenticationHeaderValue(challenge.SchemeName, challengeResponse), isProxyAuth);
+
+                            response = await InnerSendAsync(request, async, isProxyAuth, connectionPool, connection, cancellationToken).ConfigureAwait(false);
+                            if (authContext.IsAuthenticated || !TryGetChallengeDataForScheme(challenge.SchemeName, GetResponseAuthenticationHeaderValues(response, isProxyAuth), out challengeData))
+                            {
+                                break;
+                            }
+
+                            if (!IsAuthenticationChallenge(response, isProxyAuth))
+                            {
+                                // Tail response for Negotiate on successful authentication. Validate it before we proceed.
+                                authContext.GetOutgoingBlob(challengeData, out statusCode);
+                                if (statusCode > NegotiateAuthenticationStatusCode.ContinueNeeded)
+                                {
+                                    isNewConnection = false;
+                                    connection.Dispose();
+                                    throw new HttpRequestException(HttpRequestError.UserAuthenticationError, SR.Format(SR.net_http_authvalidationfailure, statusCode), statusCode: HttpStatusCode.Unauthorized);
+                                }
+                                break;
+                            }
+
+                            needDrain = true;
                         }
                     }
                     finally
@@ -173,15 +202,15 @@ namespace System.Net.Http
             return response!;
         }
 
-        public static Task<HttpResponseMessage> SendWithNtProxyAuthAsync(HttpRequestMessage request, Uri proxyUri, bool async, ICredentials proxyCredentials, HttpConnection connection, HttpConnectionPool connectionPool, CancellationToken cancellationToken)
+        public static Task<HttpResponseMessage> SendWithNtProxyAuthAsync(HttpRequestMessage request, Uri proxyUri, bool async, ICredentials proxyCredentials, TokenImpersonationLevel impersonationLevel, HttpConnection connection, HttpConnectionPool connectionPool, CancellationToken cancellationToken)
         {
-            return SendWithNtAuthAsync(request, proxyUri, async, proxyCredentials, isProxyAuth: true, connection, connectionPool, cancellationToken);
+            return SendWithNtAuthAsync(request, proxyUri, async, proxyCredentials, impersonationLevel, isProxyAuth: true, connection, connectionPool, cancellationToken);
         }
 
-        public static Task<HttpResponseMessage> SendWithNtConnectionAuthAsync(HttpRequestMessage request, bool async, ICredentials credentials, HttpConnection connection, HttpConnectionPool connectionPool, CancellationToken cancellationToken)
+        public static Task<HttpResponseMessage> SendWithNtConnectionAuthAsync(HttpRequestMessage request, bool async, ICredentials credentials, TokenImpersonationLevel impersonationLevel, HttpConnection connection, HttpConnectionPool connectionPool, CancellationToken cancellationToken)
         {
             Debug.Assert(request.RequestUri != null);
-            return SendWithNtAuthAsync(request, request.RequestUri, async, credentials, isProxyAuth: false, connection, connectionPool, cancellationToken);
+            return SendWithNtAuthAsync(request, request.RequestUri, async, credentials, impersonationLevel, isProxyAuth: false, connection, connectionPool, cancellationToken);
         }
     }
 }

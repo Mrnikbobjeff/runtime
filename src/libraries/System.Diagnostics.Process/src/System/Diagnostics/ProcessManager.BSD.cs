@@ -9,26 +9,25 @@ namespace System.Diagnostics
 {
     internal static partial class ProcessManager
     {
-        /// <summary>Gets process infos for each process on the specified machine.</summary>
-        /// <param name="machineName">The target machine.</param>
-        /// <returns>An array of process infos, one per found process.</returns>
-        public static ProcessInfo[] GetProcessInfos(string machineName)
+        /// <summary>Gets process infos for each process on the local machine.</summary>
+        /// <param name="builder">The builder to add found process infos to.</param>
+        /// <param name="processNameFilter">Optional process name to use as an inclusion filter.</param>
+        public static void GetProcessInfos(ref ArrayBuilder<ProcessInfo> builder, string? processNameFilter)
         {
-            ThrowIfRemoteMachine(machineName);
-            int[] procIds = GetProcessIds(machineName);
-
             // Iterate through all process IDs to load information about each process
-            var processes = new List<ProcessInfo>(procIds.Length);
-            foreach (int pid in procIds)
+            int[] pids = GetProcessIds();
+            if (processNameFilter is null)
             {
-                ProcessInfo pi = CreateProcessInfo(pid);
+                builder = new ArrayBuilder<ProcessInfo>(pids.Length);
+            }
+            foreach (int pid in pids)
+            {
+                ProcessInfo? pi = CreateProcessInfo(pid, processNameFilter);
                 if (pi != null)
                 {
-                    processes.Add(pi);
+                    builder.Add(pi);
                 }
             }
-
-            return processes.ToArray();
         }
 
         /// <summary>Gets an array of module infos for the specified process.</summary>
@@ -42,16 +41,12 @@ namespace System.Diagnostics
             // and why MainModule exists.
             try
             {
-                string? exePath = GetProcPath(processId);
+                string exePath = GetProcPath(processId);
                 if (!string.IsNullOrEmpty(exePath))
                 {
                     return new ProcessModuleCollection(1)
                     {
-                        new ProcessModule()
-                        {
-                            FileName = exePath,
-                            ModuleName = Path.GetFileName(exePath)
-                        }
+                        new ProcessModule(exePath, Path.GetFileName(exePath))
                     };
                 }
             }

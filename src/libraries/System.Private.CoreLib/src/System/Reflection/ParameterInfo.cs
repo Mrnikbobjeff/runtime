@@ -2,11 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Runtime.Serialization;
 
 namespace System.Reflection
 {
-    public class ParameterInfo : ICustomAttributeProvider, IObjectReference
+    public class ParameterInfo : ICustomAttributeProvider
+#pragma warning disable SYSLIB0050 // IObjectReference is obsolete
+#pragma warning disable SA1001 // CommasMustBeSpacedCorrectly
+        , IObjectReference
+#pragma warning restore SA1001
+#pragma warning restore SYSLIB0050
     {
         protected ParameterInfo() { }
 
@@ -28,29 +34,29 @@ namespace System.Reflection
 
         public virtual bool IsDefined(Type attributeType, bool inherit)
         {
-            if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
-
+            ArgumentNullException.ThrowIfNull(attributeType);
             return false;
         }
 
         public virtual IEnumerable<CustomAttributeData> CustomAttributes => GetCustomAttributesData();
         public virtual IList<CustomAttributeData> GetCustomAttributesData() { throw NotImplemented.ByDesign; }
 
-        public virtual object[] GetCustomAttributes(bool inherit) => Array.Empty<object>();
+        public virtual object[] GetCustomAttributes(bool inherit) => [];
         public virtual object[] GetCustomAttributes(Type attributeType, bool inherit)
         {
-            if (attributeType == null)
-                throw new ArgumentNullException(nameof(attributeType));
-
-            return Array.Empty<object>();
+            ArgumentNullException.ThrowIfNull(attributeType);
+            return [];
         }
 
-        public virtual Type[] GetOptionalCustomModifiers() => Array.Empty<Type>();
-        public virtual Type[] GetRequiredCustomModifiers() => Array.Empty<Type>();
+        public virtual Type GetModifiedParameterType() => throw new NotSupportedException();
+
+        public virtual Type[] GetOptionalCustomModifiers() => [];
+        public virtual Type[] GetRequiredCustomModifiers() => [];
 
         public virtual int MetadataToken => MetadataToken_ParamDef;
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public object GetRealObject(StreamingContext context)
         {
             // Once all the serializable fields have come in we can set up the real
@@ -59,7 +65,7 @@ namespace System.Reflection
             if (MemberImpl == null)
                 throw new SerializationException(SR.Serialization_InsufficientState);
 
-            ParameterInfo[] args;
+            ReadOnlySpan<ParameterInfo> args;
             switch (MemberImpl.MemberType)
             {
                 case MemberTypes.Constructor:
@@ -73,9 +79,9 @@ namespace System.Reflection
                     }
                     else
                     {
-                        args = ((MethodBase)MemberImpl).GetParametersNoCopy();
+                        args = ((MethodBase)MemberImpl).GetParametersAsSpan();
 
-                        if (args != null && PositionImpl < args.Length)
+                        if (PositionImpl < args.Length)
                             return args[PositionImpl];
                         else
                             throw new SerializationException(SR.Serialization_BadParameterInfo);
@@ -84,7 +90,7 @@ namespace System.Reflection
                 case MemberTypes.Property:
                     args = ((PropertyInfo)MemberImpl).GetIndexParameters();
 
-                    if (args != null && PositionImpl > -1 && PositionImpl < args.Length)
+                    if (PositionImpl > -1 && PositionImpl < args.Length)
                         return args[PositionImpl];
                     else
                         throw new SerializationException(SR.Serialization_BadParameterInfo);
@@ -94,7 +100,12 @@ namespace System.Reflection
             }
         }
 
-        public override string ToString() => ParameterType.FormatTypeName() + " " + Name;
+        public override string ToString()
+        {
+            string typeName = ParameterType.FormatTypeName();
+            string? name = Name;
+            return name is null ? typeName : typeName + " " + name;
+        }
 
         protected ParameterAttributes AttrsImpl;
         protected Type? ClassImpl;

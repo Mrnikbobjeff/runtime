@@ -15,7 +15,7 @@ internal struct Intersections
     public Vector256<int> ThingIndices;
 
     public static readonly Vector256<float> NullDistance = Vector256.Create(float.MaxValue);
-    public static readonly Vector256<int> NullIndex = Vector256.Create(-1);
+    public static readonly Vector256<int> NullIndex = Vector256<int>.NegativeOne;
 
     public Intersections(Vector256<float> dis, Vector256<int> things)
     {
@@ -34,8 +34,8 @@ internal struct Intersections
     {
         var cmp = Compare(dis, NullDistance, FloatComparisonMode.OrderedEqualNonSignaling);
         var zero = Vector256<int>.Zero;
-        // efficiently generate an all-one mask vector by lower latency AVX2 ComapreEqual
-        var mask = Avx2.CompareEqual(zero, zero); 
+        // efficiently generate an all-one mask vector by lower latency AVX2 CompareEqual
+        var mask = Avx2.CompareEqual(zero, zero);
         return TestC(cmp, mask.AsSingle());
     }
 

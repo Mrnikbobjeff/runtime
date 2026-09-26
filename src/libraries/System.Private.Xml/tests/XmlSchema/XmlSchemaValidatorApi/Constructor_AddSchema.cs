@@ -6,7 +6,7 @@ using System.Xml.Schema;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlSchemaValidatorApiTests
 {
     // ===================== Constructor =====================
 
@@ -33,7 +33,7 @@ namespace System.Xml.Tests
             }
 
             _output.WriteLine("ArgumentNullException was not thrown!");
-            Assert.True(false);
+            Assert.Fail();
         }
 
         [Theory]
@@ -81,7 +81,7 @@ namespace System.Xml.Tests
             }
 
             _output.WriteLine("ArgumentNullException was not thrown!");
-            Assert.True(false);
+            Assert.Fail();
         }
 
         [Theory]
@@ -116,7 +116,6 @@ namespace System.Xml.Tests
         public void SetSchemaSetWithInvalidContent_TypeCollision()
         {
             XmlSchemaValidator val;
-            XmlSchemaInfo info = new XmlSchemaInfo();
 
             XmlSchemaSet sch = new XmlSchemaSet();
 
@@ -198,7 +197,7 @@ namespace System.Xml.Tests
                 return;
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         [Fact]
@@ -228,7 +227,7 @@ namespace System.Xml.Tests
                 return;
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         [Fact]
@@ -277,7 +276,6 @@ namespace System.Xml.Tests
         public void AddSchemasWithTypeCollision()
         {
             XmlSchemaValidator val = CreateValidator(new XmlSchemaSet());
-            XmlSchemaInfo info = new XmlSchemaInfo();
 
             val.AddSchema(XmlSchema.Read(XmlReader.Create(new StringReader("<?xml version=\"1.0\" ?>\n" +
                                                                            "<xs:schema xmlns:xs=\"http://www.w3.org/2001/XMLSchema\">\n" +
@@ -296,7 +294,7 @@ namespace System.Xml.Tests
                 return;
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         [Fact]

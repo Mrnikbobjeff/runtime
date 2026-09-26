@@ -1,4 +1,4 @@
-﻿<root>
+<root>
   <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
     <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
     <xsd:element name="root" msdata:IsDataSet="true">
@@ -155,9 +155,6 @@
   </data>
   <data name="ArgumentOutOfRange_InvalidUserDefinedAceType" xml:space="preserve">
     <value>User-defined ACEs must not have a well-known ACE type.</value>
-  </data>
-  <data name="ArgumentOutOfRange_NeedNonNegNum" xml:space="preserve">
-    <value>Non-negative number required.</value>
   </data>
   <data name="InvalidOperation_ModificationOfNonCanonicalAcl" xml:space="preserve">
     <value>This access control list is not in canonical form and therefore cannot be modified.</value>

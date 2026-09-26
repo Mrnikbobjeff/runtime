@@ -31,11 +31,11 @@ namespace System.Net.Http.Functional.Tests
         }
     }
 
-    [ConditionalClass(typeof(QuicConnection), nameof(QuicConnection.IsQuicSupported))]
+    [ConditionalClass(typeof(HttpClientHandlerTestBase), nameof(IsHttp3Supported))]
     public sealed class SocketsHttpHandler_HttpClientMiniStress_Http3 : HttpClientMiniStress
     {
         public SocketsHttpHandler_HttpClientMiniStress_Http3(ITestOutputHelper output) : base(output) { }
-        protected override Version UseVersion => HttpVersion30;
+        protected override Version UseVersion => HttpVersion.Version30;
     }
 
     public sealed class SocketsHttpHandler_HttpClientMiniStress_Http2 : HttpClientMiniStress
@@ -75,11 +75,11 @@ namespace System.Net.Http.Functional.Tests
                 await server.AcceptConnectionAsync(async connection =>
                 {
                     byte[] postData = new byte[numBytes];
-                    while (!string.IsNullOrEmpty(await connection.ReadLineAsync().ConfigureAwait(false)));
+                    while (!string.IsNullOrEmpty(await connection.ReadLineAsync().ConfigureAwait(false))) ;
                     Assert.Equal(numBytes, await connection.ReadBlockAsync(postData, 0, numBytes));
 
-                    await connection.Writer.WriteAsync(responseText).ConfigureAwait(false);
-                    connection.Socket.Shutdown(SocketShutdown.Send);
+                    await connection.WriteStringAsync(responseText).ConfigureAwait(false);
+                    await connection.Socket.ShutdownAsync(SocketShutdown.Send);
                 });
 
                 (await postAsync.ConfigureAwait(false)).Dispose();
@@ -88,19 +88,14 @@ namespace System.Net.Http.Functional.Tests
     }
 
     [Collection(nameof(HttpClientMiniStress))]
+    [SkipOnPlatform(TestPlatforms.Browser, "System.Net.Security is not supported on Browser")]
+    [SkipOnPlatform(TestPlatforms.Wasi, "System.Net.Security is not supported on Wasi")]
     public abstract class HttpClientMiniStress : HttpClientHandlerTestBase
     {
         public HttpClientMiniStress(ITestOutputHelper output) : base(output) { }
 
         protected override HttpClient CreateHttpClient() =>
-            CreateHttpClient(
-                new SocketsHttpHandler()
-                {
-                    SslOptions = new SslClientAuthenticationOptions()
-                    {
-                        RemoteCertificateValidationCallback = delegate { return true; },
-                    }
-                });
+            CreateHttpClient(CreateSocketsHttpHandler(allowAllCertificates: true));
 
         [ConditionalTheory(typeof(TestEnvironment), nameof(TestEnvironment.IsStressModeEnabled))]
         [OuterLoop]

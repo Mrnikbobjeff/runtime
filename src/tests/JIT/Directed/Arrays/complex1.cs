@@ -2,7 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Directed_Arrays_complex1;
+
 using System;
+using Xunit;
 
 // Do a complex 5 dimensional Jagged array.
 struct Complex
@@ -13,10 +16,12 @@ struct Complex
 	c = a * b;
   }
 };
-public 
-class Complex_Array_Test
+
+public class Complex_Array_Test
 {
-	public static int Main( String[] args )
+	[OuterLoop]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		Console.WriteLine("Starting...");
 		int SIZE = 10;

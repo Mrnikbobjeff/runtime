@@ -1,11 +1,12 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
-using Internal.Runtime.CompilerServices;
 
 namespace System.Globalization
 {
@@ -29,10 +30,11 @@ namespace System.Globalization
         AbbrevEraNames = 14,
     }
 
-    internal partial class CalendarData
+    internal sealed partial class CalendarData
     {
         private bool IcuLoadCalendarDataFromSystem(string localeName, CalendarId calendarId)
         {
+            // ToDo: think if not to convert this function with multiple calls to JS into one call with multiple data requested at once
             Debug.Assert(!GlobalizationMode.UseNls);
 
             bool result = true;
@@ -61,7 +63,7 @@ namespace System.Globalization
 
                 // In Hebrew calendar, get the leap month name Adar II and override the non-leap month 7
                 Debug.Assert(calendarId == CalendarId.HEBREW && saMonthNames.Length == 13);
-                saLeapYearMonthNames = (string[]) saMonthNames.Clone();
+                saLeapYearMonthNames = (string[])saMonthNames.Clone();
                 saLeapYearMonthNames[6] = leapHebrewMonthName;
 
                 // The returned data from ICU has 6th month name as 'Adar I' and 7th month name as 'Adar'
@@ -81,15 +83,6 @@ namespace System.Globalization
             return result;
         }
 
-        internal static int IcuGetTwoDigitYearMax(CalendarId calendarId)
-        {
-            Debug.Assert(!GlobalizationMode.UseNls);
-
-            // There is no user override for this value on Linux or in ICU.
-            // So just return -1 to use the hard-coded defaults.
-            return -1;
-        }
-
         // Call native side to figure out which calendars are allowed
         internal static int IcuGetCalendars(string localeName, CalendarId[] calendars)
         {
@@ -97,7 +90,17 @@ namespace System.Globalization
             Debug.Assert(!GlobalizationMode.UseNls);
 
             // NOTE: there are no 'user overrides' on Linux
-            int count = Interop.Globalization.GetCalendars(localeName, calendars, calendars.Length);
+            int count;
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+            if (GlobalizationMode.Hybrid)
+            {
+                count = Interop.Globalization.GetCalendarsNative(localeName, calendars, calendars.Length);
+            }
+            else
+#endif
+            {
+                count = Interop.Globalization.GetCalendars(localeName, calendars, calendars.Length);
+            }
 
             // ensure there is at least 1 calendar returned
             if (count == 0 && calendars.Length > 0)
@@ -135,14 +138,14 @@ namespace System.Globalization
                 out calendarString);
         }
 
-        private static bool EnumDatePatterns(string localeName, CalendarId calendarId, CalendarDataType dataType, out string[]? datePatterns)
+        private static unsafe bool EnumDatePatterns(string localeName, CalendarId calendarId, CalendarDataType dataType, out string[]? datePatterns)
         {
             datePatterns = null;
 
             IcuEnumCalendarsData callbackContext = default;
             callbackContext.Results = new List<string>();
             callbackContext.DisallowDuplicates = true;
-            bool result = EnumCalendarInfo(localeName, calendarId, dataType, ref callbackContext);
+            bool result = EnumCalendarInfo(localeName, calendarId, dataType, &callbackContext);
             if (result)
             {
                 List<string> datePatternsList = callbackContext.Results;
@@ -165,7 +168,7 @@ namespace System.Globalization
         // And will ensure the original pattern still exist in the list.
         // doing that will have the short date pattern format the year as 4-digit number and not just 2-digit number.
         // Example: June 5, 2018 will be formatted to something like 6/5/2018 instead of 6/5/18 fro en-US culture.
-        private static void FixDefaultShortDatePattern(List<string> shortDatePatterns)
+        private static unsafe void FixDefaultShortDatePattern(List<string> shortDatePatterns)
         {
             if (shortDatePatterns.Count == 0)
                 return;
@@ -256,9 +259,11 @@ namespace System.Globalization
         /// see Date Field Symbol Table in http://userguide.icu-project.org/formatparse/datetime
         /// and https://msdn.microsoft.com/en-us/library/8kb3ddd4(v=vs.110).aspx
         /// </remarks>
-        private static string NormalizeDatePattern(string input)
+        private static unsafe string NormalizeDatePattern(string input)
         {
-            StringBuilder destination = StringBuilderCache.Acquire(input.Length);
+            var destination = input.Length < 128 ?
+                new ValueStringBuilder(stackalloc char[128]) :
+                new ValueStringBuilder(input.Length);
 
             int index = 0;
             while (index < input.Length)
@@ -287,7 +292,7 @@ namespace System.Globalization
                         // maps closest to 3 or 4 'd's in .NET
                         // 'c' in ICU is the stand-alone day of the week, which has no representation in .NET, but
                         // maps closest to 3 or 4 'd's in .NET
-                        NormalizeDayOfWeek(input, destination, ref index);
+                        NormalizeDayOfWeek(input, ref destination, ref index);
                         break;
                     case 'L':
                     case 'M':
@@ -305,7 +310,7 @@ namespace System.Globalization
                         break;
                     case 'G':
                         // 'G' in ICU is the era, which maps to 'g' in .NET
-                        occurrences = CountOccurrences(input, 'G', ref index);
+                        CountOccurrences(input, 'G', ref index);
 
                         // it doesn't matter how many 'G's, since .NET only supports 'g' or 'gg', and they
                         // have the same meaning
@@ -332,10 +337,10 @@ namespace System.Globalization
                 }
             }
 
-            return StringBuilderCache.GetStringAndRelease(destination);
+            return destination.ToString();
         }
 
-        private static void NormalizeDayOfWeek(string input, StringBuilder destination, ref int index)
+        private static void NormalizeDayOfWeek(string input, ref ValueStringBuilder destination, ref int index)
         {
             char dayChar = input[index];
             int occurrences = CountOccurrences(input, dayChar, ref index);
@@ -360,13 +365,13 @@ namespace System.Globalization
             return index - startIndex;
         }
 
-        private static bool EnumMonthNames(string localeName, CalendarId calendarId, CalendarDataType dataType, out string[]? monthNames, ref string? leapHebrewMonthName)
+        private static unsafe bool EnumMonthNames(string localeName, CalendarId calendarId, CalendarDataType dataType, out string[]? monthNames, ref string? leapHebrewMonthName)
         {
             monthNames = null;
 
             IcuEnumCalendarsData callbackContext = default;
             callbackContext.Results = new List<string>();
-            bool result = EnumCalendarInfo(localeName, calendarId, dataType, ref callbackContext);
+            bool result = EnumCalendarInfo(localeName, calendarId, dataType, &callbackContext);
             if (result)
             {
                 // the month-name arrays are expected to have 13 elements.  If ICU only returns 12, add an
@@ -401,20 +406,19 @@ namespace System.Globalization
             // So for other calendars, only return the latest era.
             if (calendarId != CalendarId.JAPAN && calendarId != CalendarId.JAPANESELUNISOLAR && eraNames?.Length > 0)
             {
-                string[] latestEraName = new string[] { eraNames![eraNames.Length - 1] };
-                eraNames = latestEraName;
+                eraNames = [eraNames[^1]];
             }
 
             return result;
         }
 
-        internal static bool EnumCalendarInfo(string localeName, CalendarId calendarId, CalendarDataType dataType, out string[]? calendarData)
+        internal static unsafe bool EnumCalendarInfo(string localeName, CalendarId calendarId, CalendarDataType dataType, out string[]? calendarData)
         {
             calendarData = null;
 
             IcuEnumCalendarsData callbackContext = default;
             callbackContext.Results = new List<string>();
-            bool result = EnumCalendarInfo(localeName, calendarId, dataType, ref callbackContext);
+            bool result = EnumCalendarInfo(localeName, calendarId, dataType, &callbackContext);
             if (result)
             {
                 calendarData = callbackContext.Results.ToArray();
@@ -423,9 +427,14 @@ namespace System.Globalization
             return result;
         }
 
-        private static unsafe bool EnumCalendarInfo(string localeName, CalendarId calendarId, CalendarDataType dataType, ref IcuEnumCalendarsData callbackContext)
+        private static unsafe bool EnumCalendarInfo(string localeName, CalendarId calendarId, CalendarDataType dataType, IcuEnumCalendarsData* callbackContext)
         {
-            return Interop.Globalization.EnumCalendarInfo(&EnumCalendarInfoCallback, localeName, calendarId, dataType, (IntPtr)Unsafe.AsPointer(ref callbackContext));
+#if TARGET_MACCATALYST || TARGET_IOS || TARGET_TVOS
+            callbackContext->Results.AddRange(GetCalendarInfoNative(localeName, calendarId, dataType).Split("||"));
+            return callbackContext->Results.Count > 0;
+#else
+            return Interop.Globalization.EnumCalendarInfo(&EnumCalendarInfoCallback, localeName, calendarId, dataType, (IntPtr)callbackContext);
+#endif
         }
 
         [UnmanagedCallersOnly]
@@ -433,14 +442,14 @@ namespace System.Globalization
         {
             try
             {
-                var calendarStringSpan = new ReadOnlySpan<char>(calendarStringPtr, string.wcslen(calendarStringPtr));
-                ref IcuEnumCalendarsData callbackContext = ref Unsafe.As<byte, IcuEnumCalendarsData>(ref *(byte*)context);
+                ReadOnlySpan<char> calendarStringSpan = MemoryMarshal.CreateReadOnlySpanFromNullTerminated(calendarStringPtr);
+                IcuEnumCalendarsData* callbackContext = (IcuEnumCalendarsData*)context;
 
-                if (callbackContext.DisallowDuplicates)
+                if (callbackContext->DisallowDuplicates)
                 {
-                    foreach (string existingResult in callbackContext.Results)
+                    foreach (string existingResult in callbackContext->Results)
                     {
-                        if (string.CompareOrdinal(calendarStringSpan, existingResult) == 0)
+                        if (calendarStringSpan.SequenceEqual(existingResult))
                         {
                             // the value is already in the results, so don't add it again
                             return;
@@ -448,7 +457,7 @@ namespace System.Globalization
                     }
                 }
 
-                callbackContext.Results.Add(calendarStringSpan.ToString());
+                callbackContext->Results.Add(calendarStringSpan.ToString());
             }
             catch (Exception e)
             {

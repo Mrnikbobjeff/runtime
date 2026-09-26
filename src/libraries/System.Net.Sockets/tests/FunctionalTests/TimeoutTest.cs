@@ -6,7 +6,8 @@ using Xunit;
 
 namespace System.Net.Sockets.Tests
 {
-    [Collection("NoParallelTests")]
+    [Collection(nameof(DisableParallelization))]
+    [SkipOnPlatform(TestPlatforms.Wasi, "Wasi doesn't support Timeout yet")] // see https://github.com/WebAssembly/wasi-libc/issues/539
     public class TimeoutTest
     {
         [Fact]

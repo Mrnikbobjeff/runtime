@@ -46,6 +46,10 @@ namespace System.DirectoryServices.Protocols
     public partial class BerConversionException : System.DirectoryServices.Protocols.DirectoryException
     {
         public BerConversionException() { }
+#if NET
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+#endif
         protected BerConversionException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public BerConversionException(string message) { }
         public BerConversionException(string message, System.Exception inner) { }
@@ -190,6 +194,10 @@ namespace System.DirectoryServices.Protocols
     public partial class DirectoryException : System.Exception
     {
         public DirectoryException() { }
+#if NET
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+#endif
         protected DirectoryException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public DirectoryException(string message) { }
         public DirectoryException(string message, System.Exception inner) { }
@@ -212,10 +220,18 @@ namespace System.DirectoryServices.Protocols
         public DirectoryOperationException(System.DirectoryServices.Protocols.DirectoryResponse response) { }
         public DirectoryOperationException(System.DirectoryServices.Protocols.DirectoryResponse response, string message) { }
         public DirectoryOperationException(System.DirectoryServices.Protocols.DirectoryResponse response, string message, System.Exception inner) { }
+#if NET
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+#endif
         protected DirectoryOperationException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public DirectoryOperationException(string message) { }
         public DirectoryOperationException(string message, System.Exception inner) { }
         public System.DirectoryServices.Protocols.DirectoryResponse Response { get { throw null; } }
+#if NET
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+#endif
         public override void GetObjectData(System.Runtime.Serialization.SerializationInfo serializationInfo, System.Runtime.Serialization.StreamingContext streamingContext) { }
     }
     public abstract partial class DirectoryRequest : System.DirectoryServices.Protocols.DirectoryOperation
@@ -345,12 +361,20 @@ namespace System.DirectoryServices.Protocols
         public LdapException(int errorCode, string message) { }
         public LdapException(int errorCode, string message, System.Exception inner) { }
         public LdapException(int errorCode, string message, string serverErrorMessage) { }
+#if NET
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+#endif
         protected LdapException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public LdapException(string message) { }
         public LdapException(string message, System.Exception inner) { }
         public int ErrorCode { get { throw null; } }
         public System.DirectoryServices.Protocols.PartialResultsCollection PartialResults { get { throw null; } }
         public string ServerErrorMessage { get { throw null; } }
+#if NET
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+#endif
         public override void GetObjectData(System.Runtime.Serialization.SerializationInfo serializationInfo, System.Runtime.Serialization.StreamingContext streamingContext) { }
     }
     public partial class LdapSessionOptions
@@ -358,6 +382,10 @@ namespace System.DirectoryServices.Protocols
         internal LdapSessionOptions() { }
         public bool AutoReconnect { get { throw null; } set { } }
         public string DomainName { get { throw null; } set { } }
+#if NET
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("windows")]
+        public string TrustedCertificatesDirectory { get { throw null; } set { } }
+#endif
         public string HostName { get { throw null; } set { } }
         public bool HostReachable { get { throw null; } }
         public System.DirectoryServices.Protocols.LocatorFlags LocatorFlag { get { throw null; } set { } }
@@ -378,6 +406,10 @@ namespace System.DirectoryServices.Protocols
         public bool Signing { get { throw null; } set { } }
         public System.DirectoryServices.Protocols.SecurityPackageContextConnectionInformation SslInformation { get { throw null; } }
         public int SspiFlag { get { throw null; } set { } }
+#if NET
+        [System.Runtime.Versioning.UnsupportedOSPlatformAttribute("windows")]
+        public void StartNewTlsSessionContext() { }
+#endif
         public bool TcpKeepAlive { get { throw null; } set { } }
         public System.DirectoryServices.Protocols.VerifyServerCertificateCallback VerifyServerCertificate { get { throw null; } set { } }
         public void FastConcurrentBind() { }
@@ -466,9 +498,10 @@ namespace System.DirectoryServices.Protocols
     }
     public delegate System.Security.Cryptography.X509Certificates.X509Certificate QueryClientCertificateCallback(System.DirectoryServices.Protocols.LdapConnection connection, byte[][] trustedCAs);
     public delegate System.DirectoryServices.Protocols.LdapConnection QueryForConnectionCallback(System.DirectoryServices.Protocols.LdapConnection primaryConnection, System.DirectoryServices.Protocols.LdapConnection referralFromConnection, string newDistinguishedName, System.DirectoryServices.Protocols.LdapDirectoryIdentifier identifier, System.Net.NetworkCredential credential, long currentUserToken);
+    [System.Runtime.Versioning.SupportedOSPlatformAttribute("windows")]
     public partial class QuotaControl : System.DirectoryServices.Protocols.DirectoryControl
     {
-        public QuotaControl() : base (default(string), default(byte[]), default(bool), default(bool)) { }
+        public QuotaControl() : base (default(string), default(byte[]), default(bool), default(bool)) { } 
         public QuotaControl(System.Security.Principal.SecurityIdentifier querySid) : base (default(string), default(byte[]), default(bool), default(bool)) { }
         public System.Security.Principal.SecurityIdentifier QuerySid { get { throw null; } set { } }
         public override byte[] GetValue() { throw null; }
@@ -633,11 +666,29 @@ namespace System.DirectoryServices.Protocols
     public partial class SecurityPackageContextConnectionInformation
     {
         internal SecurityPackageContextConnectionInformation() { }
+#if NET
+        [Obsolete("KeyExchangeAlgorithm, KeyExchangeStrength, CipherAlgorithm, CipherStrength, HashAlgorithm and HashStrength properties of SslStream are obsolete. Use NegotiatedCipherSuite instead.", DiagnosticId = "SYSLIB0058", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+#endif
         public System.Security.Authentication.CipherAlgorithmType AlgorithmIdentifier { get { throw null; } }
+#if NET
+        [Obsolete("KeyExchangeAlgorithm, KeyExchangeStrength, CipherAlgorithm, CipherStrength, HashAlgorithm and HashStrength properties of SslStream are obsolete. Use NegotiatedCipherSuite instead.", DiagnosticId = "SYSLIB0058", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+#endif
         public int CipherStrength { get { throw null; } }
+#if NET
+        [Obsolete("KeyExchangeAlgorithm, KeyExchangeStrength, CipherAlgorithm, CipherStrength, HashAlgorithm and HashStrength properties of SslStream are obsolete. Use NegotiatedCipherSuite instead.", DiagnosticId = "SYSLIB0058", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+#endif
         public int ExchangeStrength { get { throw null; } }
+#if NET
+        [Obsolete("KeyExchangeAlgorithm, KeyExchangeStrength, CipherAlgorithm, CipherStrength, HashAlgorithm and HashStrength properties of SslStream are obsolete. Use NegotiatedCipherSuite instead.", DiagnosticId = "SYSLIB0058", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+#endif
         public System.Security.Authentication.HashAlgorithmType Hash { get { throw null; } }
+#if NET
+        [Obsolete("KeyExchangeAlgorithm, KeyExchangeStrength, CipherAlgorithm, CipherStrength, HashAlgorithm and HashStrength properties of SslStream are obsolete. Use NegotiatedCipherSuite instead.", DiagnosticId = "SYSLIB0058", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+#endif
         public int HashStrength { get { throw null; } }
+#if NET
+        [Obsolete("KeyExchangeAlgorithm, KeyExchangeStrength, CipherAlgorithm, CipherStrength, HashAlgorithm and HashStrength properties of SslStream are obsolete. Use NegotiatedCipherSuite instead.", DiagnosticId = "SYSLIB0058", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+#endif
         public int KeyExchangeAlgorithm { get { throw null; } }
         public System.DirectoryServices.Protocols.SecurityProtocol Protocol { get { throw null; } }
     }
@@ -684,6 +735,10 @@ namespace System.DirectoryServices.Protocols
         public TlsOperationException(System.DirectoryServices.Protocols.DirectoryResponse response) { }
         public TlsOperationException(System.DirectoryServices.Protocols.DirectoryResponse response, string message) { }
         public TlsOperationException(System.DirectoryServices.Protocols.DirectoryResponse response, string message, System.Exception inner) { }
+#if NET
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
+#endif
         protected TlsOperationException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public TlsOperationException(string message) { }
         public TlsOperationException(string message, System.Exception inner) { }

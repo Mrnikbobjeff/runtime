@@ -17,18 +17,15 @@ namespace System.DirectoryServices.ActiveDirectory
             }
         }
 
-        public AdamInstance this[int index] => (AdamInstance)InnerList[index];
+        public AdamInstance this[int index] => (AdamInstance)InnerList[index]!;
 
         public bool Contains(AdamInstance adamInstance)
         {
-            if (adamInstance == null)
-            {
-                throw new ArgumentNullException(nameof(adamInstance));
-            }
+            ArgumentNullException.ThrowIfNull(adamInstance);
 
             for (int i = 0; i < InnerList.Count; i++)
             {
-                AdamInstance tmp = (AdamInstance)InnerList[i];
+                AdamInstance tmp = (AdamInstance)InnerList[i]!;
                 if (Utils.Compare(tmp.Name, adamInstance.Name) == 0)
                 {
                     return true;
@@ -39,14 +36,11 @@ namespace System.DirectoryServices.ActiveDirectory
 
         public int IndexOf(AdamInstance adamInstance)
         {
-            if (adamInstance == null)
-            {
-                throw new ArgumentNullException(nameof(adamInstance));
-            }
+            ArgumentNullException.ThrowIfNull(adamInstance);
 
             for (int i = 0; i < InnerList.Count; i++)
             {
-                AdamInstance tmp = (AdamInstance)InnerList[i];
+                AdamInstance tmp = (AdamInstance)InnerList[i]!;
                 if (Utils.Compare(tmp.Name, adamInstance.Name) == 0)
                 {
                     return i;

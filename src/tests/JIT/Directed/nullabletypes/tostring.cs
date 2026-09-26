@@ -5,6 +5,11 @@
 //  A nullable type with a value returns the ToString() from the underlying struct
 //</Description>
 
+namespace JitTest_Directed_nullabletypes_tostring;
+
+using JitTest_Directed_nullabletypes_invokecommon;
+using Xunit;
+
 #pragma warning disable 0649
 
 using System;
@@ -31,11 +36,11 @@ class NullableTest1
 
     public static void Run()
     {
-        Test.Eval(i.ToString(), 1.ToString());
-        Test.Eval(s.ToString(), default(Struct).ToString());
-        Test.Eval(imps.ToString(), default(ImplStruct).ToString());
-        Test.Eval(genfoo.ToString(), default(OpenGenImplStruct<Foo>).ToString());
-        Test.Eval(genint.ToString(), default(CloseGenImplStruct).ToString());
+        Test_nullabletypes.Eval(i.ToString(), 1.ToString());
+        Test_nullabletypes.Eval(s.ToString(), default(Struct).ToString());
+        Test_nullabletypes.Eval(imps.ToString(), default(ImplStruct).ToString());
+        Test_nullabletypes.Eval(genfoo.ToString(), default(OpenGenImplStruct<Foo>).ToString());
+        Test_nullabletypes.Eval(genint.ToString(), default(CloseGenImplStruct).ToString());
     }
 }
 
@@ -50,16 +55,18 @@ class NullableTest2
 
     public static void Run()
     {
-        Test.Eval(i.ToString(), "");
-        Test.Eval(s.ToString(), "");
-        Test.Eval(imps.ToString(), "");
-        Test.Eval(genfoo.ToString(), "");
-        Test.Eval(genint.ToString(), "");
+        Test_nullabletypes.Eval(i.ToString(), "");
+        Test_nullabletypes.Eval(s.ToString(), "");
+        Test_nullabletypes.Eval(imps.ToString(), "");
+        Test_nullabletypes.Eval(genfoo.ToString(), "");
+        Test_nullabletypes.Eval(genint.ToString(), "");
     }
 }
 
-class NullableTests
+public class NullableTests
 {
+    [OuterLoop]
+    [Fact]
     public static void Run()
     {
         NullableTest1.Run();

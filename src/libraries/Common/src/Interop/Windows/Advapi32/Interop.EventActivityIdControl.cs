@@ -8,7 +8,8 @@ internal static partial class Interop
 {
     internal static partial class Advapi32
     {
-        [DllImport(Libraries.Advapi32, ExactSpelling = true)]
-        internal static extern int EventActivityIdControl(ActivityControl ControlCode, ref Guid ActivityId);
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [LibraryImport(Libraries.Advapi32)]
+        internal static partial int EventActivityIdControl(ActivityControl ControlCode, ref Guid ActivityId);
     }
 }

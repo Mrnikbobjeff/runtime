@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b71155
 {
     using System;
 
@@ -26,10 +27,11 @@ namespace Test
                 } while (m_bFwd1);
             }
         }
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             new AA().Method1();
-            return 100;
         }
     }
 }

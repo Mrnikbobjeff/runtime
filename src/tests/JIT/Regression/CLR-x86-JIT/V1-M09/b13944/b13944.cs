@@ -3,11 +3,12 @@
 
 
 using System;
+using Xunit;
 
 
-namespace DefaultNamespace
+namespace b13944
 {
-    internal class X
+    public class X
     {
         public virtual int Blah(int what)
         {
@@ -27,14 +28,14 @@ namespace DefaultNamespace
         }
 
 
-        public static int Main(String[] argv)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             int i = 0;
             X x = new X();
 
-
             i = x.Blah(1);
-            return 100;
         }
     }
 }

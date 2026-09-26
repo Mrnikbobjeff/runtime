@@ -5,7 +5,8 @@
 
 using System;
 using System.Runtime.CompilerServices;
-public class BringUpTest
+using Xunit;
+public class BringUpTest_DblDist
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -24,7 +25,8 @@ public class BringUpTest
        return z; 
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         double y = DblDist(5f, 7f, 2f, 3f);
         Console.WriteLine(y);

@@ -12,15 +12,16 @@ namespace System.Net.Test.Common
         {
             private static readonly string DefaultHttp2AzureServer = "corefx-net-http2.azurewebsites.net";
 
+            // for the local server hosted in XHarness we are passing also port as part of the environment variables, because it's bound to random port number
             public static string Host => GetValue("DOTNET_TEST_HTTPHOST", DefaultAzureServer);
-
             public static string SecureHost => GetValue("DOTNET_TEST_SECUREHTTPHOST", DefaultAzureServer);
-
             public static string Http2Host => GetValue("DOTNET_TEST_HTTP2HOST", DefaultHttp2AzureServer);
+            public static int Port = GetPortValue("DOTNET_TEST_HTTPHOST", 80);
+            public static int SecurePort = GetPortValue("DOTNET_TEST_SECUREHTTPHOST", 443);
 
             // This server doesn't use HTTP/2 server push (push promise) feature. Some HttpClient implementations
             // don't support servers that use push right now.
-            public static string Http2NoPushHost => GetValue("DOTNET_TEST_HTTP2NOPUSHHOST", "www.microsoft.com");
+            public static string Http2NoPushHost => GetValue("DOTNET_TEST_HTTP2NOPUSHHOST", "httpbin.org");
 
             // Domain server environment.
             public static string DomainJoinedHttpHost => GetValue("DOTNET_TEST_DOMAINJOINED_HTTPHOST");
@@ -44,43 +45,65 @@ namespace System.Net.Test.Common
             public static string EchoClientCertificateRemoteServer => GetValue("DOTNET_TEST_HTTPHOST_ECHOCLIENTCERT", "https://corefx-net-tls.azurewebsites.net/EchoClientCertificate.ashx");
             public static string Http2ForceUnencryptedLoopback => GetValue("DOTNET_TEST_HTTP2_FORCEUNENCRYPTEDLOOPBACK");
 
+            public static string RemoteLoopHost => GetValue("DOTNET_TEST_REMOTE_LOOP_HOST");
+
             private const string EchoHandler = "Echo.ashx";
             private const string EmptyContentHandler = "EmptyContent.ashx";
             private const string RedirectHandler = "Redirect.ashx";
             private const string VerifyUploadHandler = "VerifyUpload.ashx";
+            private const string StatusCodeHandler = "StatusCode.ashx";
             private const string DeflateHandler = "Deflate.ashx";
             private const string GZipHandler = "GZip.ashx";
+            private const string RemoteLoopHandler = "RemoteLoop";
 
             public static readonly Uri RemoteEchoServer = new Uri("http://" + Host + "/" + EchoHandler);
             public static readonly Uri SecureRemoteEchoServer = new Uri("https://" + SecureHost + "/" + EchoHandler);
             public static readonly Uri Http2RemoteEchoServer = new Uri("https://" + Http2Host + "/" + EchoHandler);
-            public static readonly Uri[] EchoServerList = new Uri[] { RemoteEchoServer, SecureRemoteEchoServer, Http2RemoteEchoServer };
+            public static Uri[] GetEchoServerList()
+            {
+                if (PlatformDetection.IsFirefox)
+                {
+                    // https://github.com/dotnet/runtime/issues/101115
+                    return [RemoteEchoServer];
+                }
+                return [RemoteEchoServer, SecureRemoteEchoServer, Http2RemoteEchoServer];
+            }
 
             public static readonly Uri RemoteVerifyUploadServer = new Uri("http://" + Host + "/" + VerifyUploadHandler);
             public static readonly Uri SecureRemoteVerifyUploadServer = new Uri("https://" + SecureHost + "/" + VerifyUploadHandler);
             public static readonly Uri Http2RemoteVerifyUploadServer = new Uri("https://" + Http2Host + "/" + VerifyUploadHandler);
-            public static readonly Uri[] VerifyUploadServerList = new Uri[] { RemoteVerifyUploadServer, SecureRemoteVerifyUploadServer, Http2RemoteVerifyUploadServer };
+            public static readonly Uri Http2RemoteStatusCodeServer = new Uri("https://" + Http2Host + "/" + StatusCodeHandler);
 
             public static readonly Uri RemoteEmptyContentServer = new Uri("http://" + Host + "/" + EmptyContentHandler);
             public static readonly Uri RemoteDeflateServer = new Uri("http://" + Host + "/" + DeflateHandler);
             public static readonly Uri RemoteGZipServer = new Uri("http://" + Host + "/" + GZipHandler);
             public static readonly Uri Http2RemoteDeflateServer = new Uri("https://" + Http2Host + "/" + DeflateHandler);
             public static readonly Uri Http2RemoteGZipServer = new Uri("https://" + Http2Host + "/" + GZipHandler);
+            public static Uri RemoteLoopServer => new Uri("ws://" + RemoteLoopHost + "/" + RemoteLoopHandler);
 
-            public static readonly object[][] EchoServers = EchoServerList.Select(x => new object[] { x }).ToArray();
+            public static readonly object[][] EchoServers = GetEchoServerList().Select(x => new object[] { x }).ToArray();
             public static readonly object[][] VerifyUploadServers = { new object[] { RemoteVerifyUploadServer }, new object[] { SecureRemoteVerifyUploadServer }, new object[] { Http2RemoteVerifyUploadServer } };
             public static readonly object[][] CompressedServers = { new object[] { RemoteDeflateServer }, new object[] { RemoteGZipServer }, new object[] { Http2RemoteDeflateServer }, new object[] { Http2RemoteGZipServer } };
 
             public static readonly object[][] Http2Servers = { new object[] { new Uri("https://" + Http2Host) } };
             public static readonly object[][] Http2NoPushServers = { new object[] { new Uri("https://" + Http2NoPushHost) } };
+            public static readonly object[][] Http2NoPushGetUris = { new object[] { new Uri("https://" + Http2NoPushHost + "/get") } };
 
             public static readonly RemoteServer RemoteHttp11Server = new RemoteServer(new Uri("http://" + Host + "/"), HttpVersion.Version11);
             public static readonly RemoteServer RemoteSecureHttp11Server = new RemoteServer(new Uri("https://" + SecureHost + "/"), HttpVersion.Version11);
             public static readonly RemoteServer RemoteHttp2Server = new RemoteServer(new Uri("https://" + Http2Host + "/"), new Version(2, 0));
 
-            public static readonly IEnumerable<RemoteServer> RemoteServers = new RemoteServer[] { RemoteHttp11Server, RemoteSecureHttp11Server, RemoteHttp2Server };
+            public static IEnumerable<RemoteServer> GetRemoteServers()
+            {
+                if (PlatformDetection.IsFirefox)
+                {
+                    // https://github.com/dotnet/runtime/issues/101115
+                    return new RemoteServer[] { RemoteHttp11Server };
+                }
+                return new RemoteServer[] { RemoteHttp11Server, RemoteSecureHttp11Server, RemoteHttp2Server };
+            }
 
-            public static readonly IEnumerable<object[]> RemoteServersMemberData = RemoteServers.Select(s => new object[] { s });
+            public static readonly IEnumerable<object[]> RemoteServersMemberData = GetRemoteServers().Select(s => new object[] { s });
 
             public sealed class RemoteServer
             {

@@ -1,17 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
+    <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <TargetFrameworks>$(NetCoreAppCurrent)</TargetFrameworks>
-    <Nullable>enable</Nullable>
+    <UseCompilerGeneratedDocXmlFile>false</UseCompilerGeneratedDocXmlFile>
   </PropertyGroup>
+
   <ItemGroup>
+    <Compile Include="System.ObjectModel.Forwards.cs" />
+    <Compile Include="System\Collections\CollectionHelpers.cs" />
     <Compile Include="System\Collections\Generic\DebugView.cs" />
     <Compile Include="System\Collections\Specialized\INotifyCollectionChanged.cs" />
     <Compile Include="System\Collections\Specialized\NotifyCollectionChangedAction.cs" />
     <Compile Include="System\Collections\Specialized\NotifyCollectionChangedEventArgs.cs" />
     <Compile Include="System\Collections\ObjectModel\KeyedCollection.cs" />
     <Compile Include="System\Collections\ObjectModel\ObservableCollection.cs" />
-    <Compile Include="System\Collections\ObjectModel\ReadOnlyDictionary.cs" />
     <Compile Include="System\Collections\ObjectModel\ReadOnlyObservableCollection.cs" />
     <Compile Include="System\ComponentModel\DataErrorsChangedEventArgs.cs" />
     <Compile Include="System\ComponentModel\INotifyDataErrorInfo.cs" />
@@ -27,9 +30,12 @@
     <Compile Include="System\Windows\Markup\ValueSerializerAttribute.cs" />
     <Compile Include="System\Windows\Input\ICommand.cs" />
   </ItemGroup>
+
   <ItemGroup>
-    <Reference Include="System.Collections" />
-    <Reference Include="System.Runtime" />
-    <Reference Include="System.Threading" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Collections\src\System.Collections.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Memory\src\System.Memory.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Runtime\src\System.Runtime.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Threading\src\System.Threading.csproj" />
   </ItemGroup>
+
 </Project>

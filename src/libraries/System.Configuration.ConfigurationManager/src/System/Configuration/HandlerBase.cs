@@ -6,12 +6,8 @@ using System.Xml;
 
 namespace System.Configuration
 {
-    internal class HandlerBase
+    internal static class HandlerBase
     {
-        private HandlerBase()
-        {
-        }
-
         private static XmlNode GetAndRemoveAttribute(XmlNode node, string attrib, bool fRequired)
         {
             XmlNode a = node.Attributes.RemoveNamedItem(attrib);
@@ -140,7 +136,7 @@ namespace System.Configuration
                                 node);
             }
 
-            if (string.IsNullOrEmpty(attribute.Value) && allowEmpty == false)
+            if (string.IsNullOrEmpty(attribute.Value) && !allowEmpty)
             {
                 throw new ConfigurationErrorsException(
                                 SR.Format(SR.Config_base_required_attribute_empty, name),

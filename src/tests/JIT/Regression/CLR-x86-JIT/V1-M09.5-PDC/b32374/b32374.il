@@ -2,15 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 .assembly extern mscorlib { }
+.assembly extern System.Runtime { .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A ) }
 .assembly extern System.Console
 {
   .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )
   .ver 4:0:0:0
 }
-.assembly 'bug' { }
+.assembly 'b32374' { }
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
 .namespace Test
 {
-  .class auto ansi BB extends [mscorlib]System.Object
+  .class public auto ansi BB extends [mscorlib]System.Object
   {
     .field public static class Test.BB[] m_axStatic1
     .field public class [mscorlib]System.Object[] m_axField1
@@ -48,9 +52,13 @@
       IL_0001:  ret
     } // end of method 'BB::AA_Static2'
 
-    .method private hidebysig static int32
+    .method public hidebysig static int32
             Main() il managed
     {
+      .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ConditionalFactAttribute::.ctor(class [System.Runtime]System.Type, string[]) = {
+          type([TestLibrary]TestLibrary.PlatformDetection)
+          string[1] ('IsVarArgSupported')
+      }
       .entrypoint
       // Code size       97 (0x61)
       .maxstack  6

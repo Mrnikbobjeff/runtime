@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
+using System.Numerics.Colors;
 using System.Runtime.InteropServices;
 using Xunit;
 
@@ -11,7 +12,7 @@ namespace System.Drawing.Primitives.Tests
 {
     public class ColorTests
     {
-        public static bool SupportsReadingUpdatedSystemColors => PlatformDetection.IsWindows && !PlatformDetection.IsInAppContainer && PlatformDetection.IsNotWindowsNanoServer;
+        public static bool SupportsReadingUpdatedSystemColors => PlatformDetection.IsWindows && !PlatformDetection.IsInAppContainer && PlatformDetection.IsNotWindowsNanoNorServerCore;
 
         public static readonly IEnumerable<object[]> NamedArgbValues =
             new[]
@@ -130,6 +131,7 @@ namespace System.Drawing.Primitives.Tests
                 new object[] {"Plum", 255, 221, 160, 221},
                 new object[] {"PowderBlue", 255, 176, 224, 230},
                 new object[] {"Purple", 255, 128, 0, 128},
+                new object[] {"RebeccaPurple", 255, 102, 51, 153},
                 new object[] {"Red", 255, 255, 0, 0},
                 new object[] {"RosyBrown", 255, 188, 143, 143},
                 new object[] {"RoyalBlue", 255, 65, 105, 225},
@@ -193,23 +195,45 @@ namespace System.Drawing.Primitives.Tests
         [InlineData(1, 2, 3, 4)]
         public void FromArgb_Roundtrips(int a, int r, int g, int b)
         {
-            Color c1 = Color.FromArgb(unchecked((int)((uint)a << 24 | (uint)r << 16 | (uint)g << 8 | (uint)b)));
-            Assert.Equal(a, c1.A);
-            Assert.Equal(r, c1.R);
-            Assert.Equal(g, c1.G);
-            Assert.Equal(b, c1.B);
+            {
+                Color c = Color.FromArgb(unchecked((int)((uint)a << 24 | (uint)r << 16 | (uint)g << 8 | (uint)b)));
+                Assert.Equal(a, c.A);
+                Assert.Equal(r, c.R);
+                Assert.Equal(g, c.G);
+                Assert.Equal(b, c.B);
+            }
+            {
+                Color c = Color.FromArgb(a, r, g, b);
+                Assert.Equal(a, c.A);
+                Assert.Equal(r, c.R);
+                Assert.Equal(g, c.G);
+                Assert.Equal(b, c.B);
+            }
+            {
 
-            Color c2 = Color.FromArgb(a, r, g, b);
-            Assert.Equal(a, c2.A);
-            Assert.Equal(r, c2.R);
-            Assert.Equal(g, c2.G);
-            Assert.Equal(b, c2.B);
+                Color c = Color.FromArgb(r, g, b);
+                Assert.Equal(255, c.A);
+                Assert.Equal(r, c.R);
+                Assert.Equal(g, c.G);
+                Assert.Equal(b, c.B);
+            }
+            {
 
-            Color c3 = Color.FromArgb(r, g, b);
-            Assert.Equal(255, c3.A);
-            Assert.Equal(r, c3.R);
-            Assert.Equal(g, c3.G);
-            Assert.Equal(b, c3.B);
+                Color c = Color.FromArgb(new Argb<byte>((byte)a, (byte)r, (byte)g, (byte)b));
+                Assert.Equal(a, c.A);
+                Assert.Equal(r, c.R);
+                Assert.Equal(g, c.G);
+                Assert.Equal(b, c.B);
+            }
+            {
+
+                // implicit operator Color(Argb<byte> argb)
+                Color c = new Argb<byte>((byte)a, (byte)r, (byte)g, (byte)b);
+                Assert.Equal(a, c.A);
+                Assert.Equal(r, c.R);
+                Assert.Equal(g, c.G);
+                Assert.Equal(b, c.B);
+            }
         }
 
         [Fact]
@@ -264,6 +288,28 @@ namespace System.Drawing.Primitives.Tests
         public void ToArgb(int argb, int alpha, int red, int green, int blue)
         {
             Assert.Equal(argb, Color.FromArgb(alpha, red, green, blue).ToArgb());
+        }
+
+        [Theory]
+        [InlineData(0x11, 0xcc, 0x88, 0x33)]
+        [InlineData(0xf1, 0xcc, 0x88, 0x33)]
+        public void ToArgbValue(int alpha, int red, int green, int blue)
+        {
+            {
+                var c = Color.FromArgb(alpha, red, green, blue).ToArgbValue();
+                Assert.Equal(alpha, c.A);
+                Assert.Equal(red, c.R);
+                Assert.Equal(green, c.G);
+                Assert.Equal(blue, c.B);
+            }
+            {
+                // explicit operator Argb<byte>(in Color color)
+                Argb<byte> c = (Argb<byte>)Color.FromArgb(alpha, red, green, blue);
+                Assert.Equal(alpha, c.A);
+                Assert.Equal(red, c.R);
+                Assert.Equal(green, c.G);
+                Assert.Equal(blue, c.B);
+            }
         }
 
         [Fact]
@@ -389,6 +435,12 @@ namespace System.Drawing.Primitives.Tests
         [InlineData(51, 255, 51, 0.6f)]
         [InlineData(51, 51, 255, 0.6f)]
         [InlineData(51, 51, 51, 0.2f)]
+        [InlineData(0, 51, 255, 0.5f)]
+        [InlineData(51, 255, 0, 0.5f)]
+        [InlineData(0, 255, 51, 0.5f)]
+        [InlineData(255, 0, 51, 0.5f)]
+        [InlineData(51, 0, 255, 0.5f)]
+        [InlineData(255, 51, 0, 0.5f)]
         public void GetBrightness(int r, int g, int b, float expected)
         {
             Assert.Equal(expected, Color.FromArgb(r, g, b).GetBrightness());
@@ -441,7 +493,7 @@ namespace System.Drawing.Primitives.Tests
         public static IEnumerable<object[]> Equality_MemberData()
         {
             yield return new object[] { Color.AliceBlue, Color.AliceBlue, true };
-            yield return new object[] { Color.AliceBlue, Color.White, false};
+            yield return new object[] { Color.AliceBlue, Color.White, false };
             yield return new object[] { Color.AliceBlue, Color.Black, false };
 
             yield return new object[] { Color.FromArgb(255, 1, 2, 3), Color.FromArgb(255, 1, 2, 3), true };
@@ -459,7 +511,7 @@ namespace System.Drawing.Primitives.Tests
 
             string someNameConstructed = string.Join("", "Some", "Name");
             Assert.NotSame("SomeName", someNameConstructed); // If this fails the above must be changed so this test is correct.
-            yield return new object[] {Color.FromName("SomeName"), Color.FromName(someNameConstructed), true};
+            yield return new object[] { Color.FromName("SomeName"), Color.FromName(someNameConstructed), true };
         }
 
         [Theory]
@@ -485,14 +537,14 @@ namespace System.Drawing.Primitives.Tests
             Assert.Equal(!expected, right != left);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public void DebuggerAttributesAreValid()
         {
             DebuggerAttributes.ValidateDebuggerDisplayReferences(Color.Aquamarine);
             DebuggerAttributes.ValidateDebuggerDisplayReferences(Color.FromArgb(4, 3, 2, 1));
         }
 
-        [ConditionalFact(nameof(SupportsReadingUpdatedSystemColors))]
+        [ConditionalFact(typeof(ColorTests), nameof(SupportsReadingUpdatedSystemColors))]
         public void UserPreferenceChangingEventTest()
         {
             int element = 12; // Win32SystemColors.AppWorkSpace.
@@ -532,7 +584,7 @@ namespace System.Drawing.Primitives.Tests
         [Theory]
         [InlineData((KnownColor)(-1))]
         [InlineData((KnownColor)0)]
-        [InlineData(KnownColor.MenuHighlight + 1)]
+        [InlineData(KnownColor.RebeccaPurple + 1)]
         public void FromOutOfRangeKnownColor(KnownColor known)
         {
             Color color = Color.FromKnownColor(known);
@@ -556,7 +608,7 @@ namespace System.Drawing.Primitives.Tests
         [Theory]
         [InlineData((KnownColor)(-1))]
         [InlineData((KnownColor)0)]
-        [InlineData(KnownColor.MenuHighlight + 1)]
+        [InlineData(KnownColor.RebeccaPurple + 1)]
         public void FromOutOfRangeKnownColorToKnownColor(KnownColor known)
         {
             Color color = Color.FromKnownColor(known);
@@ -585,10 +637,14 @@ namespace System.Drawing.Primitives.Tests
             Assert.False(match.IsSystemColor);
         }
 
+        [Theory, MemberData(nameof(SystemKindKnownColorPairs))]
+        public void SystemKindOrdering(bool isSystemColor, KnownColor known) =>
+            Assert.Equal(isSystemColor, Color.FromKnownColor(known).IsSystemColor);
+
         [Theory]
         [InlineData((KnownColor)(-1))]
         [InlineData((KnownColor)0)]
-        [InlineData(KnownColor.MenuHighlight + 1)]
+        [InlineData(KnownColor.RebeccaPurple + 1)]
         public void IsSystemColorOutOfRangeKnown(KnownColor known)
         {
             Color color = Color.FromKnownColor(known);
@@ -612,7 +668,7 @@ namespace System.Drawing.Primitives.Tests
         [Theory]
         [InlineData((KnownColor)(-1))]
         [InlineData((KnownColor)0)]
-        [InlineData(KnownColor.MenuHighlight + 1)]
+        [InlineData(KnownColor.RebeccaPurple + 1)]
         public void IsKnownColorOutOfRangeKnown(KnownColor known)
         {
             Color color = Color.FromKnownColor(known);
@@ -683,8 +739,192 @@ namespace System.Drawing.Primitives.Tests
                 KnownColor.SeaShell, KnownColor.Sienna, KnownColor.Silver, KnownColor.SkyBlue, KnownColor.SlateBlue,
                 KnownColor.SlateGray, KnownColor.Snow, KnownColor.SpringGreen, KnownColor.SteelBlue, KnownColor.Tan,
                 KnownColor.Teal, KnownColor.Thistle, KnownColor.Tomato, KnownColor.Turquoise, KnownColor.Violet,
-                KnownColor.Wheat, KnownColor.White, KnownColor.WhiteSmoke, KnownColor.Yellow, KnownColor.YellowGreen
+                KnownColor.Wheat, KnownColor.White, KnownColor.WhiteSmoke, KnownColor.Yellow, KnownColor.YellowGreen,
+                KnownColor.RebeccaPurple
             }.Select(kc => new object[] { kc }).ToArray();
+
+        public static readonly IEnumerable<bool> SystemKindOrder =
+            new[]
+            {
+                true,       // ActiveBorder
+                true,       // ActiveCaption
+                true,       // ActiveCaptionText
+                true,       // AppWorkspace
+                true,       // Control
+                true,       // ControlDark
+                true,       // ControlDarkDark
+                true,       // ControlLight
+                true,       // ControlLightLight
+                true,       // ControlText
+                true,       // Desktop
+                true,       // GrayText
+                true,       // Highlight
+                true,       // HighlightText
+                true,       // HotTrack
+                true,       // InactiveBorder
+                true,       // InactiveCaption
+                true,       // InactiveCaptionText
+                true,       // Info
+                true,       // InfoText
+                true,       // Menu
+                true,       // MenuText
+                true,       // ScrollBar
+                true,       // Window
+                true,       // WindowFrame
+                true,       // WindowText
+                false,      // Transparent
+                false,      // AliceBlue
+                false,      // AntiqueWhite
+                false,      // Aqua
+                false,      // Aquamarine
+                false,      // Azure
+                false,      // Beige
+                false,      // Bisque
+                false,      // Black
+                false,      // BlanchedAlmond
+                false,      // Blue
+                false,      // BlueViolet
+                false,      // Brown
+                false,      // BurlyWood
+                false,      // CadetBlue
+                false,      // Chartreuse
+                false,      // Chocolate
+                false,      // Coral
+                false,      // CornflowerBlue
+                false,      // Cornsilk
+                false,      // Crimson
+                false,      // Cyan
+                false,      // DarkBlue
+                false,      // DarkCyan
+                false,      // DarkGoldenrod
+                false,      // DarkGray
+                false,      // DarkGreen
+                false,      // DarkKhaki
+                false,      // DarkMagenta
+                false,      // DarkOliveGreen
+                false,      // DarkOrange
+                false,      // DarkOrchid
+                false,      // DarkRed
+                false,      // DarkSalmon
+                false,      // DarkSeaGreen
+                false,      // DarkSlateBlue
+                false,      // DarkSlateGray
+                false,      // DarkTurquoise
+                false,      // DarkViolet
+                false,      // DeepPink
+                false,      // DeepSkyBlue
+                false,      // DimGray
+                false,      // DodgerBlue
+                false,      // Firebrick
+                false,      // FloralWhite
+                false,      // ForestGreen
+                false,      // Fuchsia
+                false,      // Gainsboro
+                false,      // GhostWhite
+                false,      // Gold
+                false,      // Goldenrod
+                false,      // Gray
+                false,      // Green
+                false,      // GreenYellow
+                false,      // Honeydew
+                false,      // HotPink
+                false,      // IndianRed
+                false,      // Indigo
+                false,      // Ivory
+                false,      // Khaki
+                false,      // Lavender
+                false,      // LavenderBlush
+                false,      // LawnGreen
+                false,      // LemonChiffon
+                false,      // LightBlue
+                false,      // LightCoral
+                false,      // LightCyan
+                false,      // LightGoldenrodYellow
+                false,      // LightGray
+                false,      // LightGreen
+                false,      // LightPink
+                false,      // LightSalmon
+                false,      // LightSeaGreen
+                false,      // LightSkyBlue
+                false,      // LightSlateGray
+                false,      // LightSteelBlue
+                false,      // LightYellow
+                false,      // Lime
+                false,      // LimeGreen
+                false,      // Linen
+                false,      // Magenta
+                false,      // Maroon
+                false,      // MediumAquamarine
+                false,      // MediumBlue
+                false,      // MediumOrchid
+                false,      // MediumPurple
+                false,      // MediumSeaGreen
+                false,      // MediumSlateBlue
+                false,      // MediumSpringGreen
+                false,      // MediumTurquoise
+                false,      // MediumVioletRed
+                false,      // MidnightBlue
+                false,      // MintCream
+                false,      // MistyRose
+                false,      // Moccasin
+                false,      // NavajoWhite
+                false,      // Navy
+                false,      // OldLace
+                false,      // Olive
+                false,      // OliveDrab
+                false,      // Orange
+                false,      // OrangeRed
+                false,      // Orchid
+                false,      // PaleGoldenrod
+                false,      // PaleGreen
+                false,      // PaleTurquoise
+                false,      // PaleVioletRed
+                false,      // PapayaWhip
+                false,      // PeachPuff
+                false,      // Peru
+                false,      // Pink
+                false,      // Plum
+                false,      // PowderBlue
+                false,      // Purple
+                false,      // Red
+                false,      // RosyBrown
+                false,      // RoyalBlue
+                false,      // SaddleBrown
+                false,      // Salmon
+                false,      // SandyBrown
+                false,      // SeaGreen
+                false,      // SeaShell
+                false,      // Sienna
+                false,      // Silver
+                false,      // SkyBlue
+                false,      // SlateBlue
+                false,      // SlateGray
+                false,      // Snow
+                false,      // SpringGreen
+                false,      // SteelBlue
+                false,      // Tan
+                false,      // Teal
+                false,      // Thistle
+                false,      // Tomato
+                false,      // Turquoise
+                false,      // Violet
+                false,      // Wheat
+                false,      // White
+                false,      // WhiteSmoke
+                false,      // Yellow
+                false,      // YellowGreen
+                true,       // ButtonFace
+                true,       // ButtonHighlight
+                true,       // ButtonShadow
+                true,       // GradientActiveCaption
+                true,       // GradientInactiveCaption
+                true,       // MenuBar
+                true,       // MenuHighlight
+                false,      // RebeccaPurple
+            };
+
+        public static IEnumerable<object[]> SystemKindKnownColorPairs =>
+            SystemKindOrder.Zip(AllKnownColors, (isSystemKind, color) => new[] { isSystemKind, color[0] });
 
         [DllImport("user32.dll", SetLastError = true)]
         private static extern int SetSysColors(int cElements, int[] lpaElements, int[] lpaRgbValues);
@@ -693,6 +933,28 @@ namespace System.Drawing.Primitives.Tests
         {
             // The COLORREF value has the following hexadecimal form: 0x00bbggrr.
             return color.B << 16 | color.G << 8 | color.R;
+        }
+
+        [Fact]
+        public void SystemColor_AlternativeColors()
+        {
+            try
+            {
+#pragma warning disable SYSLIB5002 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+                Drawing.SystemColors.UseAlternativeColorSet = true;
+#pragma warning restore SYSLIB5002
+
+                Assert.Equal(0xFF464646, (uint)Drawing.SystemColors.ActiveBorder.ToArgb());
+                Assert.Equal(0xFFF0F0F0, (uint)Drawing.SystemColors.WindowText.ToArgb());
+                Assert.Equal(0xFF202020, (uint)Drawing.SystemColors.ButtonFace.ToArgb());
+                Assert.Equal(0xFF2A80D2, (uint)Drawing.SystemColors.MenuHighlight.ToArgb());
+            }
+            finally
+            {
+#pragma warning disable SYSLIB5002 // Type is for evaluation purposes only and is subject to change or removal in future updates. Suppress this diagnostic to proceed.
+                Drawing.SystemColors.UseAlternativeColorSet = false;
+#pragma warning restore SYSLIB5002
+            }
         }
     }
 }

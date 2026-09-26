@@ -20,7 +20,7 @@ namespace System.Buffers
     {
         // Store the shared ArrayPool in a field of its derived sealed type so the Jit can "see" the exact type
         // when the Shared property is inlined which will allow it to devirtualize calls made on it.
-        private static readonly TlsOverPerCoreLockedStacksArrayPool<T> s_shared = new TlsOverPerCoreLockedStacksArrayPool<T>();
+        private static readonly SharedArrayPool<T> s_shared = new SharedArrayPool<T>();
 
         /// <summary>
         /// Retrieves a shared <see cref="ArrayPool{T}"/> instance.
@@ -32,8 +32,6 @@ namespace System.Buffers
         /// array than was requested. Renting a buffer from it with <see cref="Rent"/> will result in an
         /// existing buffer being taken from the pool if an appropriate buffer is available or in a new
         /// buffer being allocated if one is not available.
-        /// byte[] and char[] are the most commonly pooled array types. For these we use a special pool type
-        /// optimized for very fast access speeds, at the expense of more memory consumption.
         /// The shared pool instance is created lazily on first access.
         /// </remarks>
         public static ArrayPool<T> Shared => s_shared;
@@ -97,5 +95,11 @@ namespace System.Buffers
         /// if it's determined that the pool already has enough buffers stored.
         /// </remarks>
         public abstract void Return(T[] array, bool clearArray = false);
+
+        internal void Return(T[] array, int lengthToClear)
+        {
+            array.AsSpan(0, lengthToClear).Clear();
+            Return(array);
+        }
     }
 }

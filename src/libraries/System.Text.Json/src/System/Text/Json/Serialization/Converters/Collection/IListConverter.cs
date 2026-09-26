@@ -3,47 +3,36 @@
 
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Text.Json.Serialization.Metadata;
 
 namespace System.Text.Json.Serialization.Converters
 {
     /// Converter for <cref>System.Collections.IList</cref>.
     internal sealed class IListConverter<TCollection>
-        : IEnumerableDefaultConverter<TCollection, object?>
+        : JsonCollectionConverter<TCollection, object?>
         where TCollection : IList
     {
+        internal override bool CanPopulate => true;
+
         protected override void Add(in object? value, ref ReadStack state)
         {
-            ((IList)state.Current.ReturnValue!).Add(value);
+            TCollection collection = (TCollection)state.Current.ReturnValue!;
+            collection.Add(value);
+            if (IsValueType)
+            {
+                state.Current.ReturnValue = collection;
+            }
         }
 
-        protected override void CreateCollection(ref Utf8JsonReader reader, ref ReadStack state, JsonSerializerOptions options)
+        protected override void CreateCollection(ref Utf8JsonReader reader, scoped ref ReadStack state, JsonSerializerOptions options)
         {
-            JsonClassInfo classInfo = state.Current.JsonClassInfo;
-
-            if (TypeToConvert.IsInterface || TypeToConvert.IsAbstract)
+            base.CreateCollection(ref reader, ref state, options);
+            TCollection returnValue = (TCollection)state.Current.ReturnValue!;
+            if (returnValue.IsReadOnly)
             {
-                if (!TypeToConvert.IsAssignableFrom(RuntimeType))
-                {
-                    ThrowHelper.ThrowNotSupportedException_CannotPopulateCollection(TypeToConvert, ref reader, ref state);
-                }
-
-                state.Current.ReturnValue = new List<object?>();
-            }
-            else
-            {
-                if (classInfo.CreateObject == null)
-                {
-                    ThrowHelper.ThrowNotSupportedException_DeserializeNoConstructor(TypeToConvert, ref reader, ref state);
-                }
-
-                TCollection returnValue = (TCollection)classInfo.CreateObject()!;
-
-                if (returnValue.IsReadOnly)
-                {
-                    ThrowHelper.ThrowNotSupportedException_CannotPopulateCollection(TypeToConvert, ref reader, ref state);
-                }
-
-                state.Current.ReturnValue = returnValue;
+                state.Current.ReturnValue = null; // clear out for more accurate JsonPath reporting.
+                ThrowHelper.ThrowNotSupportedException_CannotPopulateCollection(Type, ref reader, ref state);
             }
         }
 
@@ -55,7 +44,7 @@ namespace System.Text.Json.Serialization.Converters
             int index = state.Current.EnumeratorIndex;
             JsonConverter<object?> elementConverter = GetElementConverter(ref state);
 
-            if (elementConverter.CanUseDirectReadOrWrite && state.Current.NumberHandling == null)
+            if (elementConverter.CanUseDirectReadOrWrite && state.Current.NumberHandling is null)
             {
                 // Fast path that avoids validation and extra indirection.
                 for (; index < list.Count; index++)
@@ -74,7 +63,9 @@ namespace System.Text.Json.Serialization.Converters
                         return false;
                     }
 
-                    if (ShouldFlush(writer, ref state))
+                    state.Current.EndCollectionElement();
+
+                    if (ShouldFlush(ref state, writer))
                     {
                         state.Current.EnumeratorIndex = ++index;
                         return false;
@@ -85,16 +76,13 @@ namespace System.Text.Json.Serialization.Converters
             return true;
         }
 
-        internal override Type RuntimeType
+        internal override void ConfigureJsonTypeInfo(JsonTypeInfo jsonTypeInfo, JsonSerializerOptions options)
         {
-            get
+            // Deserialize as List<object?> for interface types that support it.
+            if (jsonTypeInfo.CreateObject is null && Type.IsAssignableFrom(typeof(List<object?>)))
             {
-                if (TypeToConvert.IsAbstract || TypeToConvert.IsInterface)
-                {
-                    return typeof(List<object?>);
-                }
-
-                return TypeToConvert;
+                Debug.Assert(Type.IsInterface);
+                jsonTypeInfo.CreateObject = () => new List<object?>();
             }
         }
     }

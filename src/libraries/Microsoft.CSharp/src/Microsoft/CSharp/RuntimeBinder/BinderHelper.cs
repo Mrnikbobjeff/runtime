@@ -4,12 +4,13 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic;
 using System.Linq;
 using System.Linq.Expressions;
-using System.Runtime.InteropServices;
-using System.Reflection;
 using System.Numerics.Hashing;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using Microsoft.CSharp.RuntimeBinder.Errors;
 
 namespace Microsoft.CSharp.RuntimeBinder
@@ -19,6 +20,8 @@ namespace Microsoft.CSharp.RuntimeBinder
         private static MethodInfo s_DoubleIsNaN;
         private static MethodInfo s_SingleIsNaN;
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         internal static DynamicMetaObject Bind(
                 ICSharpBinder action,
                 RuntimeBinder binder,
@@ -68,13 +71,13 @@ namespace Microsoft.CSharp.RuntimeBinder
                 {
                     if (o.Value is double && double.IsNaN((double)o.Value))
                     {
-                        MethodInfo isNaN = s_DoubleIsNaN ?? (s_DoubleIsNaN = typeof(double).GetMethod("IsNaN"));
+                        MethodInfo isNaN = s_DoubleIsNaN ??= typeof(double).GetMethod("IsNaN");
                         Expression e = Expression.Call(null, isNaN, o.Expression);
                         restrictions = restrictions.Merge(BindingRestrictions.GetExpressionRestriction(e));
                     }
                     else if (o.Value is float && float.IsNaN((float)o.Value))
                     {
-                        MethodInfo isNaN = s_SingleIsNaN ?? (s_SingleIsNaN = typeof(float).GetMethod("IsNaN"));
+                        MethodInfo isNaN = s_SingleIsNaN ??= typeof(float).GetMethod("IsNaN");
                         Expression e = Expression.Call(null, isNaN, o.Expression);
                         restrictions = restrictions.Merge(BindingRestrictions.GetExpressionRestriction(e));
                     }
@@ -144,11 +147,7 @@ namespace Microsoft.CSharp.RuntimeBinder
 
         public static void ValidateBindArgument(DynamicMetaObject argument, string paramName)
         {
-            if (argument == null)
-            {
-                throw Error.ArgumentNull(paramName);
-            }
-
+            ArgumentNullException.ThrowIfNull(argument, paramName);
             if (!argument.HasValue)
             {
                 throw Error.DynamicArgumentNeedsValue(paramName);
@@ -159,7 +158,7 @@ namespace Microsoft.CSharp.RuntimeBinder
         {
             if (arguments != null) // null is treated as empty, so not invalid
             {
-                for (int i = 0; i != arguments.Length; ++i)
+                for (int i = 0; i < arguments.Length; ++i)
                 {
                     ValidateBindArgument(arguments[i], $"{paramName}[{i}]");
                 }
@@ -476,6 +475,7 @@ namespace Microsoft.CSharp.RuntimeBinder
         }
 
 #if !ENABLECOMBINDER
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         internal static void ThrowIfUsingDynamicCom(DynamicMetaObject target)
         {
             if (target.LimitType.IsCOMObject)

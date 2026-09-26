@@ -1,7 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Reflection;
@@ -25,7 +25,6 @@ namespace System.Configuration
         private SettingsLoadedEventHandler _onSettingsLoaded;
         private SettingsSavingEventHandler _onSettingsSaving;
         private string _settingsKey = string.Empty;
-        private bool _firstLoad = true;
         private bool _initialized;
 
         /// <summary>
@@ -57,10 +56,7 @@ namespace System.Configuration
         /// </summary>
         protected ApplicationSettingsBase(IComponent owner, string settingsKey) : this(settingsKey)
         {
-            if (owner == null)
-            {
-                throw new ArgumentNullException(nameof(owner));
-            }
+            ArgumentNullException.ThrowIfNull(owner);
 
             _owner = owner;
 
@@ -342,10 +338,7 @@ namespace System.Configuration
         /// </summary>
         public void Reload()
         {
-            if (PropertyValues != null)
-            {
-                PropertyValues.Clear();
-            }
+            PropertyValues?.Clear();
 
             foreach (SettingsProperty sp in Properties)
             {
@@ -364,11 +357,7 @@ namespace System.Configuration
             {
                 foreach (SettingsProvider provider in Providers)
                 {
-                    IApplicationSettingsProvider clientProv = provider as IApplicationSettingsProvider;
-                    if (clientProv != null)
-                    {
-                        clientProv.Reset(Context);
-                    }
+                    (provider as IApplicationSettingsProvider)?.Reset(Context);
                 }
             }
 
@@ -435,11 +424,7 @@ namespace System.Configuration
             {
                 foreach (SettingsProvider provider in Providers)
                 {
-                    IApplicationSettingsProvider clientProv = provider as IApplicationSettingsProvider;
-                    if (clientProv != null)
-                    {
-                        clientProv.Upgrade(Context, GetPropertiesForProvider(provider));
-                    }
+                    (provider as IApplicationSettingsProvider)?.Upgrade(Context, GetPropertiesForProvider(provider));
                 }
             }
 
@@ -519,7 +504,7 @@ namespace System.Configuration
                     //       level and also property level, the latter overrides the former
                     //       for a given setting. This is exactly the behavior we want.
 
-                    settingsProperty.Attributes.Add(attribute.GetType(), attribute);
+                    settingsProperty.Attributes[attribute.GetType()] = attribute;
                 }
             }
 
@@ -558,10 +543,7 @@ namespace System.Configuration
 
                 Type type = GetType();
 
-                if (_context == null)
-                {
-                    _context = new SettingsContext();
-                }
+                _context ??= new SettingsContext();
                 _context["GroupName"] = type.FullName;
                 _context["SettingsKey"] = SettingsKey;
                 _context["SettingsClassType"] = type;
@@ -569,15 +551,8 @@ namespace System.Configuration
                 PropertyInfo[] properties = SettingsFilter(type.GetProperties(BindingFlags.Instance | BindingFlags.Public));
                 _classAttributes = type.GetCustomAttributes(false);
 
-                if (_settings == null)
-                {
-                    _settings = new SettingsPropertyCollection();
-                }
-
-                if (_providers == null)
-                {
-                    _providers = new SettingsProviderCollection();
-                }
+                _settings ??= new SettingsPropertyCollection();
+                _providers ??= new SettingsProviderCollection();
 
                 for (int i = 0; i < properties.Length; i++)
                 {
@@ -629,10 +604,7 @@ namespace System.Configuration
                                 }
                                 else if (attr is SettingsGroupNameAttribute)
                                 {
-                                    if (_context == null)
-                                    {
-                                        _context = new SettingsContext();
-                                    }
+                                    _context ??= new SettingsContext();
                                     _context["GroupName"] = ((SettingsGroupNameAttribute)attr).GroupName;
                                 }
                                 else if (attr is SettingsProviderAttribute)
@@ -713,20 +685,11 @@ namespace System.Configuration
         {
             if (PropertyValues[propertyName] == null)
             {
-
-                // If this is our first load and we are part of a Clickonce app, call Upgrade.
-                if (_firstLoad)
-                {
-                    _firstLoad = false;
-
-                    if (IsFirstRunOfClickOnceApp())
-                    {
-                        Upgrade();
-                    }
-                }
-
+                // we query the value first so that we initialize all values from value providers and so that we don't end up
+                // on an infinite recursion when calling Properties[propertyName] as that calls this.
+                _ = base[propertyName];
                 SettingsProperty setting = Properties[propertyName];
-                SettingsProvider provider = setting != null ? setting.Provider : null;
+                SettingsProvider provider = setting?.Provider;
 
                 Debug.Assert(provider != null, "Could not determine provider from which settings were loaded");
 
@@ -744,31 +707,12 @@ namespace System.Configuration
         }
 
         /// <summary>
-        /// Returns true if this is a clickonce deployed app and this is the first run of the app
-        /// since deployment or last upgrade.
-        /// </summary>
-        private bool IsFirstRunOfClickOnceApp()
-        {
-            // Always false for .NET Core
-            return false;
-        }
-
-        /// <summary>
-        /// Returns true if this is a clickonce deployed app.
-        /// </summary>
-        internal static bool IsClickOnceDeployed(AppDomain appDomain)
-        {
-            // Always false for .NET Core
-            return false;
-        }
-
-        /// <summary>
         /// Only those settings class properties that have a SettingAttribute on them are
         /// treated as settings. This routine filters out other properties.
         /// </summary>
-        private PropertyInfo[] SettingsFilter(PropertyInfo[] allProps)
+        private static PropertyInfo[] SettingsFilter(PropertyInfo[] allProps)
         {
-            ArrayList settingProps = new ArrayList();
+            var settingProps = new List<PropertyInfo>();
             object[] attributes;
             Attribute attr;
 
@@ -786,7 +730,7 @@ namespace System.Configuration
                 }
             }
 
-            return (PropertyInfo[])settingProps.ToArray(typeof(PropertyInfo));
+            return settingProps.ToArray();
         }
 
         /// <summary>

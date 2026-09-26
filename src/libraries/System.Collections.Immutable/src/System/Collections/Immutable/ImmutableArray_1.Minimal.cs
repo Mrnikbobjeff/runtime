@@ -39,8 +39,7 @@ namespace System.Collections.Immutable
         /// An empty (initialized) instance of <see cref="ImmutableArray{T}"/>.
         /// </summary>
 #pragma warning disable CA1825
-        // Array.Empty<T>() doesn't exist in all configurations
-        // Switching to Array.Empty also has a non-negligible impact on the working set memory
+        // Avoid the extra generic instantiation for Array.Empty<T>()
         public static readonly ImmutableArray<T> Empty = new ImmutableArray<T>(new T[0]);
 #pragma warning restore CA1825
 
@@ -51,7 +50,7 @@ namespace System.Collections.Immutable
         /// This would be private, but we make it internal so that our own extension methods can access it.
         /// </remarks>
         [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
-        internal T[]? array;
+        internal readonly T[]? array;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ImmutableArray{T}"/> struct
@@ -132,7 +131,6 @@ namespace System.Collections.Immutable
             }
         }
 
-#if !NETSTANDARD1_0
         /// <summary>
         /// Gets a read-only reference to the element at the specified index in the read-only list.
         /// </summary>
@@ -147,7 +145,6 @@ namespace System.Collections.Immutable
             // of removing array bounds checking to work.
             return ref this.array![index];
         }
-#endif
 
         /// <summary>
         /// Gets a value indicating whether this collection is empty.
@@ -194,7 +191,7 @@ namespace System.Collections.Immutable
         {
             get
             {
-                var self = this;
+                ImmutableArray<T> self = this;
                 return self.array == null || self.array.Length == 0;
             }
         }
@@ -216,8 +213,8 @@ namespace System.Collections.Immutable
         {
             get
             {
-                var self = this;
-                return self.IsDefault ? "Uninitialized" : string.Format(CultureInfo.CurrentCulture, "Length = {0}", self.Length);
+                ImmutableArray<T> self = this;
+                return self.IsDefault ? "Uninitialized" : $"Length = {self.Length}";
             }
         }
 
@@ -227,9 +224,9 @@ namespace System.Collections.Immutable
         /// <param name="destination">The array to copy to.</param>
         public void CopyTo(T[] destination)
         {
-            var self = this;
+            ImmutableArray<T> self = this;
             self.ThrowNullRefIfNotInitialized();
-            Array.Copy(self.array!, destination, self.Length);
+            Array.Copy(self.array, destination, self.Length);
         }
 
         /// <summary>
@@ -239,9 +236,9 @@ namespace System.Collections.Immutable
         /// <param name="destinationIndex">The index into the destination array to which the first copied element is written.</param>
         public void CopyTo(T[] destination, int destinationIndex)
         {
-            var self = this;
+            ImmutableArray<T> self = this;
             self.ThrowNullRefIfNotInitialized();
-            Array.Copy(self.array!, 0, destination, destinationIndex, self.Length);
+            Array.Copy(self.array, 0, destination, destinationIndex, self.Length);
         }
 
         /// <summary>
@@ -253,9 +250,9 @@ namespace System.Collections.Immutable
         /// <param name="length">The number of elements to copy.</param>
         public void CopyTo(int sourceIndex, T[] destination, int destinationIndex, int length)
         {
-            var self = this;
+            ImmutableArray<T> self = this;
             self.ThrowNullRefIfNotInitialized();
-            Array.Copy(self.array!, sourceIndex, destination, destinationIndex, length);
+            Array.Copy(self.array, sourceIndex, destination, destinationIndex, length);
         }
 
         /// <summary>
@@ -264,7 +261,7 @@ namespace System.Collections.Immutable
         /// <returns>The new builder.</returns>
         public ImmutableArray<T>.Builder ToBuilder()
         {
-            var self = this;
+            ImmutableArray<T> self = this;
             if (self.Length == 0)
             {
                 return new Builder(); // allow the builder to create itself with a reasonable default capacity
@@ -282,9 +279,9 @@ namespace System.Collections.Immutable
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public Enumerator GetEnumerator()
         {
-            var self = this;
+            ImmutableArray<T> self = this;
             self.ThrowNullRefIfNotInitialized();
-            return new Enumerator(self.array!);
+            return new Enumerator(self.array);
         }
 
         /// <summary>
@@ -295,7 +292,7 @@ namespace System.Collections.Immutable
         /// </returns>
         public override int GetHashCode()
         {
-            var self = this;
+            ImmutableArray<T> self = this;
             return self.array == null ? 0 : self.array.GetHashCode();
         }
 
@@ -306,7 +303,7 @@ namespace System.Collections.Immutable
         /// <returns>
         ///   <c>true</c> if the specified <see cref="object"/> is equal to this instance; otherwise, <c>false</c>.
         /// </returns>
-        public override bool Equals(object? obj)
+        public override bool Equals([NotNullWhen(true)] object? obj)
         {
             return obj is IImmutableArray other && this.array == other.Array;
         }
@@ -333,10 +330,14 @@ namespace System.Collections.Immutable
         /// Covariant upcasts from this method may be reversed by calling the
         /// <see cref="ImmutableArray{T}.As{TOther}"/>  or <see cref="ImmutableArray{T}.CastArray{TOther}"/>method.
         /// </remarks>
-        public static ImmutableArray<T?> CastUp<TDerived>(ImmutableArray<TDerived> items)
+        public static ImmutableArray<
+#nullable disable
+            T
+#nullable restore
+            > CastUp<TDerived>(ImmutableArray<TDerived> items)
             where TDerived : class?, T
         {
-            return new ImmutableArray<T?>(items.array);
+            return new ImmutableArray<T>(items.array);
         }
 
         /// <summary>
@@ -344,9 +345,13 @@ namespace System.Collections.Immutable
         /// array to an array of type <typeparam name="TOther"/>.
         /// </summary>
         /// <exception cref="InvalidCastException">Thrown if the cast is illegal.</exception>
-        public ImmutableArray<TOther?> CastArray<TOther>() where TOther : class?
+        public ImmutableArray<
+#nullable disable
+            TOther
+#nullable restore
+            > CastArray<TOther>() where TOther : class?
         {
-            return new ImmutableArray<TOther?>((TOther?[]?)(object?)array);
+            return new ImmutableArray<TOther>((TOther[])(object)array!);
         }
 
         /// <summary>
@@ -364,9 +369,13 @@ namespace System.Collections.Immutable
         /// element types to their derived types. However, downcasting is only successful
         /// when it reverses a prior upcasting operation.
         /// </remarks>
-        public ImmutableArray<TOther?> As<TOther>() where TOther : class?
+        public ImmutableArray<
+#nullable disable
+            TOther
+#nullable restore
+            > As<TOther>() where TOther : class?
         {
-            return new ImmutableArray<TOther?>((this.array as TOther?[]));
+            return new ImmutableArray<TOther>((this.array as TOther[]));
         }
 
         /// <summary>
@@ -376,9 +385,9 @@ namespace System.Collections.Immutable
         /// <exception cref="InvalidOperationException">Thrown if the <see cref="IsDefault"/> property returns true.</exception>
         IEnumerator<T> IEnumerable<T>.GetEnumerator()
         {
-            var self = this;
+            ImmutableArray<T> self = this;
             self.ThrowInvalidOperationIfNotInitialized();
-            return EnumeratorObject.Create(self.array!);
+            return EnumeratorObject.Create(self.array);
         }
 
         /// <summary>
@@ -388,14 +397,15 @@ namespace System.Collections.Immutable
         /// <exception cref="InvalidOperationException">Thrown if the <see cref="IsDefault"/> property returns true.</exception>
         IEnumerator IEnumerable.GetEnumerator()
         {
-            var self = this;
+            ImmutableArray<T> self = this;
             self.ThrowInvalidOperationIfNotInitialized();
-            return EnumeratorObject.Create(self.array!);
+            return EnumeratorObject.Create(self.array);
         }
 
         /// <summary>
         /// Throws a null reference exception if the array field is null.
         /// </summary>
+        [MemberNotNull(nameof(array))]
         internal void ThrowNullRefIfNotInitialized()
         {
             // Force NullReferenceException if array is null by touching its Length.
@@ -417,9 +427,10 @@ namespace System.Collections.Immutable
         ///
         /// This is intended for explicitly implemented interface method and property implementations.
         /// </summary>
+        [MemberNotNull(nameof(array))]
         private void ThrowInvalidOperationIfNotInitialized()
         {
-            if (this.IsDefault)
+            if (this.array == null)
             {
                 throw new InvalidOperationException(SR.InvalidOperationOnDefaultArray);
             }

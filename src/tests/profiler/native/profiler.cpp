@@ -3,8 +3,21 @@
 
 #include "profiler.h"
 
+#include <thread>
+
+using std::thread;
+
+Profiler *Profiler::Instance = nullptr;
+
+std::atomic<bool> ShutdownGuard::s_preventHooks(false);
+std::atomic<int> ShutdownGuard::s_hooksInProgress(0);
+
+ProfilerCallback Profiler::s_callback;
+ManualEvent Profiler::s_callbackSet;
+
 Profiler::Profiler() : refCount(0), pCorProfilerInfo(nullptr)
 {
+    Profiler::Instance = this;
 }
 
 Profiler::~Profiler()
@@ -18,10 +31,12 @@ Profiler::~Profiler()
 
 HRESULT STDMETHODCALLTYPE Profiler::Initialize(IUnknown *pICorProfilerInfoUnk)
 {
+    ShutdownGuard::Initialize();
+
     printf("Profiler.dll!Profiler::Initialize\n");
     fflush(stdout);
 
-    HRESULT queryInterfaceResult = pICorProfilerInfoUnk->QueryInterface(__uuidof(ICorProfilerInfo11), reinterpret_cast<void **>(&this->pCorProfilerInfo));
+    HRESULT queryInterfaceResult = pICorProfilerInfoUnk->QueryInterface(__uuidof(ICorProfilerInfo15), reinterpret_cast<void **>(&this->pCorProfilerInfo));
     if (FAILED(queryInterfaceResult))
     {
         printf("Profiler.dll!Profiler::Initialize failed to QI for ICorProfilerInfo.\n");
@@ -35,6 +50,9 @@ HRESULT STDMETHODCALLTYPE Profiler::Shutdown()
 {
     printf("Profiler.dll!Profiler::Shutdown\n");
     fflush(stdout);
+
+    // Wait for any in progress profiler callbacks to finish.
+    ShutdownGuard::WaitForInProgressHooks();
 
     if (this->pCorProfilerInfo != nullptr)
     {
@@ -517,9 +535,16 @@ HRESULT STDMETHODCALLTYPE Profiler::EventPipeProviderCreated(EVENTPIPE_PROVIDER 
     return S_OK;
 }
 
+HRESULT STDMETHODCALLTYPE Profiler::LoadAsNotificationOnly(BOOL *pbNotificationOnly)
+{
+    *pbNotificationOnly = FALSE;
+    return S_OK;
+}
+
 HRESULT STDMETHODCALLTYPE Profiler::QueryInterface(REFIID riid, void **ppvObject)
 {
-    if (riid == __uuidof(ICorProfilerCallback10) ||
+    if (riid == __uuidof(ICorProfilerCallback11) ||
+        riid == __uuidof(ICorProfilerCallback10) ||
         riid == __uuidof(ICorProfilerCallback9) ||
         riid == __uuidof(ICorProfilerCallback8) ||
         riid == __uuidof(ICorProfilerCallback7) ||
@@ -567,12 +592,12 @@ String Profiler::GetFunctionIDName(FunctionID funcId)
 
     String name;
 
-    ClassID classId = NULL;
-    ModuleID moduleId = NULL;
-    mdToken token = NULL;
-    ULONG32 nTypeArgs = NULL;
+    ClassID classId = 0;
+    ModuleID moduleId = 0;
+    mdToken token = 0;
+    ULONG32 nTypeArgs = 0;
     ClassID typeArgs[SHORT_LENGTH];
-    COR_PRF_FRAME_INFO frameInfo = NULL;
+    COR_PRF_FRAME_INFO frameInfo = 0;
 
     HRESULT hr = S_OK;
     hr = pCorProfilerInfo->GetFunctionInfo2(funcId,
@@ -600,11 +625,11 @@ String Profiler::GetFunctionIDName(FunctionID funcId)
         return WCHAR("FuncNameLookupFailed");
     }
 
-    WCHAR funcName[STRING_LENGTH];
+    WCHAR funcName[STR_LENGTH];
     hr = pIMDImport->GetMethodProps(token,
                                     NULL,
                                     funcName,
-                                    STRING_LENGTH,
+                                    STR_LENGTH,
                                     0,
                                     0,
                                     NULL,
@@ -646,7 +671,7 @@ String Profiler::GetClassIDName(ClassID classId)
     ClassID typeArgs[SHORT_LENGTH];
     HRESULT hr = S_OK;
 
-    if (classId == NULL)
+    if (classId == 0)
     {
         printf("FAIL: Null ClassID passed in\n");
         return WCHAR("");
@@ -728,11 +753,11 @@ String Profiler::GetClassIDName(ClassID classId)
 
 String Profiler::GetModuleIDName(ModuleID modId)
 {
-    WCHAR moduleName[STRING_LENGTH];
+    WCHAR moduleName[STR_LENGTH];
     ULONG nameLength = 0;
     AssemblyID assemID;
 
-    if (modId == NULL)
+    if (modId == 0)
     {
         printf("FAIL: Null ModuleID\n");
         return WCHAR("NullModuleIDPassedIn");
@@ -740,7 +765,7 @@ String Profiler::GetModuleIDName(ModuleID modId)
 
     HRESULT hr = pCorProfilerInfo->GetModuleInfo(modId,
                                                  NULL,
-                                                 STRING_LENGTH,
+                                                 STR_LENGTH,
                                                  &nameLength,
                                                  moduleName,
                                                  &assemID);
@@ -751,6 +776,34 @@ String Profiler::GetModuleIDName(ModuleID modId)
     }
 
     return moduleName;
+}
+
+void Profiler::SetCallback(ProfilerCallback cb)
+{
+    assert(cb != NULL);
+    s_callback = cb;
+    s_callbackSet.Signal();
+}
+
+void Profiler::NotifyManagedCodeViaCallback(ICorProfilerInfo15  *pCorProfilerInfo)
+{
+    s_callbackSet.Wait();
+
+    thread callbackThread([&]()
+    {
+        // The destructor will be called from the profiler detach thread, which causes
+        // some crst order asserts if we call back in to managed code. Spin up
+        // a new thread to avoid that.
+        pCorProfilerInfo->InitializeCurrentThread();
+        s_callback(); 
+    });
+
+    callbackThread.join();
+}
+
+extern "C" EXPORT void STDMETHODCALLTYPE PassCallbackToProfiler(ProfilerCallback callback)
+{
+    Profiler::SetCallback(callback);
 }
 
 #ifndef WIN32

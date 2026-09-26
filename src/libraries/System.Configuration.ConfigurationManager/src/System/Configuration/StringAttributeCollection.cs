@@ -66,7 +66,7 @@ namespace System.Configuration
                 sb.Append(',');
             }
 
-            if (sb.Length > 0) sb.Length = sb.Length - 1;
+            if (sb.Length > 0) sb.Length--;
             return sb.Length == 0 ? null : sb.ToString();
         }
 
@@ -77,7 +77,7 @@ namespace System.Configuration
 
         private static void ThrowIfContainsDelimiter(string value)
         {
-            if (value.Contains(",")) // string.Contains(char) is .NetCore2.1+ specific
+            if (value.Contains(','))
                 throw new ConfigurationErrorsException(SR.Format(SR.Config_base_value_cannot_contain, ","));
         }
 
