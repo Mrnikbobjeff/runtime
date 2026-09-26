@@ -1,0 +1,1023 @@
+From a37a23c42fc0a18d1360eea7991a4b04891bf2b7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 26 Sep 2026 13:34:34 +0000
+Subject: [PATCH] Add CA1881: prefer MemoryExtensions.Split over counted
+ string.Split
+
+Implements the analyzer approved in dotnet/runtime#85487
+(API review 2023-06-01). Per the review, the initial version only
+reports string.Split calls that pass a count, since the span-based
+MemoryExtensions.Split/SplitAny overloads with a Span<Range> destination
+are an exact analogue of those. Category Performance, severity Info,
+no code fix.
+
+The rule is C#-only, is skipped when the span overloads don't exist
+(pre-.NET 8), and is not reported inside expression trees, async
+methods/lambdas/local functions, or iterators, where span locals
+can't be used.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01AdmaanBw8ruzpHQFgrisSa
+---
+ .../Microsoft.CodeAnalysis.NetAnalyzers.md    |  12 +
+ ...t.CodeAnalysis.NetAnalyzers.sarif.template |  19 ++
+ .../AnalyzerReleases.Unshipped.md             |   1 +
+ .../MicrosoftNetCoreAnalyzersResources.resx   |  12 +
+ .../PreferSpanSplitOverCountedStringSplit.cs  | 225 ++++++++++++++
+ .../MicrosoftNetCoreAnalyzersResources.cs.xlf |  15 +
+ .../MicrosoftNetCoreAnalyzersResources.de.xlf |  15 +
+ .../MicrosoftNetCoreAnalyzersResources.es.xlf |  15 +
+ .../MicrosoftNetCoreAnalyzersResources.fr.xlf |  15 +
+ .../MicrosoftNetCoreAnalyzersResources.it.xlf |  15 +
+ .../MicrosoftNetCoreAnalyzersResources.ja.xlf |  15 +
+ .../MicrosoftNetCoreAnalyzersResources.ko.xlf |  15 +
+ .../MicrosoftNetCoreAnalyzersResources.pl.xlf |  15 +
+ ...crosoftNetCoreAnalyzersResources.pt-BR.xlf |  15 +
+ .../MicrosoftNetCoreAnalyzersResources.ru.xlf |  15 +
+ .../MicrosoftNetCoreAnalyzersResources.tr.xlf |  15 +
+ ...osoftNetCoreAnalyzersResources.zh-Hans.xlf |  15 +
+ ...osoftNetCoreAnalyzersResources.zh-Hant.xlf |  15 +
+ .../DiagnosticCategoryAndIdRanges.txt         |   2 +-
+ .../Utilities/Compiler/WellKnownTypeNames.cs  |   1 +
+ ...ferSpanSplitOverCountedStringSplitTests.cs | 288 ++++++++++++++++++
+ 21 files changed, 754 insertions(+), 1 deletion(-)
+ create mode 100644 src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/Performance/PreferSpanSplitOverCountedStringSplit.cs
+ create mode 100644 src/Microsoft.CodeAnalysis.NetAnalyzers/tests/Microsoft.CodeAnalysis.NetAnalyzers.UnitTests/Microsoft.NetCore.Analyzers/Performance/PreferSpanSplitOverCountedStringSplitTests.cs
+
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers.md b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers.md
+index a8bb76e..f3d52aa 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers.md
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers.md
+@@ -1956,6 +1956,18 @@ If an array field is readonly and the array is never modified, the compiler can
+ |CodeFix|True|
+ ---
+ 
++## [CA1881](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1881): Prefer 'MemoryExtensions.Split' over 'string.Split' with a count
++
++'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span\<Range>' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.
++
++|Item|Value|
++|-|-|
++|Category|Performance|
++|Enabled|True|
++|Severity|Info|
++|CodeFix|False|
++---
++
+ ## [CA2000](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2000): Dispose objects before losing scope
+ 
+ If a disposable object is not explicitly disposed before all references to it are out of scope, the object will be disposed at some indeterminate time when the garbage collector runs the finalizer of the object. Because an exceptional event might occur that will prevent the finalizer of the object from running, the object should be explicitly disposed instead.
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers.sarif.template b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers.sarif.template
+index b9fa3ed..dd36e73 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers.sarif.template
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers.sarif.template
+@@ -3624,6 +3624,25 @@
+             ]
+           }
+         },
++        "CA1881": {
++          "id": "CA1881",
++          "shortDescription": "Prefer 'MemoryExtensions.Split' over 'string.Split' with a count",
++          "fullDescription": "'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span<Range>' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.",
++          "defaultLevel": "note",
++          "helpUri": "https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1881",
++          "properties": {
++            "category": "Performance",
++            "isEnabledByDefault": true,
++            "typeName": "PreferSpanSplitOverCountedStringSplitAnalyzer",
++            "languages": [
++              "C#"
++            ],
++            "tags": [
++              "Telemetry",
++              "EnabledRuleInAggressiveMode"
++            ]
++          }
++        },
+         "CA2000": {
+           "id": "CA2000",
+           "shortDescription": "Dispose objects before losing scope",
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/AnalyzerReleases.Unshipped.md b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/AnalyzerReleases.Unshipped.md
+index 0c4ae2e..f61421c 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/AnalyzerReleases.Unshipped.md
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/AnalyzerReleases.Unshipped.md
+@@ -8,6 +8,7 @@ CA1517 | Maintainability | Info | PreferReadOnlySpanOverSpanAnalyzer, [Documenta
+ CA1876 | Performance | Info | DoNotUseAsParallelInForEachLoopAnalyzer, [Documentation](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1876)
+ CA1877 | Performance | Info | CollapseMultiplePathOperationsAnalyzer, [Documentation](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1877)
+ CA1878 | Performance | Info | PreferReadOnlySpanPropertiesOverReadOnlyArrayFieldsAnalyzer, [Documentation](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1878)
++CA1881 | Performance | Info | PreferSpanSplitOverCountedStringSplitAnalyzer, [Documentation](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca1881)
+ CA2026 | Reliability | Info | PreferJsonElementParse, [Documentation](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2026)
+ CA2027 | Reliability | Info | DoNotUseNonCancelableTaskDelayWithWhenAny, [Documentation](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2027)
+ CA2028 | Reliability | Info | AvoidRedundantRegexIsMatchBeforeMatch, [Documentation](https://learn.microsoft.com/dotnet/fundamentals/code-analysis/quality-rules/ca2028)
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/MicrosoftNetCoreAnalyzersResources.resx b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/MicrosoftNetCoreAnalyzersResources.resx
+index cb129f5..48ff60d 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/MicrosoftNetCoreAnalyzersResources.resx
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/MicrosoftNetCoreAnalyzersResources.resx
+@@ -2352,4 +2352,16 @@ Widening and user defined conversions are not supported with generic types.</val
+     <value>Use ReadOnlySpan&lt;T&gt; property</value>
+     <comment>{Locked="ReadOnlySpan&lt;T&gt;"}</comment>
+   </data>
++  <data name="PreferSpanSplitOverCountedStringSplitTitle" xml:space="preserve">
++    <value>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</value>
++    <comment>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</comment>
++  </data>
++  <data name="PreferSpanSplitOverCountedStringSplitMessage" xml:space="preserve">
++    <value>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</value>
++    <comment>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</comment>
++  </data>
++  <data name="PreferSpanSplitOverCountedStringSplitDescription" xml:space="preserve">
++    <value>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</value>
++    <comment>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</comment>
++  </data>
+ </root>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/Performance/PreferSpanSplitOverCountedStringSplit.cs b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/Performance/PreferSpanSplitOverCountedStringSplit.cs
+new file mode 100644
+index 0000000..cf5b7e4
+--- /dev/null
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/Performance/PreferSpanSplitOverCountedStringSplit.cs
+@@ -0,0 +1,225 @@
++﻿// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++using System.Collections.Generic;
++using System.Collections.Immutable;
++using System.Linq;
++using Analyzer.Utilities;
++using Analyzer.Utilities.Extensions;
++using Microsoft.CodeAnalysis;
++using Microsoft.CodeAnalysis.Diagnostics;
++using Microsoft.CodeAnalysis.Operations;
++
++namespace Microsoft.NetCore.Analyzers.Performance
++{
++    using static MicrosoftNetCoreAnalyzersResources;
++
++    /// <summary>
++    /// CA1881: <inheritdoc cref="PreferSpanSplitOverCountedStringSplitTitle"/>
++    /// </summary>
++    /// <remarks>
++    /// Only calls that pass a count are reported: the length of the <c>Span&lt;Range&gt;</c> destination
++    /// plays the role of the count, so the span-based overloads are an exact analogue.
++    /// </remarks>
++    [DiagnosticAnalyzer(LanguageNames.CSharp)]
++    public sealed class PreferSpanSplitOverCountedStringSplitAnalyzer : DiagnosticAnalyzer
++    {
++        internal const string RuleId = "CA1881";
++
++        private const string SplitMethodName = "Split";
++        private const string SplitAnyMethodName = "SplitAny";
++
++        internal static readonly DiagnosticDescriptor Rule = DiagnosticDescriptorHelper.Create(
++            RuleId,
++            CreateLocalizableResourceString(nameof(PreferSpanSplitOverCountedStringSplitTitle)),
++            CreateLocalizableResourceString(nameof(PreferSpanSplitOverCountedStringSplitMessage)),
++            DiagnosticCategory.Performance,
++            RuleLevel.IdeSuggestion,
++            description: CreateLocalizableResourceString(nameof(PreferSpanSplitOverCountedStringSplitDescription)),
++            isPortedFxCopRule: false,
++            isDataflowRule: false);
++
++        public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics { get; } = ImmutableArray.Create(Rule);
++
++        public override void Initialize(AnalysisContext context)
++        {
++            context.EnableConcurrentExecution();
++            context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
++            context.RegisterCompilationStartAction(OnCompilationStart);
++        }
++
++        private static void OnCompilationStart(CompilationStartAnalysisContext context)
++        {
++            var compilation = context.Compilation;
++            if (!compilation.TryGetOrCreateTypeByMetadataName(WellKnownTypeNames.SystemMemoryExtensions, out var memoryExtensionsType) ||
++                !compilation.TryGetOrCreateTypeByMetadataName(WellKnownTypeNames.SystemReadOnlySpan1, out var readOnlySpanType) ||
++                !compilation.TryGetOrCreateTypeByMetadataName(WellKnownTypeNames.SystemSpan1, out var spanType) ||
++                !compilation.TryGetOrCreateTypeByMetadataName(WellKnownTypeNames.SystemRange, out var rangeType) ||
++                !compilation.TryGetOrCreateTypeByMetadataName(WellKnownTypeNames.SystemStringSplitOptions, out var stringSplitOptionsType))
++            {
++                return;
++            }
++
++            var charType = compilation.GetSpecialType(SpecialType.System_Char);
++            var intType = compilation.GetSpecialType(SpecialType.System_Int32);
++            var stringType = compilation.GetSpecialType(SpecialType.System_String);
++            var readOnlySpanOfChar = readOnlySpanType.Construct(charType);
++            var readOnlySpanOfString = readOnlySpanType.Construct(stringType);
++            var spanOfRange = spanType.Construct(rangeType);
++
++            // Look up the span-based analogues: MemoryExtensions.Split/SplitAny(ReadOnlySpan<char>, Span<Range>, <separator>, StringSplitOptions).
++            bool hasSplitChar = HasSpanSplitMethod(SplitMethodName, charType);
++            bool hasSplitSpan = HasSpanSplitMethod(SplitMethodName, readOnlySpanOfChar);
++            bool hasSplitAnyChars = HasSpanSplitMethod(SplitAnyMethodName, readOnlySpanOfChar);
++            bool hasSplitAnyStrings = HasSpanSplitMethod(SplitAnyMethodName, readOnlySpanOfString);
++
++            // Map each counted string.Split overload to the name of its span-based analogue.
++            var builder = ImmutableDictionary.CreateBuilder<IMethodSymbol, string>(SymbolEqualityComparer.Default);
++            foreach (var method in stringType.GetMembers(SplitMethodName).OfType<IMethodSymbol>())
++            {
++                if (method.IsStatic || method.Parameters.Length is not (2 or 3))
++                {
++                    continue;
++                }
++
++                var parameters = method.Parameters;
++                if (!SymbolEqualityComparer.Default.Equals(parameters[1].Type, intType) ||
++                    (parameters.Length == 3 && !SymbolEqualityComparer.Default.Equals(parameters[2].Type, stringSplitOptionsType)))
++                {
++                    continue;
++                }
++
++                var separatorType = parameters[0].Type;
++                string? replacement = separatorType switch
++                {
++                    // string.Split(char, int, StringSplitOptions) => MemoryExtensions.Split(..., char, ...)
++                    _ when SymbolEqualityComparer.Default.Equals(separatorType, charType) => hasSplitChar ? SplitMethodName : null,
++                    // string.Split(string, int, StringSplitOptions) => MemoryExtensions.Split(..., ReadOnlySpan<char>, ...)
++                    _ when SymbolEqualityComparer.Default.Equals(separatorType, stringType) => hasSplitSpan ? SplitMethodName : null,
++                    // string.Split(char[], int[, StringSplitOptions]) => MemoryExtensions.SplitAny(..., ReadOnlySpan<char>, ...)
++                    IArrayTypeSymbol { Rank: 1, ElementType.SpecialType: SpecialType.System_Char } => hasSplitAnyChars ? SplitAnyMethodName : null,
++                    // string.Split(string[], int, StringSplitOptions) => MemoryExtensions.SplitAny(..., ReadOnlySpan<string>, ...)
++                    IArrayTypeSymbol { Rank: 1, ElementType.SpecialType: SpecialType.System_String } => hasSplitAnyStrings ? SplitAnyMethodName : null,
++                    _ => null,
++                };
++
++                if (replacement is not null)
++                {
++                    builder.Add(method, replacement);
++                }
++            }
++
++            if (builder.Count == 0)
++            {
++                return;
++            }
++
++            var countedSplitMethods = builder.ToImmutable();
++            var linqExpressionType = compilation.GetOrCreateTypeByMetadataName(WellKnownTypeNames.SystemLinqExpressionsExpression1);
++
++            context.RegisterOperationAction(context =>
++            {
++                var invocation = (IInvocationOperation)context.Operation;
++                if (!countedSplitMethods.TryGetValue(invocation.TargetMethod, out var replacement))
++                {
++                    return;
++                }
++
++                // Spans can't be used in expression trees, nor (before C# 13) as locals in async methods or iterators.
++                if (invocation.IsWithinExpressionTree(linqExpressionType) ||
++                    IsInAsyncMethodOrIterator(invocation, context.ContainingSymbol))
++                {
++                    return;
++                }
++
++                context.ReportDiagnostic(invocation.CreateDiagnostic(Rule, replacement));
++            }, OperationKind.Invocation);
++
++            bool HasSpanSplitMethod(string name, ITypeSymbol separatorType)
++            {
++                foreach (var member in memoryExtensionsType.GetMembers(name))
++                {
++                    if (member is IMethodSymbol { IsStatic: true, IsGenericMethod: false, Parameters.Length: 4 } method &&
++                        method.ReturnType.SpecialType == SpecialType.System_Int32 &&
++                        SymbolEqualityComparer.Default.Equals(method.Parameters[0].Type, readOnlySpanOfChar) &&
++                        SymbolEqualityComparer.Default.Equals(method.Parameters[1].Type, spanOfRange) &&
++                        SymbolEqualityComparer.Default.Equals(method.Parameters[2].Type, separatorType) &&
++                        SymbolEqualityComparer.Default.Equals(method.Parameters[3].Type, stringSplitOptionsType))
++                    {
++                        return true;
++                    }
++                }
++
++                return false;
++            }
++        }
++
++        private static bool IsInAsyncMethodOrIterator(IOperation operation, ISymbol containingSymbol)
++        {
++            IMethodSymbol? containingMethod;
++            IOperation? body;
++            if (operation.IsWithinLambdaOrLocalFunction(out var lambdaOrLocalFunction))
++            {
++                (containingMethod, body) = lambdaOrLocalFunction switch
++                {
++                    // Lambdas can't be iterators, so there is no body to search for 'yield'.
++                    IAnonymousFunctionOperation anonymousFunction => (anonymousFunction.Symbol, null),
++                    ILocalFunctionOperation localFunction => (localFunction.Symbol, localFunction),
++                    _ => (null, null),
++                };
++            }
++            else
++            {
++                containingMethod = containingSymbol as IMethodSymbol;
++                body = operation.GetRoot();
++            }
++
++            if (containingMethod is null)
++            {
++                return false;
++            }
++
++            if (containingMethod.IsAsync)
++            {
++                return true;
++            }
++
++            // IMethodSymbol.IsIterator isn't available in the Roslyn version these analyzers build against,
++            // so recognize a (synchronous) iterator by its return type and a 'yield' in its own body.
++            return body is not null &&
++                containingMethod.ReturnType.OriginalDefinition.SpecialType is
++                    SpecialType.System_Collections_IEnumerable or
++                    SpecialType.System_Collections_Generic_IEnumerable_T or
++                    SpecialType.System_Collections_IEnumerator or
++                    SpecialType.System_Collections_Generic_IEnumerator_T &&
++                ContainsYield(body);
++        }
++
++        private static bool ContainsYield(IOperation body)
++        {
++            var stack = new Stack<IOperation>();
++            stack.Push(body);
++            while (stack.Count > 0)
++            {
++                foreach (var child in stack.Pop().ChildOperations)
++                {
++                    switch (child.Kind)
++                    {
++                        case OperationKind.YieldReturn or OperationKind.YieldBreak:
++                            return true;
++
++                        // A 'yield' in a nested function makes that function the iterator, not this one.
++                        case OperationKind.AnonymousFunction or OperationKind.LocalFunction:
++                            continue;
++
++                        default:
++                            stack.Push(child);
++                            break;
++                    }
++                }
++            }
++
++            return false;
++        }
++    }
++}
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.cs.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.cs.xlf
+index ddf8bd5..cef47cb 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.cs.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.cs.xlf
+@@ -2473,6 +2473,21 @@ Rozšíření a uživatelem definované převody se u obecných typů nepodporuj
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">Stream má přetížení ReadAsync, které jako první argument přijímá Memory&lt;Byte&gt;, a přetížení WriteAsync, které jako první argument přijímá ReadOnlyMemory&lt;Byte&gt;. Upřednostňujte volání přetížení založených na paměti, která jsou efektivnější.</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.de.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.de.xlf
+index 10b8dd5..10e322b 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.de.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.de.xlf
+@@ -2473,6 +2473,21 @@ Erweiterungen und benutzerdefinierte Konvertierungen werden bei generischen Type
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">Stream verfügt über eine Überladung "ReadAsync", die "Memory&lt;Byte&gt;" als erstes Argument akzeptiert, sowie über eine Überladung "WriteAsync", die "ReadOnlyMemory&lt;Byte&gt;" als erstes Argument akzeptiert. Rufen Sie möglichst arbeitsspeicherbasierte Überladungen auf, da diese effizienter sind.</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.es.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.es.xlf
+index 1c45107..55f6ad9 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.es.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.es.xlf
+@@ -2473,6 +2473,21 @@ La ampliación y las conversiones definidas por el usuario no se admiten con tip
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">"Stream" tiene una sobrecarga "ReadAsync" que toma "Memory&lt;Byte&gt;" como primer argumento y una sobrecarga "WriteAsync" que toma "ReadOnlyMemory&lt;Byte&gt;" como primer argumento. Es preferible llamar a las sobrecargas basadas en memory, que son más eficaces.</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.fr.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.fr.xlf
+index a17c0c7..852d665 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.fr.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.fr.xlf
+@@ -2473,6 +2473,21 @@ Les conversions étendues et définies par l’utilisateur ne sont pas prises en
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">'Stream’ a une surcharge ’ReadAsync’ qui prend un ’Memory&lt;Byte&gt;' comme premier argument et une surcharge ’WriteAsync’ qui prend un ’ReadOnlyMemory&lt;Byte&gt;' comme premier argument. Préférez l'appel des surcharges basées sur la mémoire, car elles sont plus efficaces.</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.it.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.it.xlf
+index d11b172..eea4ef0 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.it.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.it.xlf
+@@ -2473,6 +2473,21 @@ L'ampliamento e le conversioni definite dall'utente non sono supportate con tipi
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">'Stream' contiene un overload 'ReadAsync' che accetta 'Memory&lt;Byte&gt;' come primo argomento e un overload 'WriteAsync' che accetta 'ReadOnlyMemory&lt;Byte&gt;' come primo argomento. Per la chiamata preferire gli overload basati su Memory, che sono più efficaci.</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.ja.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.ja.xlf
+index dd60036..d0345eb 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.ja.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.ja.xlf
+@@ -2473,6 +2473,21 @@ Enumerable.OfType&lt;T&gt; で使用されるジェネリック型チェック (
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">'Stream' には、最初の引数として 'Memory&lt;Byte&gt;' を取る 'ReadAsync' オーバーロードと、最初の引数として 'ReadOnlyMemory&lt;Byte&gt;' を取る 'WriteAsync' オーバーロードがあります。より効率的なメモリ ベースのオーバーロードを呼び出すことをお勧めします。</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.ko.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.ko.xlf
+index 7e1d6cd..d807e2f 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.ko.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.ko.xlf
+@@ -2473,6 +2473,21 @@ Enumerable.OfType&lt;T&gt;에서 사용하는 제네릭 형식 검사(C# 'is' 
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">'Stream'에 첫 번째 인수로 'Memory&lt;Byte&gt;'를 사용하는 'ReadAsync' 오버로드와 첫 번째 인수로 'ReadOnlyMemory&lt;Byte&gt;'를 사용하는 'WriteAsync' 오버로드가 있습니다. 더 효율적인 메모리 기반 오버로드를 호출하는 것이 좋습니다.</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.pl.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.pl.xlf
+index 9bb0557..80b1862 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.pl.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.pl.xlf
+@@ -2473,6 +2473,21 @@ Konwersje poszerzane i zdefiniowane przez użytkownika nie są obsługiwane w pr
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">Element „Stream” ma przeciążenie „ReadAsync”, które przyjmuje „Memory&lt;Byte&gt;” jako pierwszy argument i przeciążenie „WriteAsync”, które przyjmuje „ReadOnlyMemory&lt;Byte&gt;” jako pierwszy argument. Preferuj wywoływanie przeciążeń opartych na pamięci, co jest bardziej wydajne.</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.pt-BR.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.pt-BR.xlf
+index e1c144d..5e0c017 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.pt-BR.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.pt-BR.xlf
+@@ -2473,6 +2473,21 @@ As ampliação e conversões definidas pelo usuário não são compatíveis com
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">'Stream' tem uma sobrecarga 'ReadAsync' que recebe um 'Memory&lt;Byte&gt;' como o primeiro argumento e uma sobrecarga 'WriteAsync' que recebe um 'ReadOnlyMemory&lt;Byte&gt;' como o primeiro argumento. Prefira chamar as sobrecargas com base na memória, que são mais eficientes.</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.ru.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.ru.xlf
+index db7db6d..86e1bc8 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.ru.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.ru.xlf
+@@ -2473,6 +2473,21 @@ Widening and user defined conversions are not supported with generic types.</sou
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">"Stream" содержит перегрузку "ReadAsync", которая принимает в качестве первого аргумента "Memory&lt;Byte&gt;", и перегрузку "WriteAsync", которая принимает в качестве первого аргумента "ReadOnlyMemory&lt;Byte&gt;". Старайтесь использовать перегрузки на основе памяти, которые являются более эффективными.</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.tr.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.tr.xlf
+index 63f36bf..4c1477b 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.tr.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.tr.xlf
+@@ -2473,6 +2473,21 @@ Genel türlerde genişletme ve kullanıcı tanımlı dönüştürmeler desteklen
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">'Stream', ilk bağımsız değişken olarak 'Memory&lt;Byte&gt;' alan bir 'ReadAsync' aşırı yüklemesine ve ilk bağımsız değişken olarak 'ReadOnlyMemory&lt;Byte&gt;' alan bir 'WriteAsync' aşırı yüklemesine sahip. Daha verimli olan bellek tabanlı aşırı yüklemeleri çağırmayı tercih edin.</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.zh-Hans.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.zh-Hans.xlf
+index 55f2323..e4e78f6 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.zh-Hans.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.zh-Hans.xlf
+@@ -2473,6 +2473,21 @@ Enumerable.OfType&lt;T&gt; 使用的泛型类型检查(C# 'is' operator/IL 'isin
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">"Stream" 有一个将 "Memory&lt;Byte&gt;" 作为第一个参数的 "ReadAsync" 重载和一个将 "Memory&lt;Byte&gt;" 作为第一个参数的 "WriteAsync" 重载。首选调用基于内存的重载，它们的效率更高。</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.zh-Hant.xlf b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.zh-Hant.xlf
+index 45b0392..bdd3eab 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.zh-Hant.xlf
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Microsoft.CodeAnalysis.NetAnalyzers/Microsoft.NetCore.Analyzers/xlf/MicrosoftNetCoreAnalyzersResources.zh-Hant.xlf
+@@ -2473,6 +2473,21 @@ Enumerable.OfType&lt;T&gt; 使用的一般型別檢查 (C# 'is' operator/IL 'isi
+         <target state="new">Prefer ReadOnlySpan&lt;T&gt; properties over readonly array fields</target>
+         <note>{Locked="ReadOnlySpan&lt;T&gt;"}{Locked="readonly"}</note>
+       </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitDescription">
++        <source>'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</source>
++        <target state="new">'string.Split' allocates a new array and a new string for every part. When a maximum count is passed, 'MemoryExtensions.Split' and 'MemoryExtensions.SplitAny' produce the same parts as ranges into a caller-provided 'Span&lt;Range&gt;' whose length acts as the count, with the last range holding the remainder of the input. The parts can then be sliced from the original string without allocating.</target>
++        <note>{Locked="string.Split"}{Locked="MemoryExtensions.Split"}{Locked="MemoryExtensions.SplitAny"}{Locked="Span&lt;Range&gt;"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitMessage">
++        <source>Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</source>
++        <target state="new">Use 'MemoryExtensions.{0}' with a 'Span&lt;Range&gt;' destination instead of 'string.Split' with a count to avoid allocating an array and substrings</target>
++        <note>{Locked="MemoryExtensions"}{Locked="Span&lt;Range&gt;"}{Locked="string.Split"}</note>
++      </trans-unit>
++      <trans-unit id="PreferSpanSplitOverCountedStringSplitTitle">
++        <source>Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</source>
++        <target state="new">Prefer 'MemoryExtensions.Split' over 'string.Split' with a count</target>
++        <note>{Locked="MemoryExtensions.Split"}{Locked="string.Split"}</note>
++      </trans-unit>
+       <trans-unit id="PreferStreamAsyncMemoryOverloadsDescription">
+         <source>'Stream' has a 'ReadAsync' overload that takes a 'Memory&lt;Byte&gt;' as the first argument, and a 'WriteAsync' overload that takes a 'ReadOnlyMemory&lt;Byte&gt;' as the first argument. Prefer calling the memory based overloads, which are more efficient.</source>
+         <target state="translated">'Stream' 具有採用 'Memory&lt;Byte&gt;' 作為第一個引數的 'ReadAsync' 多載，以及採用 'ReadOnlyMemory&lt;Byte&gt;' 作為第一個引數的 'WriteAsync' 多載。建議呼叫採用記憶體的多載，較有效率。</target>
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Utilities/Compiler/DiagnosticCategoryAndIdRanges.txt b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Utilities/Compiler/DiagnosticCategoryAndIdRanges.txt
+index d8122cc..314fe6c 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Utilities/Compiler/DiagnosticCategoryAndIdRanges.txt
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Utilities/Compiler/DiagnosticCategoryAndIdRanges.txt
+@@ -12,7 +12,7 @@
+ Design: CA2210, CA1000-CA1070
+ Globalization: CA2101, CA1300-CA1311
+ Mobility: CA1600-CA1601
+-Performance: HA, CA1800-CA1880
++Performance: HA, CA1800-CA1881
+ Security: CA2100-CA2153, CA2300-CA2330, CA3000-CA3147, CA5300-CA5405
+ Usage: CA1801, CA1806, CA1816, CA2200-CA2209, CA2211-CA2267
+ Naming: CA1700-CA1727
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Utilities/Compiler/WellKnownTypeNames.cs b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Utilities/Compiler/WellKnownTypeNames.cs
+index e2b744d..35abac5 100644
+--- a/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Utilities/Compiler/WellKnownTypeNames.cs
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/src/Utilities/Compiler/WellKnownTypeNames.cs
+@@ -441,6 +441,7 @@ namespace Analyzer.Utilities
+         public const string SystemString = "System.String";
+         public const string SystemStringComparer = "System.StringComparer";
+         public const string SystemStringComparison = "System.StringComparison";
++        public const string SystemStringSplitOptions = "System.StringSplitOptions";
+         public const string SystemSystemException = "System.SystemException";
+         public const string SystemTextCompositeFormat = "System.Text.CompositeFormat";
+         public const string SystemTextEncoding = "System.Text.Encoding";
+diff --git a/src/Microsoft.CodeAnalysis.NetAnalyzers/tests/Microsoft.CodeAnalysis.NetAnalyzers.UnitTests/Microsoft.NetCore.Analyzers/Performance/PreferSpanSplitOverCountedStringSplitTests.cs b/src/Microsoft.CodeAnalysis.NetAnalyzers/tests/Microsoft.CodeAnalysis.NetAnalyzers.UnitTests/Microsoft.NetCore.Analyzers/Performance/PreferSpanSplitOverCountedStringSplitTests.cs
+new file mode 100644
+index 0000000..71a50c5
+--- /dev/null
++++ b/src/Microsoft.CodeAnalysis.NetAnalyzers/tests/Microsoft.CodeAnalysis.NetAnalyzers.UnitTests/Microsoft.NetCore.Analyzers/Performance/PreferSpanSplitOverCountedStringSplitTests.cs
+@@ -0,0 +1,288 @@
++﻿// Licensed to the .NET Foundation under one or more agreements.
++// The .NET Foundation licenses this file to you under the MIT license.
++
++using System.Threading.Tasks;
++using Microsoft.CodeAnalysis.CSharp;
++using Microsoft.CodeAnalysis.Testing;
++using VerifyCS = Test.Utilities.CSharpCodeFixVerifier<
++    Microsoft.NetCore.Analyzers.Performance.PreferSpanSplitOverCountedStringSplitAnalyzer,
++    Microsoft.CodeAnalysis.Testing.EmptyCodeFixProvider>;
++
++namespace Microsoft.NetCore.Analyzers.Performance.UnitTests
++{
++    [TestClass]
++    public class PreferSpanSplitOverCountedStringSplitTests
++    {
++        [TestMethod]
++        [DataRow("s.Split(',', 2)", "Split")]
++        [DataRow("s.Split(',', 2, StringSplitOptions.RemoveEmptyEntries)", "Split")]
++        [DataRow("s.Split(new[] { ',', ';' }, 3)", "SplitAny")]
++        [DataRow("s.Split(new[] { ',', ';' }, 3, StringSplitOptions.TrimEntries)", "SplitAny")]
++        [DataRow("s.Split((char[])null, 3)", "SplitAny")]
++        [DataRow("s.Split(\", \", 2, StringSplitOptions.None)", "Split")]
++        [DataRow("s.Split(\", \", 2)", "Split")]
++        [DataRow("s.Split(new[] { \", \", \"; \" }, 2, StringSplitOptions.None)", "SplitAny")]
++        public async Task CountedSplit_Diagnostic(string call, string replacement)
++        {
++            // lang=C#-test
++            string source = $$"""
++                using System;
++
++                class C
++                {
++                    string[] M(string s) => {|#0:{{call}}|};
++                }
++                """;
++
++            await VerifyAsync(source, VerifyCS.Diagnostic().WithLocation(0).WithArguments(replacement));
++        }
++
++        [TestMethod]
++        public async Task NonConstantCount_Diagnostic()
++        {
++            string source = """
++                using System;
++
++                class C
++                {
++                    void M(string s, int count)
++                    {
++                        var parts = [|s.Split(':', count)|];
++                        Console.WriteLine(parts.Length);
++                    }
++                }
++                """;
++
++            await VerifyAsync(source);
++        }
++
++        [TestMethod]
++        public async Task NamedAndReorderedArguments_Diagnostic()
++        {
++            string source = """
++                using System;
++
++                class C
++                {
++                    string[] M(string s) => [|s.Split(options: StringSplitOptions.None, count: 2, separator: '=')|];
++                }
++                """;
++
++            await VerifyAsync(source);
++        }
++
++        [TestMethod]
++        public async Task NestedInAnotherExpression_Diagnostic()
++        {
++            string source = """
++                using System;
++
++                class C
++                {
++                    void M(string s)
++                    {
++                        Console.WriteLine([|s.Split('=', 2)|][0]);
++                        Console.WriteLine([|[|s.Split('=', 2)|][1].Split(',', 3)|].Length);
++                    }
++                }
++                """;
++
++            await VerifyAsync(source);
++        }
++
++        [TestMethod]
++        public async Task LambdaAndNonAsyncLocalFunction_Diagnostic()
++        {
++            string source = """
++                using System;
++                using System.Threading.Tasks;
++
++                class C
++                {
++                    async Task M(string s)
++                    {
++                        await Task.Yield();
++                        Func<string, string[]> f = x => [|x.Split(',', 2)|];
++                        Console.WriteLine(Local(s).Length + f(s).Length);
++
++                        static string[] Local(string x) => [|x.Split(',', 2)|];
++                    }
++                }
++                """;
++
++            await VerifyAsync(source);
++        }
++
++        [TestMethod]
++        [DataRow("s.Split(',')")]
++        [DataRow("s.Split(',', ';')")]
++        [DataRow("s.Split(new[] { ',', ';' })")]
++        [DataRow("s.Split(',', StringSplitOptions.RemoveEmptyEntries)")]
++        [DataRow("s.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)")]
++        [DataRow("s.Split(\", \")")]
++        [DataRow("s.Split(\", \", StringSplitOptions.None)")]
++        [DataRow("s.Split(new[] { \", \" }, StringSplitOptions.None)")]
++        public async Task UncountedSplit_NoDiagnostic(string call)
++        {
++            // lang=C#-test
++            string source = $$"""
++                using System;
++
++                class C
++                {
++                    string[] M(string s) => {{call}};
++                }
++                """;
++
++            await VerifyAsync(source);
++        }
++
++        [TestMethod]
++        public async Task SpanSplitNotAvailable_NoDiagnostic()
++        {
++            string source = """
++                using System;
++
++                class C
++                {
++                    string[] M(string s) => s.Split(',', 2, StringSplitOptions.None);
++                }
++                """;
++
++            await new VerifyCS.Test
++            {
++                ReferenceAssemblies = ReferenceAssemblies.Net.Net70,
++                LanguageVersion = LanguageVersion.CSharp11,
++                TestCode = source,
++            }.RunAsync();
++        }
++
++        [TestMethod]
++        public async Task ExpressionTree_NoDiagnostic()
++        {
++            string source = """
++                using System;
++                using System.Linq.Expressions;
++
++                class C
++                {
++                    Expression<Func<string, string[]>> M() => s => s.Split(',', 2, StringSplitOptions.None);
++                }
++                """;
++
++            await VerifyAsync(source);
++        }
++
++        [TestMethod]
++        public async Task AsyncMethod_NoDiagnostic()
++        {
++            string source = """
++                using System.Threading.Tasks;
++
++                class C
++                {
++                    async Task<string> M(string s)
++                    {
++                        await Task.Yield();
++                        return s.Split(',', 2)[0];
++                    }
++                }
++                """;
++
++            await VerifyAsync(source);
++        }
++
++        [TestMethod]
++        public async Task AsyncLambdaAndLocalFunction_NoDiagnostic()
++        {
++            string source = """
++                using System;
++                using System.Threading.Tasks;
++
++                class C
++                {
++                    void M(string s)
++                    {
++                        Func<Task<int>> f = async () =>
++                        {
++                            await Task.Yield();
++                            return s.Split(',', 2).Length;
++                        };
++
++                        async Task<int> Local()
++                        {
++                            await Task.Yield();
++                            return s.Split(',', 2).Length;
++                        }
++
++                        _ = f;
++                        _ = Local();
++                    }
++                }
++                """;
++
++            await VerifyAsync(source);
++        }
++
++        [TestMethod]
++        public async Task Iterator_NoDiagnostic()
++        {
++            string source = """
++                using System.Collections.Generic;
++
++                class C
++                {
++                    IEnumerable<string> M(string s)
++                    {
++                        yield return s.Split(',', 2)[0];
++                    }
++                }
++                """;
++
++            await VerifyAsync(source);
++        }
++
++        [TestMethod]
++        public async Task OtherSplitMethods_NoDiagnostic()
++        {
++            string source = """
++                using System.Text.RegularExpressions;
++
++                class C
++                {
++                    string[] M(string s, Splitter splitter)
++                    {
++                        _ = splitter.Split(',', 2);
++                        _ = s.Split(2, ',');
++                        return Regex.Split(s, ",");
++                    }
++                }
++
++                class Splitter
++                {
++                    public string[] Split(char separator, int count) => null;
++                }
++
++                static class StringExtensions
++                {
++                    public static string[] Split(this string s, int count, char separator) => null;
++                }
++                """;
++
++            await VerifyAsync(source);
++        }
++
++        private static Task VerifyAsync(string source, params DiagnosticResult[] expected)
++        {
++            var test = new VerifyCS.Test
++            {
++                ReferenceAssemblies = ReferenceAssemblies.Net.Net80,
++                LanguageVersion = LanguageVersion.CSharp12,
++                TestCode = source,
++            };
++
++            test.ExpectedDiagnostics.AddRange(expected);
++            return test.RunAsync();
++        }
++    }
++}
+-- 
+2.43.0
+
