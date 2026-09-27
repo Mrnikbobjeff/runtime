@@ -98,6 +98,35 @@ public static class NumberTarget
 
     private static bool IsStyleError(Exception e) => e is ArgumentException;
 
+    private static bool HasHugeExponent(string text)
+    {
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (text[i] is 'e' or 'E')
+            {
+                int j = i + 1;
+                while (j < text.Length && !char.IsAsciiDigit(text[j]) && j - i < 4)
+                {
+                    j++; // a sign (possibly a multi-char custom one)
+                }
+
+                int digits = 0;
+                while (j < text.Length && char.IsAsciiDigit(text[j]))
+                {
+                    j++;
+                    digits++;
+                }
+
+                if (digits >= 6)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     private static bool IsHexOrBinary(NumberStyles styles) => (styles & (NumberStyles.AllowHexSpecifier | NumberStyles.AllowBinarySpecifier)) != 0;
 
     /// <summary>Runs all parse overloads and checks that they agree. Returns the TryParse outcome.</summary>
@@ -128,7 +157,9 @@ public static class NumberTarget
         var parsed = ParseAll<T>(c);
 
         // BigInteger shares the front end but not the digit accumulation / overflow checks.
-        if (parsed.Ok && !IsHexOrBinary(c.Styles))
+        // Known (BIGINTEGER-EXP-1): BigInteger materializes the value of a huge exponent ("1e100000000"
+        // takes a minute and 300 MB), so skip the reference for exponents of 6+ digits.
+        if (parsed.Ok && !IsHexOrBinary(c.Styles) && !HasHugeExponent(c.Text))
         {
             bool refOk = BigInteger.TryParse(c.Text, c.Styles, c.Nfi, out BigInteger reference);
             bool inRange = refOk && reference >= BigInteger.CreateTruncating(T.MinValue) && reference <= BigInteger.CreateTruncating(T.MaxValue);

@@ -21,12 +21,12 @@ the dotnet/runtime issue tracker yet.
 
 | Target | Assemblies | Wall-clock | Execs | Edges | Result |
 |---|---|---|---|---|---|
-| `number`, `guid`, `version`, `searchvalues` | CoreLib | 30 min each (3 instances) | 7.0 M / 6.6 M / 19.3 M / 27.7 M | 11.6 k / 4.2 k / 4.1 k / 10.5 k | NUMBER-NEGZERO-1, UTF8 symbol issue (withheld); guid crashes were all a harness false positive |
+| `number`, `guid`, `version`, `searchvalues` | CoreLib | 30 min each (3 instances) | 7.0 M / 6.6 M / 19.3 M / 27.7 M | 11.6 k / 4.2 k / 4.1 k / 10.5 k | NUMBER-NEGZERO-1, BIGINTEGER-EXP-1 (the 108 hangs), UTF8 symbol issue (withheld); guid crashes were all a harness false positive |
 | `base64`, `compositeformat`, `resources` | CoreLib | 10–30 min (Sep 26) | | | BASE64-STREAM-1, COMPOSITEFORMAT-1/2, RESOURCES-1 |
 | `datetime` (TimeSpan part) | CoreLib | 30 min (Sep 26) | | | TIMESPAN-1 |
 | `tensorprimitives` | Tensors 11.0 RC1 package | 60 min (3 instances) | 51.9 M | 15.9 k | TENSORS-NUMBER-NAN-1, TENSORS-COPYSIGN-1, TENSORS-HALF-FMA-1 |
 | `tensorprimitives` | Tensors, `tensorprimitives-block-reductions` branch | 60 min (2 instances) | 58.3 M | 16.3 k | no new findings |
-| `tensorprimitives` | Tensors, `argmin-blocks` branch | 60 min (3 instances) | ARGMIN_EXECS | ARGMIN_EDGES | ARGMIN_RESULT |
+| `tensorprimitives` | Tensors, `argmin-blocks` branch | 60 min (3 instances) | 46.3 M | 16.1 k | no new findings |
 | `spanops` | CoreLib, System.Linq, System.Collections | 3 × 60 min (3 instances) | SPANOPS_EXECS | SPANOPS_EDGES | LINQ-SUM-1 |
 
 CoreLib's `datetime`, `encoding` and `enum` targets were triaged by a parallel session on branch
@@ -43,6 +43,7 @@ repeated or re-verified here.
 | [TENSORS-NUMBER-NAN-1](#tensors-number-nan-1) | `TensorPrimitives` | `MaxNumber`/`MinNumber`/`Max`-/`MinMagnitudeNumber` reductions return NaN when any element is NaN | Medium | still in main and both branches |
 | [TENSORS-COPYSIGN-1](#tensors-copysign-1) | `TensorPrimitives.CopySign` | Integer `CopySign(MinValue, +)` gives `MinValue` on the vector path, throws elsewhere | Low–Medium | |
 | [TENSORS-HALF-FMA-1](#tensors-half-fma-1) | `TensorPrimitives.FusedMultiplyAdd` | `Half` FMA rounds twice on the vector path | Low | |
+| [BIGINTEGER-EXP-1](#biginteger-exp-1) | `BigInteger.Parse` | Huge exponents are materialized: an 11-byte input takes a minute and 300 MB | Low–Medium (DoS with untrusted input) | not checked |
 | [LINQ-SUM-1](#linq-sum-1) | `Enumerable.Sum` | Overflow detection is per SIMD lane: throws for sums that fit, depending on length and CPU | Low | .NET 8, 9, 10 |
 | [RESOURCES-1](#resources-1) | `ResourceReader` | Unchecked header counts (~1 GB allocation from a 206-byte file) and undocumented exceptions on corrupt files | Low | .NET 8, 9, 10 |
 | [NUMBER-NEGZERO-1](#number-negzero-1) | `Number.Parsing` | Unsigned `TryParse` accepts `"-0"`/`"-0e5"` but rejects `"-0.0"` | Low | .NET 8, 9, 10 |
@@ -162,6 +163,25 @@ to even (8624). Computing the widened FMA in `double` (exact for `Half` inputs) 
 would give single rounding. This only affects the last bit, but FMA's point is single rounding, and
 the result again depends on the span length.
 
+### BIGINTEGER-EXP-1
+
+**`BigInteger.Parse`/`TryParse` with `NumberStyles.AllowExponent` (part of `Float` and `Any`)
+compute the full value of the exponent, so a few bytes of input cost minutes of CPU
+and hundreds of megabytes.**
+
+| Input | Time | Peak RSS |
+|---|---|---|
+| `BigInteger.TryParse("1e10000000", NumberStyles.Float, ...)` | 2.4 s | 59 MB |
+| `BigInteger.TryParse("1e100000000", NumberStyles.Float, ...)` | 57 s | 292 MB |
+| `BigInteger.TryParse("50e854775808", NumberStyles.Float, ...)` | > 180 s (killed) | > 700 MB |
+
+(Stock 11.0 RC1, one thread.) The primitive integer types reject the same strings in under a
+millisecond. This was found indirectly: all 108 hangs saved by the `number` target were the
+harness's `BigInteger` reference check running on such inputs. `BigInteger` values that large are
+legitimate, but a parser that accepts untrusted text with `AllowExponent` gives an attacker a
+cheap amplification. A documented cap on the exponent (or on the resulting size), or at least a
+note in the docs, would help. Older runtimes were not measured.
+
 ### LINQ-SUM-1
 
 **`Enumerable.Sum(int[])`/`Sum(long[])` throw `OverflowException` for inputs whose total fits and
@@ -224,8 +244,6 @@ These were raised by the first versions of the targets and turned out to be docu
 
 ## Limitations
 
-- The `number` target's 108 saved hangs reproduce (each input takes over 20 s outside AFL) but were
-  not analysed.
 - `datetime`, `encoding` and `enum` findings from the Sep 26 runs were triaged by the parallel
   session (branch `feature/sharpfuzz-corelib-instrument-fc6ce9`), not here.
 - Coverage feedback only comes from managed code, so the JIT's lowering of vector intrinsics is
