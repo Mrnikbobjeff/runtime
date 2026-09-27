@@ -26,7 +26,7 @@ the dotnet/runtime issue tracker yet.
 | `datetime` (TimeSpan part) | CoreLib | 30 min (Sep 26) | | | TIMESPAN-1 |
 | `tensorprimitives` | Tensors 11.0 RC1 package | 60 min (3 instances) | 51.9 M | 15.9 k | TENSORS-NUMBER-NAN-1, TENSORS-COPYSIGN-1, TENSORS-HALF-FMA-1 |
 | `tensorprimitives` | Tensors, `tensorprimitives-block-reductions` branch | 60 min (2 instances) | 58.3 M | 16.3 k | no new findings |
-| `tensorprimitives` | Tensors, `argmin-blocks` branch | 60 min (3 instances) | 46.3 M | 16.1 k | no new findings |
+| `tensorprimitives` | Tensors, `argmin-blocks` branch | 60 + 120 min (3 instances) | 134.4 M | 16.1 k | no new findings |
 | `utf8parser` | CoreLib (`Utf8Parser`, `Utf8Formatter`) | 40 + 60 min (2–3 instances) | 103.2 M | 10.1 k | UTF8PARSER-FLOAT-1, UTF8PARSER-DECIMAL-1 |
 | `spanops` | CoreLib, System.Linq, System.Collections | 3 × 60 min (3 instances) | 141.6 M | 16.3 k | LINQ-SUM-1 |
 
