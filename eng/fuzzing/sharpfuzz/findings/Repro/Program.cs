@@ -123,6 +123,77 @@ var checks = new (string Id, string Title, Func<(bool, string)> Check)[]
         encoder.Convert(chars, chars.Length, 0, buffer, 0, buffer.Length, true, out _, out int produced2, out bool completed2);
         return (!completed2, $"first call: charsUsed={used}/{chars.Length}, bytesUsed={produced}, completed={completed}; flushing again: bytesUsed={produced2}, completed={completed2}");
     }),
+
+    ("COMPOSITEFORMAT-1", "CompositeFormat.Parse(\"{4294967297}\") accepts an index string.Format rejects, and formats argument 1", () =>
+    {
+        string viaString;
+        try { viaString = string.Format(null, "{4294967297}", "a", "b"); } catch (FormatException) { viaString = "FormatException"; }
+        try
+        {
+            var cf = System.Text.CompositeFormat.Parse("{4294967297}");
+            string viaCf = string.Format(null, cf, "a", "b");
+            return (true, $"string.Format: {viaString}; CompositeFormat: MinimumArgumentCount={cf.MinimumArgumentCount}, formats as \"{viaCf}\"");
+        }
+        catch (FormatException) { return (false, $"string.Format: {viaString}; CompositeFormat.Parse: FormatException"); }
+    }),
+
+    ("COMPOSITEFORMAT-2", "For \"{0:}\" string.Format passes format null to IFormattable, CompositeFormat passes \"\"", () =>
+    {
+        var echo = new EchoFormat();
+        string viaString = string.Format(null, "{0:}", echo);
+        string viaCf = string.Format(null, System.Text.CompositeFormat.Parse("{0:}"), echo);
+        return (viaString != viaCf, $"string.Format gives {viaString}, CompositeFormat gives {viaCf}");
+    }),
+
+    ("TIMESPAN-1", "TimeSpan.TryParse(\"0:0:0.0000000123456789\") throws IndexOutOfRangeException", () =>
+    {
+        try { bool ok = TimeSpan.TryParse("0:0:0.0000000123456789", System.Globalization.CultureInfo.InvariantCulture, out TimeSpan t); return (false, $"returned {ok} ({t})"); }
+        catch (IndexOutOfRangeException) { return (true, "IndexOutOfRangeException"); }
+    }),
+
+    ("BASE64-STREAM-1", "Base64.DecodeFromUtf8 with isFinalBlock: false returns InvalidData for valid input with whitespace", () =>
+    {
+        byte[] input = Encoding.ASCII.GetBytes("S\r\nGVsbG8gV29y"); // "Hello Wor"
+        byte[] output = new byte[32];
+        var first = System.Buffers.Text.Base64.DecodeFromUtf8(input.AsSpan(0, 7), output, out int consumed, out int written, isFinalBlock: false);
+        var oneShot = System.Buffers.Text.Base64.DecodeFromUtf8(input, output, out _, out int all, isFinalBlock: true);
+        return (first == System.Buffers.OperationStatus.InvalidData,
+            $"first 7 bytes with isFinalBlock=false: {first} (consumed {consumed}, written {written}); whole input in one call: {oneShot} ({all} bytes)");
+    }),
+
+    ("RESOURCES-1", "A 206-byte .resources file with numResources = 0x10000000 makes ResourceReader allocate ~1 GB", () =>
+    {
+        var ms = new MemoryStream();
+        using (var w = new System.Resources.ResourceWriter(ms)) { w.AddResource("key", "value"); w.Generate(); }
+        byte[] file = ms.ToArray();
+        var br = new BinaryReader(new MemoryStream(file));
+        br.ReadInt32(); br.ReadInt32(); int skip = br.ReadInt32(); br.BaseStream.Seek(skip + 4, SeekOrigin.Current);
+        BitConverter.GetBytes(0x10000000).CopyTo(file, (int)br.BaseStream.Position); // numResources
+        long before = GC.GetTotalAllocatedBytes(precise: true);
+        string result;
+        try { using var reader = new System.Resources.ResourceReader(new MemoryStream(file)); result = "no exception"; }
+        catch (Exception e) { result = e.GetType().Name; }
+        long allocated = GC.GetTotalAllocatedBytes(precise: true) - before;
+        return (allocated > 100_000_000, $"{file.Length}-byte file: {result} after allocating {allocated / (1 << 20)} MB");
+    }),
+
+    ("NUMBER-NEGZERO-1", "uint.TryParse accepts \"-0\" and \"-0e5\" but rejects \"-0.0\" with NumberStyles.Float", () =>
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        string R(string s) => uint.TryParse(s, System.Globalization.NumberStyles.Float, inv, out uint v) ? v.ToString() : "false";
+        bool signed = int.TryParse("-0.0", System.Globalization.NumberStyles.Float, inv, out _);
+        return (R("-0.0") == "false" && R("-0") == "0", $"\"-0\": {R("-0")}, \"-0e5\": {R("-0e5")}, \"-0.0\": {R("-0.0")} (int.TryParse(\"-0.0\"): {signed})");
+    }),
+
+    ("LINQ-SUM-1", "Enumerable.Sum(int[32]) throws OverflowException although the sum (-2) and every running sum fit", () =>
+    {
+        var x = new int[32];
+        x[0] = int.MinValue; x[1] = int.MaxValue; x[8] = -1;
+        var shorter = x[..31];
+        string R(int[] a) { try { return a.Sum().ToString(); } catch (OverflowException) { return "OverflowException"; } }
+        string full = R(x);
+        return (full == "OverflowException", $"int[32]: {full}; same values as int[31]: {R(shorter)} (Vector<int>.Count = {System.Numerics.Vector<int>.Count}, accelerated = {System.Numerics.Vector.IsHardwareAccelerated})");
+    }),
 };
 
 Console.WriteLine(System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
@@ -130,6 +201,11 @@ foreach (var (id, title, check) in checks)
 {
     var (reproduced, observed) = check();
     Console.WriteLine($"{(reproduced ? "REPRODUCED" : "not seen  ")}  {id,-8} {title}\n            -> {observed}");
+}
+
+sealed class EchoFormat : IFormattable
+{
+    public string ToString(string? format, IFormatProvider? formatProvider) => format is null ? "<null>" : $"<\"{format}\">";
 }
 
 partial class Program
