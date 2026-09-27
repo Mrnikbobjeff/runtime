@@ -194,7 +194,9 @@ public static class SpanOpsTarget
                 break;
             case 27:
                 SplitCheck(hay.Split(v0), haystackArray, (a, i) => Eq(a[i], v0) ? 1 : 0, $"Split({Show(v0)})", what);
-                SplitCheck(hay.SplitAny(values), haystackArray, (a, i) => values.Any(v => Eq(a[i], v)) ? 1 : 0, "SplitAny(values)", what);
+                // Documented: for char, an empty separator span means "all Unicode whitespace" (like string.Split).
+                bool whiteSpace = typeof(T) == typeof(char) && values.Length == 0;
+                SplitCheck(hay.SplitAny(values), haystackArray, (a, i) => (whiteSpace ? char.IsWhiteSpace((char)(object)a[i]) : values.Any(v => Eq(a[i], v))) ? 1 : 0, "SplitAny(values)", what);
                 if (values.Length > 0)
                 {
                     SplitCheck(hay.Split(values.AsSpan()), haystackArray, (a, i) => i + values.Length <= a.Length && MatchAt<T>(a, values, i) ? values.Length : 0, "Split(sequence)", what);
