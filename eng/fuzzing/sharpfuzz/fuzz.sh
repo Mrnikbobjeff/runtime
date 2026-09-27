@@ -33,7 +33,7 @@ fi
 # parser allocate gigabytes fail fast with OutOfMemoryException instead of starving the box.
 export TZ="${TZ:-UTC}" DOTNET_GCHeapHardLimit="${DOTNET_GCHeapHardLimit:-0x40000000}"
 
-INPUT="$HERE/seeds/$TARGET"
+INPUT="${SHARPFUZZ_SEEDS:-$HERE/seeds/$TARGET}"   # SHARPFUZZ_SEEDS: e.g. the queue of an earlier campaign
 if [ -d "$OUT" ] && [ -n "$(ls -A "$OUT" 2>/dev/null)" ]; then
     INPUT="-"   # resume the previous session
     # afl-fuzz empties crashes/ and hangs/ when it resumes, so keep the old ones in archive/<time>/.

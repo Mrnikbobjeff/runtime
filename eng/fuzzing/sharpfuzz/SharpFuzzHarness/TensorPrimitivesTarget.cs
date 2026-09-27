@@ -166,8 +166,8 @@ public static class TensorPrimitivesTarget
                 c.Unary($"Round({rounding})", (x, d) => TensorPrimitives.Round(x, rounding, d), v => T.Round(v, rounding));
                 break;
             case 12: c.Unary("Sqrt", TensorPrimitives.Sqrt<T>, T.Sqrt); break;
-            case 13: c.Binary("FusedMultiplyAdd(x, y, x)", (x, y, d) => TensorPrimitives.FusedMultiplyAdd(x, y, x, d), (a, b) => T.FusedMultiplyAdd(a, b, a)); break;
-            case 14: c.BinaryScalar("FusedMultiplyAdd(x, s, y)", (x, s, d) => TensorPrimitives.FusedMultiplyAdd(x, s, x, d), (a, s) => T.FusedMultiplyAdd(a, s, a)); break;
+            case 13: c.Binary("FusedMultiplyAdd(x, y, x)", (x, y, d) => TensorPrimitives.FusedMultiplyAdd(x, y, x, d), (a, b) => T.FusedMultiplyAdd(a, b, a), typeof(T) == typeof(Half) ? HalfFmaViaSingle<T> : null); break;
+            case 14: c.BinaryScalar("FusedMultiplyAdd(x, s, x)", (x, s, d) => TensorPrimitives.FusedMultiplyAdd(x, s, x, d), (a, s) => T.FusedMultiplyAdd(a, s, a), typeof(T) == typeof(Half) ? HalfFmaViaSingle<T> : null); break;
             case 15: c.Unary("Reciprocal", TensorPrimitives.Reciprocal<T>, v => T.One / v); break;
             case 16: c.BinaryScalar("CopySign(x, s)", TensorPrimitives.CopySign<T>, T.CopySign); break;
             case 17: c.BinaryScalar("MaxNumber(x, s)", TensorPrimitives.MaxNumber<T>, T.MaxNumber); break;
@@ -341,16 +341,18 @@ public static class TensorPrimitivesTarget
         public void Unary(string name, Unary<T> vector, Func<T, T> scalar) =>
             Elementwise(name, (x, _, d) => vector(x, d), (a, _) => scalar(a), usesY: false);
 
-        public void Binary(string name, Binary<T> vector, Func<T, T, T> scalar) =>
-            Elementwise(name, (x, y, d) => vector(x, y, d), scalar, usesY: true);
+        public void Binary(string name, Binary<T> vector, Func<T, T, T> scalar, Func<T, T, T> knownAlternative = null) =>
+            Elementwise(name, (x, y, d) => vector(x, y, d), scalar, usesY: true, knownAlternative);
 
-        public void BinaryScalar(string name, BinaryScalar<T> vector, Func<T, T, T> scalar)
+        public void BinaryScalar(string name, BinaryScalar<T> vector, Func<T, T, T> scalar, Func<T, T, T> knownAlternative = null)
         {
             T s = Scalar;
-            Elementwise($"{name} with s = {Show(s)}", (x, _, d) => vector(x, s, d), (a, _) => scalar(a, s), usesY: false);
+            Elementwise($"{name} with s = {Show(s)}", (x, _, d) => vector(x, s, d), (a, _) => scalar(a, s), usesY: false,
+                knownAlternative is null ? null : (a, _) => knownAlternative(a, s));
         }
 
-        private void Elementwise(string name, Binary<T> vector, Func<T, T, T> scalar, bool usesY)
+        /// <param name="knownAlternative">Another result accepted for an element (a known issue), unless known issues are reported.</param>
+        private void Elementwise(string name, Binary<T> vector, Func<T, T, T> scalar, bool usesY, Func<T, T, T> knownAlternative = null)
         {
             string what = $"{typeof(T).Name} {name} of x = {Show(_x)}" + (usesY ? $", y = {Show(_y)}" : "") + $" ({mode})";
 
@@ -415,7 +417,19 @@ public static class TensorPrimitivesTarget
             Check.That(error == expectedError, $"{what} threw {error?.Name ?? "nothing"}, the scalar operation {expectedError?.Name ?? "nothing"}");
             if (error is null)
             {
-                CompareElements(expected, destination.Span.ToArray(), what, i => usesY ? $"{Show(_x[i])}, {Show(_y[i])}" : Show(_x[i]));
+                T[] actual = destination.Span.ToArray();
+                if (knownAlternative is not null && !s_reportKnownIssues)
+                {
+                    for (int i = 0; i < actual.Length; i++)
+                    {
+                        if (!Same(expected[i], actual[i]) && Same(knownAlternative(_x[i], _y[i]), actual[i]))
+                        {
+                            actual[i] = expected[i];
+                        }
+                    }
+                }
+
+                CompareElements(expected, actual, what, i => usesY ? $"{Show(_x[i])}, {Show(_y[i])}" : Show(_x[i]));
             }
         }
 
@@ -578,6 +592,13 @@ public static class TensorPrimitivesTarget
     // Helpers
 
     private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
+    /// <summary>
+    /// Known (TENSORS-HALF-FMA-1): the vectorized Half FusedMultiplyAdd computes the FMA in float and
+    /// rounds that to Half, so it can differ from Half.FusedMultiplyAdd (which rounds once) by an ulp.
+    /// </summary>
+    private static T HalfFmaViaSingle<T>(T a, T b) =>
+        (T)(object)(Half)float.FusedMultiplyAdd((float)(Half)(object)a, (float)(Half)(object)b, (float)(Half)(object)a);
 
     private static bool IsFloating<T>() => typeof(T) == typeof(float) || typeof(T) == typeof(double) || typeof(T) == typeof(Half);
 
