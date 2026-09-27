@@ -185,6 +185,22 @@ var checks = new (string Id, string Title, Func<(bool, string)> Check)[]
         return (R("-0.0") == "false" && R("-0") == "0", $"\"-0\": {R("-0")}, \"-0e5\": {R("-0e5")}, \"-0.0\": {R("-0.0")} (int.TryParse(\"-0.0\"): {signed})");
     }),
 
+    ("UTF8PARSER-FLOAT-1", "Utf8Parser reads \"63732000000000900.000\" as a different double than \"63732000000000900\" (tie rounded up)", () =>
+    {
+        System.Buffers.Text.Utf8Parser.TryParse("63732000000000900"u8, out double plain, out _);
+        System.Buffers.Text.Utf8Parser.TryParse("63732000000000900.000"u8, out double withZeros, out _);
+        double reference = double.Parse("63732000000000900.000", System.Globalization.CultureInfo.InvariantCulture);
+        return (withZeros != plain, $"\"...900\": {plain:R}, \"...900.000\": {withZeros:R}, double.Parse: {reference:R}");
+    }),
+
+    ("UTF8PARSER-DECIMAL-1", "Utf8Parser rounds decimal midpoints half away from zero, decimal.Parse half to even", () =>
+    {
+        const string text = "76228501625444444444444444444.5";
+        System.Buffers.Text.Utf8Parser.TryParse(Encoding.ASCII.GetBytes(text), out decimal viaUtf8, out _);
+        decimal viaParse = decimal.Parse(text, System.Globalization.CultureInfo.InvariantCulture);
+        return (viaUtf8 != viaParse, $"Utf8Parser: {viaUtf8}, decimal.Parse: {viaParse}");
+    }),
+
     ("LINQ-SUM-1", "Enumerable.Sum(int[32]) throws OverflowException although the sum (-2) and every running sum fit", () =>
     {
         var x = new int[32];

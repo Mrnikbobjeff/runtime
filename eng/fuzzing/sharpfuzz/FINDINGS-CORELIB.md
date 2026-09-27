@@ -27,6 +27,7 @@ the dotnet/runtime issue tracker yet.
 | `tensorprimitives` | Tensors 11.0 RC1 package | 60 min (3 instances) | 51.9 M | 15.9 k | TENSORS-NUMBER-NAN-1, TENSORS-COPYSIGN-1, TENSORS-HALF-FMA-1 |
 | `tensorprimitives` | Tensors, `tensorprimitives-block-reductions` branch | 60 min (2 instances) | 58.3 M | 16.3 k | no new findings |
 | `tensorprimitives` | Tensors, `argmin-blocks` branch | 60 min (3 instances) | 46.3 M | 16.1 k | no new findings |
+| `utf8parser` | CoreLib (`Utf8Parser`, `Utf8Formatter`) | UTF8PARSER_TIME | UTF8PARSER_EXECS | UTF8PARSER_EDGES | UTF8PARSER-FLOAT-1, UTF8PARSER-DECIMAL-1 |
 | `spanops` | CoreLib, System.Linq, System.Collections | 3 × 60 min (3 instances) | 141.6 M | 16.3 k | LINQ-SUM-1 |
 
 CoreLib's `datetime`, `encoding` and `enum` targets were triaged by a parallel session on branch
@@ -43,6 +44,8 @@ repeated or re-verified here.
 | [TENSORS-NUMBER-NAN-1](#tensors-number-nan-1) | `TensorPrimitives` | `MaxNumber`/`MinNumber`/`Max`-/`MinMagnitudeNumber` reductions return NaN when any element is NaN | Medium | still in main and both branches |
 | [TENSORS-COPYSIGN-1](#tensors-copysign-1) | `TensorPrimitives.CopySign` | Integer `CopySign(MinValue, +)` gives `MinValue` on the vector path, throws elsewhere | Low–Medium | |
 | [TENSORS-HALF-FMA-1](#tensors-half-fma-1) | `TensorPrimitives.FusedMultiplyAdd` | `Half` FMA rounds twice on the vector path | Low | |
+| [UTF8PARSER-FLOAT-1](#utf8parser-float-1) | `Utf8Parser` (double/float) | Exact ties round up instead of to even when there are zeros after the decimal point | Low–Medium | .NET 8, 9, 10 |
+| [UTF8PARSER-DECIMAL-1](#utf8parser-decimal-1) | `Utf8Parser` (decimal) | Excess digits round half away from zero; `decimal.Parse` rounds half to even | Low | .NET 8, 9, 10 |
 | [BIGINTEGER-EXP-1](#biginteger-exp-1) | `BigInteger.Parse` | Huge exponents are materialized: an 11-byte input takes a minute and 300 MB | Low–Medium (DoS with untrusted input) | not checked |
 | [LINQ-SUM-1](#linq-sum-1) | `Enumerable.Sum` | Overflow detection is per SIMD lane: throws for sums that fit, depending on length and CPU | Low | .NET 8, 9, 10 |
 | [RESOURCES-1](#resources-1) | `ResourceReader` | Unchecked header counts (~1 GB allocation from a 206-byte file) and undocumented exceptions on corrupt files | Low | .NET 8, 9, 10 |
@@ -162,6 +165,36 @@ The exact result 8619.99955 rounds to `float` as exactly 8620, which is a tie in
 to even (8624). Computing the widened FMA in `double` (exact for `Half` inputs) before narrowing
 would give single rounding. This only affects the last bit, but FMA's point is single rounding, and
 the result again depends on the span length.
+
+### UTF8PARSER-FLOAT-1
+
+**`Utf8Parser.TryParse` for `double` and `float` rounds an input that lies exactly halfway between
+two values up instead of to even when the text has digits after the decimal point, so the same
+number parses differently with and without trailing zeros.**
+
+```csharp
+Utf8Parser.TryParse("63732000000000900"u8, out double a, out _);     // 63732000000000896 (to even, like double.Parse)
+Utf8Parser.TryParse("63732000000000900.000"u8, out double b, out _); // 63732000000000904
+Utf8Parser.TryParse("2001000000.0000000000"u8, out float f, out _);  // 2.0010001E+09; float.Parse: 2.001E+09
+```
+
+63732000000000900 is exactly between the doubles …896 and …904, and IEEE round-half-to-even
+(what `double.Parse` does) picks …896. `Utf8Parser.Number.cs` copies the digits after the decimal
+point, trailing zeros included, into the number buffer, whereas `Number.TryParseNumber` (used by
+`double.Parse`) drops trailing zeros. The longer digit string then makes the conversion treat the
+tie as being above the midpoint. That's the likely cause, not verified in the conversion code.
+
+### UTF8PARSER-DECIMAL-1
+
+**`Utf8Parser.TryParse` for `decimal` rounds digits beyond decimal's precision half away from zero,
+while `decimal.Parse` rounds half to even.**
+
+```csharp
+Utf8Parser.TryParse("76228501625444444444444444444.5"u8, out decimal d, out _); // ...445
+decimal.Parse("76228501625444444444444444444.5", CultureInfo.InvariantCulture); // ...444
+```
+
+Two CoreLib parsers disagree in the last digit for such midpoints. Low severity.
 
 ### BIGINTEGER-EXP-1
 
