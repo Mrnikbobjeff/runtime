@@ -1,0 +1,8 @@
+magic="\xce\xca\xef\xbe"
+reader_type="System.Resources.ResourceReader, mscorlib"
+set_type="System.Resources.RuntimeResourceSet"
+string_type="System.String"
+int_type="System.Int32, mscorlib"
+datasection="\x00\x00\x00\x00"
+maxint="\xff\xff\xff\x7f"
+negone="\xff\xff\xff\xff"

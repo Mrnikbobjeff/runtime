@@ -4,20 +4,49 @@ namespace SharpFuzzHarness;
 
 public static class Program
 {
+    private static readonly Dictionary<string, ReadOnlySpanAction> s_targets = new()
+    {
+        ["regex"] = RegexTarget.Run,
+        ["json"] = JsonTarget.Run,
+        // System.Private.CoreLib
+        ["number"] = NumberTarget.Run,
+        ["datetime"] = DateTimeTarget.Run,
+        ["guid"] = GuidTarget.Run,
+        ["version"] = VersionTarget.Run,
+        ["enum"] = EnumTarget.Run,
+        ["base64"] = Base64Target.Run,
+        ["encoding"] = EncodingTarget.Run,
+        ["searchvalues"] = SearchValuesTarget.Run,
+        ["compositeformat"] = CompositeFormatTarget.Run,
+        ["resources"] = ResourcesTarget.Run,
+    };
+
     public static int Main(string[] args)
     {
         if (args.Length < 1)
         {
-            Console.Error.WriteLine("usage: SharpFuzzHarness <regex|json> [--repro <file>...]");
+            Console.Error.WriteLine($"usage: SharpFuzzHarness <{string.Join('|', s_targets.Keys)}> [--repro <file>...]");
             return 2;
         }
 
-        ReadOnlySpanAction target = args[0] switch
+        if (!s_targets.TryGetValue(args[0], out ReadOnlySpanAction? target))
         {
-            "regex" => RegexTarget.Run,
-            "json" => JsonTarget.Run,
-            _ => throw new ArgumentException($"Unknown target '{args[0]}'."),
-        };
+            throw new ArgumentException($"Unknown target '{args[0]}'.");
+        }
+
+        if (args.Length == 3 && args[1] == "--write-seeds")
+        {
+            IEnumerable<byte[]> seeds = Seeds.For(args[0]) ?? throw new ArgumentException($"No generated seeds for '{args[0]}'.");
+            Directory.CreateDirectory(args[2]);
+            int n = 0;
+            foreach (byte[] seed in seeds)
+            {
+                File.WriteAllBytes(Path.Combine(args[2], $"seed-{n++:D3}"), seed);
+            }
+
+            Console.WriteLine($"Wrote {n} seeds to {args[2]}");
+            return 0;
+        }
 
         if (args.Length > 1 && args[1] == "--repro")
         {
@@ -28,19 +57,80 @@ public static class Program
                 SharpFuzz.Common.Trace.SharedMem = (byte*)System.Runtime.InteropServices.NativeMemory.AllocZeroed(1 << 16);
             }
 
+            // SHARPFUZZ_SHOW_COVERAGE=1 prints the number of map entries each input touches
+            // (afl-showmap can't drive the out-of-process fork server).
+            bool showCoverage = Environment.GetEnvironmentVariable("SHARPFUZZ_SHOW_COVERAGE") is not null;
+            if (showCoverage)
+            {
+                Console.WriteLine($"Instrumented CoreLib: {CoreLibTrace.IsInstrumented}");
+            }
+
+            // SHARPFUZZ_REPEAT=n runs each input n times in this process and reports how many map
+            // entries (in AFL's hit-count buckets) differ between runs: a stability check that
+            // doesn't involve AFL.
+            if (int.TryParse(Environment.GetEnvironmentVariable("SHARPFUZZ_REPEAT"), out int repeat) && repeat > 1)
+            {
+                foreach (string file in args.Skip(2))
+                {
+                    byte[] data = File.ReadAllBytes(file);
+                    byte[]? previous = null;
+                    var diffs = new List<string>();
+                    var unstable = new HashSet<int>();
+                    for (int run = 0; run < repeat; run++)
+                    {
+                        byte[] map = RunOnce(target, data);
+                        if (previous is not null)
+                        {
+                            int differing = 0;
+                            for (int i = 0; i < map.Length; i++)
+                            {
+                                if (Bucket(map[i]) != Bucket(previous[i]))
+                                {
+                                    differing++;
+                                    if (run >= 2)
+                                    {
+                                        unstable.Add(i);
+                                    }
+                                }
+                            }
+
+                            diffs.Add(differing.ToString());
+                        }
+
+                        previous = map;
+                    }
+
+                    int covered = previous!.Count(b => b != 0);
+                    Console.WriteLine($"{file}: {covered} entries; differing from previous run: {string.Join(" ", diffs)}; unstable after warm-up: {unstable.Count} ({100.0 * (covered - unstable.Count) / Math.Max(1, covered):F1}% stable)");
+                }
+
+                return 0;
+            }
+
             int failures = 0;
             foreach (string file in args.Skip(2))
             {
+                byte[] data = File.ReadAllBytes(file);
+                unsafe
+                {
+                    new Span<byte>(SharpFuzz.Common.Trace.SharedMem, 1 << 16).Clear();
+                }
+
+                CoreLibTrace.Enter();
                 try
                 {
-                    target(File.ReadAllBytes(file));
-                    Console.WriteLine($"OK    {file}");
+                    target(data);
+                    Console.WriteLine($"OK    {file}{(showCoverage ? $" ({CoveredEntries()} map entries)" : "")}");
                 }
                 catch (Exception e)
                 {
                     failures++;
                     Console.WriteLine($"CRASH {file}");
                     Console.WriteLine(e);
+                }
+                finally
+                {
+                    CoreLibTrace.Leave();
                 }
             }
             return failures == 0 ? 0 : 1;
@@ -52,10 +142,56 @@ public static class Program
             stream.CopyTo(ms);
             byte[] data = ms.ToArray();
             SelfTest(data);
-            target(data);
+            if (s_warmup)
+            {
+                CoreLibTrace.RunWithWarmup(target, data);
+            }
+            else
+            {
+                CoreLibTrace.Run(target, data);
+            }
         });
         return 0;
     }
+
+    private static unsafe byte[] RunOnce(ReadOnlySpanAction target, byte[] data)
+    {
+        var map = new Span<byte>(SharpFuzz.Common.Trace.SharedMem, 1 << 16);
+        map.Clear();
+        try
+        {
+            if (s_warmup)
+            {
+                CoreLibTrace.RunWithWarmup(target, data);
+            }
+            else
+            {
+                CoreLibTrace.Run(target, data);
+            }
+        }
+        catch (Exception)
+        {
+        }
+
+        return map.ToArray();
+    }
+
+    // AFL's hit-count classes: 0, 1, 2, 3, 4-7, 8-15, 16-31, 32-127, 128+.
+    private static int Bucket(byte count) => count switch
+    {
+        0 => 0, 1 => 1, 2 => 2, 3 => 3, < 8 => 4, < 16 => 5, < 32 => 6, < 128 => 7, _ => 8,
+    };
+
+    private static unsafe int CoveredEntries()
+    {
+        var map = new ReadOnlySpan<byte>(SharpFuzz.Common.Trace.SharedMem, 1 << 16);
+        return map.Length - map.Count((byte)0);
+    }
+
+    // SHARPFUZZ_WARMUP=1: run every input twice and record only the second run (see
+    // CoreLibTrace.RunWithWarmup). Worth ~5 points of AFL stability on the CoreLib targets but
+    // costs ~40% of the exec rate, so it's off by default.
+    private static readonly bool s_warmup = Environment.GetEnvironmentVariable("SHARPFUZZ_WARMUP") == "1";
 
     // With SHARPFUZZ_HARNESS_SELFTEST set, inputs starting with "CRASHME" throw,
     // which proves the crash reporting path works end to end.

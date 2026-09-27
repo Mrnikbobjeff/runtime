@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -73,6 +74,55 @@ var checks = new (string Id, string Title, Func<(bool, string)> Check)[]
         bool r = CallDeepEquals("10e2147483647", "1e-2147483648");
         return (r, $"returned {r}");
     }),
+
+    ("BASE64URL-1", "Base64Url.TryDecodeFromChars(\"QUI\", 1-byte buffer) throws FormatException instead of returning false", () =>
+    {
+        if (Base64UrlTryDecodeFromChars is null) return (false, "Base64Url not available (< .NET 9)");
+        byte[] shortBuffer = new byte[1]; // "QUI" decodes to 2 bytes
+        try { bool ok = Base64UrlTryDecodeFromChars("QUI", shortBuffer, out int w); return (false, $"returned {ok}, wrote {w}"); }
+        catch (FormatException e) { return (true, $"FormatException: {e.Message}"); }
+    }),
+
+    ("HEX-1", "Convert.FromHexString(\"zz\", dst, out consumed, out written) reports charsConsumed=1 for an invalid first char", () =>
+    {
+        if (FromHexStringStatus is null) return (false, "Convert.FromHexString(span, span, out, out) not available (< .NET 9)");
+        var status = FromHexStringStatus("zz", new byte[1], out int consumed, out int written);
+        var status2 = FromHexStringStatus("0z", new byte[1], out int consumed2, out _);
+        return (consumed != 0, $"\"zz\": {status}, charsConsumed={consumed}, bytesWritten={written}; for comparison \"0z\": {status2}, charsConsumed={consumed2}");
+    }),
+
+    ("UTF7-1", "UTF-7 Encoder.Convert with a small output buffer duplicates output: \"ab\\u0100\" into 5-byte chunks", () =>
+    {
+#pragma warning disable SYSLIB0001
+        Encoder encoder = new UTF7Encoding().GetEncoder();
+#pragma warning restore SYSLIB0001
+        char[] chars = "ab\u0100".ToCharArray();
+        var output = new List<byte>();
+        byte[] buffer = new byte[5];
+        int pos = 0;
+        for (int i = 0; i < 10; i++)
+        {
+            encoder.Convert(chars, pos, chars.Length - pos, buffer, 0, buffer.Length, true, out int used, out int produced, out bool completed);
+            output.AddRange(buffer.AsSpan(0, produced).ToArray());
+            pos += used;
+            if (completed) break;
+        }
+
+        string result = Encoding.ASCII.GetString(output.ToArray());
+        return (result != "ab+AQA-", $"Convert produced \"{result}\", GetBytes produces \"ab+AQA-\"");
+    }),
+
+    ("UTF7-2", "UTF-7 Encoder.Convert never reports completed after a surrogate pair followed by a direct char: \"\\uD83D\\uDE00b\"", () =>
+    {
+#pragma warning disable SYSLIB0001
+        Encoder encoder = new UTF7Encoding().GetEncoder();
+#pragma warning restore SYSLIB0001
+        char[] chars = "\uD83D\uDE00b".ToCharArray();
+        byte[] buffer = new byte[64];
+        encoder.Convert(chars, 0, chars.Length, buffer, 0, buffer.Length, true, out int used, out int produced, out bool completed);
+        encoder.Convert(chars, chars.Length, 0, buffer, 0, buffer.Length, true, out _, out int produced2, out bool completed2);
+        return (!completed2, $"first call: charsUsed={used}/{chars.Length}, bytesUsed={produced}, completed={completed}; flushing again: bytesUsed={produced2}, completed={completed2}");
+    }),
 };
 
 Console.WriteLine(System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
@@ -84,6 +134,16 @@ foreach (var (id, title, check) in checks)
 
 partial class Program
 {
+    delegate bool TryDecodeChars(ReadOnlySpan<char> source, Span<byte> destination, out int bytesWritten);
+    delegate System.Buffers.OperationStatus HexStatus(ReadOnlySpan<char> source, Span<byte> destination, out int charsConsumed, out int bytesWritten);
+
+    // .NET 9+ APIs, bound dynamically so this also runs on .NET 8.
+    static readonly TryDecodeChars? Base64UrlTryDecodeFromChars = typeof(object).Assembly.GetType("System.Buffers.Text.Base64Url")
+        ?.GetMethod("TryDecodeFromChars", [typeof(ReadOnlySpan<char>), typeof(Span<byte>), typeof(int).MakeByRefType()])?.CreateDelegate<TryDecodeChars>();
+
+    static readonly HexStatus? FromHexStringStatus = typeof(Convert)
+        .GetMethod("FromHexString", [typeof(ReadOnlySpan<char>), typeof(Span<byte>), typeof(int).MakeByRefType(), typeof(int).MakeByRefType()])?.CreateDelegate<HexStatus>();
+
     // JsonElement.DeepEquals was added in .NET 9; bind to it dynamically so this also runs on .NET 8.
     static readonly MethodInfo? DeepEquals = typeof(JsonElement).GetMethod("DeepEquals", BindingFlags.Public | BindingFlags.Static);
 

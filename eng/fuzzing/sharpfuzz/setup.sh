@@ -13,7 +13,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORK="$HERE/.work"
+WORK="${SHARPFUZZ_WORK:-$HERE/.work}"
 DOTNET_VERSION="${DOTNET_VERSION:-11.0.0-rc.1.26425.128}"
 SHARPFUZZ_VERSION="${SHARPFUZZ_VERSION:-2.3.0}"
 TARGET_ASSEMBLIES=(System.Text.RegularExpressions System.Text.Json)
@@ -80,6 +80,42 @@ for asm in "${TARGET_ASSEMBLIES[@]}"; do
     touch "$marker"
 done
 
+# System.Private.CoreLib: SharpFuzz requires an explicit type list for CoreLib, so instrument
+# every top-level type except the runtime-infrastructure prefixes in corelib-exclude.txt
+# (those recurse during startup). The exclusions are also passed as SharpFuzz "-prefix"
+# arguments so nested types and look-alike names stay excluded. Re-instruments whenever
+# corelib-exclude.txt changes. INSTRUMENT_CORELIB=0 keeps the stock CoreLib.
+if [ "${INSTRUMENT_CORELIB:-1}" != 0 ]; then
+    # Bump the recipe version when the instrumentation steps change.
+    exclude_hash="$(sha256sum "$HERE/corelib-exclude.txt" | cut -c1-16)"
+    marker="$WORK/instrumented/System.Private.CoreLib.$DOTNET_VERSION.$exclude_hash.r2.done"
+    if [ ! -f "$marker" ]; then
+        log "Instrumenting System.Private.CoreLib"
+        rm -f "$WORK"/instrumented/System.Private.CoreLib.*.done
+        [ -f "$WORK/pristine/System.Private.CoreLib.dll" ] || cp "$FX/System.Private.CoreLib.dll" "$WORK/pristine/"
+        dotnet "$WORK/stripr2r/StripR2R.dll" "$WORK/pristine/System.Private.CoreLib.dll" "$WORK/instrumented/System.Private.CoreLib.dll"
+        mapfile -t excludes < <(sed -e 's/#.*//' -e 's/[[:space:]]*$//' "$HERE/corelib-exclude.txt" | grep -v '^$')
+        # Top-level types minus everything starting with an excluded prefix (case-insensitive,
+        # like SharpFuzz's own matcher).
+        dotnet "$WORK/stripr2r/StripR2R.dll" --list-types "$WORK/instrumented/System.Private.CoreLib.dll" \
+            | awk -v list="$(printf '%s\n' "${excludes[@]}")" '
+                BEGIN { n = split(tolower(list), ex, "\n") }
+                { t = tolower($0); for (i = 1; i <= n; i++) if (ex[i] != "" && index(t, ex[i]) == 1) next; print }' \
+            > "$WORK/instrumented/corelib-types.txt"
+        echo "$(wc -l < "$WORK/instrumented/corelib-types.txt") CoreLib types selected for instrumentation"
+        exclude_arg="-$(IFS=,; echo "${excludes[*]}")"
+        "$WORK/tools/sharpfuzz" "$WORK/instrumented/System.Private.CoreLib.dll" \
+            "$(paste -sd, "$WORK/instrumented/corelib-types.txt")" "$exclude_arg"
+        dotnet "$WORK/stripr2r/StripR2R.dll" --thread-static-trace "$WORK/instrumented/System.Private.CoreLib.dll"
+        cp "$WORK/instrumented/System.Private.CoreLib.dll" "$FX/System.Private.CoreLib.dll"
+        touch "$marker"
+    fi
+elif [ -f "$WORK/pristine/System.Private.CoreLib.dll" ] && ! cmp -s "$WORK/pristine/System.Private.CoreLib.dll" "$FX/System.Private.CoreLib.dll"; then
+    log "Restoring stock System.Private.CoreLib"
+    cp "$WORK/pristine/System.Private.CoreLib.dll" "$FX/System.Private.CoreLib.dll"
+    rm -f "$WORK"/instrumented/System.Private.CoreLib.*.done
+fi
+
 # 5. Harness -----------------------------------------------------------------------------------
 log "Building SharpFuzzHarness"
 dotnet build "$HERE/SharpFuzzHarness/SharpFuzzHarness.csproj" -c Release -o "$WORK/harness" -v q -nologo \
@@ -89,4 +125,9 @@ log "Smoke test"
 export DOTNET_ROOT="$ROOT" PATH="$ROOT:$PATH"
 dotnet "$WORK/harness/SharpFuzzHarness.dll" regex --repro "$HERE"/seeds/regex/extra-00 >/dev/null
 dotnet "$WORK/harness/SharpFuzzHarness.dll" json --repro "$HERE"/seeds/json/seed-00 >/dev/null
-echo "Ready: .NET $DOTNET_VERSION with instrumented ${TARGET_ASSEMBLIES[*]}"
+if [ "${INSTRUMENT_CORELIB:-1}" != 0 ]; then
+    TZ=UTC dotnet "$WORK/harness/SharpFuzzHarness.dll" number --repro "$HERE"/seeds/number/seed-000 >/dev/null
+    echo "Ready: .NET $DOTNET_VERSION with instrumented ${TARGET_ASSEMBLIES[*]} System.Private.CoreLib"
+else
+    echo "Ready: .NET $DOTNET_VERSION with instrumented ${TARGET_ASSEMBLIES[*]}"
+fi
