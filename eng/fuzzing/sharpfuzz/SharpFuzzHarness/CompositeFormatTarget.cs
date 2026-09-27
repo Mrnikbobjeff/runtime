@@ -33,6 +33,15 @@ public static class CompositeFormatTarget
             return;
         }
 
+        // Known (COMPOSITEFORMAT-1): CompositeFormat.Parse doesn't enforce string.Format's 1,000,000
+        // limits on the index and alignment, so they overflow int: "{4294967297}" formats argument 1,
+        // others throw IndexOutOfRangeException or allocate huge alignments. Numbers that long are also
+        // how "X999999999"-style precisions allocate gigabytes, so skip them altogether.
+        if (!s_reportKnownIssues && HasLongDigitRun(format, 7))
+        {
+            return;
+        }
+
         object?[] args = new object?[argCount];
         for (int i = 0; i < argCount; i++)
         {
@@ -118,10 +127,31 @@ public static class CompositeFormatTarget
         _ => (Half)text.Length,
     };
 
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
+    private static bool HasLongDigitRun(string s, int length)
+    {
+        int run = 0;
+        foreach (char c in s)
+        {
+            run = char.IsAsciiDigit(c) ? run + 1 : 0;
+            if (run >= length)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     /// <summary>IFormattable that echoes the format string it receives.</summary>
+    /// <remarks>
+    /// Known (COMPOSITEFORMAT-2): for an empty item format ("{0:}") string.Format passes null and
+    /// CompositeFormat passes "", so null is only shown as such when known issues are reported.
+    /// </remarks>
     private sealed class Echo(string text) : IFormattable
     {
-        public string ToString(string? format, IFormatProvider? formatProvider) => $"<{text}|{format ?? "null"}>";
+        public string ToString(string? format, IFormatProvider? formatProvider) => $"<{text}|{format ?? (s_reportKnownIssues ? "null" : "")}>";
         public override string ToString() => $"<{text}>";
     }
 

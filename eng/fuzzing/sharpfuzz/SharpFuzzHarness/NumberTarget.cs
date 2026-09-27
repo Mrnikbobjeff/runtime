@@ -110,7 +110,9 @@ public static class NumberTarget
         var tryUtf8 = Outcome<(bool, T)>.Of(() => (T.TryParse(c.Utf8.AsSpan(), c.Styles, c.Nfi, out T v), v), IsStyleError);
 
         var alternatives = new List<(string, Outcome<(bool, T)>)> { ("TryParse(span)", trySpan) };
-        if (c.ValidUtf8)
+        // Known (UTF8CASE-1): the UTF-8 case-insensitive symbol comparison used for NaN/Infinity,
+        // signs and currency symbols mismatches for non-ASCII symbols and symbols of 16+ bytes.
+        if (c.ValidUtf8 && (s_reportKnownIssues || HasShortAsciiSymbols(c.Nfi)))
         {
             alternatives.Add(("TryParse(UTF-8)", tryUtf8));
         }
@@ -130,6 +132,12 @@ public static class NumberTarget
         {
             bool refOk = BigInteger.TryParse(c.Text, c.Styles, c.Nfi, out BigInteger reference);
             bool inRange = refOk && reference >= BigInteger.CreateTruncating(T.MinValue) && reference <= BigInteger.CreateTruncating(T.MaxValue);
+            // Known (NUMBER-NEGZERO-1): unsigned types accept "-0" and "-0e5" but reject "-0." and "-0.0".
+            if (!s_reportKnownIssues && inRange && !parsed.Value.Ok && reference.IsZero && T.IsZero(T.MinValue) && c.Text.Contains(c.Nfi.NumberDecimalSeparator, StringComparison.Ordinal))
+            {
+                inRange = false;
+            }
+
             Check.That(parsed.Value.Ok == inRange && (!inRange || BigInteger.CreateTruncating(parsed.Value.Value) == reference),
                 $"{typeof(T).Name}.TryParse {parsed} but BigInteger.TryParse {(refOk ? reference.ToString() : "failed")} for {Check.Show(c.Text)} styles={c.Styles}");
         }
@@ -222,6 +230,12 @@ public static class NumberTarget
     }
 
     private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
+    private static bool HasShortAsciiSymbols(NumberFormatInfo nfi) =>
+        ((string[])[nfi.NaNSymbol, nfi.PositiveInfinitySymbol, nfi.NegativeInfinitySymbol, nfi.PositiveSign, nfi.NegativeSign,
+            nfi.CurrencySymbol, nfi.PercentSymbol, nfi.PerMilleSymbol, nfi.NumberDecimalSeparator, nfi.NumberGroupSeparator,
+            nfi.CurrencyDecimalSeparator, nfi.CurrencyGroupSeparator])
+        .All(s => s.Length < 16 && System.Text.Ascii.IsValid(s));
 
     // Whether a surrogate can reach the custom-format literal path: in the format itself or in any
     // DateTimeFormatInfo pattern a standard format expands to.

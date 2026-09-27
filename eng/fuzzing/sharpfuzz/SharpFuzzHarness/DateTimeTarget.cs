@@ -53,9 +53,22 @@ public static class DateTimeTarget
             case 1 or 6: DateTimeOffsets(c); break;
             case 2: DateOnlys(c); break;
             case 3: TimeOnlys(c); break;
-            default: TimeSpans(c); break;
+            default:
+                try
+                {
+                    TimeSpans(c);
+                }
+                catch (IndexOutOfRangeException e) when (!s_reportKnownIssues && e.StackTrace?.Contains("Pow10UpToMaxFractionDigits", StringComparison.Ordinal) == true)
+                {
+                    // Known (TIMESPAN-1): a fraction with 1-7 leading zeros and enough further digits
+                    // ("0:0:0.0000000123456789") indexes past the powers-of-ten table (.NET 9+).
+                }
+
+                break;
         }
     }
+
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
 
     private static readonly Check.By<DateTime> s_dateTimeExact = new((a, b) => a.Ticks == b.Ticks && a.Kind == b.Kind);
     private static readonly Check.By<DateTimeOffset> s_offsetExact = new((a, b) => a.EqualsExact(b));

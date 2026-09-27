@@ -46,7 +46,9 @@ public static class GuidTarget
         }
 
         Check.ParseAgreement(what, eq, Outcome<Guid>.Of(() => Guid.Parse(text), e => e is FormatException), [typeof(FormatException)], tryParse, alternatives.ToArray());
-        var ctor = Outcome<Guid>.Of(() => new Guid(text), e => e is FormatException);
+        // By design (compat), the ctor throws OverflowException where Parse throws FormatException for
+        // an overflowing component of the "{0x...,...}" format (GuidParseThrowStyle.All in Guid.cs).
+        var ctor = Outcome<Guid>.Of(() => new Guid(text), e => e is FormatException or OverflowException);
         Check.That(ctor.Ok == tryParse.Value.Item1 && (!ctor.Ok || ctor.Value == tryParse.Value.Item2), $"new Guid(string) {ctor} disagrees with TryParse {tryParse} for {what}");
 
         // Parse must accept exactly the union of the ParseExact formats.

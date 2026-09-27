@@ -9,4 +9,9 @@ shift
 
 export DOTNET_ROOT="${SHARPFUZZ_WORK:-$HERE/.work}/dotnet"
 export PATH="$DOTNET_ROOT:$PATH" TZ="${TZ:-UTC}"
-exec dotnet "$(dirname "$DOTNET_ROOT")/harness/SharpFuzzHarness.dll" "$TARGET" --repro "$@"
+# Same heap cap as fuzz.sh, so runaway allocations throw OutOfMemoryException instead of
+# getting the whole replay killed.
+export DOTNET_GCHeapHardLimit="${DOTNET_GCHeapHardLimit:-0x40000000}"
+PIN=()
+[ -n "${SHARPFUZZ_CPUS:-}" ] && PIN=(taskset -c "$SHARPFUZZ_CPUS")
+exec "${PIN[@]}" dotnet "$(dirname "$DOTNET_ROOT")/harness/SharpFuzzHarness.dll" "$TARGET" --repro "$@"

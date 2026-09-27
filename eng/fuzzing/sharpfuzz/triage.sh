@@ -14,7 +14,23 @@ if [ ${#crashes[@]} -eq 0 ]; then
     exit 0
 fi
 
-"$HERE/repro.sh" "$TARGET" "${crashes[@]}" > "$OUT/triage.log" 2>&1 || true
+# Replay in batches of 50. If an input takes the process down (stack overflow, fail-fast, ...),
+# the inputs of that batch that didn't get replayed are retried one process each, and the one
+# that kills its process is reported as "ProcessDied" with the last lines it printed.
+replay() { "$HERE/repro.sh" "$TARGET" "$@" > "$OUT/triage.batch" 2>&1 || true; cat "$OUT/triage.batch" >> "$OUT/triage.log"; }
+replayed() { grep -qxF -e "OK    $1" -e "CRASH $1" "$OUT/triage.batch"; }
+: > "$OUT/triage.log"
+for ((i = 0; i < ${#crashes[@]}; i += 50)); do
+    batch=("${crashes[@]:i:50}")
+    replay "${batch[@]}"
+    missing=()
+    for f in "${batch[@]}"; do replayed "$f" || missing+=("$f"); done
+    for f in "${missing[@]}"; do
+        replay "$f"
+        replayed "$f" || printf 'CRASH %s\nProcessDied: %s\n' "$f" "$(tail -n 3 "$OUT/triage.batch" | tr '\n' ' ')" >> "$OUT/triage.log"
+    done
+done
+rm -f "$OUT/triage.batch"
 
 python3 - "$OUT/triage.log" <<'EOF'
 import re, sys, collections

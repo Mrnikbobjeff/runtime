@@ -83,8 +83,9 @@ public static class Base64Target
             }
         }
 
+        // Base64Url also accepts '%' (the URL-encoded form of '=') as padding.
         int padding = 0;
-        while (padding < symbols.Count && symbols[symbols.Count - 1 - padding] == '=')
+        while (padding < symbols.Count && symbols[symbols.Count - 1 - padding] is '=' or '%' && (url || symbols[symbols.Count - 1 - padding] == '='))
         {
             padding++;
         }
@@ -97,8 +98,9 @@ public static class Base64Target
 
         if (url)
         {
-            // Padding is optional, but if present it has to complete the final block.
-            if (length % 4 == 1 || (padding > 0 && (length + padding) % 4 != 0))
+            // Padding is optional and may be partial ("QQ=", like "QQ" or "QQ=="), but it can't follow
+            // a complete block or extend past the end of the final one ("QQQ==" is invalid).
+            if (length % 4 == 1 || (padding > 0 && (length % 4 == 0 || length % 4 + padding > 4)))
             {
                 return null;
             }
@@ -190,9 +192,15 @@ public static class Base64Target
         if (reference is not null)
         {
             byte[] streamed = Stream(utf8Payload, chunkSeed, (src, dst, final) => (Base64.DecodeFromUtf8(src, dst, out int c, out int w, final), c, w), out OperationStatus last);
-            Check.That(last == OperationStatus.Done && streamed.AsSpan().SequenceEqual(reference), $"Streaming Base64.DecodeFromUtf8 ended with {last}, output {Check.Show(streamed)} != reference for {what}");
+            Check.That((last == OperationStatus.Done && streamed.AsSpan().SequenceEqual(reference)) || IsKnownStreamingIssue(last, chars),
+                $"Streaming Base64.DecodeFromUtf8 ended with {last}, output {Check.Show(streamed)} != reference for {what}");
         }
     }
+
+    // Known (BASE64-STREAM-1): with isFinalBlock: false, DecodeFromUtf8 returns InvalidData for valid
+    // input containing whitespace when a chunk ends inside a whitespace-interrupted block.
+    private static bool IsKnownStreamingIssue(OperationStatus last, string chars) =>
+        !s_reportKnownIssues && last == OperationStatus.InvalidData && chars.Any(IsBase64Space);
 
     /// <summary>
     /// Feeds <paramref name="source"/> to a streaming decoder in chunks (isFinalBlock=false until the
@@ -229,9 +237,11 @@ public static class Base64Target
         Check.That(fromChars.Ok == reference is not null && (!fromChars.Ok || fromChars.Value.AsSpan().SequenceEqual(reference)),
             $"Base64Url.DecodeFromChars {fromChars} but reference {Check.Show(reference)} for {what}");
         byte[] buffer = new byte[chars.Length + 3];
-        bool ok = Base64Url.TryDecodeFromChars(chars, buffer, out int written);
-        Check.That(ok == fromChars.Ok && (!ok || buffer.AsSpan(0, written).SequenceEqual(fromChars.Value)), $"Base64Url.TryDecodeFromChars {ok} != DecodeFromChars {fromChars} for {what}");
-        OperationStatus status = Base64Url.DecodeFromChars(chars, buffer, out int consumed, out written, isFinalBlock: true);
+        // TryDecode* throw FormatException for invalid input (documented); false means "destination too small".
+        var tryChars = Outcome<(bool, int)>.Of(() => (Base64Url.TryDecodeFromChars(chars, buffer, out int w), w), e => e is FormatException);
+        Check.That(tryChars.Ok == fromChars.Ok && (!tryChars.Ok || (tryChars.Value.Item1 && buffer.AsSpan(0, tryChars.Value.Item2).SequenceEqual(fromChars.Value))),
+            $"Base64Url.TryDecodeFromChars {tryChars} != DecodeFromChars {fromChars} for {what}");
+        OperationStatus status = Base64Url.DecodeFromChars(chars, buffer, out int consumed, out int written, isFinalBlock: true);
         Check.That((status == OperationStatus.Done) == fromChars.Ok && (!fromChars.Ok || (consumed == chars.Length && buffer.AsSpan(0, written).SequenceEqual(fromChars.Value))),
             $"Base64Url.DecodeFromChars(OperationStatus) {status} (consumed {consumed}, written {written}) != {fromChars} for {what}");
         Check.That(Base64Url.IsValid(chars.AsSpan(), out int decodedLength) == fromChars.Ok && (!fromChars.Ok || decodedLength == fromChars.Value.Length),
@@ -261,8 +271,9 @@ public static class Base64Target
 
         var fromUtf8 = Outcome<byte[]>.Of(() => Base64Url.DecodeFromUtf8(utf8Payload), e => e is FormatException);
         Check.That(fromUtf8.SameAs(fromChars, eq), $"Base64Url.DecodeFromUtf8 {fromUtf8} != DecodeFromChars {fromChars} for {what}");
-        ok = Base64Url.TryDecodeFromUtf8(utf8Payload, buffer, out written);
-        Check.That(ok == fromChars.Ok && (!ok || buffer.AsSpan(0, written).SequenceEqual(fromChars.Value)), $"Base64Url.TryDecodeFromUtf8 {ok} != DecodeFromChars {fromChars} for {what}");
+        var tryUtf8 = Outcome<(bool, int)>.Of(() => (Base64Url.TryDecodeFromUtf8(utf8Payload, buffer, out int w), w), e => e is FormatException);
+        Check.That(tryUtf8.Ok == fromChars.Ok && (!tryUtf8.Ok || (tryUtf8.Value.Item1 && buffer.AsSpan(0, tryUtf8.Value.Item2).SequenceEqual(fromChars.Value))),
+            $"Base64Url.TryDecodeFromUtf8 {tryUtf8} != DecodeFromChars {fromChars} for {what}");
         Check.That(Base64Url.IsValid(utf8Payload.AsSpan(), out decodedLength) == fromChars.Ok && (!fromChars.Ok || decodedLength == fromChars.Value.Length),
             $"Base64Url.IsValid(UTF-8) (decodedLength {decodedLength}) != DecodeFromChars {fromChars} for {what}");
         byte[] inPlace = (byte[])utf8Payload.Clone();
@@ -272,7 +283,8 @@ public static class Base64Target
         if (fromChars.Ok)
         {
             byte[] streamed = Stream(utf8Payload, chunkSeed, (src, dst, final) => (Base64Url.DecodeFromUtf8(src, dst, out int c, out int w, final), c, w), out OperationStatus last);
-            Check.That(last == OperationStatus.Done && streamed.AsSpan().SequenceEqual(fromChars.Value), $"Streaming Base64Url.DecodeFromUtf8 ended with {last}, output {Check.Show(streamed)} != {fromChars} for {what}");
+            Check.That((last == OperationStatus.Done && streamed.AsSpan().SequenceEqual(fromChars.Value)) || IsKnownStreamingIssue(last, chars),
+                $"Streaming Base64Url.DecodeFromUtf8 ended with {last}, output {Check.Show(streamed)} != {fromChars} for {what}");
         }
     }
 

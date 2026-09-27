@@ -23,7 +23,13 @@ public static class ResourcesTarget
 
     private static bool IsBadData(Exception e) =>
         e is BadImageFormatException or EndOfStreamException or FormatException or NotSupportedException ||
-        e.GetType() == typeof(ArgumentException);
+        e.GetType() == typeof(ArgumentException) ||
+        // Known (RESOURCES-1): counts from the header size arrays unchecked (OutOfMemoryException, or
+        // a ~1 GB allocation for a 200-byte file), and corrupt offsets/lengths reach MemoryStream.Seek,
+        // BinaryReader.ReadBytes/ReadString/ReadDecimal unvalidated.
+        (!s_reportKnownIssues && e is OutOfMemoryException or ArgumentOutOfRangeException or IOException);
+
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
 
     public static void Run(ReadOnlySpan<byte> data)
     {

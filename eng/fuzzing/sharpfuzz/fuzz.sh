@@ -22,6 +22,13 @@ export DOTNET_ROOT="$WORK/dotnet"
 export PATH="$WORK/dotnet:$PATH"
 export AFL_SKIP_BIN_CHECK=1 AFL_NO_UI=1 AFL_SKIP_CPUFREQ=1 AFL_I_DONT_CARE_ABOUT_MISSING_CRASHES=1
 export AFL_NO_AFFINITY="${AFL_NO_AFFINITY:-}"
+# SHARPFUZZ_CPUS=0-5 (a taskset CPU list) confines the fuzzers, their .NET children and all of
+# their threads to those CPUs, which caps the CPU load no matter how many instances run.
+PIN=()
+if [ -n "${SHARPFUZZ_CPUS:-}" ]; then
+    PIN=(taskset -c "$SHARPFUZZ_CPUS")
+    export AFL_NO_AFFINITY=1   # afl-fuzz would otherwise bind itself to a free core outside the set
+fi
 # Deterministic local time for the date/time target, and a heap cap so inputs that make a
 # parser allocate gigabytes fail fast with OutOfMemoryException instead of starving the box.
 export TZ="${TZ:-UTC}" DOTNET_GCHeapHardLimit="${DOTNET_GCHeapHardLimit:-0x40000000}"
@@ -29,6 +36,15 @@ export TZ="${TZ:-UTC}" DOTNET_GCHeapHardLimit="${DOTNET_GCHeapHardLimit:-0x40000
 INPUT="$HERE/seeds/$TARGET"
 if [ -d "$OUT" ] && [ -n "$(ls -A "$OUT" 2>/dev/null)" ]; then
     INPUT="-"   # resume the previous session
+    # afl-fuzz empties crashes/ and hangs/ when it resumes, so keep the old ones in archive/<time>/.
+    archive="$OUT/archive/$(date +%Y%m%d-%H%M%S)"
+    for dir in "$OUT"/*/crashes "$OUT"/*/hangs; do
+        if compgen -G "$dir/id:*" > /dev/null; then
+            instance="$(basename "$(dirname "$dir")")"
+            mkdir -p "$archive/$instance/$(basename "$dir")"
+            cp -p "$dir"/id:* "$archive/$instance/$(basename "$dir")/"
+        fi
+    done
 fi
 mkdir -p "$OUT"
 
@@ -47,7 +63,7 @@ for i in $(seq 1 "$INSTANCES"); do
             0) isa=(DOTNET_EnableAVX2=0) ;;
         esac
     fi
-    env "${isa[@]}" afl-fuzz -i "$INPUT" -o "$OUT" "${role[@]}" "${DICT[@]}" -t 5000 -m none \
+    "${PIN[@]}" env "${isa[@]}" afl-fuzz -i "$INPUT" -o "$OUT" "${role[@]}" "${DICT[@]}" -t 5000 -m none \
         -V "$SECONDS_BUDGET" -- dotnet "$HARNESS/SharpFuzzHarness.dll" "$TARGET" \
         > "$OUT/afl-${role[1]}.log" 2>&1 &
     pids+=($!)
