@@ -23,6 +23,7 @@ public static class Program
         ["tensorprimitives"] = TensorPrimitivesTarget.Run,
         // Vectorized span / array helpers over primitive element types (CoreLib, System.Collections, System.Linq)
         ["spanops"] = SpanOpsTarget.Run,
+        ["utf8parser"] = Utf8ParserTarget.Run,
     };
 
     public static int Main(string[] args)
