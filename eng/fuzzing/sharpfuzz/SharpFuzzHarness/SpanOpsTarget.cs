@@ -1,5 +1,6 @@
 #nullable disable warnings
 using System.Buffers;
+using System.Buffers.Binary;
 using System.Collections;
 using System.Numerics;
 using System.Runtime.InteropServices;
@@ -114,7 +115,7 @@ public static class SpanOpsTarget
         string what = $"{typeof(T).Name}[{hay.Length}] {Show(haystackArray)} values {Show(values)} (offset {offset})";
         T v0 = count > 0 ? values[0] : default, v1 = count > 1 ? values[1] : v0, v2 = count > 2 ? values[2] : v1;
 
-        switch (op % 26)
+        switch (op % 34)
         {
             case 0: Same(hay.IndexOf(v0), First(hay, x => Eq(x, v0)), "IndexOf", what); break;
             case 1: Same(hay.LastIndexOf(v0), Last(hay, x => Eq(x, v0)), "LastIndexOf", what); break;
@@ -181,6 +182,66 @@ public static class SpanOpsTarget
                 Same(Array.IndexOf(haystackArray, v0), First(hay, x => Eq(x, v0)), "Array.IndexOf", what);
                 Same(Array.LastIndexOf(haystackArray, v0), Last(hay, x => Eq(x, v0)), "Array.LastIndexOf", what);
                 break;
+            case 26:
+                // 4 and 5 values take their own vectorized paths for byte/char/short-sized T.
+                T[] four = [v0, v1, v2, count > 3 ? values[3] : v2];
+                T[] five = [.. four, count > 4 ? values[4] : v0];
+                Same(hay.IndexOfAny(four), First(hay, x => four.Any(v => Eq(x, v))), "IndexOfAny(4 values)", what);
+                Same(hay.IndexOfAny(five), First(hay, x => five.Any(v => Eq(x, v))), "IndexOfAny(5 values)", what);
+                Same(hay.LastIndexOfAny(five), Last(hay, x => five.Any(v => Eq(x, v))), "LastIndexOfAny(5 values)", what);
+                Same(hay.IndexOfAnyExcept(four), First(hay, x => !four.Any(v => Eq(x, v))), "IndexOfAnyExcept(4 values)", what);
+                Same(hay.LastIndexOfAnyExcept(five), Last(hay, x => !five.Any(v => Eq(x, v))), "LastIndexOfAnyExcept(5 values)", what);
+                break;
+            case 27:
+                SplitCheck(hay.Split(v0), haystackArray, (a, i) => Eq(a[i], v0) ? 1 : 0, $"Split({Show(v0)})", what);
+                SplitCheck(hay.SplitAny(values), haystackArray, (a, i) => values.Any(v => Eq(a[i], v)) ? 1 : 0, "SplitAny(values)", what);
+                if (values.Length > 0)
+                {
+                    SplitCheck(hay.Split(values.AsSpan()), haystackArray, (a, i) => i + values.Length <= a.Length && MatchAt<T>(a, values, i) ? values.Length : 0, "Split(sequence)", what);
+                }
+
+                break;
+            case 28:
+            {
+                int start = First(hay, x => !values.Any(v => Eq(x, v)));
+                int end = Last(hay, x => !values.Any(v => Eq(x, v)));
+                int expectedStart = start < 0 ? hay.Length : start;
+                Check.That(hay.TrimStart(values).Length == hay.Length - expectedStart, $"TrimStart(values) length {hay.TrimStart(values).Length}, expected {hay.Length - expectedStart}, for {what}");
+                Check.That(hay.TrimEnd(values).Length == end + 1, $"TrimEnd(values) length {hay.TrimEnd(values).Length}, expected {end + 1}, for {what}");
+                Check.That(hay.Trim(values).Length == (start < 0 ? 0 : end - start + 1), $"Trim(values) length {hay.Trim(values).Length} for {what}");
+                Check.That(hay.Trim(v0).Length == hay.TrimStart(v0).TrimEnd(v0).Length, $"Trim({Show(v0)}) != TrimStart.TrimEnd for {what}");
+                break;
+            }
+
+            case 29: ReverseEndianness(haystackArray, offset, what); break;
+            case 30:
+            {
+                // Sub-range Array.Sort / Array.Reverse / Array.Fill leave the rest of the array alone.
+                int index = hay.Length == 0 ? 0 : k % hay.Length;
+                int length = (k * 7) % (hay.Length - index + 1);
+                T[] sorted = haystackArray.ToArray();
+                Array.Sort(sorted, index, length);
+                T[] expectedRange = [.. haystackArray[..index], .. haystackArray[index..(index + length)].OrderBy(x => x, Comparer<T>.Default), .. haystackArray[(index + length)..]];
+                Check.That(sorted.AsSpan().SequenceEqual(expectedRange), $"Array.Sort(index {index}, length {length}) gives {Show(sorted)} for {what}");
+                T[] reversedRange = haystackArray.ToArray();
+                Array.Reverse(reversedRange, index, length);
+                expectedRange = [.. haystackArray[..index], .. haystackArray[index..(index + length)].Reverse(), .. haystackArray[(index + length)..]];
+                Check.That(reversedRange.AsSpan().SequenceEqual(expectedRange), $"Array.Reverse(index {index}, length {length}) for {what}");
+                T[] filledRange = haystackArray.ToArray();
+                Array.Fill(filledRange, v0, index, length);
+                expectedRange = [.. haystackArray[..index], .. Enumerable.Repeat(v0, length), .. haystackArray[(index + length)..]];
+                Check.That(filledRange.AsSpan().SequenceEqual(expectedRange), $"Array.Fill(index {index}, length {length}) for {what}");
+                int inRange = First<T>(haystackArray.AsSpan(index, length), x => Eq(x, v0));
+                Same(Array.IndexOf(haystackArray, v0, index, length), inRange >= 0 ? inRange + index : -1, "Array.IndexOf(value, index, count)", what);
+                break;
+            }
+
+            case 31:
+                Same(hay.ContainsAnyInRange(v0, v1) ? 1 : 0, First(hay, x => x.CompareTo(v0) >= 0 && x.CompareTo(v1) <= 0) >= 0 ? 1 : 0, "ContainsAnyInRange", what);
+                Same(hay.ContainsAnyExceptInRange(v0, v1) ? 1 : 0, First(hay, x => !(x.CompareTo(v0) >= 0 && x.CompareTo(v1) <= 0)) >= 0 ? 1 : 0, "ContainsAnyExceptInRange", what);
+                Same(hay.LastIndexOfAny(v0, v1, v2), Last(hay, x => Eq(x, v0) || Eq(x, v1) || Eq(x, v2)), "LastIndexOfAny(3)", what);
+                Same(hay.LastIndexOfAnyExcept(v0), Last(hay, x => !Eq(x, v0)), "LastIndexOfAnyExcept(1)", what);
+                break;
             default:
                 if (typeof(T) != typeof(byte) && typeof(T) != typeof(char))
                 {
@@ -192,6 +253,73 @@ public static class SpanOpsTarget
                 Same(hay.LastIndexOfAnyExcept(SearchValuesFor(values)), Last(hay, x => !values.Any(v => Eq(x, v))), "LastIndexOfAnyExcept(SearchValues)", what);
                 break;
         }
+    }
+
+    /// <summary>
+    /// Compares a span split enumerator with a reference split: <paramref name="separatorAt"/> returns
+    /// the separator length at a position (0 if none). Like string.Split without options, every
+    /// separator ends a range, so n separators give n + 1 ranges (possibly empty).
+    /// </summary>
+    private static void SplitCheck<T>(MemoryExtensions.SpanSplitEnumerator<T> actual, T[] source, Func<T[], int, int> separatorAt, string name, string what)
+        where T : IEquatable<T>
+    {
+        var expected = new List<Range>();
+        int start = 0;
+        for (int i = 0; i < source.Length;)
+        {
+            int length = separatorAt(source, i);
+            if (length > 0)
+            {
+                expected.Add(start..i);
+                i += length;
+                start = i;
+            }
+            else
+            {
+                i++;
+            }
+        }
+
+        expected.Add(start..source.Length);
+        var ranges = new List<Range>();
+        foreach (Range r in actual)
+        {
+            ranges.Add(r);
+            if (ranges.Count > source.Length + 2)
+            {
+                break;
+            }
+        }
+
+        Check.That(ranges.Select(r => r.GetOffsetAndLength(source.Length)).SequenceEqual(expected.Select(r => r.GetOffsetAndLength(source.Length))),
+            $"{name} gives [{string.Join(", ", ranges.Take(12))}], expected [{string.Join(", ", expected.Take(12))}] for {what}");
+    }
+
+    private static void ReverseEndianness<T>(T[] values, int offset, string what)
+    {
+        switch (values)
+        {
+            case short[] a: CheckReverse(a, offset, BinaryPrimitives.ReverseEndianness, BinaryPrimitives.ReverseEndianness, what); break;
+            case ushort[] a: CheckReverse(a, offset, BinaryPrimitives.ReverseEndianness, BinaryPrimitives.ReverseEndianness, what); break;
+            case int[] a: CheckReverse(a, offset, BinaryPrimitives.ReverseEndianness, BinaryPrimitives.ReverseEndianness, what); break;
+            case uint[] a: CheckReverse(a, offset, BinaryPrimitives.ReverseEndianness, BinaryPrimitives.ReverseEndianness, what); break;
+            case long[] a: CheckReverse(a, offset, BinaryPrimitives.ReverseEndianness, BinaryPrimitives.ReverseEndianness, what); break;
+            case ulong[] a: CheckReverse(a, offset, BinaryPrimitives.ReverseEndianness, BinaryPrimitives.ReverseEndianness, what); break;
+            case nint[] a: CheckReverse(a, offset, BinaryPrimitives.ReverseEndianness, BinaryPrimitives.ReverseEndianness, what); break;
+        }
+    }
+
+    private delegate void SpanReverse<T>(ReadOnlySpan<T> source, Span<T> destination);
+
+    private static void CheckReverse<T>(T[] values, int offset, SpanReverse<T> spans, Func<T, T> scalar, string what)
+    {
+        T[] expected = values.Select(scalar).ToArray();
+        Span<T> destination = Place(new T[values.Length], (offset + 3) % 8);
+        spans(Place(values, offset), destination);
+        Check.That(destination.SequenceEqual(expected), $"BinaryPrimitives.ReverseEndianness(span, span) differs for {what}");
+        Span<T> inPlace = Place(values, offset);
+        spans(inPlace, inPlace);
+        Check.That(inPlace.SequenceEqual(expected), $"BinaryPrimitives.ReverseEndianness in place differs for {what}");
     }
 
     private static SearchValues<T> SearchValuesFor<T>(T[] values)

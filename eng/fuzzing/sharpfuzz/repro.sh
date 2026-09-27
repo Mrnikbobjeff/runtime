@@ -14,4 +14,5 @@ export PATH="$DOTNET_ROOT:$PATH" TZ="${TZ:-UTC}"
 export DOTNET_GCHeapHardLimit="${DOTNET_GCHeapHardLimit:-0x40000000}"
 PIN=()
 [ -n "${SHARPFUZZ_CPUS:-}" ] && PIN=(taskset -c "$SHARPFUZZ_CPUS")
-exec "${PIN[@]}" dotnet "$(dirname "$DOTNET_ROOT")/harness/SharpFuzzHarness.dll" "$TARGET" --repro "$@"
+# SHARPFUZZ_HARNESS: the harness build to replay with (as in fuzz.sh), e.g. a frozen copy.
+exec "${PIN[@]}" dotnet "${SHARPFUZZ_HARNESS:-$(dirname "$DOTNET_ROOT")/harness}/SharpFuzzHarness.dll" "$TARGET" --repro "$@"
