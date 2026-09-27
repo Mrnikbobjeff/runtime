@@ -19,6 +19,10 @@ public static class Program
         ["searchvalues"] = SearchValuesTarget.Run,
         ["compositeformat"] = CompositeFormatTarget.Run,
         ["resources"] = ResourcesTarget.Run,
+        // System.Numerics.Tensors (NuGet package, instrumented by setup.sh)
+        ["tensorprimitives"] = TensorPrimitivesTarget.Run,
+        // Vectorized span / array helpers over primitive element types (CoreLib, System.Collections, System.Linq)
+        ["spanops"] = SpanOpsTarget.Run,
     };
 
     public static int Main(string[] args)

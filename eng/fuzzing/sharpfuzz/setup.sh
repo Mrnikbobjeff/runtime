@@ -16,7 +16,7 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK="${SHARPFUZZ_WORK:-$HERE/.work}"
 DOTNET_VERSION="${DOTNET_VERSION:-11.0.0-rc.1.26425.128}"
 SHARPFUZZ_VERSION="${SHARPFUZZ_VERSION:-2.3.0}"
-TARGET_ASSEMBLIES=(System.Text.RegularExpressions System.Text.Json)
+TARGET_ASSEMBLIES=(System.Text.RegularExpressions System.Text.Json System.Linq System.Collections)
 NUGET="https://api.nuget.org/v3-flatcontainer"
 
 mkdir -p "$WORK"
@@ -116,10 +116,25 @@ elif [ -f "$WORK/pristine/System.Private.CoreLib.dll" ] && ! cmp -s "$WORK/prist
     rm -f "$WORK"/instrumented/System.Private.CoreLib.*.done
 fi
 
+# System.Numerics.Tensors ships as a NuGet package, not in the shared framework. The harness
+# references an instrumented copy of it, so it lands next to the harness. TENSORS_DLL=<path to a
+# net11.0 System.Numerics.Tensors.dll> fuzzes a local build (e.g. a PR branch) instead.
+fetch_pkg system.numerics.tensors "$DOTNET_VERSION" "$WORK/tensors-pkg"
+TENSORS_SRC="${TENSORS_DLL:-$(echo "$WORK"/tensors-pkg/lib/net11.0/System.Numerics.Tensors.dll)}"
+tensors_hash="$(sha256sum "$TENSORS_SRC" | cut -c1-16)"
+if [ ! -f "$WORK/instrumented/System.Numerics.Tensors.$tensors_hash.done" ]; then
+    log "Instrumenting System.Numerics.Tensors from $TENSORS_SRC"
+    rm -f "$WORK"/instrumented/System.Numerics.Tensors.*.done
+    dotnet "$WORK/stripr2r/StripR2R.dll" "$TENSORS_SRC" "$WORK/instrumented/System.Numerics.Tensors.dll"
+    "$WORK/tools/sharpfuzz" "$WORK/instrumented/System.Numerics.Tensors.dll"
+    touch "$WORK/instrumented/System.Numerics.Tensors.$tensors_hash.done"
+fi
+
 # 5. Harness -----------------------------------------------------------------------------------
 log "Building SharpFuzzHarness"
 dotnet build "$HERE/SharpFuzzHarness/SharpFuzzHarness.csproj" -c Release -o "$WORK/harness" -v q -nologo \
-    -p:DotNetVersion="$DOTNET_VERSION" -p:NetRefDir="$(echo "$WORK"/ref/ref/net*/)"
+    -p:DotNetVersion="$DOTNET_VERSION" -p:NetRefDir="$(echo "$WORK"/ref/ref/net*/)" \
+    -p:TensorsDll="$WORK/instrumented/System.Numerics.Tensors.dll"
 
 log "Smoke test"
 export DOTNET_ROOT="$ROOT" PATH="$ROOT:$PATH"

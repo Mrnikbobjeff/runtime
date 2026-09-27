@@ -27,6 +27,11 @@
     <PackageReference Include="SharpFuzz" Version="2.3.0" />
   </ItemGroup>
 
+  <!-- Instrumented System.Numerics.Tensors (a NuGet package, see setup.sh), copied next to the harness. -->
+  <ItemGroup Condition="'$(TensorsDll)' != ''">
+    <Reference Include="System.Numerics.Tensors" HintPath="$(TensorsDll)" Private="true" />
+  </ItemGroup>
+
   <!-- Swap the net8.0 reference assemblies for the .NET 11 ones. -->
   <Target Name="UseNet11ReferenceAssemblies" AfterTargets="ResolveTargetingPackAssets" Condition="Exists('$(NetRefDir)')">
     <ItemGroup>
