@@ -27,7 +27,7 @@ the dotnet/runtime issue tracker yet.
 | `tensorprimitives` | Tensors 11.0 RC1 package | 60 min (3 instances) | 51.9 M | 15.9 k | TENSORS-NUMBER-NAN-1, TENSORS-COPYSIGN-1, TENSORS-HALF-FMA-1 |
 | `tensorprimitives` | Tensors, `tensorprimitives-block-reductions` branch | 60 min (2 instances) | 58.3 M | 16.3 k | no new findings |
 | `tensorprimitives` | Tensors, `argmin-blocks` branch | 60 min (3 instances) | 46.3 M | 16.1 k | no new findings |
-| `spanops` | CoreLib, System.Linq, System.Collections | 3 × 60 min (3 instances) | SPANOPS_EXECS | SPANOPS_EDGES | LINQ-SUM-1 |
+| `spanops` | CoreLib, System.Linq, System.Collections | 3 × 60 min (3 instances) | 141.6 M | 16.3 k | LINQ-SUM-1 |
 
 CoreLib's `datetime`, `encoding` and `enum` targets were triaged by a parallel session on branch
 `feature/sharpfuzz-corelib-instrument-fc6ce9` (see the FINDINGS.md there); those results are not

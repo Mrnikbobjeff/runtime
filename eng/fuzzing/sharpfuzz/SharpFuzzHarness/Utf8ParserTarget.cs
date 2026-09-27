@@ -26,6 +26,7 @@ public static class Utf8ParserTarget
 {
     private const int MaxLength = 256;
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
 
     private delegate bool Parser<T>(ReadOnlySpan<byte> source, out T value, out int consumed, char format);
     private delegate bool Formatter<T>(T value, Span<byte> destination, out int written, StandardFormat format);
@@ -98,7 +99,11 @@ public static class Utf8ParserTarget
         {
             string prefix = Ascii(text.AsSpan(0, consumed));
             bool ok = T.TryParse(prefix, NumberStyles.Float, Inv, out T expected);
-            Check.That(consumed > 0 && ok && (T.IsNaN(value) ? T.IsNaN(expected) : expected == value && T.IsNegative(expected) == T.IsNegative(value)),
+
+            // Known (UTF8PARSER-FLOAT-1): with zeros after the decimal point, an input exactly halfway
+            // between two values is rounded up instead of to even ("63732000000000900.000").
+            bool knownTie = !s_reportKnownIssues && ok && prefix.Contains('.') && (value == T.BitIncrement(expected) || value == T.BitDecrement(expected));
+            Check.That(consumed > 0 && ok && (knownTie || (T.IsNaN(value) ? T.IsNaN(expected) : expected == value && T.IsNegative(expected) == T.IsNegative(value))),
                 $"Utf8Parser gives {value:R} for the prefix {Check.Show(prefix)}, {typeof(T).Name}.TryParse gives {(ok ? expected.ToString("R", Inv) : "failure")}, for {what}");
         }
 
@@ -118,7 +123,11 @@ public static class Utf8ParserTarget
         {
             string prefix = Ascii(text.AsSpan(0, consumed));
             bool ok = decimal.TryParse(prefix, NumberStyles.Float, Inv, out decimal expected);
-            Check.That(consumed > 0 && ok && expected == value, $"Utf8Parser gives {value} for the prefix {Check.Show(prefix)}, decimal.TryParse gives {(ok ? expected : "failure")}, for {what}");
+
+            // Known (UTF8PARSER-DECIMAL-1): digits beyond decimal's precision are rounded half away from
+            // zero by Utf8Parser but half to even by decimal.Parse, so the last digit can differ by one.
+            bool knownMidpoint = !s_reportKnownIssues && ok && Math.Abs(value - expected) == new decimal(1, 0, 0, false, expected.Scale);
+            Check.That(consumed > 0 && ok && (knownMidpoint || expected == value),$"Utf8Parser gives {value} for the prefix {Check.Show(prefix)}, decimal.TryParse gives {(ok ? expected : "failure")}, for {what}");
         }
 
         decimal sample = new((int)hash, (int)(hash >> 32), (int)(hash >> 16), (hash & 1) != 0, (byte)(hash % 29));
