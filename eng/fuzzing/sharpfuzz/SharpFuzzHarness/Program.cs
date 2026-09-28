@@ -55,6 +55,7 @@ public static class Program
         ["unsafetext"] = UnsafeTextTarget.Run,
         ["unsafefmt"] = UnsafeFormatTarget.Run,
         ["unsafemem"] = UnsafeMemoryTarget.Run,
+        ["unsafeenc"] = UnsafeEncodingTarget.Run,
     };
 
     public static int Main(string[] args)

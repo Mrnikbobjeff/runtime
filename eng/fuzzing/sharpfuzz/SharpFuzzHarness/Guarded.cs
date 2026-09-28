@@ -16,7 +16,7 @@ namespace SharpFuzzHarness;
 /// </remarks>
 internal static unsafe class Guarded
 {
-    public const int Slots = 16;
+    public const int Slots = 64;
     public const int SlotBytes = 1 << 18;
 
     /// <summary>SHARPFUZZ_GUARD=1 turns the guarded placement on in the targets that support it.</summary>
