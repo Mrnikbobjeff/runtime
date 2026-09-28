@@ -377,6 +377,15 @@ after a 45-second shakedown that flushed out harness false positives. Out-of-ban
 11.0 RC1 NuGet packages, instrumented like `System.Numerics.Tensors` (see `OOB_PACKAGES` in
 `setup.sh`).
 
+The last stage looked for memory-safety bugs in code that reads and writes spans through
+`Unsafe.ReadUnaligned` / `WriteUnaligned`, pointers and vector loads. With `SHARPFUZZ_GUARD=1` the
+harness copies inputs and destinations into buffers that end (or start) right at an inaccessible
+page (`Guarded.cs`, mmap + mprotect), so touching one element past a span is a fatal access
+violation that AFL records as a crash; results are also compared with the same call over ordinary
+arrays. The `unsafetext`, `unsafefmt`, `unsafemem`, `unsafeenc` and `unsaferegex` targets are built
+for this, and `tensorprimitives` / `metadata` place their buffers the same way. No out-of-bounds
+access was found; the guarded targets turned up JSON-COPY-1 and BLOB-DT-1.
+
 ### Round 3 campaign statistics
 
 ROUND3_STATS
@@ -397,6 +406,9 @@ ROUND3_STATS
 | [BINXML-ENC-1](#binxml-enc-1) | `XmlDictionaryReader.CreateTextReader` | An unterminated `encoding='...` in the XML declaration, or a UTF-8 BOM followed by one byte, throws `IndexOutOfRangeException` | Low–Medium | .NET 8, 9, 10, 11 |
 | [CBOR-DUPW-1](#cbor-dupw-1) | `CborWriter` (Strict, Canonical) | A duplicate key written after more than ~500 bytes of output throws `ArgumentOutOfRangeException` instead of `InvalidOperationException` and stays written; a caller that catches it and goes on encodes a map with duplicate keys | Low–Medium | Cbor 8.0.0, 9.0.20, 10.0.0, 11.0 RC1 packages |
 | [MAIL-ENC-1](#mail-enc-1) | `ContentType`, `ContentDisposition` | A quoted parameter value shaped like an encoded-word with an unknown charset (`"=?x?B?QQ==?="`) parses, then `ToString()` throws `ArgumentException` | Low–Medium | .NET 8, 9, 10, 11 |
+| [UTF8FMT-DT-1](#utf8fmt-dt-1) | UTF-8 `TryFormat` of `DateTime`, `DateTimeOffset`, `TimeSpan`, `TimeOnly` | An escaped non-ASCII literal in a custom format (`yyyy\年`) is written as the low byte of the char: wrong text, invalid UTF-8 | Low–Medium | .NET 8, 9, 10, 11 |
+| [UTF8FMT-NUM-1](#utf8fmt-num-1) | UTF-8 `TryFormat` of every number type | A custom format with a character outside the BMP (`0😀`) throws `ArgumentOutOfRangeException`; `ToString` works | Low–Medium | .NET 8, 9, 10, 11 |
+| [B64URL-EXACT-1](#b64url-exact-1) | `Base64Url` decoding | A final block with partial padding (`GQ=`) decodes into a larger destination, but an exactly sized one gives `InvalidData` (`TryDecodeFrom*` throw `FormatException`) | Low–Medium | .NET 9, 10, 11 |
 | [COOKIE-PORT-1](#cookie-port-1) | `CookieContainer` | The `Port` attribute is validated leniently (CR/LF allowed around the numbers) and echoed into the `Cookie` request header | Low | .NET 8, 9, 10, 11 |
 | [TZ-RULE-1](#tz-rule-1) | `TimeZoneInfo.FindRuleForYear` | `ArgumentOutOfRangeException` for a rule ending 0001-01-01 under a negative offset | Low | .NET 11 regression |
 | [TENSOR-RESHAPE-1](#tensor-reshape-1) | `Tensor.Reshape` | `DivideByZeroException` / `IndexOutOfRangeException` instead of `ArgumentException` | Low | Tensors 10.0.12 and 11.0 RC1 packages |
@@ -736,6 +748,44 @@ from `PkcsHelpers.FirstBerValueLength` (an indefinite length with no content), w
 truncated or malformed input (`30`, `30 81`, `30 84 FF FF FF FF`) throws the documented
 `CryptographicException`. Same in the 8.0.1 (8.0.10), 9.0.20, 10.0.12 and 11.0 RC1 packages.
 
+### UTF8FMT-DT-1
+
+**UTF-8 formatting of dates and times writes an escaped non-ASCII literal as one byte.** In a custom
+format, `\x` makes `x` a literal. `ToString` / UTF-16 `TryFormat` copy it; the UTF-8 path
+(`IUtf8SpanFormattable.TryFormat`) writes `(byte)x`:
+
+```csharp
+var dt = new DateTime(2020, 1, 2);
+dt.ToString("yyyy\\年");                                   // "2020年"
+dt.TryFormat(utf8, out int n, "yyyy\\年", null);           // 32 30 32 30 74 ("2020t": 0x74 is the low byte of U+5E74)
+dt.TryFormat(utf8, out n, "\\é", null);                    // E9: not UTF-8 at all
+dt.TryFormat(utf8, out n, "\\😀", null);                   // ArgumentOutOfRangeException
+```
+
+The same happens for `DateTimeOffset`, `TimeSpan` and `TimeOnly`, on 8.0.31, 9.0.20,
+10.0.12 and 11.0 RC1. Quoted literals (`'年'`), unescaped literals (`yyyy年MM月dd日`) and culture
+data (month names) come out right, so only the backslash escape is affected. The output is silently
+wrong, and can be invalid UTF-8 that a later reader rejects or replaces.
+
+### UTF8FMT-NUM-1
+
+**UTF-8 number formatting throws for custom formats containing a surrogate pair.**
+`Number.AppendUnknownChar` (UTF-8 instantiation) converts each literal char with `new Rune(char)`,
+which throws for either half of a surrogate pair. `1.5.ToString("0😀")` is `"2😀"`, but
+`1.5.TryFormat(utf8, out _, "0😀", null)` throws `ArgumentOutOfRangeException` (parameter `ch`), for
+`int`, `double`, `decimal`, `Half` and the other number types, quoted (`'😀'`) or not. BMP literals
+(`0é`) work. Same on 8.0.31, 9.0.20, 10.0.12 and 11.0 RC1.
+
+### B64URL-EXACT-1
+
+**`Base64Url` rejects partially padded input when the destination is exactly the decoded size.**
+`Base64Url` accepts a final block with no, partial or full padding (`GQ`, `GQ=`, `GQ==`, also `%`).
+Decoding `GQ=` (or `SGVsbA=`) into a destination with room to spare returns `Done` (1 or 4 bytes),
+but into a destination of exactly 1 (or 4) bytes it returns `InvalidData` after 0 (or 3) bytes, and
+`TryDecodeFromUtf8` / `TryDecodeFromChars` throw `FormatException` for input they accept otherwise.
+`GQ` and `GQ==` decode fine at the exact size. Same on 9.0.20, 10.0.12 and 11.0 RC1 (8.0 has no
+`Base64Url`). Found by the guard-page `unsafeenc` target, which decodes into exactly sized buffers.
+
 ### JSON-COPY-1
 
 **`Utf8JsonReader.CopyString(Span<byte>)` rejects a destination that is exactly the size of the
@@ -782,6 +832,10 @@ guard-page `unsafemem` target; 8.0.31 to 11.0 RC1.
 - BINXML-NUM-1: copying binary XML through `XmlDictionaryWriter.CreateBinaryWriter` (`WriteNode`)
   turns a `-0` numeric record into `0`, and decimals with an out-of-range scale are formatted
   differently.
+- JSON-SURR-1: `JsonDocument.Parse` accepts a string with an escaped lone surrogate (`["\ud83d"]`),
+  and `GetRawText()` returns it, but `JsonDocument.WriteTo` / `JsonElement.WriteTo` throw
+  `InvalidOperationException` ("incomplete UTF-16"), like `GetString()`, so a parsed document can't
+  always be written back (8.0 to 11.0).
 - In invariant globalization mode `new JapaneseCalendar()`, `new KoreanCalendar()` and
   `new TaiwanCalendar()` throw `TypeInitializationException` (they look up `ja-JP` / `ko-KR` /
   `zh-TW`), while the lunisolar and Thai calendars work.
