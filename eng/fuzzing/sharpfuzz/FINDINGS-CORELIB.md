@@ -689,6 +689,17 @@ These were raised by the first versions of the targets and turned out to be docu
 - `PEReader.GetSectionData` with a negative RVA throws `ArgumentOutOfRangeException` (documented).
 - `AsnWriter.WriteEncodedValue` validates the value against the writer's own rule set, so BER
   values can only be passed through a BER writer.
+- Round 3: `DataTable` expressions let `DivideByZeroException`, `FormatException` (literal
+  conversions) and `IndexOutOfRangeException("Cannot find column ...")` through, as they always have;
+  under ODBC rules `DbConnectionStringBuilder` keeps the braces of a quoted value and always braces
+  the `Driver` value; `ContentDisposition` parameter order isn't stable (a `StringDictionary`);
+  `HttpUtility.UrlPathEncode` only encodes the path of anything that looks like a URL (scheme,
+  `//`, UNC, `?`, `#`); `SortedSet` views throw for out-of-range elements in `UnionWith` /
+  `SymmetricExceptWith` too; `Select(...).Last()` in LINQ skips the selector for earlier elements
+  where `LastAsync` runs it; `CborWriter` writes floats in the shortest exact width and simple values
+  20–22 as `false` / `true` / `null`; a reader without `allowMultipleRootLevelValues` stops after the
+  first value; single-reader unbounded channels don't support `Count`; Hijri year 9666 only has four
+  months; week 55 exists in 13-month lunisolar years.
 
 ## Limitations
 
