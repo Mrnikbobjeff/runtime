@@ -66,6 +66,7 @@ public static class Program
         ["archive"] = ArchiveTarget.Run,
         ["arrays"] = ArraysTarget.Run,
         ["websocket"] = WebSocketTarget.Run,
+        ["unsafeder"] = UnsafeDerTarget.Run,
     };
 
     public static int Main(string[] args)
