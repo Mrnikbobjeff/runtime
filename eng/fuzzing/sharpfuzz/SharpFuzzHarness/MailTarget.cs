@@ -52,8 +52,9 @@ public static class MailTarget
     // without a value ("attachment; x") and throws IndexOutOfRangeException instead of FormatException.
     private static bool IsFormatError(Exception e) => e is FormatException || e.GetType() == typeof(ArgumentException) ||
         !s_reportKnownIssues && e is IndexOutOfRangeException && e.StackTrace?.Contains("ContentDisposition.ParseValue", StringComparison.Ordinal) == true ||
-        // Known (MAIL-CD-2): a date parameter with a zone offset beyond +-14 hours throws ArgumentOutOfRangeException.
-        !s_reportKnownIssues && e is ArgumentOutOfRangeException && e.StackTrace?.Contains("ValidateOffset", StringComparison.Ordinal) == true;
+        // Known (MAIL-CD-2): a date parameter with a zone offset beyond +-14 hours, or whose UTC time falls
+        // outside years 1-9999 ("31 Dec 9999 20:00:00 -0800"), throws ArgumentOutOfRangeException.
+        !s_reportKnownIssues && e is ArgumentOutOfRangeException && (e.StackTrace?.Contains("ValidateOffset", StringComparison.Ordinal) == true || e.StackTrace?.Contains("SmtpDateTime.get_Date", StringComparison.Ordinal) == true);
 
     private static void Address(string address, string displayName)
     {
@@ -127,7 +128,18 @@ public static class MailTarget
 
         string what = $"{name}({Check.Show(text)})";
         (string type, StringDictionary parameters) = parts(parsed.Value);
-        string serialized = format(parsed.Value);
+        string serialized;
+        try
+        {
+            serialized = format(parsed.Value);
+        }
+        catch (ArgumentException e) when (!s_reportKnownIssues && e.StackTrace?.Contains("MimeBasePart.DecodeEncoding", StringComparison.Ordinal) == true)
+        {
+            // Known (MAIL-ENC-1): a quoted parameter value that looks like an encoded-word with an unknown
+            // charset ("=?x?B?QQ==?=") is accepted, then ToString() throws from Encoding.GetEncoding.
+            return;
+        }
+
         what += $" -> {Check.Show(serialized)}";
         var again = Outcome<T>.Of(() => parse(serialized), IsFormatError);
         Check.That(again.Ok, $"ToString doesn't parse ({again}): {what}");

@@ -70,8 +70,10 @@ public static class DataTarget
     {
         // A key set to "" is written as "key=", which parses as no value at all: the key is dropped.
         // Parsing lower-cases keys (ToLowerInvariant, which differs from the builder's OrdinalIgnoreCase for a few characters).
-        expected = expected.Where(e => Normalize(e.Value, odbc, !raw).Length > 0).ToList();
-        actual = actual.Where(a => Normalize(a.Value, odbc).Length > 0).ToList();
+        // Under ODBC rules "{}" is a value of its own (kept with its braces), so only values that are empty
+        // either way are dropped.
+        expected = expected.Where(e => Normalize(e.Value, odbc, !raw).Length > 0 || Normalize(e.Value, odbc, false).Length > 0).ToList();
+        actual = actual.Where(a => Normalize(a.Value, odbc).Length > 0 || Normalize(a.Value, odbc, false).Length > 0).ToList();
         bool same = expected.Count == actual.Count && expected.All(e => actual.Any(a =>
             a.Key.ToLowerInvariant() == e.Key.ToLowerInvariant() && (Normalize(a.Value, odbc) == Normalize(e.Value, odbc, !raw) || Normalize(a.Value, odbc, false) == Normalize(e.Value, odbc, false))));
         Check.That(same, $"pairs [{Show(actual)}], expected [{Show(expected)}] for {what}");
@@ -123,13 +125,15 @@ public static class DataTarget
             // Known (DATA-ODBC-KEY-1): under ODBC rules a '=' in a key isn't escaped, so the key/value
             // boundary moves when the string is parsed again ("a=b" = "c" -> "a=b=c" -> "a" = "b=c").
             // Known (DATA-ODBC-CTRL-1): nor are keys with whitespace or values with control characters
-            // quoted, which the ODBC parser then rejects.
+            // quoted, which the ODBC parser then rejects; nor values where whitespace comes before a '{'
+            // (" {x"), which the parser reads as the start of a braced value.
             // Known (DATA-DOLLAR-1): the key validation and value quoting regexes end in '$', which also
             // matches before a final '\n', so a key or value ending in '\n' is accepted / left unquoted
             // and parsing trims the newline off.
             if (!s_reportKnownIssues &&
                 (key.EndsWith('\n') || value.EndsWith('\n') ||
-                 odbc && (key.AsSpan().IndexOfAny("=;{}") >= 0 || key.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)) || value.Any(char.IsControl))))
+                 odbc && (key.AsSpan().IndexOfAny("=;{}") >= 0 || key.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)) || value.Any(char.IsControl) ||
+                  value.Length > 0 && char.IsWhiteSpace(value[0]) && value.TrimStart().StartsWith('{'))))
             {
                 continue;
             }
