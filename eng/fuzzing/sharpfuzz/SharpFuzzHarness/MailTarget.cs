@@ -40,7 +40,8 @@ public static class MailTarget
                 Mime(text, s => new ContentDisposition(s), c => c.ToString(), c => (c.DispositionType, c.Parameters), "ContentDisposition");
                 if (Outcome<ContentDisposition>.Of(() => new ContentDisposition(text), IsFormatError) is { Ok: true } d)
                 {
-                    _ = (d.Value.FileName, d.Value.Inline, d.Value.Size, d.Value.CreationDate, d.Value.ModificationDate, d.Value.ReadDate);
+                    // The date parameters are parsed when read; FormatException is the documented failure.
+                    _ = Outcome<object>.Of(() => (d.Value.FileName, d.Value.Inline, d.Value.Size, d.Value.CreationDate, d.Value.ModificationDate, d.Value.ReadDate), IsFormatError);
                 }
 
                 break;
@@ -50,7 +51,9 @@ public static class MailTarget
     // Known (MAIL-CD-1): ContentDisposition's parser indexes past the end for a trailing parameter
     // without a value ("attachment; x") and throws IndexOutOfRangeException instead of FormatException.
     private static bool IsFormatError(Exception e) => e is FormatException || e.GetType() == typeof(ArgumentException) ||
-        !s_reportKnownIssues && e is IndexOutOfRangeException && e.StackTrace?.Contains("ContentDisposition.ParseValue", StringComparison.Ordinal) == true;
+        !s_reportKnownIssues && e is IndexOutOfRangeException && e.StackTrace?.Contains("ContentDisposition.ParseValue", StringComparison.Ordinal) == true ||
+        // Known (MAIL-CD-2): a date parameter with a zone offset beyond +-14 hours throws ArgumentOutOfRangeException.
+        !s_reportKnownIssues && e is ArgumentOutOfRangeException && e.StackTrace?.Contains("ValidateOffset", StringComparison.Ordinal) == true;
 
     private static void Address(string address, string displayName)
     {

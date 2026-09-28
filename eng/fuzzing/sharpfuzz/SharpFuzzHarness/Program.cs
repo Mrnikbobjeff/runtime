@@ -35,6 +35,10 @@ public static class Program
         ["data"] = DataTarget.Run,
         ["diag"] = DiagTarget.Run,
         ["mail"] = MailTarget.Run,
+        ["codepages"] = CodePagesTarget.Run,
+        ["tensor"] = TensorTarget.Run,
+        ["sequence"] = SequenceTarget.Run,
+        ["timezone"] = TimeZoneTarget.Run,
     };
 
     public static int Main(string[] args)
