@@ -30,10 +30,10 @@ the dotnet/runtime issue tracker yet.
 | `utf8parser` | CoreLib (`Utf8Parser`, `Utf8Formatter`) | 40 + 60 min (2–3 instances) | 103.2 M | 10.1 k | UTF8PARSER-FLOAT-1, UTF8PARSER-DECIMAL-1 |
 | `spanops` | CoreLib, System.Linq, System.Collections | 3 × 60 min (3 instances) | 141.6 M | 16.3 k | LINQ-SUM-1 |
 | `collections` | System.Collections.Immutable (Frozen*, Immutable*), OrderedDictionary | 60 min (3 instances) | 7.2 M | 9.9 k | no findings |
-| `uri` | System.Private.Uri | URI_TIME | URI_EXECS | URI_EDGES | URI-HOST-1, URI-IDN-1, URI-FILE-1, URI-CANON-1 |
-| `biginteger` | System.Runtime.Numerics | BIG_TIME | BIG_EXECS | BIG_EDGES | no new findings (UTF8FMT-1 and BIGINTEGER-EXP-1 again) |
-| `asn1` | System.Formats.Asn1 | ASN_TIME | ASN_EXECS | ASN_EDGES | ASN1-GENTIME-1 |
-| `metadata` | System.Reflection.Metadata | MD_TIME | MD_EXECS | MD_EDGES | METADATA-1..3 |
+| `uri` | System.Private.Uri | 3 runs, 85 min total (2–3 instances) | 49.8 M | 10.2 k | URI-HOST-1, URI-IDN-1, URI-FILE-1, URI-CANON-1 |
+| `biginteger` | System.Runtime.Numerics | 3 runs, 100 min total (2–3 instances) | 13.0 M | 10.0 k | no new findings (UTF8FMT-1 and BIGINTEGER-EXP-1 again) |
+| `asn1` | System.Formats.Asn1 | 2 runs, 90 min total (2 instances) | 49.6 M | 9.1 k | ASN1-GENTIME-1 |
+| `metadata` | System.Reflection.Metadata | 2 runs, 80 min total (3 instances) | 50.6 M | 14.3 k | METADATA-1..3 |
 
 CoreLib's `datetime`, `encoding` and `enum` targets were triaged by a parallel session on branch
 `feature/sharpfuzz-corelib-instrument-fc6ce9` (see the FINDINGS.md there); those results are not
