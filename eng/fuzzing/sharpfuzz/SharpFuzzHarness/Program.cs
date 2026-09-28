@@ -68,6 +68,7 @@ public static class Program
         ["websocket"] = WebSocketTarget.Run,
         ["unsafeder"] = UnsafeDerTarget.Run,
         ["unsafex509"] = UnsafeX509Target.Run,
+        ["blobwriter"] = BlobWriterTarget.Run,
     };
 
     public static int Main(string[] args)
