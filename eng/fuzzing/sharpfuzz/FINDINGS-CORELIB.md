@@ -384,7 +384,8 @@ page (`Guarded.cs`, mmap + mprotect), so touching one element past a span is a f
 violation that AFL records as a crash; results are also compared with the same call over ordinary
 arrays. The `unsafetext`, `unsafefmt`, `unsafemem`, `unsafeenc` and `unsaferegex` targets are built
 for this, and `tensorprimitives` / `metadata` place their buffers the same way. No out-of-bounds
-access was found; the guarded targets turned up JSON-COPY-1 and BLOB-DT-1.
+access (no guard-page fault) was found in about 2.5 hours of guarded fuzzing; the guarded targets
+turned up JSON-COPY-1, B64URL-EXACT-1, UTF8FMT-DT-1, UTF8FMT-NUM-1 and BLOB-DT-1.
 
 ### Round 3 campaign statistics
 
