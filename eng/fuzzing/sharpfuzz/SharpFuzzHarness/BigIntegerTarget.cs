@@ -48,6 +48,13 @@ public static class BigIntegerTarget
         BigInteger a = ParseAll(textA, utf8A, styles, inv) ?? Fallback(utf8A);
         BigInteger b = ParseAll(textB, Encoding.UTF8.GetBytes(textB), styles, inv) ?? Fallback(Encoding.UTF8.GetBytes(textB));
 
+        // Exponents make small texts into huge values ("3E82024" has 270k bits), and formatting and
+        // multiplying those takes seconds; keep the arithmetic and formatting checks to 16k bits.
+        if (a.GetBitLength() > 16384 || b.GetBitLength() > 16384)
+        {
+            return;
+        }
+
         Formats(a, format);
         foreach (string standard in (string[])["D", "X", "B", "N0", "E30", "R", "G", "C"])
         {
