@@ -903,8 +903,9 @@ ROUND4_STATS
 |----|-----------|------|--------------------------|----------|
 | [COMP-EXACT-1](#comp-exact-1) | `DeflateEncoder.TryCompress` (new in 11) | Fails for a destination of exactly the compressed size; one byte more works | Low–Medium | new .NET 11 API |
 | [MARSHAL-TSTR-1](#marshal-tstr-1) | `Marshal.StructureToPtr` (ANSI `ByValTStr`) | A non-ASCII string is cut inside a UTF-8 sequence, or throws `ArgumentException` when its UTF-8 is longer than `SizeConst`; ASCII strings are truncated | Low–Medium | .NET 8, 9, 10, 11 |
+| [JSON-DEEPEQ-1](#json-deepeq-1) | `JsonElement.DeepEquals`, `JsonNode.DeepEquals` | Throw `ArgumentOutOfRangeException` for any number whose exponent doesn't fit in an `int`, even when comparing a document with itself | Low–Medium | .NET 9, 10, 11 |
 | [COMP-EMPTY-1](#comp-empty-1) | `DeflateDecoder` / `ZLibDecoder` / `GZipDecoder.TryDecompress` (new in 11) | Decompressing an empty payload into an empty destination returns `false` | Low | new .NET 11 API |
-ROUND4_ROWS
+| [ROUND4-MISC](#round4-misc) | various | See the list at the end of this section | Informational | |
 
 ### COMP-EXACT-1
 
@@ -939,6 +940,18 @@ arbitrary bytes into such a struct (invalid UTF-8 becomes U+FFFD, three bytes ea
 it again. Same on 8.0.31, 9.0.20, 10.0.12 and 11.0 RC1 (`CSTRMarshaler.ConvertFixedToNative`).
 Found by the guard-page `unsafemarshal` target.
 
+### JSON-DEEPEQ-1
+
+**`JsonElement.DeepEquals` (new in .NET 9) throws for valid numbers with large exponents.** It
+compares numbers semantically (`1.0` equals `1`), parsing each into sign, digits and an `int`
+exponent (`JsonHelpers.AreEqualJsonNumbers`). An exponent outside the `int` range throws
+`ArgumentOutOfRangeException` ("The exponent value in the specified JSON number is too large"), so
+`DeepEquals` of `1e2147483648`, `-1E-99999999999` or `0.000e99999999999999` with an identical
+document throws instead of returning `true`, and so does `JsonNode.DeepEquals` on nodes containing
+such a number. `JsonDocument.Parse` accepts these numbers (the JSON grammar has no limit), so any
+code comparing untrusted JSON with `DeepEquals` gets an unexpected exception type. Same on 9.0.20,
+10.0.12 and 11.0 RC1. Found by the `unsafejson` target.
+
 ### COMP-EMPTY-1
 
 **The zlib-based decoders can't decompress an empty payload into an empty destination.**
@@ -947,6 +960,15 @@ same for `ZLibDecoder` and `GZipDecoder`), although the data decompresses to 0 b
 one-byte destination it returns `true` with 0 bytes written. `BrotliDecoder` returns `true`. Callers
 that know the uncompressed length (a length-prefixed format) and allocate exactly that fail on empty
 payloads. 11.0 RC1 only (new API).
+
+### ROUND4-MISC
+
+- JSON-FLOAT-1: `Utf8JsonReader.TryGetSingle` / `TryGetDouble` return `true` with ±Infinity for numbers
+  beyond the type's range (`3.5e38` as `float`, `1e309` as `double`), so `JsonSerializer.Deserialize<float>("1e80")`
+  gives `Infinity`, which `JsonSerializer.Serialize` then rejects with `ArgumentException` unless
+  `AllowNamedFloatingPointLiterals` is set: the serializer can't write back what it read (8.0 to 11.0).
+- `JsonNode.ToJsonString` of a node parsed from a string with an escaped lone surrogate throws
+  `InvalidOperationException`, the same as JSON-SURR-1 (round 3) through the node API.
 
 ---
 
