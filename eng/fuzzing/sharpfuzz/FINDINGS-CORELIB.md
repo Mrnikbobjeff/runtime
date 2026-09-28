@@ -396,6 +396,7 @@ ROUND3_STATS
 | [MAIL-CD-1/2](#mail-cd-12) | `ContentDisposition` | `"attachment; x"` throws `IndexOutOfRangeException`; a date with an offset beyond ±14 h throws `ArgumentOutOfRangeException` when read | Low–Medium | .NET 8, 9, 10, 11 |
 | [BINXML-ENC-1](#binxml-enc-1) | `XmlDictionaryReader.CreateTextReader` | An unterminated `encoding='...` in the XML declaration, or a UTF-8 BOM followed by one byte, throws `IndexOutOfRangeException` | Low–Medium | .NET 8, 9, 10, 11 |
 | [CBOR-DUPW-1](#cbor-dupw-1) | `CborWriter` (Strict, Canonical) | A duplicate key written after more than ~500 bytes of output throws `ArgumentOutOfRangeException` instead of `InvalidOperationException` and stays written; a caller that catches it and goes on encodes a map with duplicate keys | Low–Medium | Cbor 8.0.0, 9.0.20, 10.0.0, 11.0 RC1 packages |
+| [MAIL-ENC-1](#mail-enc-1) | `ContentType`, `ContentDisposition` | A quoted parameter value shaped like an encoded-word with an unknown charset (`"=?x?B?QQ==?="`) parses, then `ToString()` throws `ArgumentException` | Low–Medium | .NET 8, 9, 10, 11 |
 | [COOKIE-PORT-1](#cookie-port-1) | `CookieContainer` | The `Port` attribute is validated leniently (CR/LF allowed around the numbers) and echoed into the `Cookie` request header | Low | .NET 8, 9, 10, 11 |
 | [TZ-RULE-1](#tz-rule-1) | `TimeZoneInfo.FindRuleForYear` | `ArgumentOutOfRangeException` for a rule ending 0001-01-01 under a negative offset | Low | .NET 11 regression |
 | [TENSOR-RESHAPE-1](#tensor-reshape-1) | `Tensor.Reshape` | `DivideByZeroException` / `IndexOutOfRangeException` instead of `ArgumentException` | Low | Tensors 10.0.12 and 11.0 RC1 packages |
@@ -579,8 +580,21 @@ CoreLib's own ASCII and Latin-1 encoders are consistent, so this is in
 `IndexOutOfRangeException` from `ContentDisposition.ParseValue`. A date parameter with an
 out-of-range zone offset (`creation-date="Tue, 15 Nov 1994 08:12:31 +9900"`) parses, but reading
 `CreationDate` / `ModificationDate` / `ReadDate` throws `ArgumentOutOfRangeException` from
-`SmtpDateTime.Date`. Code that parses `Content-Disposition` headers of uploads with this class and
-catches `FormatException` fails on both.
+`SmtpDateTime.Date`; so does a valid offset that moves the UTC time out of range
+(`"Fri, 31 Dec 9999 20:00:00 -0800"`). Code that parses `Content-Disposition` headers of uploads with
+this class and catches `FormatException` fails on both.
+
+### MAIL-ENC-1
+
+**`ContentType` / `ContentDisposition` accept a parameter value that looks like an RFC 2047
+encoded-word with an unknown charset, then `ToString()` throws.**
+`new ContentType("text/plain; x=\"=?x?B?QQ==?=\"")` (or `"=??B?QQ==?="`, or
+`"=?bogus-charset?Q?a?="`) parses and keeps the value as is, but `ToString()` passes the value to
+`MimeBasePart.DecodeEncoding`, whose `Encoding.GetEncoding("x")` throws `ArgumentException`
+("'x' is not a supported encoding name"). A known charset (`=?utf-8?B?QQ==?=`, even with an invalid
+encoding letter) is written back unchanged. Any code that parses a received header and serializes it
+again (forwarding, `Attachment.ContentType`, logging) throws on attacker-chosen input. Same on 8.0.31,
+9.0.20, 10.0.12 and 11.0 RC1.
 
 ### BINXML-ENC-1
 
@@ -645,7 +659,9 @@ parsing the connection string back gives `k` = `"v"` in both cases. `\z` would f
 With `useOdbcRules: true`, keys are written without escaping: `builder["a=b"] = "c"` gives `a=b=c`,
 which parses as `a` = `b=c`, and a key containing `;` splits into two entries. Values with control
 characters are written without braces and the ODBC parser then rejects the whole string
-(`b=x\u0007`).
+(`b=x\u0007`), and so are values where whitespace precedes a `{` (`builder["d"] = " {o"` gives
+`d= {o`, which the parser reads as an unterminated braced value); both `ConnectionString` and
+`AppendKeyValuePair` do this.
 
 ### MAIL-QUOTE-1
 
