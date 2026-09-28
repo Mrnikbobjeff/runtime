@@ -115,9 +115,12 @@ public static class ChunkedTarget
                 sb.Append(';');
             }
         }
-        catch (JsonException e)
+        catch (JsonException)
         {
-            sb.Append("error ").Append(e.Message);
+            // The single- and multi-segment readers word some errors differently ("Expected end of comment"
+            // vs "Unexpected end of data while reading a comment"), so only that there was one.
+            sb.Append("error");
+            return sb.ToString();
         }
 
         return sb.Append(" end ").Append(reader.BytesConsumed).ToString();
@@ -149,19 +152,30 @@ public static class ChunkedTarget
         Check.Equal(expected, actual, $"Utf8JsonReader over {k} segments vs one span: {what}");
     }
 
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
+    // JSON-UTF8-1: JsonDocument keeps invalid UTF-8 in strings, which GetRawText / writing then can't transcode.
+    private static bool JsonAllowed(Exception e) => e is JsonException || e is InvalidOperationException && e.Message.Contains("UTF-8", StringComparison.Ordinal);
+
     private static void JsonAsync(byte[] bytes, byte pattern, string what)
     {
+        // The stream APIs skip a UTF-8 BOM, the span ones don't (by design).
+        if (bytes.AsSpan().StartsWith((ReadOnlySpan<byte>)[0xEF, 0xBB, 0xBF]))
+        {
+            return;
+        }
+
         var options = new JsonSerializerOptions { MaxDepth = 64, DefaultBufferSize = 1 + pattern % 16 };
-        var sync = Outcome<string>.Of(() => JsonSerializer.Serialize(JsonSerializer.Deserialize<JsonElement>(bytes, options)), e => e is JsonException);
-        var async = Outcome<string>.Of(() => JsonSerializer.Serialize(JsonSerializer.DeserializeAsync<JsonElement>(new ChunkStream(bytes, pattern), options).AsTask().GetAwaiter().GetResult()), e => e is JsonException);
+        var sync = Outcome<string>.Of(() => JsonSerializer.Serialize(JsonSerializer.Deserialize<JsonElement>(bytes, options)), JsonAllowed);
+        var async = Outcome<string>.Of(() => JsonSerializer.Serialize(JsonSerializer.DeserializeAsync<JsonElement>(new ChunkStream(bytes, pattern), options).AsTask().GetAwaiter().GetResult()), JsonAllowed);
         Check.That(sync.SameAs(async) || !sync.Ok && !async.Ok, $"DeserializeAsync<JsonElement>(chunked) [{async}] vs Deserialize [{sync}]: {what}");
 
-        var list = Outcome<string>.Of(() => JsonSerializer.Serialize(JsonSerializer.Deserialize<List<Dictionary<string, object>>>(bytes, options)), e => e is JsonException);
-        var listAsync = Outcome<string>.Of(() => JsonSerializer.Serialize(JsonSerializer.DeserializeAsync<List<Dictionary<string, object>>>(new ChunkStream(bytes, pattern), options).AsTask().GetAwaiter().GetResult()), e => e is JsonException);
+        var list = Outcome<string>.Of(() => JsonSerializer.Serialize(JsonSerializer.Deserialize<List<Dictionary<string, object>>>(bytes, options)), JsonAllowed);
+        var listAsync = Outcome<string>.Of(() => JsonSerializer.Serialize(JsonSerializer.DeserializeAsync<List<Dictionary<string, object>>>(new ChunkStream(bytes, pattern), options).AsTask().GetAwaiter().GetResult()), JsonAllowed);
         Check.That(list.SameAs(listAsync) || !list.Ok && !listAsync.Ok, $"DeserializeAsync<List<Dictionary>>(chunked) [{listAsync}] vs Deserialize [{list}]: {what}");
 
-        var doc = Outcome<string>.Of(() => { using var d = JsonDocument.Parse(bytes); return d.RootElement.GetRawText(); }, e => e is JsonException);
-        var docAsync = Outcome<string>.Of(() => { using var d = JsonDocument.ParseAsync(new ChunkStream(bytes, pattern)).GetAwaiter().GetResult(); return d.RootElement.GetRawText(); }, e => e is JsonException);
+        var doc = Outcome<string>.Of(() => { using var d = JsonDocument.Parse(bytes); return d.RootElement.GetRawText(); }, JsonAllowed);
+        var docAsync = Outcome<string>.Of(() => { using var d = JsonDocument.ParseAsync(new ChunkStream(bytes, pattern)).GetAwaiter().GetResult(); return d.RootElement.GetRawText(); }, JsonAllowed);
         Check.That(doc.SameAs(docAsync) || !doc.Ok && !docAsync.Ok, $"JsonDocument.ParseAsync(chunked) [{docAsync}] vs Parse [{doc}]: {what}");
     }
 
@@ -186,7 +200,10 @@ public static class ChunkedTarget
             }
 
             return Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(ms.ToArray())) + ":" + ms.Length;
-        }, e => e is InvalidDataException);
+            // Known (BROTLI-EXC-1): BrotliStream reports corrupt data with InvalidOperationException.
+        }, e => e is InvalidDataException || !s_reportKnownIssues && e is InvalidOperationException && e.StackTrace?.Contains("BrotliStream", StringComparison.Ordinal) == true ||
+            // Known (ZLIB-DICT-1): a zlib header asking for a preset dictionary throws ZLibException.
+            !s_reportKnownIssues && e.GetType().Name == "ZLibException");
     }
 
     private static void Decompress(byte[] bytes, byte pattern, byte mode, string what)
@@ -229,29 +246,51 @@ public static class ChunkedTarget
         {
             while (reader.Read() && sb.Length < 20000)
             {
-                sb.Append(reader.NodeType).Append(':').Append(reader.Name).Append('=').Append(Check.Escape(reader.Value, 4096));
+                // A node is recorded once its value has been read: over chunks the reader may return a text
+                // node and fail when its value is read, where the whole buffer fails in Read itself.
+                var node = new StringBuilder();
+                node.Append(reader.NodeType).Append(':').Append(reader.Name).Append('=').Append(Check.Escape(reader.Value, 4096));
                 while (reader.MoveToNextAttribute())
                 {
-                    sb.Append(' ').Append(reader.Name).Append('=').Append(Check.Escape(reader.Value, 4096));
+                    node.Append(' ').Append(reader.Name).Append('=').Append(Check.Escape(reader.Value, 4096));
                 }
 
-                sb.Append(';');
+                sb.Append(node).Append(';');
             }
         }
         catch (XmlException e)
         {
-            sb.Append("error ").Append(e.Message);
+            // Decoding errors are reported at positions that depend on where the chunks end.
+            // Messages quote the offending token as far as the current buffer goes, and positions depend on
+            // where chunks end, so only that there was an error.
+            _ = e;
+            sb.Append("error");
         }
 
-        return sb.ToString();
+        return System.Text.RegularExpressions.Regex.Replace(sb.ToString(), @"(Text|Whitespace|SignificantWhitespace):=""[^""]*"";error", "error");
     }
 
     private static void Xml(byte[] bytes, byte pattern, string what)
     {
         var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 1 << 20, IgnoreWhitespace = (pattern & 1) != 0 };
-        string expected = Nodes(XmlReader.Create(new MemoryStream(bytes), settings));
-        string actual = Nodes(XmlReader.Create(new ChunkStream(bytes, pattern), settings));
-        // Error messages carry positions, which are the same either way.
-        Check.Equal(expected, actual, $"XmlReader over chunks vs one read: {what}");
+        static string Read(Func<XmlReader> create)
+        {
+            try
+            {
+                return Nodes(create());
+            }
+            catch (XmlException e)
+            {
+                _ = e;
+                return "error";
+            }
+        }
+
+        string expected = Read(() => XmlReader.Create(new MemoryStream(bytes), settings));
+        string actual = Read(() => XmlReader.Create(new ChunkStream(bytes, pattern), settings));
+        // Nodes before an error depend on how much was decoded at once (one buffer decodes, and fails, up
+        // front), so when both fail that's agreement; otherwise the results must match.
+        bool bothFail = expected.EndsWith("error", StringComparison.Ordinal) && actual.EndsWith("error", StringComparison.Ordinal);
+        Check.That(bothFail || expected == actual, $"XmlReader over chunks [{Check.Escape(actual, 600)}] vs one read [{Check.Escape(expected, 600)}]: {what}");
     }
 }

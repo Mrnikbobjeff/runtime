@@ -901,12 +901,15 @@ ROUND4_STATS
 
 | ID | Component | Kind | Severity (my assessment) | Versions |
 |----|-----------|------|--------------------------|----------|
+| [DCJSON-ENC-1](#dcjson-enc-1) | `JsonReaderWriterFactory.CreateJsonReader(Stream)`, `DataContractJsonSerializer.ReadObject(Stream)` | Encoding detection now looks only at the first `Read`: UTF-16 JSON without a BOM fails when the stream returns 1 byte first (8–10 read it), and the new BOM support fails on short first reads | **Medium** | **.NET 11 regression** |
 | [WS-UTF8-1](#ws-utf8-1) | Managed `WebSocket` (client and server, used by ASP.NET Core) | A fragmented text message whose last fragment is empty is delivered as complete without the end-of-message UTF-8 check: truncated sequences and bytes like `C0` get through | **Medium** | .NET 8, 9, 10, 11 |
 | [SR-BOM-1](#sr-bom-1) | `StreamReader` (BOM detection, the default) | When the first read returns 1–2 bytes, BOM detection runs again on later buffers: BOM-like bytes mid-stream are dropped or switch the decoding to UTF-16 / UTF-32; a BOM split across reads is missed | **Medium** | .NET 8, 9, 10, 11 |
 | [COMP-EXACT-1](#comp-exact-1) | `DeflateEncoder.TryCompress` (new in 11) | Fails for a destination of exactly the compressed size; one byte more works | Low–Medium | new .NET 11 API |
 | [MARSHAL-TSTR-1](#marshal-tstr-1) | `Marshal.StructureToPtr` (ANSI `ByValTStr`, ANSI by-value `char[]`) | A non-ASCII string is cut inside a UTF-8 sequence, or throws when its UTF-8 is longer than `SizeConst`; any non-ASCII char in a by-value `char[]` throws; ASCII strings are truncated | Low–Medium | .NET 8, 9, 10, 11 (exception type changed in 11) |
 | [BR-CHARS-1](#br-chars-1) | `BinaryReader.ReadChars` | Throws `ArgumentException` ("output char buffer is too small") for invalid UTF-8, or a character outside the BMP, at the end of the requested count | Low–Medium | .NET 8, 9, 10, 11 |
 | [JSON-DEEPEQ-1](#json-deepeq-1) | `JsonElement.DeepEquals`, `JsonNode.DeepEquals` | Throw `ArgumentOutOfRangeException` for any number whose exponent doesn't fit in an `int`, even when comparing a document with itself | Low–Medium | .NET 9, 10, 11 |
+| [DCJSON-SCOPE-1](#dcjson-scope-1) | DataContract JSON reader / `DataContractJsonSerializer` | A stray closing bracket after the root value is ignored (`9]`, `[1]}`, `[9]]`); a second one (`9]]`) throws `IndexOutOfRangeException`, which `ReadObject` doesn't wrap | Low–Medium | .NET 8, 9, 10, 11 |
+| [ZLIB-DICT-1](#zlib-dict-1) | `ZLibStream` | A zlib header asking for a preset dictionary throws `ZLibException` (an `IOException`) rather than `InvalidDataException`; in 11 the message shows a raw `'{0}'` | Low | .NET 8, 9, 10, 11 (message: 11 regression) |
 | [ZIP-ENC-1](#zip-enc-1) | `ZipArchiveEntry.Open` / `OpenAsync` (encryption support new in 11) | For an encrypted entry with an unknown encryption method, `Open` throws `InvalidDataException` and `OpenAsync` `NotSupportedException`; the two also check header, method and password in different orders | Low | new .NET 11 API |
 | [COMP-EMPTY-1](#comp-empty-1) | `DeflateDecoder` / `ZLibDecoder` / `GZipDecoder.TryDecompress` (new in 11) | Decompressing an empty payload into an empty destination returns `false` | Low | new .NET 11 API |
 | [ROUND4-MISC](#round4-misc) | various | See the list at the end of this section | Informational | |
@@ -974,6 +977,47 @@ the decoded characters": an invalid lead byte followed by an ASCII byte (`C3 61`
 with `ReadChars(1)`). `Encoding.UTF8.GetString` decodes all of these. `BinaryReader.ReadChar` is
 documented to throw for surrogates; `ReadChars` isn't, and invalid input shouldn't depend on the
 count asked for. Same on 8.0.31, 9.0.20, 10.0.12 and 11.0 RC1.
+
+### DCJSON-ENC-1
+
+**.NET 11 regression: the DataContract JSON stream reader decides the encoding from the first `Read`
+alone.** `JsonReaderWriterFactory.CreateJsonReader(Stream, encoding: null, ...)`, which
+`DataContractJsonSerializer.ReadObject(Stream)` uses, detects UTF-8 / UTF-16 / UTF-32 from the first
+bytes. In 11.0 RC1 it also learned to skip byte order marks, but it now looks only at what the first
+`Read` of the stream returned:
+
+| `{"a":"hi","b":[1,2]}` encoded as | 8.0.31 / 9.0.20 / 10.0.12, first read 1 byte | 11.0 RC1, first read 1 byte | 11.0 RC1, `MemoryStream` / `byte[]` |
+|---|---|---|---|
+| UTF-16LE, no BOM | read | `XmlException`: "The token '"' was expected but found ' '" | read |
+| UTF-16BE, no BOM | read | same `XmlException` | read |
+| UTF-16LE with BOM | rejected (no BOM support) | rejected | read (new) |
+| UTF-8 with BOM | rejected (no BOM support) | rejected (also with a 2-byte first read) | read (new) |
+
+`DataContractJsonSerializer.ReadObject` over such a stream throws `SerializationException` (inner
+`XmlException`) on 11.0 RC1 and returns the object on 8–10. Network, pipe and decompression streams
+routinely return a byte or two on the first read, so UTF-16 JSON that worked before breaks depending on
+timing. Found by the `dcjson` target (a stream returning a few bytes per read against `byte[]`).
+
+### DCJSON-SCOPE-1
+
+**The DataContract JSON reader mishandles stray closing brackets after the root value.** One is ignored:
+`9]`, `1}`, `"s"]`, `[1]]`, `{}}` and even the mismatched `[1]}` read as if the bracket weren't there
+(`ReadObject<int[]>("[9]]")` is `[9]`), while `null]` is rejected. Two throw
+`IndexOutOfRangeException` from `XmlJsonReader.ExitJsonScope`, from `CreateJsonReader` and from
+`DataContractJsonSerializer.ReadObject` alike (`9]]`), which doesn't wrap it in its documented
+`SerializationException`, so a service deserializing request bodies with it sees an unexpected
+exception type for a four-byte input. Same on 8.0.31, 9.0.20, 10.0.12 and 11.0 RC1.
+
+### ZLIB-DICT-1
+
+**`ZLibStream` doesn't handle a zlib header that asks for a preset dictionary.** A valid zlib header
+with the FDICT flag (`78 20`, `78 BB`) makes zlib return `Z_NEED_DICT`, which `Inflater` treats as an
+unexpected error: `ZLibStream.Read` throws `System.IO.Compression.ZLibException` (derived from
+`IOException`) instead of the `InvalidDataException` used for every other kind of bad data, so callers
+that catch `InvalidDataException` around decompression of untrusted data let it through. In 11.0 RC1 the
+message also lost its formatting: "The underlying compression routine returned an unexpected error
+code: '{0}'" (8–10: "...an unexpected error code."). The new `ZLibDecoder.TryDecompress` returns `false`
+for such input. Found by the `chunked` target.
 
 ### COMP-EXACT-1
 
@@ -1066,6 +1110,20 @@ payloads. 11.0 RC1 only (new API).
   character") for a raw control character inside a JSON string, where other malformed JSON throws
   `XmlException`; `DataContractJsonSerializer.ReadObject` wraps both in `SerializationException`
   (8.0 to 11.0).
+- DCJSON-LENIENT-1: the DataContract JSON reader (`JsonReaderWriterFactory.CreateJsonReader`) accepts a
+  lot of invalid JSON at the `XmlDictionaryReader` level: any run of non-delimiter characters as a number
+  (`1x2`, `1"2`, `--1`, `0x10`, `Infinity`, control characters), values without commas inside one element
+  (`[1 2]` is one number element with the texts `1` and `2`, `[true false]` one boolean), and NUL bytes as
+  whitespace between tokens. `DataContractJsonSerializer` rejects most of it when converting (it accepts
+  `[1.]` and `Infinity`), but a reader-to-writer copy turns it into different JSON (`[true false]`
+  becomes `[truefalse]`), and the `byte[]` and `Stream` overloads disagree once such junk crosses a buffer boundary
+  (8.0 to 11.0).
+- BROTLI-EXC-1: `BrotliStream` reports corrupt data with `InvalidOperationException` ("Decoder ran into
+  invalid data"), where `DeflateStream`, `ZLibStream` and `GZipStream` throw `InvalidDataException`
+  (8.0 to 11.0).
+- HTTP-QVALUE-1: `StringWithQualityHeaderValue` parses
+  q-values with more than three decimals or leading zeros (`q=0000.6001`), which RFC 9110 doesn't allow,
+  and `ToString()` rounds them to three decimals, so the value read back isn't `Equal`.
 - `BinaryReader.ReadChars` never flushes its decoder: an incomplete UTF-8 / UTF-16 sequence at the end
   of the stream is dropped, where `Encoding.GetString` and `StreamReader` produce U+FFFD.
 - `JsonNode.ToJsonString` of a node parsed from a string with an escaped lone surrogate throws

@@ -56,17 +56,31 @@ public static class DcJsonTarget
         }
 
         string what = $"pattern {pattern:X2} {Check.Show(Encoding.UTF8.GetString(bytes))}";
-        var fromBytes = Outcome<string>.Of(() => Nodes(JsonReaderWriterFactory.CreateJsonReader(bytes, Quotas)), Allowed);
-        var fromStream = Outcome<string>.Of(() => Nodes(JsonReaderWriterFactory.CreateJsonReader(new ChunkStream(bytes, pattern), Encoding.UTF8, Quotas, null)), Allowed);
-        Check.That(fromBytes.SameAs(fromStream) || !fromBytes.Ok && !fromStream.Ok, $"CreateJsonReader(stream) [{fromStream}] vs (bytes) [{fromBytes}]: {what}");
-
-        // JSON that System.Text.Json accepts (a single value, no comments), with its strings and numbers.
         // "__type" (the DataContract type hint) becomes an attribute, by design.
-        var stj = Outcome<List<string>>.Of(() => Values(bytes), e => e is JsonException or InvalidOperationException);
         if (bytes.AsSpan().IndexOf("\"__type\""u8) >= 0)
         {
             return;
         }
+
+        // Known (DCJSON-LENIENT-1): the reader accepts a lot of invalid JSON (junk after values, any characters in
+        // numbers, values without commas) and treats it differently from byte[] and Stream and through a copy,
+        // so those comparisons are made for valid JSON (what System.Text.Json accepts) only.
+        var stj = Outcome<List<string>>.Of(() => Values(bytes), e => e is JsonException or InvalidOperationException);
+        bool valid = stj.Ok || s_reportKnownIssues;
+        var fromBytes = Outcome<string>.Of(() => Nodes(JsonReaderWriterFactory.CreateJsonReader(bytes, Quotas)), Allowed);
+        // A null encoding detects UTF-8 / UTF-16 / UTF-32 like the byte[] overload does.
+        var fromStream = Outcome<string>.Of(() => Nodes(JsonReaderWriterFactory.CreateJsonReader(new ChunkStream(bytes, pattern), null, Quotas, null)), Allowed);
+        // Known (DCJSON-ENC-1): the stream reader detects UTF-16 / UTF-32 and BOMs from whatever the first
+        // Read returns, so over a stream returning a byte or two it decodes such input differently.
+        bool encodingSensitive = bytes.Length > 0 && (bytes[0] is 0 or 0xEF or 0xFE or 0xFF || bytes.AsSpan(0, Math.Min(4, bytes.Length)).IndexOf((byte)0) >= 0);
+        // Known (DCJSON-LENIENT-1): with junk after a value (taken as more text or a "number"), the byte[] and Stream
+        // readers disagree once the junk crosses a buffer boundary.
+        bool lenient = !s_reportKnownIssues && fromBytes.Ok && DcValues(bytes).Any(v => v.StartsWith("number:", StringComparison.Ordinal) &&
+            !System.Text.RegularExpressions.Regex.IsMatch(v[7..], @"^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$") || v.StartsWith("string:", StringComparison.Ordinal) && v.Contains("\u0022", StringComparison.Ordinal));
+        Check.That(!valid || fromBytes.SameAs(fromStream) || !fromBytes.Ok && !fromStream.Ok || !s_reportKnownIssues && encodingSensitive || lenient,
+            $"CreateJsonReader(stream) [{fromStream}] vs (bytes) [{fromBytes}]: {what}");
+
+        // JSON that System.Text.Json accepts (a single value, no comments), with its strings and numbers.
 
         if (stj.Ok && fromBytes.Ok)
         {
@@ -78,7 +92,12 @@ public static class DcJsonTarget
             Check.That(false, $"System.Text.Json accepts it, CreateJsonReader throws {fromBytes}: {what}");
         }
 
-        if (fromBytes.Ok)
+        // Known (DCJSON-NUM-1): the reader takes any run of non-delimiter characters as a number ("1x2", "1\"2"),
+        // which the writer copies out as is, so such documents don't survive a copy.
+        bool oddNumbers = fromBytes.Ok && !s_reportKnownIssues && DcValues(bytes).Any(v => v.StartsWith("number:", StringComparison.Ordinal) &&
+            !System.Text.RegularExpressions.Regex.IsMatch(v[7..], @"^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$"));
+        bool mergedValues = fromBytes.Ok && !s_reportKnownIssues && System.Text.RegularExpressions.Regex.IsMatch(fromBytes.Value, @"\[(number|boolean|null)\|[^\]]*\];Text:=[^;]*;Text:");
+        if (valid && fromBytes.Ok && !oddNumbers && !mergedValues)
         {
             // Copy through the JSON writer and read back.
             var ms = new MemoryStream();
@@ -101,7 +120,12 @@ public static class DcJsonTarget
 
     // DCJSON-CTRL-1 (informational): a raw control character in a string throws FormatException, where other
     // malformed JSON throws XmlException (DataContractJsonSerializer wraps both in SerializationException).
-    private static bool Allowed(Exception e) => e is XmlException or FormatException or System.Runtime.Serialization.SerializationException || e is InvalidOperationException && e.Message.Contains("quota", StringComparison.OrdinalIgnoreCase);
+    // Known (DCJSON-SCOPE-1): a second stray closing bracket after the root value ("9]]") throws
+    // IndexOutOfRangeException from XmlJsonReader.ExitJsonScope.
+    private static bool Allowed(Exception e) => e is XmlException or FormatException or System.Runtime.Serialization.SerializationException || e is InvalidOperationException && e.Message.Contains("quota", StringComparison.OrdinalIgnoreCase) ||
+        !s_reportKnownIssues && e is IndexOutOfRangeException && e.StackTrace?.Contains("XmlJsonReader", StringComparison.Ordinal) == true;
+
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
 
     private static string Nodes(XmlDictionaryReader reader)
     {
