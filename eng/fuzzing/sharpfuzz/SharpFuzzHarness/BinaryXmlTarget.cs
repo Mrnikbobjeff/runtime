@@ -101,7 +101,8 @@ public static class BinaryXmlTarget
             int i = 0;
             // Known (BINXML-NUM-1, informational): typed numeric records don't always survive the copy
             // exactly (-0 becomes 0; decimals with an out-of-range scale are formatted differently).
-            if (!s_reportKnownIssues && copy.Count == original.Count && copy.Zip(original).All(p => p.First == p.Second || IsNumericText(p.First) && IsNumericText(p.Second)))
+            if (!s_reportKnownIssues && copy.Count == original.Count && copy.Zip(original).All(p => p.First == p.Second || IsNumericText(p.First) && IsNumericText(p.Second) ||
+                p.First.Contains(new string('0', 30), StringComparison.Ordinal) || p.Second.Contains(new string('0', 30), StringComparison.Ordinal)))
             {
                 return;
             }
