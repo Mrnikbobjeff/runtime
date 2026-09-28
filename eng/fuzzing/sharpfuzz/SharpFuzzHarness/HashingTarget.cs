@@ -44,6 +44,13 @@ public static class HashingTarget
                     _ => (0x1EDC6F41u, 0xFFFFFFFFu, 0xFFFFFFFFu, true),
                 };
                 string what = $"CRC-32 poly 0x{poly:X8} init 0x{init:X8} xor 0x{xorOut:X8} reflect {reflect}, {Show(bytes)}";
+                // Known (HASH-CRC-EVEN-1): reflected parameter sets with an even polynomial (no x^0 term)
+                // give wrong results on the vectorized path (inputs of 16 bytes or more).
+                if (!s_reportKnownIssues && reflect && (poly & 1) == 0)
+                {
+                    break;
+                }
+
                 uint expected = (uint)Crc(bytes, poly, init, xorOut, reflect, 32);
                 Check.Equal(expected, Crc32.HashToUInt32(set, bytes), $"HashToUInt32 vs reference for {what}");
                 Incremental(() => new Crc32(set), h => ((Crc32)h).Clone(), Crc32.Hash(set, bytes), bytes, pattern, what);
@@ -74,6 +81,11 @@ public static class HashingTarget
                     _ => (0xAD93D23594C93659ul, ulong.MaxValue, ulong.MaxValue, true),
                 };
                 string what = $"CRC-64 poly 0x{poly:X16} init 0x{init:X16} xor 0x{xorOut:X16} reflect {reflect}, {Show(bytes)}";
+                if (!s_reportKnownIssues && reflect && (poly & 1) == 0)
+                {
+                    break; // Known (HASH-CRC-EVEN-1), see CRC-32 above
+                }
+
                 ulong expected = Crc(bytes, poly, init, xorOut, reflect, 64);
                 Check.Equal(expected, Crc64.HashToUInt64(set, bytes), $"HashToUInt64 vs reference for {what}");
                 Incremental(() => new Crc64(set), h => ((Crc64)h).Clone(), Crc64.Hash(set, bytes), bytes, pattern, what);

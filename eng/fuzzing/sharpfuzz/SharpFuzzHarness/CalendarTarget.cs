@@ -144,7 +144,9 @@ public static class CalendarTarget
         // AddMonths moves by calendar months (years have GetMonthsInYear months) and clamps the day.
         var moved = Outcome<DateTime>.Of(() => cal.AddMonths(d, months), e => e is ArgumentOutOfRangeException or ArgumentException);
         // Lunisolar AddMonths steps over leap months in ways this model doesn't follow.
-        if (moved.Ok && cal.Eras.Length == 1 && cal is not EastAsianLunisolarCalendar)
+        // Known (CAL-JULIAN-1): JulianCalendar.AddMonths clamps to Feb 28 in century years that are Julian leap
+        // years (700, 1400, 9100).
+        if (moved.Ok && cal.Eras.Length == 1 && cal is not EastAsianLunisolarCalendar && (s_reportKnownIssues || cal is not JulianCalendar))
         {
             try
             {

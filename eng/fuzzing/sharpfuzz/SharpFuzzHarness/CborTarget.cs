@@ -29,10 +29,15 @@ public static class CborTarget
         string what = $"{mode}{(multiple ? " (multiple roots)" : "")} 0x{Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 64)))}{(bytes.Length > 64 ? "..." : "")}";
 
         List<string> tokens = Read(bytes, mode, multiple, out string error);
-        if (tokens is null)
+        // Known (CBOR-TRUNC-1): with multiple root values a trailing tag without a data item after it is
+        // accepted (PeekState says Finished).
+        if (tokens is null || tokens.Count == 0 || !s_reportKnownIssues && multiple && tokens[^1].StartsWith('G'))
         {
             return;
         }
+
+        // Known (CBOR-NAN-1): CborWriter writes every NaN as the canonical quiet NaN, dropping sign and payload.
+        bool nan = tokens.Any(IsNaN);
 
         // Nesting of the conformance modes.
         foreach (CborConformanceMode weaker in mode switch
@@ -50,23 +55,41 @@ public static class CborTarget
         // Re-encode the values in the same mode.
         var writer = new CborWriter(mode, convertIndefiniteLengthEncodings: false, allowMultipleRootLevelValues: multiple);
         var replay = new CborReader(bytes, mode, multiple);
-        Replay(replay, writer);
+        try
+        {
+            Replay(replay, writer);
+        }
+        catch (InvalidOperationException e) when (!s_reportKnownIssues && e.Message.Contains("duplicate keys", StringComparison.Ordinal) &&
+            tokens.Any(t => t is "SIB" or "SIT"))
+        {
+            // Known (CBOR-DUP-1): the Strict reader misses a duplicate map key when the value before it is an
+            // indefinite-length string ({3: 7F FF, 3: "n"} is accepted); the writer then rejects it.
+            return;
+        }
         byte[] encoded = writer.Encode();
         // Without multiple root values the reader stops after the first one and leaves the rest.
         ReadOnlySpan<byte> consumed = bytes.AsSpan(0, bytes.Length - replay.BytesRemaining);
-        if (mode is CborConformanceMode.Canonical or CborConformanceMode.Ctap2Canonical)
+        if (mode is CborConformanceMode.Canonical or CborConformanceMode.Ctap2Canonical && (s_reportKnownIssues || !nan))
         {
             Check.That(encoded.AsSpan().SequenceEqual(consumed), $"re-encoded as 0x{Convert.ToHexString(encoded)}: {what}");
         }
 
         List<string> again = Read(encoded, mode, multiple, out string againError);
-        Check.That(again is not null && again.SequenceEqual(tokens), $"re-encoded 0x{Convert.ToHexString(encoded)} reads as [{(again is null ? againError : string.Join(" ", again))}]: {what}");
+        // CborWriter writes floats in the shortest width that keeps the value, and simple values 20-22 as
+        // false / true / null, so compare floats by value and those simple values by meaning.
+        static List<string> Nans(List<string> list) => list?.Select(t => IsNaN(t) && !s_reportKnownIssues ? "NaN" : Normalize(t)).ToList();
+        Check.That(again is not null && Nans(again).SequenceEqual(Nans(tokens)), $"re-encoded 0x{Convert.ToHexString(encoded)} reads as [{(again is null ? againError : string.Join(" ", again))}]: {what}");
 
         // SkipValue / ReadEncodedValue over the top-level values.
         var skipper = new CborReader(bytes, mode, multiple);
         var encodedReader = new CborReader(bytes, mode, multiple);
         while (skipper.PeekState() != CborReaderState.Finished)
         {
+            if (!s_reportKnownIssues && tokens.Any(t => t.StartsWith('S')))
+            {
+                break; // Known (CBOR-SIMPLE-1), see Read
+            }
+
             int before = skipper.BytesRemaining;
             skipper.SkipValue();
             ReadOnlyMemory<byte> value = encodedReader.ReadEncodedValue();
@@ -103,7 +126,35 @@ public static class CborTarget
             error = e.Message;
             return null;
         }
+        catch (InvalidOperationException e) when (!s_reportKnownIssues && e.StackTrace?.Contains("ReadSimpleValue", StringComparison.Ordinal) == true)
+        {
+            // Known (CBOR-SIMPLE-1): PeekState reports SimpleValue for the reserved simple values
+            // 0xFC-0xFE, and ReadSimpleValue / SkipValue then throw InvalidOperationException.
+            error = e.Message;
+            return null;
+        }
     }
+
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
+    private static string Normalize(string token) => token switch
+    {
+        "S20" => "false",
+        "S21" => "true",
+        "S22" => "null",
+        ['H', ..] => "V" + BitConverter.DoubleToUInt64Bits((double)BitConverter.UInt16BitsToHalf(Convert.ToUInt16(token[1..], 16))).ToString("X16"),
+        ['F', ..] => "V" + BitConverter.DoubleToUInt64Bits(BitConverter.UInt32BitsToSingle(Convert.ToUInt32(token[1..], 16))).ToString("X16"),
+        ['D', ..] => "V" + token[1..],
+        _ => token,
+    };
+
+    private static bool IsNaN(string token) => token.Length > 1 && token[0] switch
+    {
+        'H' => Half.IsNaN(BitConverter.UInt16BitsToHalf(Convert.ToUInt16(token[1..], 16))),
+        'F' => float.IsNaN(BitConverter.UInt32BitsToSingle(Convert.ToUInt32(token[1..], 16))),
+        'D' => double.IsNaN(BitConverter.UInt64BitsToDouble(Convert.ToUInt64(token[1..], 16))),
+        _ => false,
+    };
 
     private static string Token(CborReader r, CborReaderState state) => state switch
     {

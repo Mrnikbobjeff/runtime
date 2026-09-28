@@ -69,9 +69,9 @@ public static class XsdTarget
             return;
         }
 
-        if ((flags & 1) != 0)
+        if ((flags & 1) != 0 || set.Count == 0)
         {
-            return; // XmlDocument.Validate doesn't process inline schemas
+            return; // XmlDocument.Validate doesn't process inline schemas, and needs a schema
         }
 
         var doc = new XmlDocument { XmlResolver = null };

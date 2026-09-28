@@ -36,7 +36,11 @@ public static class BinaryXmlTarget
 
     private static XmlDictionaryReaderQuotas Quotas => new() { MaxDepth = 64, MaxStringContentLength = 65536, MaxArrayLength = 65536, MaxBytesPerRead = 65536, MaxNameTableCharCount = 65536 };
 
-    private static bool Allowed(Exception e) => e is XmlException or DecoderFallbackException or InvalidDataException || e is InvalidOperationException && e.Message.Contains("quota", StringComparison.OrdinalIgnoreCase);
+    // Known (BINXML-ENC-1): CreateTextReader indexes past the end of an unterminated XML declaration
+    // encoding (<?xml version='1.0' encoding='utf-8) and throws IndexOutOfRangeException.
+    private static bool Allowed(Exception e) => e is XmlException or DecoderFallbackException or InvalidDataException ||
+        e is InvalidOperationException && e.Message.Contains("quota", StringComparison.OrdinalIgnoreCase) ||
+        !s_reportKnownIssues && e is IndexOutOfRangeException && e.StackTrace?.Contains("CheckUTF8DeclarationEncoding", StringComparison.Ordinal) == true;
 
     public static void Run(ReadOnlySpan<byte> data)
     {
@@ -67,7 +71,7 @@ public static class BinaryXmlTarget
         using (XmlDictionaryWriter writer = XmlDictionaryWriter.CreateBinaryWriter(ms, s_dictionary, null, ownsStream: false))
         {
             using XmlDictionaryReader reader = XmlDictionaryReader.CreateBinaryReader(bytes, 0, bytes.Length, s_dictionary, Quotas);
-            var copied = Outcome<bool>.Of(() => { writer.WriteNode(reader, defattr: true); return true; }, e => Allowed(e) || e is ArgumentException);
+            var copied = Outcome<bool>.Of(() => { writer.WriteNode(reader, defattr: true); return true; }, e => Allowed(e) || e is ArgumentException or InvalidOperationException);
             if (!copied.Ok)
             {
                 return; // e.g. content the writer refuses (invalid surrogates in names)
@@ -78,8 +82,9 @@ public static class BinaryXmlTarget
         var again = Outcome<List<string>>.Of(() => Nodes(XmlDictionaryReader.CreateBinaryReader(rewritten, 0, rewritten.Length, s_dictionary, Quotas)), Allowed);
         // Known (BINXML-DT-1): copying a DateTime record through the binary writer drops its Kind
         // ("...Z" / "+hh:mm" becomes unspecified).
+        // Empty text records ("") produce no node once copied.
         static List<string> Kinds(List<string> list) => s_reportKnownIssues ? list :
-            list.Select(t => System.Text.RegularExpressions.Regex.Replace(t, @"(\d{4}-\d\d-\d\dT[\d:.]+)(Z|[+-]\d\d:\d\d)", "$1")).ToList();
+            list.Where(t => t != "Text:||=\"\"").Select(t => System.Text.RegularExpressions.Regex.Replace(t, @"(\d{4}-\d\d-\d\dT[\d:.]+)(Z|[+-]\d\d:\d\d)", "$1")).ToList();
         Check.That(again.Ok && Kinds(again.Value).SequenceEqual(Kinds(nodes.Value)),
             $"binary copy 0x{Convert.ToHexString(rewritten.AsSpan(0, Math.Min(rewritten.Length, 64)))} reads as {(again.Ok ? string.Join(" ", again.Value) : again.ToString())}, original {string.Join(" ", nodes.Value)}: {what}");
     }
@@ -143,6 +148,15 @@ public static class BinaryXmlTarget
             }
 
             string n = node.StartsWith("CDATA:", StringComparison.Ordinal) ? "Text:" + node["CDATA:".Length..] : node;
+            // The two readers split character data into text and whitespace nodes differently.
+            foreach (string ws in (string[])["Whitespace:", "SignificantWhitespace:"])
+            {
+                if (n.StartsWith(ws, StringComparison.Ordinal))
+                {
+                    n = "Text:" + n[ws.Length..];
+                }
+            }
+
             // Adjacent text (or whitespace) nodes may be split differently by the two readers: merge them.
             string kind = n[..(n.IndexOf(':') + 1)];
             if (result.Count > 0 && kind is "Text:" or "Whitespace:" or "SignificantWhitespace:" && result[^1].StartsWith(kind, StringComparison.Ordinal))

@@ -85,8 +85,9 @@ public static class AsyncEnumTarget
             case 14: return (s.Reverse(), a.Reverse());
             case 15: return (s.Concat(other), a.Concat(o));
             case 16: return (s.Zip(other, (x, y) => x * 31 + y), a.Zip(o, (x, y) => x * 31 + y));
-            case 17: return (s.Chunk(k).Select(c => c.Sum() * 7 + c.Length), a.Chunk(k).Select(c => c.Sum() * 7 + c.Length));
-            case 18: return (s.GroupBy(x => x % k).Select(g => g.Key * 1000 + g.Sum()), a.GroupBy(x => x % k).Select(g => g.Key * 1000 + g.Sum()));
+            // Selectors must not throw: sync LINQ may skip them (Select(...).Last() only runs the last one).
+            case 17: return (s.Chunk(k).Select(c => Sum(c) * 7 + c.Length), a.Chunk(k).Select(c => Sum(c) * 7 + c.Length));
+            case 18: return (s.GroupBy(x => x % k).Select(g => g.Key * 1000 + Sum(g)), a.GroupBy(x => x % k).Select(g => g.Key * 1000 + Sum(g)));
             case 19: return (s.Join(other, x => x % k, y => y % k, (x, y) => x * 31 + y), a.Join(o, x => x % k, y => y % k, (x, y) => x * 31 + y));
             case 20: return (s.GroupJoin(other, x => x % k, y => y % k, (x, ys) => x * 31 + ys.Count()), a.GroupJoin(o, x => x % k, y => y % k, (x, ys) => x * 31 + ys.Count()));
             case 21: return (s.Union(other), a.Union(o));
@@ -104,6 +105,8 @@ public static class AsyncEnumTarget
             default: return (s.UnionBy(other, x => x % k), a.UnionBy(o, x => x % k));
         }
     }
+
+    private static int Sum(IEnumerable<int> values) => values.Aggregate(0, (x, y) => unchecked(x + y));
 
     private static long Terminal(byte op, int q, IEnumerable<int> s, int[] other) => (op % 16) switch
     {
