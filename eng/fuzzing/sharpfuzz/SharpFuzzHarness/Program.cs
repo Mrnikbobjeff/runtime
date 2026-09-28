@@ -28,6 +28,7 @@ public static class Program
         ["collections"] = CollectionsTarget.Run,
         ["uri"] = UriTarget.Run,
         ["biginteger"] = BigIntegerTarget.Run,
+        ["asn1"] = Asn1Target.Run,
     };
 
     public static int Main(string[] args)
