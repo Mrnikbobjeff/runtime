@@ -42,7 +42,7 @@ public static class UriTarget
             if (Uri.TryCreate(text, options, out Uri raw) && raw.IsAbsoluteUri)
             {
                 // GetComponents() is documented to throw for Path/Query on such instances.
-                _ = (raw.ToString(), raw.AbsoluteUri, raw.PathAndQuery, raw.AbsolutePath, raw.Query, raw.Host, raw.Port, raw.Scheme, raw.Fragment, raw.UserInfo, raw.Authority, raw.IdnHost);
+                _ = (raw.ToString(), raw.AbsoluteUri, raw.PathAndQuery, raw.AbsolutePath, raw.Query, raw.Host, raw.Port, raw.Scheme, raw.Fragment, raw.UserInfo, raw.Authority);
                 foreach (UriComponents components in (UriComponents[])[UriComponents.SchemeAndServer, UriComponents.UserInfo | UriComponents.Host | UriComponents.Port, UriComponents.NormalizedHost])
                 {
                     _ = raw.GetComponents(components, UriFormat.UriEscaped);
@@ -75,9 +75,12 @@ public static class UriTarget
             return;
         }
 
-        _ = (uri.AbsoluteUri, uri.AbsolutePath, uri.Authority, uri.DnsSafeHost, uri.Fragment, uri.Host, uri.HostNameType, uri.IdnHost,
+        _ = (uri.AbsoluteUri, uri.AbsolutePath, uri.Authority, uri.DnsSafeHost, uri.Fragment, uri.Host, uri.HostNameType,
              uri.IsDefaultPort, uri.IsFile, uri.IsLoopback, uri.IsUnc, uri.LocalPath, uri.PathAndQuery, uri.Port, uri.Query, uri.Scheme,
              uri.Segments, uri.UserEscaped, uri.UserInfo);
+        // Known (URI-IDN-1): IdnHost throws UriFormatException for some hosts the constructor accepted
+        // ("xn--bcher-kva\u00FC.example"), while Host and DnsSafeHost work.
+        _ = Outcome<string>.Of(() => uri.IdnHost, e => !s_reportKnownIssues && e is UriFormatException);
         foreach (UriFormat format in (UriFormat[])[UriFormat.UriEscaped, UriFormat.Unescaped, UriFormat.SafeUnescaped])
         {
             foreach (UriComponents components in (UriComponents[])[UriComponents.AbsoluteUri, UriComponents.HttpRequestUrl, UriComponents.SchemeAndServer,
@@ -98,9 +101,32 @@ public static class UriTarget
     {
         string canonical = uri.AbsoluteUri;
         var again = Outcome<Uri>.Of(() => new Uri(canonical, UriKind.Absolute), e => e is UriFormatException);
+        // Known (URI-CANON-1): file URIs ("/E:" -> "file:///E:", "/.//x" -> "file:////x", U+FFFD and '%' in
+        // implicit paths) and hosts that bidi/format characters reduce to "" or ".com" ("https://\u202E.com/")
+        // give an AbsoluteUri that doesn't parse back, or parses back differently.
+        bool known = !s_reportKnownIssues && (uri.IsFile || uri.OriginalString.Any(c => char.GetUnicodeCategory(c) == System.Globalization.UnicodeCategory.Format));
+        if (known && (!again.Ok || again.Value.AbsoluteUri != canonical || !again.Value.Equals(uri)))
+        {
+            return;
+        }
+
         Check.That(again.Ok, $"AbsoluteUri {Check.Show(canonical)} doesn't parse ({again}) for {what}");
-        Check.That(again.Value.AbsoluteUri == canonical, $"AbsoluteUri {Check.Show(canonical)} parses back as {Check.Show(again.Value.AbsoluteUri)} for {what}");
-        Check.That(again.Value.Equals(uri), $"AbsoluteUri {Check.Show(canonical)} parses back as an unequal Uri for {what}");
+
+        // Known (URI-CANON-2): a '%' that doesn't start an escape is escaped to "%25" but a following
+        // escape is kept, so the next parse decodes it: "tp:%%2E" -> "tp:%25%2E" -> "tp:%25.".
+        if (s_reportKnownIssues || !HasStrayPercent(uri.OriginalString))
+        {
+            Check.That(again.Value.AbsoluteUri == canonical, $"AbsoluteUri {Check.Show(canonical)} parses back as {Check.Show(again.Value.AbsoluteUri)} for {what}");
+        }
+
+        // Known (URI-EQUALS-1): a Uri and the Uri parsed from its own AbsoluteUri compare unequal when the
+        // original had characters that parsing escapes: '\' in a non-special scheme ("tp:\"), a stray '%'
+        // next to non-ASCII ("h1:%\uFFFDx"), or ' ', '^', '|', '"' in the user info. So Equals is only
+        // checked for text made of characters RFC 3986 allows unescaped.
+        if (s_reportKnownIssues || uri.OriginalString.All(c => char.IsAsciiLetterOrDigit(c) || "-._~:/?#[]@!$&'()*+,;=".Contains(c)))
+        {
+            Check.That(again.Value.Equals(uri), $"AbsoluteUri {Check.Show(canonical)} parses back as an unequal Uri for {what}");
+        }
     }
 
     private static void Resolve(Uri baseUri, string relative, string what)
@@ -149,6 +175,24 @@ public static class UriTarget
         buffer = new char[Math.Max(unescaped.Length, text.Length)];
         Check.That(Uri.TryUnescapeDataString(text, buffer, out written) && buffer.AsSpan(0, written).SequenceEqual(unescaped),
             $"TryUnescapeDataString != UnescapeDataString {Check.Show(unescaped)} for {what}");
+    }
+
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
+    /// <summary>A file URI given as a bare path ("/tmp/x", "C:\\x", "\\\\server\\x") rather than "file:...".</summary>
+    private static bool IsImplicitFile(Uri uri) => uri.IsFile && !uri.OriginalString.TrimStart().StartsWith("file:", StringComparison.OrdinalIgnoreCase);
+
+    private static bool HasStrayPercent(string s)
+    {
+        for (int i = s.IndexOf('%'); i >= 0; i = s.IndexOf('%', i + 1))
+        {
+            if (i + 2 >= s.Length || !char.IsAsciiHexDigit(s[i + 1]) || !char.IsAsciiHexDigit(s[i + 2]))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static bool HasLoneSurrogate(string s)

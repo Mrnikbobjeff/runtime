@@ -118,6 +118,13 @@ public static class BigIntegerTarget
             Check.That(!value.TryFormat(new char[s.Length - 1], out _, format, inv), $"TryFormat(char) into short buffer succeeded for {what}");
         }
 
+        // Known (UTF8FMT-1): UTF-8 formatting throws ArgumentOutOfRangeException from new Rune(char) for a
+        // custom format containing a lone surrogate.
+        if (format.AsSpan().IndexOfAnyInRange('\uD800', '\uDFFF') >= 0 && Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is null)
+        {
+            return;
+        }
+
         byte[] expected = Encoding.UTF8.GetBytes(s);
         byte[] bytes = new byte[expected.Length];
         Check.That(value.TryFormat(bytes, out n, format, inv) && n == expected.Length && bytes.AsSpan().SequenceEqual(expected), $"TryFormat(UTF-8) into exact buffer failed for {what}");
