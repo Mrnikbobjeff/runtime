@@ -26,7 +26,9 @@ public static class MetadataTarget
         }
 
         byte[] image = data.ToArray();
-        using var pe = new PEReader(ImmutableArray.Create(image));
+        // SHARPFUZZ_GUARD=1: read the image in place from memory that ends at (or starts right after) an
+        // inaccessible page, so MemoryBlock reads outside the image fault.
+        using var pe = Guarded.Enabled ? GuardedReader(image) : new PEReader(ImmutableArray.Create(image));
 
         // Each part is checked on its own, so a malformed debug directory doesn't hide the metadata.
         Guard(() => Headers(pe));
@@ -56,9 +58,18 @@ public static class MetadataTarget
         {
             unsafe
             {
-                fixed (byte* p = block)
+                if (Guarded.Enabled)
                 {
-                    viaBlock = Walk(new MetadataReader(p, block.Length));
+                    byte* g = Guarded.Allocate(block.Length, atStart: (block.Length & 1) != 0);
+                    block.CopyTo(new Span<byte>(g, block.Length));
+                    viaBlock = Walk(new MetadataReader(g, block.Length));
+                }
+                else
+                {
+                    fixed (byte* p = block)
+                    {
+                        viaBlock = Walk(new MetadataReader(p, block.Length));
+                    }
                 }
             }
         });
@@ -66,6 +77,13 @@ public static class MetadataTarget
     }
 
     private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
+    private static unsafe PEReader GuardedReader(byte[] image)
+    {
+        byte* p = Guarded.Allocate(image.Length, atStart: (image.Length & 1) != 0);
+        image.CopyTo(new Span<byte>(p, image.Length));
+        return new PEReader(p, image.Length);
+    }
 
     /// <summary>Runs a part of the walk, allowing BadImageFormatException (documented) and the known issues.</summary>
     private static void Guard(Action part)

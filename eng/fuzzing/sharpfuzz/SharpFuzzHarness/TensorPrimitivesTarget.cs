@@ -124,9 +124,18 @@ public static class TensorPrimitivesTarget
         _ => T.CreateTruncating((sbyte)b),
     };
 
+    private static Memory<T> PlaceGuarded<T>(T[] values, bool atStart) => Guarded.CopyMemory<T>(values, atStart);
+
     /// <summary>Copies <paramref name="values"/> into a larger array at an offset (misaligned mode) and returns that window.</summary>
     private static Memory<T> Place<T>(T[] values, Mode mode, int salt)
     {
+        // SHARPFUZZ_GUARD=1: the window ends at (or starts right after) an inaccessible page, so vector
+        // loads or stores past the span's bounds fault.
+        if (Guarded.Enabled && values.Length * Marshal.SizeOf<T>() <= Guarded.SlotBytes)
+        {
+            return PlaceGuarded(values, (salt & 1) != 0);
+        }
+
         int offset = (mode & Mode.Misaligned) != 0 ? 1 + salt % 7 : 0;
         var buffer = new T[values.Length + offset + 8];
         values.CopyTo(buffer, offset);

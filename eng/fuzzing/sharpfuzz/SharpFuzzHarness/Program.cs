@@ -51,6 +51,8 @@ public static class Program
         ["cose"] = CoseTarget.Run,
         ["sortedcoll"] = SortedCollectionsTarget.Run,
         ["channels"] = ChannelsTarget.Run,
+        // Guard-page memory safety (SHARPFUZZ_GUARD=1 also puts tensorprimitives / metadata buffers against guard pages)
+        ["unsafetext"] = UnsafeTextTarget.Run,
     };
 
     public static int Main(string[] args)
@@ -245,6 +247,15 @@ public static class Program
         if (s_selfTest && data.AsSpan().StartsWith("CRASHME"u8))
         {
             throw new InvalidOperationException("Harness self-test crash.");
+        }
+
+        // "GUARDME": read one byte past a guarded buffer, which must kill the process (checks that
+        // Guarded's fault reaches AFL as a crash).
+        if (s_selfTest && data.AsSpan().StartsWith("GUARDME"u8))
+        {
+            ReadOnlySpan<byte> guarded = Guarded.Copy<byte>(data, atStart: false);
+            byte past = System.Runtime.CompilerServices.Unsafe.Add(ref System.Runtime.InteropServices.MemoryMarshal.GetReference(guarded), guarded.Length);
+            Console.WriteLine($"Guard page not hit (read {past})");
         }
     }
 }

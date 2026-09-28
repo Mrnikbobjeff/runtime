@@ -107,7 +107,14 @@ public static class PkcsTarget
         catch (CryptographicException)
         {
         }
+        catch (System.Formats.Asn1.AsnContentException e) when (!s_reportKnownIssues && e.StackTrace?.Contains("FirstBerValueLength", StringComparison.Ordinal) == true)
+        {
+            // Known (PKCS-DECODE-1): Pkcs12Info.Decode lets AsnContentException through from
+            // PkcsHelpers.FirstBerValueLength for malformed BER instead of CryptographicException.
+        }
     }
+
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
 
     private static void Pkcs12(byte[] bytes)
     {
