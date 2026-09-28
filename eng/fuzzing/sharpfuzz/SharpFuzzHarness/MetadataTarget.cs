@@ -26,33 +26,77 @@ public static class MetadataTarget
         }
 
         byte[] image = data.ToArray();
-        try
+        using var pe = new PEReader(ImmutableArray.Create(image));
+
+        // Each part is checked on its own, so a malformed debug directory doesn't hide the metadata.
+        Guard(() => Headers(pe));
+        bool hasMetadata = false;
+        Guard(() => hasMetadata = pe.HasMetadata);
+        if (!hasMetadata)
         {
-            using var pe = new PEReader(ImmutableArray.Create(image));
-            Headers(pe);
-            if (!pe.HasMetadata)
-            {
-                return;
-            }
+            return;
+        }
 
+        string viaPe = null;
+        Guard(() =>
+        {
             MetadataReader md = pe.GetMetadataReader();
-            string viaPe = Walk(md, pe);
+            viaPe = Walk(md);
+            Bodies(md, pe);
+        });
+        if (viaPe is null)
+        {
+            return;
+        }
 
-            // The same metadata read directly from its bytes must look the same.
-            byte[] block = pe.GetMetadata().GetContent().ToArray();
+        // The same metadata read directly from its bytes must look the same.
+        byte[] block = pe.GetMetadata().GetContent().ToArray();
+        string viaBlock = null;
+        Guard(() =>
+        {
             unsafe
             {
                 fixed (byte* p = block)
                 {
-                    var direct = new MetadataReader(p, block.Length);
-                    string viaBlock = Walk(direct, null);
-                    Check.That(viaBlock == viaPe, $"MetadataReader over the metadata block differs from PEReader's: {viaBlock} vs {viaPe}");
+                    viaBlock = Walk(new MetadataReader(p, block.Length));
                 }
             }
+        });
+        Check.That(viaBlock == viaPe, $"MetadataReader over the metadata block differs from PEReader's:\n  block: {viaBlock}\n  PE:    {viaPe}");
+    }
+
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
+    /// <summary>Runs a part of the walk, allowing BadImageFormatException (documented) and the known issues.</summary>
+    private static void Guard(Action part)
+    {
+        try
+        {
+            part();
         }
         catch (BadImageFormatException)
         {
         }
+        catch (Exception e) when (!s_reportKnownIssues && IsKnown(e))
+        {
+        }
+    }
+
+    // Known (METADATA-1..4, see FINDINGS-CORELIB.md): malformed metadata makes MetadataReader throw
+    // NullReferenceException (nested types map) or OverflowException (stream headers), the signature
+    // and custom attribute decoders allocate builders sized by untrusted counts, and a corrupt embedded
+    // portable PDB surfaces InvalidDataException from the inflater.
+    private static bool IsKnown(Exception e)
+    {
+        string trace = e.StackTrace ?? "";
+        return e switch
+        {
+            NullReferenceException => trace.Contains("InitializeNestedTypesMap", StringComparison.Ordinal),
+            OverflowException => trace.Contains("ReadStreamHeaders", StringComparison.Ordinal),
+            OutOfMemoryException => trace.Contains("SignatureDecoder", StringComparison.Ordinal) || trace.Contains("CustomAttributeDecoder", StringComparison.Ordinal),
+            System.IO.InvalidDataException => trace.Contains("ReadEmbeddedPortablePdbDebugDirectoryData", StringComparison.Ordinal),
+            _ => false,
+        };
     }
 
     private static void Headers(PEReader pe)
@@ -62,8 +106,10 @@ public static class MetadataTarget
         foreach (SectionHeader section in headers.SectionHeaders.Take(MaxItems))
         {
             _ = (section.Name, section.VirtualAddress, section.SizeOfRawData);
-            PEMemoryBlock block = pe.GetSectionData(section.VirtualAddress);
-            _ = block.Length;
+            if (section.VirtualAddress >= 0)
+            {
+                _ = pe.GetSectionData(section.VirtualAddress).Length;
+            }
         }
 
         if (headers.PEHeader is { } peHeader)
@@ -91,7 +137,7 @@ public static class MetadataTarget
     }
 
     /// <summary>Walks the metadata and returns a summary that two readers of the same metadata must agree on.</summary>
-    private static string Walk(MetadataReader md, PEReader pe)
+    private static string Walk(MetadataReader md)
     {
         var provider = new StringProvider();
         var summary = new System.Text.StringBuilder();
@@ -100,7 +146,9 @@ public static class MetadataTarget
         {
             AssemblyDefinition assembly = md.GetAssemblyDefinition();
             summary.Append($"{md.GetString(assembly.Name)} {assembly.Version} ");
-            _ = assembly.GetAssemblyName();
+            // AssemblyName.CultureName needs a real culture: under invariant globalization (the harness)
+            // any non-empty culture name throws CultureNotFoundException.
+            _ = Outcome<System.Reflection.AssemblyName>.Of(assembly.GetAssemblyName, e => e is System.Globalization.CultureNotFoundException);
         }
 
         foreach (TypeDefinitionHandle th in md.TypeDefinitions.Take(MaxItems))
@@ -124,16 +172,6 @@ public static class MetadataTarget
                     _ = md.GetString(md.GetParameter(ph).Name);
                 }
 
-                if (pe is not null && method.RelativeVirtualAddress != 0)
-                {
-                    MethodBodyBlock body = pe.GetMethodBody(method.RelativeVirtualAddress);
-                    summary.Append(body.Size).Append(':').Append(body.MaxStack).Append(':').Append(body.ExceptionRegions.Length).Append(';');
-                    _ = body.GetILBytes()?.Length;
-                    if (!body.LocalSignature.IsNil)
-                    {
-                        _ = md.GetStandaloneSignature(body.LocalSignature).DecodeLocalSignature(provider, null).Length;
-                    }
-                }
             }
 
             foreach (FieldDefinitionHandle fh in type.GetFields().Take(MaxItems))
@@ -201,6 +239,34 @@ public static class MetadataTarget
         }
 
         return summary.ToString();
+    }
+
+    private static void Bodies(MetadataReader md, PEReader pe)
+    {
+        var provider = new StringProvider();
+        foreach (MethodDefinitionHandle mh in md.MethodDefinitions.Take(MaxItems))
+        {
+            MethodDefinition method = md.GetMethodDefinition(mh);
+            if (method.RelativeVirtualAddress <= 0)
+            {
+                continue;
+            }
+
+            Guard(() =>
+            {
+                MethodBodyBlock body = pe.GetMethodBody(method.RelativeVirtualAddress);
+                _ = (body.Size, body.MaxStack, body.LocalVariablesInitialized, body.GetILBytes()?.Length);
+                foreach (ExceptionRegion region in body.ExceptionRegions)
+                {
+                    _ = (region.Kind, region.TryOffset, region.HandlerLength, region.CatchType.IsNil);
+                }
+
+                if (!body.LocalSignature.IsNil)
+                {
+                    _ = md.GetStandaloneSignature(body.LocalSignature).DecodeLocalSignature(provider, null).Length;
+                }
+            });
+        }
     }
 
     private static string Describe(MetadataReader md, EntityHandle handle, StringProvider provider) => handle.Kind switch
