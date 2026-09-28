@@ -61,6 +61,7 @@ public static class Program
         ["unsafenet"] = UnsafeNetTarget.Run,
         ["vectorops"] = VectorOpsTarget.Run,
         ["unsafejson"] = UnsafeJsonTarget.Run,
+        ["unsafemarshal"] = UnsafeMarshalTarget.Run,
     };
 
     public static int Main(string[] args)

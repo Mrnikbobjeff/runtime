@@ -902,6 +902,7 @@ ROUND4_STATS
 | ID | Component | Kind | Severity (my assessment) | Versions |
 |----|-----------|------|--------------------------|----------|
 | [COMP-EXACT-1](#comp-exact-1) | `DeflateEncoder.TryCompress` (new in 11) | Fails for a destination of exactly the compressed size; one byte more works | Low–Medium | new .NET 11 API |
+| [MARSHAL-TSTR-1](#marshal-tstr-1) | `Marshal.StructureToPtr` (ANSI `ByValTStr`) | A non-ASCII string is cut inside a UTF-8 sequence, or throws `ArgumentException` when its UTF-8 is longer than `SizeConst`; ASCII strings are truncated | Low–Medium | .NET 8, 9, 10, 11 |
 | [COMP-EMPTY-1](#comp-empty-1) | `DeflateDecoder` / `ZLibDecoder` / `GZipDecoder.TryDecompress` (new in 11) | Decompressing an empty payload into an empty destination returns `false` | Low | new .NET 11 API |
 ROUND4_ROWS
 
@@ -917,6 +918,26 @@ succeed at the exact size. `false` is documented to mean "destination too small"
 size the buffer from a previous compression of the same data (or retry with the reported size) get
 a failure for a buffer that is big enough (I haven't traced the cause in the source). 11.0 RC1 only
 (new API). Found by the guard-page `unsafecomp` target.
+
+### MARSHAL-TSTR-1
+
+**Marshalling an ANSI by-value string (`[MarshalAs(UnmanagedType.ByValTStr, SizeConst = n)]` with
+`CharSet.Ansi`, which is UTF-8 on Unix) handles non-ASCII text inconsistently.** For
+`SizeConst = 4`, `Marshal.StructureToPtr` writes:
+
+| Managed string | UTF-8 | Native bytes | Read back |
+|---|---|---|---|
+| `abcdef` | 6 bytes | `61 62 63 00` | `abc` (truncated, as documented) |
+| `éé` | 4 bytes | `C3 A9 C3 00` | `é\uFFFD`: the terminator overwrote half of the second `é` |
+| `😀` | 4 bytes | `F0 9F 98 00` | `\uFFFD` |
+| `中文` | 6 bytes | — | `ArgumentException`: "The output byte buffer is too small to contain the encoded data" |
+
+So the string is encoded into `SizeConst` bytes (throwing when it doesn't fit) and the last byte is
+then forced to 0, instead of truncating at a character boundary that leaves room for the terminator.
+Structs read with `PtrToStructure` can't always be written back: the fuzzer got there by reading
+arbitrary bytes into such a struct (invalid UTF-8 becomes U+FFFD, three bytes each) and marshalling
+it again. Same on 8.0.31, 9.0.20, 10.0.12 and 11.0 RC1 (`CSTRMarshaler.ConvertFixedToNative`).
+Found by the guard-page `unsafemarshal` target.
 
 ### COMP-EMPTY-1
 
