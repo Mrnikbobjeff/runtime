@@ -19,7 +19,8 @@ SHARPFUZZ_VERSION="${SHARPFUZZ_VERSION:-2.3.0}"
 TARGET_ASSEMBLIES=(System.Text.RegularExpressions System.Text.Json System.Linq System.Collections System.Collections.Immutable
     System.Private.Uri System.Runtime.Numerics System.Formats.Asn1 System.Reflection.Metadata
     System.Net.ServerSentEvents System.Data.Common System.Diagnostics.DiagnosticSource System.Net.Mail
-    System.Text.Encoding.CodePages System.Memory)
+    System.Text.Encoding.CodePages System.Memory System.Net.Primitives System.Web.HttpUtility System.Linq.AsyncEnumerable
+    System.Private.Xml System.Private.DataContractSerialization)
 NUGET="https://api.nuget.org/v3-flatcontainer"
 
 mkdir -p "$WORK"
@@ -133,11 +134,27 @@ if [ ! -f "$WORK/instrumented/System.Numerics.Tensors.$tensors_hash.done" ]; the
     touch "$WORK/instrumented/System.Numerics.Tensors.$tensors_hash.done"
 fi
 
+# Other out-of-band (NuGet-only) packages the harness references, instrumented the same way.
+OOB_PACKAGES=(System.Formats.Cbor System.IO.Hashing)
+for id in "${OOB_PACKAGES[@]}"; do
+    lower="$(echo "$id" | tr '[:upper:]' '[:lower:]')"
+    fetch_pkg "$lower" "$DOTNET_VERSION" "$WORK/pkg-$lower"
+    marker="$WORK/instrumented/$id.$DOTNET_VERSION.oob.done"
+    if [ ! -f "$marker" ]; then
+        log "Instrumenting $id (NuGet package)"
+        src="$WORK/pkg-$lower/lib/net11.0/$id.dll"
+        [ -f "$src" ] || src="$(ls "$WORK/pkg-$lower"/lib/net1*.0/$id.dll | tail -1)"
+        dotnet "$WORK/stripr2r/StripR2R.dll" "$src" "$WORK/instrumented/$id.dll"
+        "$WORK/tools/sharpfuzz" "$WORK/instrumented/$id.dll"
+        touch "$marker"
+    fi
+done
+
 # 5. Harness -----------------------------------------------------------------------------------
 log "Building SharpFuzzHarness"
 dotnet build "$HERE/SharpFuzzHarness/SharpFuzzHarness.csproj" -c Release -o "$WORK/harness" -v q -nologo \
     -p:DotNetVersion="$DOTNET_VERSION" -p:NetRefDir="$(echo "$WORK"/ref/ref/net*/)" \
-    -p:TensorsDll="$WORK/instrumented/System.Numerics.Tensors.dll"
+    -p:TensorsDll="$WORK/instrumented/System.Numerics.Tensors.dll" -p:OobDir="$WORK/instrumented/"
 
 log "Smoke test"
 export DOTNET_ROOT="$ROOT" PATH="$ROOT:$PATH"

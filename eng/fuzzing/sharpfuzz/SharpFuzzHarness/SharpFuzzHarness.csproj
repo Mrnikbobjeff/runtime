@@ -32,6 +32,12 @@
     <Reference Include="System.Numerics.Tensors" HintPath="$(TensorsDll)" Private="true" />
   </ItemGroup>
 
+  <!-- Instrumented out-of-band packages (see setup.sh), copied next to the harness. -->
+  <ItemGroup Condition="'$(OobDir)' != ''">
+    <Reference Include="System.Formats.Cbor" HintPath="$(OobDir)System.Formats.Cbor.dll" Private="true" />
+    <Reference Include="System.IO.Hashing" HintPath="$(OobDir)System.IO.Hashing.dll" Private="true" />
+  </ItemGroup>
+
   <!-- Swap the net8.0 reference assemblies for the .NET 11 ones. -->
   <Target Name="UseNet11ReferenceAssemblies" AfterTargets="ResolveTargetingPackAssets" Condition="Exists('$(NetRefDir)')">
     <ItemGroup>

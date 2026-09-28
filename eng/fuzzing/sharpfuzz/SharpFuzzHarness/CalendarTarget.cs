@@ -1,0 +1,131 @@
+#nullable disable warnings
+using System.Globalization;
+
+namespace SharpFuzzHarness;
+
+/// <summary>Fuzzes the System.Globalization calendars (Hebrew, Hijri, UmAlQura, Persian, lunisolar, Japanese, ...).</summary>
+/// <remarks>
+/// Input layout:
+///   byte 0     calendar; byte 1 Hijri adjustment / week rule
+///   rest       instants within the calendar's supported range, and day / month offsets
+/// Checks: a date's year / month / day / era convert back with ToDateTime; month and day are within
+/// GetMonthsInYear / GetDaysInMonth; GetDayOfYear and GetDaysInYear agree with the month lengths;
+/// GetDayOfWeek matches DateTime; AddDays matches DateTime.AddDays; AddMonths lands on the expected
+/// calendar month with the day clamped; out-of-range results throw ArgumentOutOfRangeException.
+/// </remarks>
+public static class CalendarTarget
+{
+    private static readonly Func<Calendar>[] s_calendars =
+    [
+        () => new GregorianCalendar(),
+        () => new GregorianCalendar(GregorianCalendarTypes.Arabic),
+        () => new HebrewCalendar(),
+        () => new HijriCalendar(),
+        () => new UmAlQuraCalendar(),
+        () => new JulianCalendar(),
+        () => new PersianCalendar(),
+        () => new ThaiBuddhistCalendar(),
+        () => new ChineseLunisolarCalendar(),
+        () => new JapaneseLunisolarCalendar(),
+        // JapaneseCalendar, KoreanCalendar and TaiwanCalendar can't be constructed in invariant
+        // globalization mode (the harness): their type initializers look up ja-JP / ko-KR / zh-TW.
+        () => new KoreanLunisolarCalendar(),
+        () => new TaiwanLunisolarCalendar(),
+    ];
+
+    public static void Run(ReadOnlySpan<byte> data)
+    {
+        var input = new FuzzInput(data);
+        Calendar calendar = s_calendars[input.Byte() % s_calendars.Length]();
+        byte settings = input.Byte();
+        if (calendar is HijriCalendar hijri)
+        {
+            hijri.HijriAdjustment = settings % 5 - 2;
+        }
+
+        long min = calendar.MinSupportedDateTime.Ticks, max = calendar.MaxSupportedDateTime.Ticks;
+        for (int i = 0; i < 4 && input.Remaining > 0; i++)
+        {
+            ulong r = (ulong)(uint)input.Int32() << 32 | (uint)input.Int32();
+            long ticks = (input.Byte() % 4) switch
+            {
+                0 => min + (long)(r % 1000) * TimeSpan.TicksPerDay,
+                1 => max - (long)(r % 1000) * TimeSpan.TicksPerDay,
+                _ => min + (long)(r % (ulong)(max - min)),
+            };
+            ticks = Math.Clamp(ticks, min, max);
+            var date = new DateTime(ticks - ticks % TimeSpan.TicksPerMillisecond);
+            if (date.Ticks < min)
+            {
+                continue;
+            }
+
+            Check(calendar, date, (sbyte)input.Byte() * 37, (sbyte)input.Byte(), settings);
+        }
+    }
+
+    private static void Check(Calendar cal, DateTime d, int days, int months, byte settings)
+    {
+        string what = $"{cal.GetType().Name}{(cal is HijriCalendar h ? $" (adjustment {h.HijriAdjustment})" : "")} {d:O}";
+        int year = cal.GetYear(d), month = cal.GetMonth(d), day = cal.GetDayOfMonth(d), era = cal.GetEra(d);
+        what += $" = {year}/{month}/{day} era {era}";
+        int monthsInYear = cal.GetMonthsInYear(year, era);
+        SharpFuzzHarness.Check.That(1 <= month && month <= monthsInYear, $"month outside 1..{monthsInYear}: {what}");
+        int daysInMonth = cal.GetDaysInMonth(year, month, era);
+        SharpFuzzHarness.Check.That(1 <= day && day <= daysInMonth, $"day outside 1..{daysInMonth}: {what}");
+
+        DateTime back = cal.ToDateTime(year, month, day, d.Hour, d.Minute, d.Second, d.Millisecond, era);
+        SharpFuzzHarness.Check.Equal(d, back, $"ToDateTime(year, month, day, ...) for {what}");
+        SharpFuzzHarness.Check.Equal(d.DayOfWeek, cal.GetDayOfWeek(d), $"GetDayOfWeek for {what}");
+
+        // Month lengths: the days before this month, and the year's total.
+        int before = 0, total = 0;
+        for (int m = 1; m <= monthsInYear; m++)
+        {
+            int length = cal.GetDaysInMonth(year, m, era);
+            SharpFuzzHarness.Check.That(length is >= 1 and <= 35, $"GetDaysInMonth({year}, {m}) = {length}: {what}");
+            before += m < month ? length : 0;
+            total += length;
+        }
+
+        SharpFuzzHarness.Check.Equal(before + day, cal.GetDayOfYear(d), $"GetDayOfYear for {what}");
+        SharpFuzzHarness.Check.Equal(total, cal.GetDaysInYear(year, era), $"GetDaysInYear({year}) vs month lengths for {what}");
+        _ = (cal.IsLeapYear(year, era), cal.IsLeapMonth(year, month, era), cal.IsLeapDay(year, month, day, era), cal.GetLeapMonth(year, era));
+        int week = cal.GetWeekOfYear(d, (CalendarWeekRule)(settings % 3), (DayOfWeek)(settings / 3 % 7));
+        SharpFuzzHarness.Check.That(week is >= 1 and <= 56, $"GetWeekOfYear = {week}: {what}");
+
+        // AddDays is plain day arithmetic.
+        var added = Outcome<DateTime>.Of(() => cal.AddDays(d, days), e => e is ArgumentOutOfRangeException or ArgumentException);
+        var expected = Outcome<DateTime>.Of(() => d.AddDays(days), e => e is ArgumentOutOfRangeException);
+        if (expected.Ok && expected.Value >= cal.MinSupportedDateTime && expected.Value <= cal.MaxSupportedDateTime)
+        {
+            SharpFuzzHarness.Check.That(added.Ok && added.Value == expected.Value, $"AddDays({days}) = {added}, expected {expected.Value:O}: {what}");
+        }
+
+        // AddMonths moves by calendar months (years have GetMonthsInYear months) and clamps the day.
+        var moved = Outcome<DateTime>.Of(() => cal.AddMonths(d, months), e => e is ArgumentOutOfRangeException or ArgumentException);
+        if (moved.Ok && cal.Eras.Length == 1)
+        {
+            int y = year, m = month + months;
+            while (m > cal.GetMonthsInYear(y, era))
+            {
+                m -= cal.GetMonthsInYear(y, era);
+                y++;
+            }
+
+            while (m < 1)
+            {
+                y--;
+                m += cal.GetMonthsInYear(y, era);
+            }
+
+            int dd = Math.Min(day, cal.GetDaysInMonth(y, m, era));
+            string got = $"{cal.GetYear(moved.Value)}/{cal.GetMonth(moved.Value)}/{cal.GetDayOfMonth(moved.Value)}";
+            SharpFuzzHarness.Check.That(got == $"{y}/{m}/{dd}" && moved.Value.TimeOfDay == d.TimeOfDay,
+                $"AddMonths({months}) = {moved.Value:O} ({got}), expected {y}/{m}/{dd}: {what}");
+        }
+
+        _ = Outcome<DateTime>.Of(() => cal.AddYears(d, months), e => e is ArgumentOutOfRangeException or ArgumentException);
+        _ = Outcome<int>.Of(() => cal.ToFourDigitYear(year % 100), e => e is ArgumentOutOfRangeException);
+    }
+}

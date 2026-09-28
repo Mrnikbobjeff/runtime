@@ -39,6 +39,14 @@ public static class Program
         ["tensor"] = TensorTarget.Run,
         ["sequence"] = SequenceTarget.Run,
         ["timezone"] = TimeZoneTarget.Run,
+        ["cookie"] = CookieTarget.Run,
+        ["httputil"] = HttpUtilityTarget.Run,
+        ["calendar"] = CalendarTarget.Run,
+        ["asyncenum"] = AsyncEnumTarget.Run,
+        ["hashing"] = HashingTarget.Run,
+        ["cbor"] = CborTarget.Run,
+        ["binxml"] = BinaryXmlTarget.Run,
+        ["xsd"] = XsdTarget.Run,
     };
 
     public static int Main(string[] args)

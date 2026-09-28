@@ -35,7 +35,9 @@ public static class TimeZoneTarget
             {
                 zone = TimeZoneInfo.FromSerializedString(text);
             }
-            catch (Exception e) when (e is SerializationException or ArgumentException or InvalidTimeZoneException)
+            // Known (TZ-SER-1): a truncated adjustment rule makes StringSerializer index past the end.
+            catch (Exception e) when (e is SerializationException or ArgumentException or InvalidTimeZoneException ||
+                !s_reportKnownIssues && e is IndexOutOfRangeException && e.StackTrace?.Contains("StringSerializer", StringComparison.Ordinal) == true)
             {
                 return;
             }
@@ -105,6 +107,15 @@ public static class TimeZoneTarget
         Check.Equal(offset, zone.GetUtcOffset(new DateTimeOffset(utc)), $"GetUtcOffset(DateTimeOffset): {what}");
         DateTimeOffset converted = TimeZoneInfo.ConvertTime(new DateTimeOffset(utc), zone);
         Check.That(converted.Offset == offset && converted.UtcDateTime == utc, $"ConvertTime(DateTimeOffset) = {converted:O}: {what}");
+
+        // Known (TZ-BACK-1, .NET 11 regression): local-time lookups apply a rule to its whole first and
+        // last year, ignoring DateStart / DateEnd within the year, and go wrong when the local time is in
+        // a different year than the instant.
+        if (!s_reportKnownIssues && local.Year != utc.Year || !s_reportKnownIssues && zone.GetAdjustmentRules().Any(r =>
+            r.DateStart.Year == local.Year && local.Date <= r.DateStart || r.DateEnd.Year == local.Year && local.Date >= r.DateEnd))
+        {
+            return;
+        }
 
         bool invalid = zone.IsInvalidTime(local);
         Check.That(!invalid, $"local time {local:O} (offset {offset}) of a real instant is IsInvalidTime: {what}");
