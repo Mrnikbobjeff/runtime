@@ -7,7 +7,7 @@ first campaign (Regex, JSON) is in [FINDINGS.md](FINDINGS.md).
 
 | | |
 |---|---|
-| Runtime under test | .NET `11.0.0-rc.1.26425.128` (`Microsoft.NETCore.App.Runtime.linux-x64`), with R2R stripped and SharpFuzz-instrumented `System.Private.CoreLib` (1,026 of 1,911 top-level types, see `corelib-exclude.txt`), `System.Linq`, `System.Collections`, `System.Collections.Immutable`, `System.Private.Uri`, `System.Runtime.Numerics`, `System.Formats.Asn1`, `System.Reflection.Metadata`, `System.Text.RegularExpressions` and `System.Text.Json`; in round 3 also `System.Net.ServerSentEvents`, `System.Data.Common`, `System.Diagnostics.DiagnosticSource`, `System.Net.Mail`, `System.Text.Encoding.CodePages`, `System.Memory`, `System.Net.Primitives`, `System.Web.HttpUtility`, `System.Linq.AsyncEnumerable`, `System.Private.Xml`, `System.Private.DataContractSerialization`, `System.Security.Cryptography` and `System.Threading.Channels`, and the NuGet packages `System.Formats.Cbor`, `System.IO.Hashing`, `System.Security.Cryptography.Pkcs` and `System.Security.Cryptography.Cose` (11.0 RC1) |
+| Runtime under test | .NET `11.0.0-rc.1.26425.128` (`Microsoft.NETCore.App.Runtime.linux-x64`), with R2R stripped and SharpFuzz-instrumented `System.Private.CoreLib` (1,026 of 1,911 top-level types, see `corelib-exclude.txt`), `System.Linq`, `System.Collections`, `System.Collections.Immutable`, `System.Private.Uri`, `System.Runtime.Numerics`, `System.Formats.Asn1`, `System.Reflection.Metadata`, `System.Text.RegularExpressions` and `System.Text.Json`; in round 3 also `System.Net.ServerSentEvents`, `System.Data.Common`, `System.Diagnostics.DiagnosticSource`, `System.Net.Mail`, `System.Text.Encoding.CodePages`, `System.Memory`, `System.Net.Primitives`, `System.Web.HttpUtility`, `System.Linq.AsyncEnumerable`, `System.Private.Xml`, `System.Private.DataContractSerialization`, `System.Security.Cryptography`, `System.Threading.Channels` and `System.Text.Encodings.Web`, and the NuGet packages `System.Formats.Cbor`, `System.IO.Hashing`, `System.Security.Cryptography.Pkcs` and `System.Security.Cryptography.Cose` (11.0 RC1) |
 | System.Numerics.Tensors | The `11.0.0-rc.1.26425.128` NuGet package, and local builds of the `tensorprimitives-block-reductions` and `argmin-blocks` branches (`TENSORS_DLL=...`) |
 | Fuzzer | AFL++ 4.00c (Ubuntu 22.04 under WSL2), SharpFuzz 2.3.0 (`Fuzzer.OutOfProcess`) |
 | Machine | Ryzen 7 7800X3D (8 cores / 16 threads, AVX-512). Fuzzers pinned with `SHARPFUZZ_CPUS` (taskset) to at most 12 threads. Each campaign ran one main instance with the full ISA and secondaries with `DOTNET_EnableAVX512=0` / `DOTNET_EnableAVX2=0`, so the Vector512/256/128 paths are all covered. |
@@ -817,7 +817,10 @@ These were raised by the first versions of the targets and turned out to be docu
   where `LastAsync` runs it; `CborWriter` writes floats in the shortest exact width and simple values
   20–22 as `false` / `true` / `null`; a reader without `allowMultipleRootLevelValues` stops after the
   first value; single-reader unbounded channels don't support `Count`; Hijri year 9666 only has four
-  months; week 55 exists in 13-month lunisolar years.
+  months; week 55 exists in 13-month lunisolar years. Harness bugs fixed along the way: comparing
+  truncated text (the binary XML copy splits long bytes records into differently sized base64
+  chunks, which only compare equal in full), replaying CBOR past the 10,000-token read limit, and
+  dropping ODBC `{}` values (a value of its own) as empty.
 
 ## Limitations
 
@@ -826,3 +829,5 @@ These were raised by the first versions of the targets and turned out to be docu
 - Coverage feedback only comes from managed code, so the JIT's lowering of vector intrinsics is
   exercised only through the differential checks and the ISA-varied secondaries.
 - Campaigns were short (30–60 minutes per target) and shared 12 hardware threads.
+- Guard pages (`SHARPFUZZ_GUARD=1`, see `Guarded.cs`) catch reads and writes just past the ends of
+  spans the harness allocates, not overruns inside the framework's own arrays or buffers.
