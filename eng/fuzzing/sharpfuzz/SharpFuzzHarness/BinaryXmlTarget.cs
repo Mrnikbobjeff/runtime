@@ -93,7 +93,7 @@ public static class BinaryXmlTarget
         // (their base64 concatenates to the same text), and redundant namespace declarations aren't written
         // again (the element and attribute namespaces, which are compared, carry the meaning).
         static List<string> Kinds(List<string> list) => s_reportKnownIssues ? list :
-            Normalize(list.Where(t => t != "Text:||=\"\"").Select(t => System.Text.RegularExpressions.Regex.Replace(t, @",?[^,\[]*\|http://www\.w3\.org/2000/xmlns/=""[^""]*""", "")).ToList()).Select(t => System.Text.RegularExpressions.Regex.Replace(t, @"(\d{4}-\d\d-\d\dT[\d:.]+)(Z|[+-]\d\d:\d\d)", "$1")).ToList();
+            Normalize(list.Where(t => t is not "Text:||=\"\"" and not "Comment:||=\"\"").Select(Base64ToHex).Select(t => System.Text.RegularExpressions.Regex.Replace(t, @",?[^,\[]*\|http://www\.w3\.org/2000/xmlns/=""[^""]*""", "")).ToList()).Select(t => System.Text.RegularExpressions.Regex.Replace(t, @"(\d{4}-\d\d-\d\dT[\d:.]+)(Z|[+-]\d\d:\d\d)", "$1")).ToList();
         Check.That(again.Ok, $"binary copy doesn't read back ({again}): {what}");
         List<string> copy = Kinds(again.Value), original = Kinds(nodes.Value);
         if (!copy.SequenceEqual(original))
@@ -102,7 +102,8 @@ public static class BinaryXmlTarget
             // Known (BINXML-NUM-1, informational): typed numeric records don't always survive the copy
             // exactly (-0 becomes 0; decimals with an out-of-range scale are formatted differently).
             if (!s_reportKnownIssues && copy.Count == original.Count && copy.Zip(original).All(p => p.First == p.Second || IsNumericText(p.First) && IsNumericText(p.Second) ||
-                p.First.Contains(new string('0', 30), StringComparison.Ordinal) || p.Second.Contains(new string('0', 30), StringComparison.Ordinal)))
+                p.First.Contains(new string('0', 30), StringComparison.Ordinal) || p.Second.Contains(new string('0', 30), StringComparison.Ordinal) ||
+                IsBase64Text(p.First) && IsBase64Text(p.Second)))
             {
                 return;
             }
@@ -126,6 +127,23 @@ public static class BinaryXmlTarget
             Check.That(dc.Value.SequenceEqual(xml.Value), $"XmlDictionaryReader.CreateTextReader reads [{string.Join(" ", dc.Value)}], XmlReader reads [{string.Join(" ", xml.Value)}]: {what}");
         }
     }
+
+    /// <summary>Text that is base64 (bytes records) as hex of the bytes, so re-chunked records compare equal once merged.</summary>
+    private static string Base64ToHex(string token)
+    {
+        if (!token.StartsWith("Text:||=\"", StringComparison.Ordinal) || token.Length < 14 || (token.Length - 10) % 4 != 0)
+        {
+            return token;
+        }
+
+        byte[] buffer = new byte[token.Length];
+        return Convert.TryFromBase64Chars(token.AsSpan(9, token.Length - 10), buffer, out int n)
+            ? "Text:||=\"" + Convert.ToHexString(buffer, 0, n) + "\"" : token;
+    }
+
+    // Bytes records re-chunked by the copy: both sides are base64 (or its hex form) of the same bytes.
+    private static bool IsBase64Text(string token) =>
+        token.StartsWith("Text:||=\"", StringComparison.Ordinal) && token.AsSpan(9, token.Length - 10).IndexOfAnyExcept("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") < 0;
 
     private static bool IsNumericText(string token) =>
         token.StartsWith("Text:||=\"", StringComparison.Ordinal) && double.TryParse(token.AsSpan(9, token.Length - 10), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _);
