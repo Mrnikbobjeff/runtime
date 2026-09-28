@@ -59,6 +59,7 @@ public static class Program
         ["unsaferegex"] = UnsafeRegexTarget.Run,
         ["unsafecomp"] = UnsafeCompressionTarget.Run,
         ["unsafenet"] = UnsafeNetTarget.Run,
+        ["vectorops"] = VectorOpsTarget.Run,
     };
 
     public static int Main(string[] args)
