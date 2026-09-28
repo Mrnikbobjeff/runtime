@@ -387,14 +387,15 @@ ROUND3_STATS
 |----|-----------|------|--------------------------|----------|
 | [TZ-YEAR-1](#tz-year-1) | `TimeZoneInfo` (new transition cache) | Wrong UTC offsets around the new year and in the first year of a zone's POSIX rule; real zones (Sydney, Auckland, Santiago, ...) are off by an hour for hours to months | **High** | **.NET 11 regression** (8, 9, 10 correct) |
 | [HASH-CRC-EVEN-1](#hash-crc-even-1) | `Crc64ParameterSet.Create` (new in 11) | Reflected parameter sets with an even polynomial give wrong CRCs for inputs of 16+ bytes (vectorized path), right ones for shorter inputs | Medium | new .NET 11 API |
-| [CBOR-DUP-1](#cbor-dup-1) | `CborReader` (Strict) | A duplicate map key is not detected when the value before it is an indefinite-length string | Medium | 11.0 RC1 package (9.0 not checked) |
+| [CBOR-DUP-1/2](#cbor-dup-12) | `CborReader` (Strict) | A duplicate map key is not detected when the value before it is an indefinite-length string, or when the two keys encode the same integer differently (`01` / `18 01`) | Medium | Cbor 8.0.0, 9.0.20, 10.0.0, 11.0 RC1 packages |
 | [TENSOR-SQUEEZE-1](#tensor-squeeze-1) | `Tensor.Squeeze` | Squeezing a tensor whose lengths are all 1 returns an empty tensor: the element is lost | Medium | Tensors 10.0.12 and 11.0 RC1 packages |
 | [DIAG-BAGGAGE-1](#diag-baggage-1) | `W3CPropagator` (the default since .NET 10) | Baggage percent-decoding accepts malformed UTF-8: `%E2%41%41` → U+2041, `%ED%20%80` → lone U+D800 | Low–Medium | .NET 10, 11 |
 | [BINXML-DT-1](#binxml-dt-1) | `XmlDictionaryWriter` (binary) | Copying binary XML with `WriteNode` turns UTC / local `DateTime` values into unspecified ones | Low–Medium | .NET 8, 9, 10, 11 |
-| [SSE-TYPE-1/2](#sse-type-1-2) | `SseParser` | `event:` with an empty value gives type `""` instead of `"message"`; an event type followed by a blank line without data leaks into the next event | Low–Medium | .NET 10, 11 |
+| [SSE-TYPE-1/2](#sse-type-12) | `SseParser` | `event:` with an empty value gives type `""` instead of `"message"`; an event type followed by a blank line without data leaks into the next event | Low–Medium | .NET 10, 11 |
 | [CP-CONVERT-1](#cp-convert-1) | `System.Text.Encoding.CodePages` | `Encoder.Convert` writes one replacement for an unencodable surrogate pair where `GetBytes` writes two (SBCS), or throws `ArgumentException` (DBCS), when the output fills up | Low–Medium | .NET 8, 9, 10, 11 |
-| [MAIL-CD-1/2](#mail-cd-1-2) | `ContentDisposition` | `"attachment; x"` throws `IndexOutOfRangeException`; a date with an offset beyond ±14 h throws `ArgumentOutOfRangeException` when read | Low–Medium | .NET 8, 9, 10, 11 |
-| [BINXML-ENC-1](#binxml-enc-1) | `XmlDictionaryReader.CreateTextReader` | An unterminated `encoding='...` in the XML declaration throws `IndexOutOfRangeException` | Low–Medium | .NET 8, 9, 10, 11 |
+| [MAIL-CD-1/2](#mail-cd-12) | `ContentDisposition` | `"attachment; x"` throws `IndexOutOfRangeException`; a date with an offset beyond ±14 h throws `ArgumentOutOfRangeException` when read | Low–Medium | .NET 8, 9, 10, 11 |
+| [BINXML-ENC-1](#binxml-enc-1) | `XmlDictionaryReader.CreateTextReader` | An unterminated `encoding='...` in the XML declaration, or a UTF-8 BOM followed by one byte, throws `IndexOutOfRangeException` | Low–Medium | .NET 8, 9, 10, 11 |
+| [CBOR-DUPW-1](#cbor-dupw-1) | `CborWriter` (Strict, Canonical) | A duplicate key written after more than ~500 bytes of output throws `ArgumentOutOfRangeException` instead of `InvalidOperationException` and stays written; a caller that catches it and goes on encodes a map with duplicate keys | Low–Medium | Cbor 8.0.0, 9.0.20, 10.0.0, 11.0 RC1 packages |
 | [COOKIE-PORT-1](#cookie-port-1) | `CookieContainer` | The `Port` attribute is validated leniently (CR/LF allowed around the numbers) and echoed into the `Cookie` request header | Low | .NET 8, 9, 10, 11 |
 | [TZ-RULE-1](#tz-rule-1) | `TimeZoneInfo.FindRuleForYear` | `ArgumentOutOfRangeException` for a rule ending 0001-01-01 under a negative offset | Low | .NET 11 regression |
 | [TENSOR-RESHAPE-1](#tensor-reshape-1) | `Tensor.Reshape` | `DivideByZeroException` / `IndexOutOfRangeException` instead of `ArgumentException` | Low | Tensors 10.0.12 and 11.0 RC1 packages |
@@ -407,6 +408,10 @@ ROUND3_STATS
 | [TZ-DTO-1, TZ-SER-1](#tz-dto-1-tz-ser-1) | `TimeZoneInfo` | Custom zones with offsets past ±14 h are accepted, then `ConvertTime(DateTimeOffset)` throws; a truncated serialized rule throws `IndexOutOfRangeException` | Low | .NET 8, 9, 10, 11 |
 | [CAL-1](#cal-1) | `System.Globalization` calendars | `JulianCalendar.AddMonths` clamps to Feb 28 in Julian leap century years; `KoreanLunisolarCalendar` puts 952-12-25 in month 13 of a 12-month year; `HijriCalendar.GetYear` and `Calendar.GetWeekOfYear` throw for supported dates near the range ends | Low | .NET 8, 9, 10, 11 |
 | [DIAG-MISC-1](#diag-misc-1) | `ActivityTraceId`, `ActivityContext`, `Activity` | `CreateFromUtf8String` accepts invalid ids; `ActivityContext.TryParse` doesn't check the `-` separators; `SetParentId` accepts CR/LF, which the legacy propagator writes into `Request-Id` | Low | .NET 8, 9, 10, 11 |
+| [XSD-FACET-1](#xsd-facet-1) | `XmlSchemaSet.Compile` | A `length` / `minLength` / `maxLength` / `totalDigits` / `fractionDigits` value above `int.MaxValue` throws `OverflowException` instead of `XmlSchemaException` | Low | .NET 8, 9, 10, 11 |
+| [BINXML-SORT-1, BINXML-LIST-1](#binxml-sort-1-binxml-list-1) | `XmlDictionaryReader.CreateBinaryReader` | An attribute name that isn't valid UTF-8 makes the duplicate-attribute check throw `InvalidOperationException` ("Failed to compare two elements"); `Value` of a list record with an item it can't convert throws `InvalidOperationException` | Low | .NET 8, 9, 10, 11 |
+| [PKCS-DECODE-1](#pkcs-decode-1) | `Pkcs12Info.Decode` | `30 80` (indefinite length, no content) throws `AsnContentException` instead of `CryptographicException` | Low | Pkcs 8.0.1, 9.0.20, 10.0.12, 11.0 RC1 packages |
+| [BLOB-DT-1](#blob-dt-1) | `BlobReader.ReadDateTime` | Ticks outside `DateTime`'s range throw `ArgumentOutOfRangeException` instead of `BadImageFormatException` | Low | .NET 8, 9, 10, 11 |
 | [MISC-3](#misc-3) | various | See the list at the end of this section | Informational | |
 
 ### TZ-YEAR-1
@@ -472,15 +477,48 @@ Related (HASH-CRC-INIT-1, documentation): for reflected parameter sets the initi
 into the reflected register as is, where the Rocksoft model and the CRC catalogue reflect it; the
 two agree only for bit-palindromic values (all catalogue CRC-32/64 entries use 0 or all ones).
 
-### CBOR-DUP-1
+### CBOR-DUP-1/2
 
-**`CborReader` in `Strict` mode misses duplicate map keys when the preceding value is an
-indefinite-length string.** `A2 03 7F FF 03 61 6E` (`{3: "" (indefinite), 3: "n"}`) and
-`A2 03 5F FF 03 60` are accepted; `A2 03 60 03 61 6E` is rejected as expected. Duplicate-key
-rejection is what Strict mode is for (RFC 8949 §5.6), and a reader that lets one through can be
-made to disagree with other parsers about a map's contents. Canonical modes reject
-indefinite-length items, so they aren't affected. (CborWriter in Strict mode then refuses to write
-the map back.)
+**`CborReader` in `Strict` mode misses duplicate map keys** in two cases (8.0.0, 9.0.20, 10.0.0
+and 11.0 RC1 packages):
+
+- CBOR-DUP-1: the value before the duplicate is an indefinite-length string.
+  `A2 03 7F FF 03 61 6E` (`{3: "" (indefinite), 3: "n"}`) and `A2 03 5F FF 03 60` are accepted;
+  `A2 03 60 03 61 6E` is rejected as expected.
+- CBOR-DUP-2: the keys are equal but encoded differently, which Strict (unlike the canonical
+  modes) allows: `A2 01 00 18 01 00` (`{1: 0, 1: 0}` with the second `1` as `18 01`) and
+  `A2 20 00 38 00 00` (`-1` twice) are accepted. The check compares key encodings byte by byte,
+  but RFC 8949 §5.6 defines duplicates on the decoded values.
+
+Duplicate-key rejection is what Strict mode is for, and a reader that lets one through can be made
+to disagree with other parsers about a map's contents. Canonical modes reject indefinite-length
+items and non-shortest integers, so they aren't affected. (CborWriter in Strict mode then refuses to
+write the map back, see also [CBOR-DUPW-1](#cbor-dupw-1).)
+
+### CBOR-DUPW-1
+
+**`CborWriter`'s rollback after a duplicate key uses an end offset as a length.** In
+`HandleMapKeyWritten` (`CborWriter.Map.cs`), a key that repeats one already in the map (Strict,
+Canonical and Ctap2Canonical) should clear the key's bytes, rewind `_offset` to before the key and
+throw `InvalidOperationException`. It clears `_buffer.AsSpan(currentKey.Offset, _offset)`, passing
+the end offset `_offset` where the length `_offset - currentKey.Offset` belongs. Once
+`currentKey.Offset + _offset` is past the buffer's size, which happens after about 500 bytes of
+output, `AsSpan` throws `ArgumentOutOfRangeException` before the rewind. The duplicate key then stays
+in the buffer: a caller that catches the exception and goes on (as it can after the documented
+`InvalidOperationException`) gets output that the Strict reader rejects.
+
+```csharp
+var w = new CborWriter(CborConformanceMode.Strict);
+w.WriteStartMap(2);
+w.WriteInt32(0);
+w.WriteByteString(new byte[600]);
+try { w.WriteInt32(0); } catch (Exception e) { Console.WriteLine(e.GetType()); } // ArgumentOutOfRangeException (200 bytes: InvalidOperationException)
+w.WriteInt32(1); w.WriteInt32(2); w.WriteEndMap();
+new CborReader(w.Encode(), CborConformanceMode.Strict).SkipValue(); // CborContentException: duplicate keys
+```
+
+Same in the 8.0.0, 9.0.20, 10.0.0 and 11.0 RC1 packages. The fuzzer reached it by replaying
+CBOR-DUP-1 maps into a writer after a long run of root values.
 
 ### TENSOR-SQUEEZE-1
 
@@ -548,7 +586,8 @@ catches `FormatException` fails on both.
 `XmlDictionaryReader.CreateTextReader` (the DataContract / WCF text reader) throws
 `IndexOutOfRangeException` from `EncodingStreamWrapper.CheckUTF8DeclarationEncoding` when the XML
 declaration's encoding value is unterminated: `<?xml version='1.0' encoding='utf-8` (a truncated
-message) or `<?xml version="1.0" encoding="x`. `XmlException` is the documented failure.
+message) or `<?xml version="1.0" encoding="x`, and when the input is a UTF-8 BOM followed by a
+single byte (`EF BB BF 71`). `XmlException` is the documented failure.
 
 ### COOKIE-PORT-1
 
@@ -649,6 +688,44 @@ parser keeps quoted-pairs escaped. `new MailAddress("u@h.com", "a\"b\\c")` → `
 - `Activity.SetParentId` accepts any string as a hierarchical id, including CR/LF, and the legacy
   propagator writes the resulting `Activity.Id` into `Request-Id` unchanged.
 
+### XSD-FACET-1
+
+**`XmlSchemaSet.Compile` throws `OverflowException` for integer facets above `int.MaxValue`.**
+`FacetsChecker.FacetsCompiler` parses `length`, `minLength`, `maxLength`, `totalDigits` and
+`fractionDigits` as `xs:nonNegativeInteger` (unbounded; values past `decimal` are rejected with
+`XmlSchemaException`), then converts them with `XmlBaseConverter.DecimalToInt32`, which throws
+`OverflowException` for `2147483648` up to about 7.9e28. `<xs:maxLength value='2147483648'/>` is a
+valid facet (it could be clamped to `int.MaxValue`) or at least a schema error; instead the
+exception escapes `Compile` and inline-schema validation. Same on 8.0.31, 9.0.20, 10.0.12 and
+11.0 RC1.
+
+### BINXML-SORT-1, BINXML-LIST-1
+
+`XmlDictionaryReader.CreateBinaryReader` throws `InvalidOperationException` where malformed input
+should give `XmlException` (8.0.31, 9.0.20, 10.0.12 and 11.0 RC1):
+
+- BINXML-SORT-1: when an element has enough attributes that `CheckAttributes` looks for duplicates by
+  sorting them (`XmlBaseReader.AttributeSorter` via `Array.Sort`), a prefix or name that isn't valid
+  UTF-8 throws `XmlException` inside the comparer, and `Array.Sort` wraps it in
+  `InvalidOperationException` ("Failed to compare two elements in the array"). This was the most
+  common crash in the binary XML campaign.
+- BINXML-LIST-1: `Value` of a list-valued text record whose items `ValueHandle.ToObject` can't
+  convert throws a bare `InvalidOperationException`.
+
+### PKCS-DECODE-1
+
+`Pkcs12Info.Decode(new byte[] { 0x30, 0x80 }, ...)` throws `System.Formats.Asn1.AsnContentException`
+from `PkcsHelpers.FirstBerValueLength` (an indefinite length with no content), where every other
+truncated or malformed input (`30`, `30 81`, `30 84 FF FF FF FF`) throws the documented
+`CryptographicException`. Same in the 8.0.1 (8.0.10), 9.0.20, 10.0.12 and 11.0 RC1 packages.
+
+### BLOB-DT-1
+
+`BlobReader.ReadDateTime()` passes the 64-bit value to the `DateTime(long)` constructor unchecked,
+so ticks outside `DateTime`'s range (`long.MaxValue`, `-1`) throw `ArgumentOutOfRangeException`.
+Metadata readers otherwise report malformed data with `BadImageFormatException`. Found by the
+guard-page `unsafemem` target; 8.0.31 to 11.0 RC1.
+
 ### MISC-3
 
 - `SseParser` parses `retry` with `long.TryParse`, which ignores trailing U+0000: `retry: 5\0` sets
@@ -664,6 +741,14 @@ parser keeps quoted-pairs escaped. `new MailAddress("u@h.com", "a\"b\\c")` → `
   `Convert(x, 'type')` names throw `FileLoadException`.
 - `CborWriter` writes every NaN as the canonical `F9 7E00`, dropping sign and payload, in all
   conformance modes.
+- CBOR-FLOAT-1: the Canonical and Ctap2Canonical readers accept floats that have a shorter exact
+  encoding (`FA 7F800000` for +Infinity, `FB 3FF0000000000000` for 1.0), while `CborWriter` in
+  those modes always writes the shortest (`F9 7C00`), so such input doesn't round-trip and a
+  shortened map key can change the canonical key order. RFC 7049's canonical rules leave float width
+  open, so this is informational.
+- BINXML-NUM-1: copying binary XML through `XmlDictionaryWriter.CreateBinaryWriter` (`WriteNode`)
+  turns a `-0` numeric record into `0`, and decimals with an out-of-range scale are formatted
+  differently.
 - In invariant globalization mode `new JapaneseCalendar()`, `new KoreanCalendar()` and
   `new TaiwanCalendar()` throw `TypeInitializationException` (they look up `ja-JP` / `ko-KR` /
   `zh-TW`), while the lunisolar and Thai calendars work.
