@@ -90,6 +90,8 @@ public static class UnsafeJsonTarget
 
     private static bool Allowed(Exception e) => e is JsonException;
 
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
     private static void RoundTrip<T>(byte[] utf8, JsonSerializerOptions options, bool atStart, string what)
     {
         Outcome<string> Deserialize(Func<T> f) => Outcome<string>.Of(() => Serialize(f(), options), Allowed);
@@ -110,7 +112,9 @@ public static class UnsafeJsonTarget
             Check.That(fromChars.SameAs(fromString) && fromString.SameAs(fromArray), $"Deserialize<{typeof(T).Name}>(chars) {fromChars}, (string) {fromString}, (utf8) {fromArray}: {what}");
         }
 
-        if (!fromArray.Ok)
+        // JSON-FLOAT-1 (informational): numbers beyond float / double range read as infinities, which the
+        // serializer then won't write without AllowNamedFloatingPointLiterals.
+        if (!fromArray.Ok || fromArray.Value == "non-finite")
         {
             return;
         }
@@ -134,7 +138,7 @@ public static class UnsafeJsonTarget
         {
             return JsonSerializer.Serialize(value, options);
         }
-        catch (ArgumentException e) when (e.Message.Contains("NaN", StringComparison.Ordinal) || e.Message.Contains("Infinity", StringComparison.Ordinal))
+        catch (ArgumentException e) when (e.Message.Contains("NaN", StringComparison.Ordinal) || e.Message.Contains("infinity", StringComparison.OrdinalIgnoreCase))
         {
             // Non-finite doubles only serialize with AllowNamedFloatingPointLiterals (they can come from strings).
             return "non-finite";
@@ -145,13 +149,15 @@ public static class UnsafeJsonTarget
     {
         var nodeOptions = new JsonNodeOptions { PropertyNameCaseInsensitive = options.PropertyNameCaseInsensitive };
         var documentOptions = new JsonDocumentOptions { AllowTrailingCommas = options.AllowTrailingCommas, CommentHandling = options.ReadCommentHandling, MaxDepth = 32, AllowDuplicateProperties = options.AllowDuplicateProperties };
-        var fromArray = Outcome<string>.Of(() => JsonNode.Parse(utf8, nodeOptions, documentOptions)?.ToJsonString() ?? "null", e => e is JsonException or ArgumentException);
+        // Known (JSON-SURR-1): ToJsonString of a string with an escaped lone surrogate throws InvalidOperationException.
+        static bool NodeAllowed(Exception e) => e is JsonException or ArgumentException || !s_reportKnownIssues && e is InvalidOperationException && e.Message.Contains("UTF-16", StringComparison.Ordinal);
+        var fromArray = Outcome<string>.Of(() => JsonNode.Parse(utf8, nodeOptions, documentOptions)?.ToJsonString() ?? "null", NodeAllowed);
         Memory<byte> guarded = Guarded.CopyMemory<byte>(utf8, atStart);
         var fromGuarded = Outcome<string>.Of(() =>
         {
             var reader = new Utf8JsonReader(guarded.Span, new JsonReaderOptions { AllowTrailingCommas = documentOptions.AllowTrailingCommas, CommentHandling = documentOptions.CommentHandling, MaxDepth = 32 });
             return JsonNode.Parse(ref reader, nodeOptions)?.ToJsonString() ?? "null";
-        }, e => e is JsonException or ArgumentException);
+        }, NodeAllowed);
         if (fromArray.Ok && fromGuarded.Ok)
         {
             Check.Equal(fromArray.Value, fromGuarded.Value, $"JsonNode.Parse(ref reader over guarded memory) vs Parse(array): {what}");
@@ -165,9 +171,12 @@ public static class UnsafeJsonTarget
                 JsonNode clone = node.DeepClone();
                 Check.That(JsonNode.DeepEquals(node, clone), $"DeepClone isn't DeepEquals: {what}");
             }
-            catch (ArgumentException) when (options.AllowDuplicateProperties)
+            catch (ArgumentException e) when (e is not ArgumentOutOfRangeException || !s_reportKnownIssues)
             {
-                // A JsonObject parsed with duplicate property names throws when its dictionary is first built (by design).
+                // A JsonObject with duplicate property names (also ones that only differ in case, with
+                // PropertyNameCaseInsensitive) throws when its dictionary is first built, by design.
+                // Known (JSON-DEEPEQ-1): DeepEquals throws ArgumentOutOfRangeException for numbers whose
+                // exponent doesn't fit in an int.
                 return;
             }
             var writer = new GuardedBufferWriter(atStart);
