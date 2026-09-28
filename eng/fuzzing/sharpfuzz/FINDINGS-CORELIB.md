@@ -24,7 +24,7 @@ the dotnet/runtime issue tracker yet.
 | `number`, `guid`, `version`, `searchvalues` | CoreLib | 30 min each (3 instances) | 7.0 M / 6.6 M / 19.3 M / 27.7 M | 11.6 k / 4.2 k / 4.1 k / 10.5 k | NUMBER-NEGZERO-1, BIGINTEGER-EXP-1 (the 108 hangs), UTF8 symbol issue (withheld); guid crashes were all a harness false positive |
 | `base64`, `compositeformat`, `resources` | CoreLib | 10–30 min (Sep 26) | | | BASE64-STREAM-1, COMPOSITEFORMAT-1/2, RESOURCES-1 |
 | `datetime` (TimeSpan part) | CoreLib | 30 min (Sep 26) | | | TIMESPAN-1 |
-| `tensorprimitives` | Tensors 11.0 RC1 package | 60 min (3 instances) | 51.9 M | 15.9 k | TENSORS-NUMBER-NAN-1, TENSORS-COPYSIGN-1, TENSORS-HALF-FMA-1 |
+| `tensorprimitives` | Tensors 10.0.12 and 11.0 RC1 packages | 60 min (3 instances) | 51.9 M | 15.9 k | TENSORS-NUMBER-NAN-1, TENSORS-COPYSIGN-1, TENSORS-HALF-FMA-1 |
 | `tensorprimitives` | Tensors, `tensorprimitives-block-reductions` branch | 60 min (2 instances) | 58.3 M | 16.3 k | no new findings |
 | `tensorprimitives` | Tensors, `argmin-blocks` branch | 60 + 120 min (3 instances) | 134.4 M | 16.1 k | no new findings |
 | `utf8parser` | CoreLib (`Utf8Parser`, `Utf8Formatter`) | 40 + 60 min (2–3 instances) | 103.2 M | 10.1 k | UTF8PARSER-FLOAT-1, UTF8PARSER-DECIMAL-1 |
@@ -387,8 +387,8 @@ ROUND3_STATS
 |----|-----------|------|--------------------------|----------|
 | [TZ-YEAR-1](#tz-year-1) | `TimeZoneInfo` (new transition cache) | Wrong UTC offsets around the new year and in the first year of a zone's POSIX rule; real zones (Sydney, Auckland, Santiago, ...) are off by an hour for hours to months | **High** | **.NET 11 regression** (8, 9, 10 correct) |
 | [HASH-CRC-EVEN-1](#hash-crc-even-1) | `Crc64ParameterSet.Create` (new in 11) | Reflected parameter sets with an even polynomial give wrong CRCs for inputs of 16+ bytes (vectorized path), right ones for shorter inputs | Medium | new .NET 11 API |
-| [CBOR-DUP-1](#cbor-dup-1) | `CborReader` (Strict) | A duplicate map key is not detected when the value before it is an indefinite-length string | Medium | 11.0 RC1 package |
-| [TENSOR-SQUEEZE-1](#tensor-squeeze-1) | `Tensor.Squeeze` | Squeezing a tensor whose lengths are all 1 returns an empty tensor: the element is lost | Medium | Tensors 11.0 RC1 package |
+| [CBOR-DUP-1](#cbor-dup-1) | `CborReader` (Strict) | A duplicate map key is not detected when the value before it is an indefinite-length string | Medium | 11.0 RC1 package (9.0 not checked) |
+| [TENSOR-SQUEEZE-1](#tensor-squeeze-1) | `Tensor.Squeeze` | Squeezing a tensor whose lengths are all 1 returns an empty tensor: the element is lost | Medium | Tensors 10.0.12 and 11.0 RC1 packages |
 | [DIAG-BAGGAGE-1](#diag-baggage-1) | `W3CPropagator` (the default since .NET 10) | Baggage percent-decoding accepts malformed UTF-8: `%E2%41%41` → U+2041, `%ED%20%80` → lone U+D800 | Low–Medium | .NET 10, 11 |
 | [BINXML-DT-1](#binxml-dt-1) | `XmlDictionaryWriter` (binary) | Copying binary XML with `WriteNode` turns UTC / local `DateTime` values into unspecified ones | Low–Medium | .NET 8, 9, 10, 11 |
 | [SSE-TYPE-1/2](#sse-type-1-2) | `SseParser` | `event:` with an empty value gives type `""` instead of `"message"`; an event type followed by a blank line without data leaks into the next event | Low–Medium | .NET 10, 11 |
@@ -397,7 +397,7 @@ ROUND3_STATS
 | [BINXML-ENC-1](#binxml-enc-1) | `XmlDictionaryReader.CreateTextReader` | An unterminated `encoding='...` in the XML declaration throws `IndexOutOfRangeException` | Low–Medium | .NET 8, 9, 10, 11 |
 | [COOKIE-PORT-1](#cookie-port-1) | `CookieContainer` | The `Port` attribute is validated leniently (CR/LF allowed around the numbers) and echoed into the `Cookie` request header | Low | .NET 8, 9, 10, 11 |
 | [TZ-RULE-1](#tz-rule-1) | `TimeZoneInfo.FindRuleForYear` | `ArgumentOutOfRangeException` for a rule ending 0001-01-01 under a negative offset | Low | .NET 11 regression |
-| [TENSOR-RESHAPE-1](#tensor-reshape-1) | `Tensor.Reshape` | `DivideByZeroException` / `IndexOutOfRangeException` instead of `ArgumentException` | Low | Tensors 11.0 RC1 package |
+| [TENSOR-RESHAPE-1](#tensor-reshape-1) | `Tensor.Reshape` | `DivideByZeroException` / `IndexOutOfRangeException` instead of `ArgumentException` | Low | Tensors 10.0.12 and 11.0 RC1 packages |
 | [CBOR-SIMPLE-1, CBOR-TRUNC-1](#cbor-simple-1-cbor-trunc-1) | `CborReader` | Reserved simple values: `PeekState` says `SimpleValue`, `ReadSimpleValue` throws `InvalidOperationException`; with multiple root values a trailing tag without content is accepted | Low | 11.0 RC1 package |
 | [DATA-SELECT-1](#data-select-1) | `DataTable.Select` | `Select("id > 1", "id, id")` throws `IndexOutOfRangeException` | Low | .NET 8, 9, 10, 11 |
 | [DATA-OVERFLOW-1](#data-overflow-1) | `DataTable` expressions | An overflow inside an `AND`/`OR` operand makes `ExprException.Overflow` throw `NullReferenceException` | Low | .NET 8, 9, 10, 11 |
@@ -450,7 +450,9 @@ in 2022/2023). Custom zones show the mechanism directly:
 - for a local time in a rule's first year but before its `DateStart`, the rule is applied anyway
   (`GetUtcOffset(2021-01-01T10:03)` is 12:41 instead of 13:11 for a rule starting 2021-02-01).
 
-The per-year transition cache in `TimeZoneInfo.Cache.cs` is new in .NET 11.
+The per-year transition cache in `TimeZoneInfo.Cache.cs` came with dotnet/runtime#119662 ("TimeZones
+improvement", merged 2025-10-05, after .NET 10 branched), which replaced the adjustment-rule lookup
+in `TimeZoneInfo.cs`; TZ-RULE-1 is in the same file.
 
 ```csharp
 var tz = TimeZoneInfo.FindSystemTimeZoneById("Pacific/Auckland");
