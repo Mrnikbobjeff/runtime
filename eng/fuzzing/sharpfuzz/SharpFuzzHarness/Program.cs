@@ -67,6 +67,7 @@ public static class Program
         ["arrays"] = ArraysTarget.Run,
         ["websocket"] = WebSocketTarget.Run,
         ["unsafeder"] = UnsafeDerTarget.Run,
+        ["unsafex509"] = UnsafeX509Target.Run,
     };
 
     public static int Main(string[] args)
