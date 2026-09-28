@@ -56,9 +56,9 @@ repeated or re-verified here.
 | [RESOURCES-1](#resources-1) | `ResourceReader` | Unchecked header counts (~1 GB allocation from a 206-byte file) and undocumented exceptions on corrupt files | Low | .NET 8, 9, 10 |
 | [NUMBER-NEGZERO-1](#number-negzero-1) | `Number.Parsing` | Unsigned `TryParse` accepts `"-0"`/`"-0e5"` but rejects `"-0.0"` | Low | .NET 8, 9, 10 |
 | [COMPOSITEFORMAT-2](#compositeformat-2) | `CompositeFormat.Parse` | `"{0:}"` passes `""` where `string.Format` passes `null` | Informational | .NET 8, 9, 10 |
-| [METADATA-1](#metadata-1-3) | `MetadataReader` | `NullReferenceException` from `GetNestedTypes` on malformed metadata | Low–Medium | .NET 8, 9, 10 |
-| [METADATA-2](#metadata-1-3) | `MetadataReader` | `OverflowException` from the constructor (stream headers) | Low–Medium | .NET 8, 9, 10 |
-| [METADATA-3](#metadata-1-3) | `SignatureDecoder`, `CustomAttributeDecoder` | Builders sized by untrusted counts: a 6.6 KB assembly allocates ~2 GB or throws `OutOfMemoryException` | Medium (DoS with untrusted assemblies) | .NET 8, 9, 10 |
+| [METADATA-1](#metadata-13) | `MetadataReader` | `NullReferenceException` from `GetNestedTypes` on malformed metadata | Low–Medium | .NET 8, 9, 10 |
+| [METADATA-2](#metadata-13) | `MetadataReader` | `OverflowException` from the constructor (stream headers) | Low–Medium | .NET 8, 9, 10 |
+| [METADATA-3](#metadata-13) | `SignatureDecoder`, `CustomAttributeDecoder` | Builders sized by untrusted counts: a 6.6 KB assembly allocates ~2 GB or throws `OutOfMemoryException` | Medium (DoS with untrusted assemblies) | .NET 8, 9, 10 |
 | [ASN1-GENTIME-1](#asn1-gentime-1) | `AsnDecoder.ReadGeneralizedTime` | Fractional seconds decoded a tick low (`.043` → `.0429999`), so DER doesn't round-trip | Low–Medium | .NET 8, 9, 10 |
 | [URI-HOST-1](#uri-host-1) | `Uri` | Bidi control characters are stripped from the host after validation: `https://‮.com/` has `Host` `".com"` | Low–Medium | .NET 8, 9, 10 |
 | [URI-IDN-1](#uri-idn-1) | `Uri.IdnHost` | Throws `UriFormatException` for a host the constructor accepted | Low | .NET 8, 9, 10 |
