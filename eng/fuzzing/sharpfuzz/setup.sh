@@ -16,7 +16,8 @@ HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORK="${SHARPFUZZ_WORK:-$HERE/.work}"
 DOTNET_VERSION="${DOTNET_VERSION:-11.0.0-rc.1.26425.128}"
 SHARPFUZZ_VERSION="${SHARPFUZZ_VERSION:-2.3.0}"
-TARGET_ASSEMBLIES=(System.Text.RegularExpressions System.Text.Json System.Linq System.Collections)
+TARGET_ASSEMBLIES=(System.Text.RegularExpressions System.Text.Json System.Linq System.Collections System.Collections.Immutable
+    System.Private.Uri System.Runtime.Numerics)
 NUGET="https://api.nuget.org/v3-flatcontainer"
 
 mkdir -p "$WORK"

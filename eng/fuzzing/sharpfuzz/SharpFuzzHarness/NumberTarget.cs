@@ -98,7 +98,7 @@ public static class NumberTarget
 
     private static bool IsStyleError(Exception e) => e is ArgumentException;
 
-    private static bool HasHugeExponent(string text)
+    internal static bool HasHugeExponent(string text)
     {
         for (int i = 0; i < text.Length; i++)
         {

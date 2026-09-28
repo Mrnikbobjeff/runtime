@@ -24,6 +24,10 @@ public static class Program
         // Vectorized span / array helpers over primitive element types (CoreLib, System.Collections, System.Linq)
         ["spanops"] = SpanOpsTarget.Run,
         ["utf8parser"] = Utf8ParserTarget.Run,
+        // System.Collections.Immutable (Frozen, Immutable*) and OrderedDictionary
+        ["collections"] = CollectionsTarget.Run,
+        ["uri"] = UriTarget.Run,
+        ["biginteger"] = BigIntegerTarget.Run,
     };
 
     public static int Main(string[] args)
