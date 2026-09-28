@@ -30,10 +30,26 @@ public static class Program
         ["biginteger"] = BigIntegerTarget.Run,
         ["asn1"] = Asn1Target.Run,
         ["metadata"] = MetadataTarget.Run,
+        // Round 3: header / stream parsers outside CoreLib
+        ["sse"] = SseTarget.Run,
+        ["data"] = DataTarget.Run,
+        ["diag"] = DiagTarget.Run,
+        ["mail"] = MailTarget.Run,
     };
 
     public static int Main(string[] args)
     {
+        // Instrumented framework code that runs before SharpFuzz attaches AFL's shared memory (e.g.
+        // System.Diagnostics.DiagnosticSource, which the process machinery touches) would write
+        // coverage through a null map. Give it a scratch map until SharpFuzz sets the real one.
+        unsafe
+        {
+            if (SharpFuzz.Common.Trace.SharedMem == null)
+            {
+                SharpFuzz.Common.Trace.SharedMem = (byte*)System.Runtime.InteropServices.NativeMemory.AllocZeroed(1 << 16);
+            }
+        }
+
         if (args.Length < 1)
         {
             Console.Error.WriteLine($"usage: SharpFuzzHarness <{string.Join('|', s_targets.Keys)}> [--repro <file>...]");

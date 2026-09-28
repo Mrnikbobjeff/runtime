@@ -17,7 +17,9 @@ WORK="${SHARPFUZZ_WORK:-$HERE/.work}"
 DOTNET_VERSION="${DOTNET_VERSION:-11.0.0-rc.1.26425.128}"
 SHARPFUZZ_VERSION="${SHARPFUZZ_VERSION:-2.3.0}"
 TARGET_ASSEMBLIES=(System.Text.RegularExpressions System.Text.Json System.Linq System.Collections System.Collections.Immutable
-    System.Private.Uri System.Runtime.Numerics System.Formats.Asn1 System.Reflection.Metadata)
+    System.Private.Uri System.Runtime.Numerics System.Formats.Asn1 System.Reflection.Metadata
+    System.Net.ServerSentEvents System.Data.Common System.Diagnostics.DiagnosticSource System.Net.Mail
+    System.Text.Encoding.CodePages System.Memory)
 NUGET="https://api.nuget.org/v3-flatcontainer"
 
 mkdir -p "$WORK"
