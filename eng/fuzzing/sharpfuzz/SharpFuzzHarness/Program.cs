@@ -54,6 +54,7 @@ public static class Program
         // Guard-page memory safety (SHARPFUZZ_GUARD=1 also puts tensorprimitives / metadata buffers against guard pages)
         ["unsafetext"] = UnsafeTextTarget.Run,
         ["unsafefmt"] = UnsafeFormatTarget.Run,
+        ["unsafemem"] = UnsafeMemoryTarget.Run,
     };
 
     public static int Main(string[] args)
