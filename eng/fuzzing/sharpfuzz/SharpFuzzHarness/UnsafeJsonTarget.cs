@@ -114,7 +114,9 @@ public static class UnsafeJsonTarget
 
         // JSON-FLOAT-1 (informational): numbers beyond float / double range read as infinities, which the
         // serializer then won't write without AllowNamedFloatingPointLiterals.
-        if (!fromArray.Ok || fromArray.Value == "non-finite")
+        // JSON-UTF8-1 (informational): JsonElement keeps invalid UTF-8 in property names and strings as is,
+        // and writing it replaces the bytes with U+FFFD, which can merge distinct names into duplicates.
+        if (!fromArray.Ok || fromArray.Value == "non-finite" || !System.Text.Unicode.Utf8.IsValid(utf8))
         {
             return;
         }
