@@ -64,6 +64,7 @@ public static class Program
         ["unsafemarshal"] = UnsafeMarshalTarget.Run,
         ["textio"] = TextIoTarget.Run,
         ["archive"] = ArchiveTarget.Run,
+        ["arrays"] = ArraysTarget.Run,
     };
 
     public static int Main(string[] args)
