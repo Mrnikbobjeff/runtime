@@ -72,6 +72,7 @@ public static class Program
         ["chunked"] = ChunkedTarget.Run,
         ["httpheaders"] = HttpHeadersTarget.Run,
         ["dcjson"] = DcJsonTarget.Run,
+        ["pipelines"] = PipelinesTarget.Run,
     };
 
     public static int Main(string[] args)
