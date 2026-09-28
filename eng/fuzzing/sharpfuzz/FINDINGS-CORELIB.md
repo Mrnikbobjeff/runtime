@@ -1062,6 +1062,10 @@ payloads. 11.0 RC1 only (new API).
   `AllowDuplicateProperties = false`, since the names are different bytes), and writing it replaces
   each invalid byte with U+FFFD, so the output has two `"�"` properties that the same options
   then reject as duplicates. (A `Dictionary<string, double>` rejects such names up front.)
+- DCJSON-CTRL-1: `JsonReaderWriterFactory.CreateJsonReader` throws `FormatException` ("Encountered invalid
+  character") for a raw control character inside a JSON string, where other malformed JSON throws
+  `XmlException`; `DataContractJsonSerializer.ReadObject` wraps both in `SerializationException`
+  (8.0 to 11.0).
 - `BinaryReader.ReadChars` never flushes its decoder: an incomplete UTF-8 / UTF-16 sequence at the end
   of the stream is dropped, where `Encoding.GetString` and `StreamReader` produce U+FFFD.
 - `JsonNode.ToJsonString` of a node parsed from a string with an escaped lone surrogate throws

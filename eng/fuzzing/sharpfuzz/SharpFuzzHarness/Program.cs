@@ -71,6 +71,7 @@ public static class Program
         ["blobwriter"] = BlobWriterTarget.Run,
         ["chunked"] = ChunkedTarget.Run,
         ["httpheaders"] = HttpHeadersTarget.Run,
+        ["dcjson"] = DcJsonTarget.Run,
     };
 
     public static int Main(string[] args)
