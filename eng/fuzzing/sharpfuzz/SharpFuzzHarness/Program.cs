@@ -60,6 +60,7 @@ public static class Program
         ["unsafecomp"] = UnsafeCompressionTarget.Run,
         ["unsafenet"] = UnsafeNetTarget.Run,
         ["vectorops"] = VectorOpsTarget.Run,
+        ["unsafejson"] = UnsafeJsonTarget.Run,
     };
 
     public static int Main(string[] args)
