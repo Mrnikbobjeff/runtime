@@ -31,7 +31,8 @@ public static class CborTarget
         List<string> tokens = Read(bytes, mode, multiple, out string error);
         // Known (CBOR-TRUNC-1): with multiple root values a trailing tag without a data item after it is
         // accepted (PeekState says Finished).
-        if (tokens is null || tokens.Count == 0 || !s_reportKnownIssues && multiple && tokens[^1].StartsWith('G'))
+        // Reading stops after 10000 tokens, so longer data isn't known to be valid past that.
+        if (tokens is null || tokens.Count == 0 || tokens.Count > 10000 || !s_reportKnownIssues && multiple && tokens[^1].StartsWith('G'))
         {
             return;
         }
@@ -66,6 +67,14 @@ public static class CborTarget
             // differently ({1: 0, 1 as 18 01: 0}); the writer, which encodes values one way, then rejects it.
             return;
         }
+        catch (ArgumentOutOfRangeException e) when (!s_reportKnownIssues && e.StackTrace?.Contains("HandleMapKeyWritten", StringComparison.Ordinal) == true)
+        {
+            // Known (CBOR-DUPW-1): for a duplicate key the writer means to throw InvalidOperationException and
+            // roll back to before the key, but clears _buffer.AsSpan(keyOffset, _offset) (an end offset
+            // as a length), which throws once keyOffset + _offset passes the buffer size; the duplicate
+            // key then stays written.
+            return;
+        }
         byte[] encoded = writer.Encode();
         // Without multiple root values the reader stops after the first one and leaves the rest.
         ReadOnlySpan<byte> consumed = bytes.AsSpan(0, bytes.Length - replay.BytesRemaining);
@@ -81,7 +90,10 @@ public static class CborTarget
         // CborWriter writes floats in the shortest width that keeps the value, and simple values 20-22 as
         // false / true / null, so compare floats by value and those simple values by meaning.
         static List<string> Nans(List<string> list) => list?.Select(t => IsNaN(t) && !s_reportKnownIssues ? "NaN" : Normalize(t)).ToList();
-        Check.That(again is not null && Nans(again).SequenceEqual(Nans(tokens)), $"re-encoded 0x{Convert.ToHexString(encoded)} reads as [{(again is null ? againError : string.Join(" ", again))}]: {what}");
+        // Known (CBOR-FLOAT-1): shortening a float map key can move it in the canonical key order, so
+        // then compare the values in any order.
+        bool reordered = !s_reportKnownIssues && floats && mode is CborConformanceMode.Canonical or CborConformanceMode.Ctap2Canonical;
+        Check.That(again is not null && (reordered ? Nans(again).Order(StringComparer.Ordinal).SequenceEqual(Nans(tokens).Order(StringComparer.Ordinal)) : Nans(again).SequenceEqual(Nans(tokens))), $"re-encoded 0x{Convert.ToHexString(encoded)} reads as [{(again is null ? againError : string.Join(" ", again))}]: {what}");
 
         // SkipValue / ReadEncodedValue over the top-level values.
         var skipper = new CborReader(bytes, mode, multiple);
