@@ -58,6 +58,7 @@ public static class Program
         ["unsafeenc"] = UnsafeEncodingTarget.Run,
         ["unsaferegex"] = UnsafeRegexTarget.Run,
         ["unsafecomp"] = UnsafeCompressionTarget.Run,
+        ["unsafenet"] = UnsafeNetTarget.Run,
     };
 
     public static int Main(string[] args)
