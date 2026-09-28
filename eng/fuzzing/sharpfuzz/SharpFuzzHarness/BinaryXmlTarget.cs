@@ -93,7 +93,9 @@ public static class BinaryXmlTarget
         // (their base64 concatenates to the same text), and redundant namespace declarations aren't written
         // again (the element and attribute namespaces, which are compared, carry the meaning).
         static List<string> Kinds(List<string> list) => s_reportKnownIssues ? list :
-            Normalize(list.Where(t => t is not "Text:||=\"\"" and not "Comment:||=\"\"").Select(Base64ToHex).Select(t => System.Text.RegularExpressions.Regex.Replace(t, @",?[^,\[]*\|http://www\.w3\.org/2000/xmlns/=""[^""]*""", "")).ToList()).Select(t => System.Text.RegularExpressions.Regex.Replace(t, @"(\d{4}-\d\d-\d\dT[\d:.]+)(Z|[+-]\d\d:\d\d)", "$1")).ToList();
+            // Known (BINXML-ARRAY-1): WriteNode drops comments that follow an array record, so comments
+            // aren't compared.
+            Normalize(list.Where(t => t is not "Text:||=\"\"" && !t.StartsWith("Comment:", StringComparison.Ordinal)).Select(Base64ToHex).Select(t => System.Text.RegularExpressions.Regex.Replace(t, @",?[^,\[]*\|http://www\.w3\.org/2000/xmlns/=""[^""]*""", "")).ToList()).Select(t => System.Text.RegularExpressions.Regex.Replace(t, @"(\d{4}-\d\d-\d\dT[\d:.]+)(Z|[+-]\d\d:\d\d)", "$1")).ToList();
         Check.That(again.Ok, $"binary copy doesn't read back ({again}): {what}");
         List<string> copy = Kinds(again.Value), original = Kinds(nodes.Value);
         if (!copy.SequenceEqual(original))

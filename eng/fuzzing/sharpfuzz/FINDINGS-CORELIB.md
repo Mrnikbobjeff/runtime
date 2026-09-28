@@ -388,7 +388,39 @@ access was found; the guarded targets turned up JSON-COPY-1 and BLOB-DT-1.
 
 ### Round 3 campaign statistics
 
-ROUND3_STATS
+| Target | Assemblies | Wall-clock | Execs | Edges | Result |
+|---|---|---|---|---|---|
+| `sse` | System.Net.ServerSentEvents | 30 min (3 instances) | 22.2 M | 5.8 k | SSE-TYPE-1/2, MISC-3 |
+| `data` | System.Data.Common (expressions, `DbConnectionStringBuilder`) | 30 min (3 instances) | 17.7 M | 19.9 k | DATA-SELECT-1, DATA-OVERFLOW-1, DATA-DOLLAR-1, DATA-ODBC-1, MISC-3 |
+| `diag` | System.Diagnostics.DiagnosticSource (propagators, ids) | 30 min (3 instances) | 25.0 M | 6.9 k | DIAG-BAGGAGE-1, DIAG-MISC-1 |
+| `mail` | System.Net.Mail (`MailAddress`, `ContentType`, `ContentDisposition`) | 30 min (3 instances) | 33.3 M | 9.6 k | MAIL-CD-1/2, MAIL-ENC-1, MAIL-QUOTE-1, MISC-3 |
+| `codepages` | System.Text.Encoding.CodePages | 30 min (3 instances) | 10.9 M | 4.3 k | CP-CONVERT-1 |
+| `tensor` | System.Numerics.Tensors (`Tensor<T>`, `TensorSpan<T>`) | 30 min (3 instances) | 19.5 M | 3.8 k | TENSOR-SQUEEZE-1, TENSOR-RESHAPE-1 |
+| `sequence` | System.Memory (`SequenceReader`, `ReadOnlySequence`) | 30 min (3 instances) | 13.7 M | 5.4 k | no findings |
+| `timezone` | CoreLib `TimeZoneInfo` (TZif, POSIX rules, custom zones) | 30 min (3 instances) | 20.1 M | 8.4 k | TZ-YEAR-1, TZ-RULE-1, TZ-DTO-1, TZ-SER-1 |
+| `cookie` | System.Net.Primitives (`CookieContainer`) | 30 min (3 instances) | 12.5 M | 8.5 k | COOKIE-PORT-1 |
+| `httputil` | System.Web.HttpUtility | 30 min (3 instances) | 9.3 M | 9.4 k | MISC-3 |
+| `calendar` | CoreLib calendars | 30 min (3 instances) | 16.5 M | 4.4 k | CAL-1, MISC-3 |
+| `asyncenum` | System.Linq.AsyncEnumerable vs System.Linq | 30 min (3 instances) | 10.4 M | 36.5 k | no findings (harness false positives only) |
+| `hashing` | System.IO.Hashing | 30 min (3 instances) | 17.6 M | 2.8 k | HASH-CRC-EVEN-1 |
+| `cbor` | System.Formats.Cbor | 30 min (3 instances) | 19.3 M | 7.1 k | CBOR-DUP-1/2, CBOR-DUPW-1, CBOR-SIMPLE-1, CBOR-TRUNC-1, CBOR-FLOAT-1, MISC-3 |
+| `binxml` | System.Private.DataContractSerialization (`XmlDictionaryReader` / `Writer`) | 30 min (3 instances) | 21.3 M | 17.5 k | BINXML-DT-1, BINXML-ENC-1, BINXML-ARRAY-1, BINXML-SORT-1, BINXML-LIST-1, BINXML-NUM-1 |
+| `xsd` | System.Private.Xml (`XmlSchemaSet`, validating reader, `XmlDocument.Validate`) | 30 min (3 instances) | 19.0 M | 20.1 k | XSD-FACET-1 |
+| `pkcs` | System.Security.Cryptography(.Pkcs) (PKCS#12, CMS, RFC 3161, PKCS#8) | 30 min (3 instances) | 52.5 M | 14.7 k | PKCS-DECODE-1 |
+| `cose` | System.Security.Cryptography.Cose | 30 min (3 instances) | 52.9 M | 5.8 k | no findings |
+| `sortedcoll` | System.Collections (`SortedSet`, `SortedDictionary`, `SortedList`, views) | 30 min (3 instances) | 8.5 M | 5.2 k | no findings |
+| `channels` | System.Threading.Channels | 30 min (3 instances) | 29.4 M | 3.7 k | no findings |
+| `unsafetext` | CoreLib, System.IO.Hashing (transcoding, hashing, searches, hex, parsers; guarded) | 30 min (2 instances) | 16.1 M | 12.8 k | no findings |
+| `unsafefmt` | CoreLib, System.Runtime.Numerics (`TryFormat`, `TryWrite`; guarded) | 30 min (2 instances) | 6.1 M | 10.6 k | UTF8FMT-DT-1, UTF8FMT-NUM-1 |
+| `unsafemem` | System.Reflection.Metadata `BlobReader`, `UnmanagedMemoryAccessor` / `Stream`, `SafeBuffer` (guarded) | 30 min (2 instances) | 8.7 M | 4.3 k | BLOB-DT-1 |
+| `unsafeenc` | `SearchValues`, `Base64` / `Base64Url`, System.Text.Encodings.Web, System.Text.Json (guarded) | 30 min (2 instances) | 38.7 M | 15.6 k | JSON-COPY-1, B64URL-EXACT-1, MISC-3 (JSON-SURR-1) |
+| `unsaferegex` | System.Text.RegularExpressions span APIs (guarded) | 30 min (3 instances) | 7.9 M | 23.0 k | no findings |
+| `tensorprimitives` | System.Numerics.Tensors 11.0 RC1 (guarded buffers) | 30 min (2 instances, resuming the earlier corpus) | ~21.7 M | 15.9 k | no new findings |
+| `metadata` | System.Reflection.Metadata (`PEReader` / `MetadataReader` over guarded memory) | 30 min (2 instances, resuming the earlier corpus) | ~19.0 M | 14.7 k | no new findings |
+
+`sse`, `data`, `diag` and `mail` ran 13 minutes, then were resumed for 17 more. Crash counts are
+AFL's saved crashes, almost all duplicates of the findings above or of harness false positives fixed
+during triage; with the final harness every saved crash replays clean (known issues suppressed).
 
 ### Round 3 summary
 
@@ -422,6 +454,7 @@ ROUND3_STATS
 | [CAL-1](#cal-1) | `System.Globalization` calendars | `JulianCalendar.AddMonths` clamps to Feb 28 in Julian leap century years; `KoreanLunisolarCalendar` puts 952-12-25 in month 13 of a 12-month year; `HijriCalendar.GetYear` and `Calendar.GetWeekOfYear` throw for supported dates near the range ends | Low | .NET 8, 9, 10, 11 |
 | [DIAG-MISC-1](#diag-misc-1) | `ActivityTraceId`, `ActivityContext`, `Activity` | `CreateFromUtf8String` accepts invalid ids; `ActivityContext.TryParse` doesn't check the `-` separators; `SetParentId` accepts CR/LF, which the legacy propagator writes into `Request-Id` | Low | .NET 8, 9, 10, 11 |
 | [XSD-FACET-1](#xsd-facet-1) | `XmlSchemaSet.Compile` | A `length` / `minLength` / `maxLength` / `totalDigits` / `fractionDigits` value above `int.MaxValue` throws `OverflowException` instead of `XmlSchemaException` | Low | .NET 8, 9, 10, 11 |
+| [BINXML-ARRAY-1](#binxml-array-1) | `XmlDictionaryWriter.WriteNode` | Copying binary XML drops the comments that follow an array record | Low | .NET 8, 9, 10, 11 |
 | [BINXML-SORT-1, BINXML-LIST-1](#binxml-sort-1-binxml-list-1) | `XmlDictionaryReader.CreateBinaryReader` | An attribute name that isn't valid UTF-8 makes the duplicate-attribute check throw `InvalidOperationException` ("Failed to compare two elements"); `Value` of a list record with an item it can't convert throws `InvalidOperationException` | Low | .NET 8, 9, 10, 11 |
 | [PKCS-DECODE-1](#pkcs-decode-1) | `Pkcs12Info.Decode` | `30 80` (indefinite length, no content) throws `AsnContentException` instead of `CryptographicException` | Low | Pkcs 8.0.1, 9.0.20, 10.0.12, 11.0 RC1 packages |
 | [JSON-COPY-1](#json-copy-1) | `Utf8JsonReader.CopyString(Span<byte>)` | Throws "destination is too short" for an exactly sized destination when unescaped text follows the last escape (`"\u0041b"` into 2 bytes) | Low | .NET 8, 9, 10, 11 |
@@ -727,6 +760,17 @@ parser keeps quoted-pairs escaped. `new MailAddress("u@h.com", "a\"b\\c")` → `
 valid facet (it could be clamped to `int.MaxValue`) or at least a schema error; instead the
 exception escapes `Compile` and inline-schema validation. Same on 8.0.31, 9.0.20, 10.0.12 and
 11.0 RC1.
+
+### BINXML-ARRAY-1
+
+**`XmlDictionaryWriter.WriteNode` drops comments that directly follow a binary array record.** A
+document written with `WriteArray(null, "arr", null, new[] { 1, 2 }, 0, 2)` followed by
+`WriteComment("c1")`, `WriteComment("c2")` and an element reads back as
+`<r><arr>1</arr><arr>2</arr><!--c1--><!--c2--><m></m></r>`; copying it with
+`WriteNode(XmlDictionaryReader.CreateBinaryReader(...), true)` into a binary or a text writer gives
+`<r><arr>1</arr><arr>2</arr><m></m></r>`. Text or elements in the same place are copied. The array
+fast path apparently moves the reader past the following comments. Same on 8.0.31, 9.0.20, 10.0.12
+and 11.0 RC1.
 
 ### BINXML-SORT-1, BINXML-LIST-1
 
