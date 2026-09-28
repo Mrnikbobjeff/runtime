@@ -65,6 +65,7 @@ public static class Program
         ["textio"] = TextIoTarget.Run,
         ["archive"] = ArchiveTarget.Run,
         ["arrays"] = ArraysTarget.Run,
+        ["websocket"] = WebSocketTarget.Run,
     };
 
     public static int Main(string[] args)
