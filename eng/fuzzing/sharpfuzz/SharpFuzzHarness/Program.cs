@@ -29,6 +29,7 @@ public static class Program
         ["uri"] = UriTarget.Run,
         ["biginteger"] = BigIntegerTarget.Run,
         ["asn1"] = Asn1Target.Run,
+        ["metadata"] = MetadataTarget.Run,
     };
 
     public static int Main(string[] args)
