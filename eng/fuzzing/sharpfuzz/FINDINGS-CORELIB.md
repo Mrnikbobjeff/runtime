@@ -901,6 +901,7 @@ ROUND4_STATS
 
 | ID | Component | Kind | Severity (my assessment) | Versions |
 |----|-----------|------|--------------------------|----------|
+| [WS-UTF8-1](#ws-utf8-1) | Managed `WebSocket` (client and server, used by ASP.NET Core) | A fragmented text message whose last fragment is empty is delivered as complete without the end-of-message UTF-8 check: truncated sequences and bytes like `C0` get through | **Medium** | .NET 8, 9, 10, 11 |
 | [SR-BOM-1](#sr-bom-1) | `StreamReader` (BOM detection, the default) | When the first read returns 1–2 bytes, BOM detection runs again on later buffers: BOM-like bytes mid-stream are dropped or switch the decoding to UTF-16 / UTF-32; a BOM split across reads is missed | **Medium** | .NET 8, 9, 10, 11 |
 | [COMP-EXACT-1](#comp-exact-1) | `DeflateEncoder.TryCompress` (new in 11) | Fails for a destination of exactly the compressed size; one byte more works | Low–Medium | new .NET 11 API |
 | [MARSHAL-TSTR-1](#marshal-tstr-1) | `Marshal.StructureToPtr` (ANSI `ByValTStr`, ANSI by-value `char[]`) | A non-ASCII string is cut inside a UTF-8 sequence, or throws when its UTF-8 is longer than `SizeConst`; any non-ASCII char in a by-value `char[]` throws; ASCII strings are truncated | Low–Medium | .NET 8, 9, 10, 11 (exception type changed in 11) |
@@ -909,6 +910,30 @@ ROUND4_STATS
 | [ZIP-ENC-1](#zip-enc-1) | `ZipArchiveEntry.Open` / `OpenAsync` (encryption support new in 11) | For an encrypted entry with an unknown encryption method, `Open` throws `InvalidDataException` and `OpenAsync` `NotSupportedException`; the two also check header, method and password in different orders | Low | new .NET 11 API |
 | [COMP-EMPTY-1](#comp-empty-1) | `DeflateDecoder` / `ZLibDecoder` / `GZipDecoder.TryDecompress` (new in 11) | Decompressing an empty payload into an empty destination returns `false` | Low | new .NET 11 API |
 | [ROUND4-MISC](#round4-misc) | various | See the list at the end of this section | Informational | |
+
+### WS-UTF8-1
+
+**The managed WebSocket accepts invalid UTF-8 in text messages that end with an empty fragment.**
+RFC 6455 (§5.6, §8.1) requires an endpoint to fail the connection when a text message isn't valid
+UTF-8. `WebSocket.CreateFromStream` (the implementation behind `ClientWebSocket` and ASP.NET Core's
+server WebSockets) validates text payloads as they arrive, leaving an incomplete sequence at the end
+of a fragment for the next one, and checks that nothing is left over when the message ends. When the
+final fragment (FIN, opcode 0) has no payload, that last check is skipped:
+
+| Frames (unmasked, as received by a client) | Result on 8.0.31, 9.0.20, 10.0.12, 11.0 RC1 |
+|---|---|
+| `01 01 F0`, `00 01 80`, `80 00` (text `F0`, continuation `80`, empty final continuation) | delivered as a complete text message `F0 80` |
+| `01 02 61 C3`, `80 00` | delivered: `61 C3` |
+| `01 01 C0`, `80 00` | delivered: `C0` (a byte that never appears in UTF-8) |
+| `01 01 F0`, `80 01 80` (the same bytes, non-empty final fragment) | rejected (`WebSocketException`) |
+| `81 02 61 C3` (unfragmented) | rejected |
+
+The receive buffer size doesn't matter. A peer can therefore hand an application "text" that isn't
+UTF-8, which the application reasonably assumes the framework validated (a server echoing messages
+to other clients forwards them, a strict decoder throws). The `C0` case shows the per-fragment check
+also keeps a byte that can never start a sequence as "incomplete" at the end of a fragment, so the fix
+needs both: reject such bytes immediately, and validate the remainder when the message ends, whatever
+the length of the last fragment. Found by the `websocket` target (a frame decoder as the model).
 
 ### SR-BOM-1
 

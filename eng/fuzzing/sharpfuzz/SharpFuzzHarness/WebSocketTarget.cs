@@ -50,6 +50,8 @@ public static class WebSocketTarget
         public override void SetLength(long value) => throw new NotSupportedException();
     }
 
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
     public static void Run(ReadOnlySpan<byte> data)
     {
         var input = new FuzzInput(data);
@@ -211,7 +213,10 @@ public static class WebSocketTarget
             current.AddRange(payload);
             if (fin)
             {
-                if (type == WebSocketMessageType.Text && !System.Text.Unicode.Utf8.IsValid(current.ToArray()))
+                // Known (WS-UTF8-1): when the final fragment of a text message is empty, the socket skips the
+                // end-of-message UTF-8 check and delivers the message even if it's invalid.
+                bool skipCheck = !s_reportKnownIssues && opcode == 0 && length == 0;
+                if (type == WebSocketMessageType.Text && !skipCheck && !System.Text.Unicode.Utf8.IsValid(current.ToArray()))
                 {
                     failure = "utf8";
                     return messages;
