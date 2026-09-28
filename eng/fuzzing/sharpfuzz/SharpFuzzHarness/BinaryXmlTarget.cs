@@ -113,7 +113,7 @@ public static class BinaryXmlTarget
                 i++;
             }
 
-            Check.That(false, $"binary copy differs at node {i}: {(i < copy.Count ? copy[i] : "(end)")} vs original {(i < original.Count ? original[i] : "(end)")}; copy 0x{Convert.ToHexString(rewritten.AsSpan(0, Math.Min(rewritten.Length, 64)))}: {what}");
+            Check.That(false, $"binary copy differs at node {i}: {(i < copy.Count ? Short(copy[i]) : "(end)")} vs original {(i < original.Count ? Short(original[i]) : "(end)")}; copy 0x{Convert.ToHexString(rewritten.AsSpan(0, Math.Min(rewritten.Length, 64)))}: {what}");
         }
     }
 
@@ -124,9 +124,11 @@ public static class BinaryXmlTarget
         var xml = Outcome<List<string>>.Of(() => Normalize(Nodes(XmlReader.Create(new MemoryStream(bytes), settings))), Allowed);
         if (dc.Ok && xml.Ok)
         {
-            Check.That(dc.Value.SequenceEqual(xml.Value), $"XmlDictionaryReader.CreateTextReader reads [{string.Join(" ", dc.Value)}], XmlReader reads [{string.Join(" ", xml.Value)}]: {what}");
+            Check.That(dc.Value.SequenceEqual(xml.Value), $"XmlDictionaryReader.CreateTextReader reads [{Short(string.Join(" ", dc.Value))}], XmlReader reads [{Short(string.Join(" ", xml.Value))}]: {what}");
         }
     }
+
+    private static string Short(string t) => t.Length > 600 ? t[..600] + "..." : t;
 
     /// <summary>Text that is base64 (bytes records) as hex of the bytes, so re-chunked records compare equal once merged.</summary>
     private static string Base64ToHex(string token)
@@ -160,7 +162,8 @@ public static class BinaryXmlTarget
                 sb.Append(reader.NodeType).Append(':').Append(reader.Prefix).Append('|').Append(reader.LocalName).Append('|').Append(reader.NamespaceURI);
                 if (reader.NodeType is XmlNodeType.Text or XmlNodeType.CDATA or XmlNodeType.Whitespace or XmlNodeType.SignificantWhitespace or XmlNodeType.Comment or XmlNodeType.ProcessingInstruction)
                 {
-                    sb.Append('=').Append(Check.Show(reader.Value));
+                    // In full: adjacent text is merged (and base64 decoded) before comparing.
+                    sb.Append('=').Append(Check.Escape(reader.Value, 1 << 20));
                 }
 
                 if (reader.NodeType == XmlNodeType.Element)

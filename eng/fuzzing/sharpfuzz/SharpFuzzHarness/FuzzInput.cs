@@ -158,10 +158,10 @@ internal static class Check
         _ => value.ToString() ?? "",
     };
 
-    public static string Escape(string s)
+    public static string Escape(string s, int max = 200)
     {
         var sb = new StringBuilder("\"");
-        foreach (char c in s.Length > 200 ? s.Substring(0, 200) : s)
+        foreach (char c in s.Length > max ? s.Substring(0, max) : s)
         {
             if (c is >= ' ' and <= '~' and not '"' and not '\\')
             {
@@ -173,7 +173,7 @@ internal static class Check
             }
         }
 
-        return sb.Append(s.Length > 200 ? "\"..." : "\"").ToString();
+        return sb.Append(s.Length > max ? "\"..." : "\"").ToString();
     }
 }
 
