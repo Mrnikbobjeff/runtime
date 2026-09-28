@@ -901,11 +901,53 @@ ROUND4_STATS
 
 | ID | Component | Kind | Severity (my assessment) | Versions |
 |----|-----------|------|--------------------------|----------|
+| [SR-BOM-1](#sr-bom-1) | `StreamReader` (BOM detection, the default) | When the first read returns 1–2 bytes, BOM detection runs again on later buffers: BOM-like bytes mid-stream are dropped or switch the decoding to UTF-16 / UTF-32; a BOM split across reads is missed | **Medium** | .NET 8, 9, 10, 11 |
 | [COMP-EXACT-1](#comp-exact-1) | `DeflateEncoder.TryCompress` (new in 11) | Fails for a destination of exactly the compressed size; one byte more works | Low–Medium | new .NET 11 API |
 | [MARSHAL-TSTR-1](#marshal-tstr-1) | `Marshal.StructureToPtr` (ANSI `ByValTStr`) | A non-ASCII string is cut inside a UTF-8 sequence, or throws `ArgumentException` when its UTF-8 is longer than `SizeConst`; ASCII strings are truncated | Low–Medium | .NET 8, 9, 10, 11 |
+| [BR-CHARS-1](#br-chars-1) | `BinaryReader.ReadChars` | Throws `ArgumentException` ("output char buffer is too small") for invalid UTF-8, or a character outside the BMP, at the end of the requested count | Low–Medium | .NET 8, 9, 10, 11 |
 | [JSON-DEEPEQ-1](#json-deepeq-1) | `JsonElement.DeepEquals`, `JsonNode.DeepEquals` | Throw `ArgumentOutOfRangeException` for any number whose exponent doesn't fit in an `int`, even when comparing a document with itself | Low–Medium | .NET 9, 10, 11 |
 | [COMP-EMPTY-1](#comp-empty-1) | `DeflateDecoder` / `ZLibDecoder` / `GZipDecoder.TryDecompress` (new in 11) | Decompressing an empty payload into an empty destination returns `false` | Low | new .NET 11 API |
 | [ROUND4-MISC](#round4-misc) | various | See the list at the end of this section | Informational | |
+
+### SR-BOM-1
+
+**`StreamReader` decodes the same bytes differently depending on how the stream hands them out.**
+With `detectEncodingFromByteOrderMarks: true` (what `new StreamReader(stream)` and
+`new StreamReader(stream, encoding)` use), the reader looks for a byte order mark in its first
+buffer. If the first `Read` returns fewer bytes than it needs to decide (1 or 2), detection stays
+pending and is applied to the start of a later buffer instead, in the middle of the text. A stream
+that returns data in small pieces (a pipe, a socket, a decompression or custom stream) gives, on
+8.0.31, 9.0.20, 10.0.12 and 11.0 RC1 alike:
+
+| Bytes | Reads | `ReadToEnd()` | With a single read |
+|---|---|---|---|
+| `ab` `EF BB BF` `cd` (UTF-8) | 2, 3, 2 | `abcd` | `ab\uFEFFcd` |
+| `ab` `FF FE` `cd` (UTF-8) | 2, 2, 2 | `ab\u6463` (switched to UTF-16) | `ab\uFFFD\uFFFDcd` |
+| `ab` `FE FF` `cd` (Latin-1) | 2, 2, 2 | `ab\u6364` (switched to UTF-16BE) | `abþÿcd` |
+| `a` `U+FEFF` `b` (UTF-16LE) | 2, 2, 2 | `ab` | `a\uFEFFb` |
+| `a` `FF FE 00 00` `bc` (UTF-16LE) | 2, 4, 4 | `a\uFFFD` (switched to UTF-32) | `a\uFEFF\u0000bc` |
+| `EF BB BF` `hi` (Latin-1 given) | 1, 1, 1, 2 | `ï»¿hi` (BOM missed) | `hi` (UTF-8) |
+| `FF FE 00 00` `hi` (UTF-32LE) | 2, 2, 8 | `\u0000h\u0000i\u0000` (UTF-16) | `hi` |
+
+So text read from the same byte stream depends on how the operating system or the sender splits
+it: a peer that controls the chunking (sends two bytes, then the rest) can make a reader drop
+characters or switch the rest of the stream to another encoding, and ordinary data containing
+`U+FEFF` or the bytes `FF FE` / `FE FF` (Latin-1 `ÿþ`) is corrupted when an early read happens to
+be short. Detection should either wait until it has enough bytes or give up after the first
+buffer; it should never apply past the start of the stream. Found by the `textio` target (a
+stream returning a few bytes per `Read`).
+
+### BR-CHARS-1
+
+**`BinaryReader.ReadChars(count)` throws `ArgumentException` for some UTF-8 input.** It reads bytes
+and decodes them into the space left for `count` chars. When the decoder produces two chars at once
+into one remaining slot, `Decoder.GetChars` throws "The output char buffer is too small to contain
+the decoded characters": an invalid lead byte followed by an ASCII byte (`C3 61` with
+`ReadChars(1)`: the replacement character and `a` arrive together), a truncated sequence
+(`61 E4 B8 62` with `ReadChars(2)`), or a character outside the BMP (`F0 9F 98 80`, a surrogate pair,
+with `ReadChars(1)`). `Encoding.UTF8.GetString` decodes all of these. `BinaryReader.ReadChar` is
+documented to throw for surrogates; `ReadChars` isn't, and invalid input shouldn't depend on the
+count asked for. Same on 8.0.31, 9.0.20, 10.0.12 and 11.0 RC1.
 
 ### COMP-EXACT-1
 
@@ -967,6 +1009,8 @@ payloads. 11.0 RC1 only (new API).
   beyond the type's range (`3.5e38` as `float`, `1e309` as `double`), so `JsonSerializer.Deserialize<float>("1e80")`
   gives `Infinity`, which `JsonSerializer.Serialize` then rejects with `ArgumentException` unless
   `AllowNamedFloatingPointLiterals` is set: the serializer can't write back what it read (8.0 to 11.0).
+- `BinaryReader.ReadChars` never flushes its decoder: an incomplete UTF-8 / UTF-16 sequence at the end
+  of the stream is dropped, where `Encoding.GetString` and `StreamReader` produce U+FFFD.
 - `JsonNode.ToJsonString` of a node parsed from a string with an escaped lone surrogate throws
   `InvalidOperationException`, the same as JSON-SURR-1 (round 3) through the node API.
 

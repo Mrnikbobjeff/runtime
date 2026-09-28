@@ -62,6 +62,7 @@ public static class Program
         ["vectorops"] = VectorOpsTarget.Run,
         ["unsafejson"] = UnsafeJsonTarget.Run,
         ["unsafemarshal"] = UnsafeMarshalTarget.Run,
+        ["textio"] = TextIoTarget.Run,
     };
 
     public static int Main(string[] args)
