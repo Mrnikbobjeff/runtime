@@ -70,6 +70,7 @@ public static class Program
         ["unsafex509"] = UnsafeX509Target.Run,
         ["blobwriter"] = BlobWriterTarget.Run,
         ["chunked"] = ChunkedTarget.Run,
+        ["httpheaders"] = HttpHeadersTarget.Run,
     };
 
     public static int Main(string[] args)
