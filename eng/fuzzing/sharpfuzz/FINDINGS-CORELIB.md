@@ -1,13 +1,13 @@
 # SharpFuzz findings: System.Private.CoreLib, System.Numerics.Tensors, span and array APIs (.NET 11 RC1)
 
-Campaign date: 2026-09-26/27. Harness and scripts: this directory (see [README.md](README.md)). The
+Campaign dates: 2026-09-26/27 (CoreLib, Tensors, span APIs) and 2026-09-28 (collections, Uri, BigInteger, ASN.1, metadata). Harness and scripts: this directory (see [README.md](README.md)). The
 first campaign (Regex, JSON) is in [FINDINGS.md](FINDINGS.md).
 
 ## Environment
 
 | | |
 |---|---|
-| Runtime under test | .NET `11.0.0-rc.1.26425.128` (`Microsoft.NETCore.App.Runtime.linux-x64`), with R2R stripped and SharpFuzz-instrumented `System.Private.CoreLib` (1,026 of 1,911 top-level types, see `corelib-exclude.txt`), `System.Linq`, `System.Collections`, `System.Text.RegularExpressions` and `System.Text.Json` |
+| Runtime under test | .NET `11.0.0-rc.1.26425.128` (`Microsoft.NETCore.App.Runtime.linux-x64`), with R2R stripped and SharpFuzz-instrumented `System.Private.CoreLib` (1,026 of 1,911 top-level types, see `corelib-exclude.txt`), `System.Linq`, `System.Collections`, `System.Collections.Immutable`, `System.Private.Uri`, `System.Runtime.Numerics`, `System.Formats.Asn1`, `System.Reflection.Metadata`, `System.Text.RegularExpressions` and `System.Text.Json` |
 | System.Numerics.Tensors | The `11.0.0-rc.1.26425.128` NuGet package, and local builds of the `tensorprimitives-block-reductions` and `argmin-blocks` branches (`TENSORS_DLL=...`) |
 | Fuzzer | AFL++ 4.00c (Ubuntu 22.04 under WSL2), SharpFuzz 2.3.0 (`Fuzzer.OutOfProcess`) |
 | Machine | Ryzen 7 7800X3D (8 cores / 16 threads, AVX-512). Fuzzers pinned with `SHARPFUZZ_CPUS` (taskset) to at most 12 threads. Each campaign ran one main instance with the full ISA and secondaries with `DOTNET_EnableAVX512=0` / `DOTNET_EnableAVX2=0`, so the Vector512/256/128 paths are all covered. |
@@ -29,6 +29,11 @@ the dotnet/runtime issue tracker yet.
 | `tensorprimitives` | Tensors, `argmin-blocks` branch | 60 + 120 min (3 instances) | 134.4 M | 16.1 k | no new findings |
 | `utf8parser` | CoreLib (`Utf8Parser`, `Utf8Formatter`) | 40 + 60 min (2–3 instances) | 103.2 M | 10.1 k | UTF8PARSER-FLOAT-1, UTF8PARSER-DECIMAL-1 |
 | `spanops` | CoreLib, System.Linq, System.Collections | 3 × 60 min (3 instances) | 141.6 M | 16.3 k | LINQ-SUM-1 |
+| `collections` | System.Collections.Immutable (Frozen*, Immutable*), OrderedDictionary | 60 min (3 instances) | 7.2 M | 9.9 k | no findings |
+| `uri` | System.Private.Uri | URI_TIME | URI_EXECS | URI_EDGES | URI-HOST-1, URI-IDN-1, URI-FILE-1, URI-CANON-1 |
+| `biginteger` | System.Runtime.Numerics | BIG_TIME | BIG_EXECS | BIG_EDGES | no new findings (UTF8FMT-1 and BIGINTEGER-EXP-1 again) |
+| `asn1` | System.Formats.Asn1 | ASN_TIME | ASN_EXECS | ASN_EDGES | ASN1-GENTIME-1 |
+| `metadata` | System.Reflection.Metadata | MD_TIME | MD_EXECS | MD_EDGES | METADATA-1..3 |
 
 CoreLib's `datetime`, `encoding` and `enum` targets were triaged by a parallel session on branch
 `feature/sharpfuzz-corelib-instrument-fc6ce9` (see the FINDINGS.md there); those results are not
@@ -51,6 +56,14 @@ repeated or re-verified here.
 | [RESOURCES-1](#resources-1) | `ResourceReader` | Unchecked header counts (~1 GB allocation from a 206-byte file) and undocumented exceptions on corrupt files | Low | .NET 8, 9, 10 |
 | [NUMBER-NEGZERO-1](#number-negzero-1) | `Number.Parsing` | Unsigned `TryParse` accepts `"-0"`/`"-0e5"` but rejects `"-0.0"` | Low | .NET 8, 9, 10 |
 | [COMPOSITEFORMAT-2](#compositeformat-2) | `CompositeFormat.Parse` | `"{0:}"` passes `""` where `string.Format` passes `null` | Informational | .NET 8, 9, 10 |
+| [METADATA-1](#metadata-1-3) | `MetadataReader` | `NullReferenceException` from `GetNestedTypes` on malformed metadata | Low–Medium | .NET 8, 9, 10 |
+| [METADATA-2](#metadata-1-3) | `MetadataReader` | `OverflowException` from the constructor (stream headers) | Low–Medium | .NET 8, 9, 10 |
+| [METADATA-3](#metadata-1-3) | `SignatureDecoder`, `CustomAttributeDecoder` | Builders sized by untrusted counts: a 6.6 KB assembly allocates ~2 GB or throws `OutOfMemoryException` | Medium (DoS with untrusted assemblies) | .NET 8, 9, 10 |
+| [ASN1-GENTIME-1](#asn1-gentime-1) | `AsnDecoder.ReadGeneralizedTime` | Fractional seconds decoded a tick low (`.043` → `.0429999`), so DER doesn't round-trip | Low–Medium | .NET 8, 9, 10 |
+| [URI-HOST-1](#uri-host-1) | `Uri` | Bidi control characters are stripped from the host after validation: `https://‮.com/` has `Host` `".com"` | Low–Medium | .NET 8, 9, 10 |
+| [URI-IDN-1](#uri-idn-1) | `Uri.IdnHost` | Throws `UriFormatException` for a host the constructor accepted | Low | .NET 8, 9, 10 |
+| [URI-FILE-1](#uri-file-1) | `Uri` (implicit file paths) | U+FFFD and lone surrogates in `"/tmp/…"` paths are turned into literal `%EF%BF%BD` (`LocalPath` changes) | Low | .NET 8, 9, 10 |
+| [URI-CANON-1](#uri-canon-1) | `Uri` canonicalization | `AbsoluteUri` doesn't always parse back to the same (or an `Equals`) `Uri` | Low | .NET 8, 9, 10 |
 
 One further finding, in UTF-8 number parsing with custom `NumberFormatInfo` symbols, is not
 described here because it may have security impact; it should go through the Microsoft Security
@@ -259,6 +272,98 @@ but inconsistent: a negative zero is either acceptable for unsigned types or it 
 `.ToString()` on the empty slice; `ValueStringBuilder.AppendFormatHelper` keeps `null`). Custom
 `IFormattable` implementations that distinguish the two format differently depending on the API.
 
+### METADATA-1..3
+
+**Malformed assemblies make System.Reflection.Metadata throw exceptions other than
+`BadImageFormatException`, or allocate gigabytes.** Each input below is a ~6.6 KB mutation of a
+small compiled library. They were reproduced with plain API calls (no harness) on 8.0.31, 9.0.20,
+10.0.12 and 11.0 RC1:
+
+| ID | Call | Result |
+|---|---|---|
+| METADATA-1 | `md.GetTypeDefinition(h).GetNestedTypes()` | `NullReferenceException` in `MetadataReader.InitializeNestedTypesMap` |
+| METADATA-2 | `peReader.GetMetadataReader()` | `OverflowException` in `MetadataReader.ReadStreamHeaders` |
+| METADATA-3 | `customAttribute.DecodeValue(provider)` | `OutOfMemoryException` in `CustomAttributeDecoder.DecodeArrayArgument` |
+| METADATA-3 | `methodDefinition.DecodeSignature(provider, ...)` | allocates 1,984 MB, then `BadImageFormatException` (`SignatureDecoder.DecodeArrayType`) |
+
+The decoders call `ImmutableArray.CreateBuilder<T>(count)` with element counts read from the blob
+(up to 2^29) before checking them against the blob's remaining length, which is at most a few
+bytes per element. Tools that read untrusted assemblies (analyzers, package scanners,
+decompilers, `MetadataLoadContext`) can be made to allocate gigabytes by a tiny file. Bounding the
+count by the remaining bytes, and turning the NRE/overflow cases into `BadImageFormatException`,
+would fix these. The saved inputs are in `out/metadata/archive/*/*/crashes`, and `./repro.sh
+metadata <input>` with `SHARPFUZZ_REPORT_KNOWN_ISSUES=1` shows them.
+
+Also noticed: `AssemblyDefinition.GetAssemblyName()` throws `CultureNotFoundException` under
+`InvariantGlobalization` for any assembly with a culture (every satellite assembly), because it
+creates a `CultureInfo` for `AssemblyName.CultureName`.
+
+### ASN1-GENTIME-1
+
+**`AsnDecoder.ReadGeneralizedTime` (and `AsnReader`) decode fractional seconds one tick low for
+about 6% of millisecond values, so a decoded time written back with `AsnWriter` changes the
+DER bytes.**
+
+```csharp
+// DER GeneralizedTime "20260927120000.043Z"
+AsnDecoder.ReadGeneralizedTime(der, AsnEncodingRules.DER, out _); // 12:00:00.0429999, not .043
+// AsnWriter.WriteGeneralizedTime(value) then writes "20260927120000.0429999Z"
+```
+
+`AsnDecoder.GeneralizedTime.cs` computes `(long)((double)fraction / fractionScale *
+TimeSpan.TicksPerSecond)`; for `.043` the double product is 429999.999… and the cast truncates.
+59 of the 999 values `.001`–`.999` are affected on 8.0.31–11.0 RC1. Integer arithmetic
+(`fraction * TicksPerSecond / fractionScale`, with the fraction digits capped) would be exact.
+Anything that decodes and re-encodes GeneralizedTime with fractions (RFC 3161 `genTime`, CMS
+attributes, re-serialized certificates) changes the bytes and breaks signatures over them.
+
+### URI-HOST-1
+
+**`Uri` removes bidi control characters (U+202A–U+202E) from the host after validating it, so
+the resulting host can be one `Uri` itself rejects.**
+
+| Input | `Host` | `AbsoluteUri` | Parsing `AbsoluteUri` again |
+|---|---|---|---|
+| `https://‮.com/` | `".com"` | `https://.com/` | `UriFormatException` |
+| `https://‬/?a=b` | `""` | `https:///?a=b` | `UriFormatException` |
+
+`https://.com/` and `https:///` are rejected when written directly. Code that validates a URI by
+constructing a `Uri` and then trusts `Host` gets a host that validation would not have allowed.
+Low severity on its own; it is listed separately because it concerns the host.
+
+### URI-IDN-1
+
+**`Uri.IdnHost` throws `UriFormatException` for some hosts the constructor accepted**, e.g.
+`new Uri("http://xn--bcher-kvaü.example/").IdnHost` ("An invalid Unicode character by IDN
+standards was specified in the host"), while `Host` and `DnsSafeHost` work. The exception surfaces
+late, e.g. when an HTTP handler resolves the name.
+
+### URI-FILE-1
+
+**Implicit file paths (`new Uri("/tmp/…", UriKind.Absolute)`) turn U+FFFD and lone surrogates into
+literal percent sequences:** `new Uri("/tmp/�").LocalPath` is `"/tmp/%EF%BF%BD"` and
+`AbsoluteUri` is `file:///tmp/%25EF%25BF%25BD`, while `"/tmp/ü"` round-trips. File names with
+U+FFFD exist on Linux (the replacement for undecodable bytes), so such a path points to a different
+file after going through `Uri`.
+
+### URI-CANON-1
+
+**`AbsoluteUri` is not always a fixed point of `Uri` parsing.** Minimized by delta debugging:
+
+| Input | `AbsoluteUri` | Parsed again |
+|---|---|---|
+| `tp:\` (non-special scheme with `\`) | `tp:%5C` | same string, but `Equals` is false |
+| `h1:%�x` (stray `%` next to non-ASCII) | `h1:%25%EF%BF%BDx` | same string, `Equals` false |
+| `tp:%%2E` | `tp:%25%2E` | `tp:%25.` |
+| `/E:` (implicit file path) | `file:///E:` | `UriFormatException` |
+| `/.//x` | `file:////x` | `file://x/` |
+| `/tmp/a%20b` | `file:///tmp/a%2520b` | same string, `Equals` false |
+
+Each is low severity, but together they mean that normalizing a URI by round-tripping it through
+`AbsoluteUri` (a common pattern) can change or reject it. 11.0 RC1 also newly accepts
+`tp://"@.?` (degenerate host `"."`, `Host` `"%22@."`), which 8–10 reject; hosts other than `.`
+parse the same on all versions.
+
 ---
 
 ## Harness false positives fixed during the campaign
@@ -274,6 +379,12 @@ These were raised by the first versions of the targets and turned out to be docu
 - `Enumerable.Sum` checks overflow of running sums, not only of the total.
 - `TensorPrimitives.SumOfMagnitudes` throws `OverflowException` for integer `MinValue` (as `T.Abs`
   does). Integer `Divide` may report the `MinValue / -1` overflow or the zero divisor first.
+- `Utf8Formatter` throws `NotSupportedException` for `'G'` with a precision (by design).
+- `Uri` created with `DangerousDisablePathAndQueryCanonicalization` throws from `GetComponents()`
+  for path/query (documented).
+- `PEReader.GetSectionData` with a negative RVA throws `ArgumentOutOfRangeException` (documented).
+- `AsnWriter.WriteEncodedValue` validates the value against the writer's own rule set, so BER
+  values can only be passed through a BER writer.
 
 ## Limitations
 
