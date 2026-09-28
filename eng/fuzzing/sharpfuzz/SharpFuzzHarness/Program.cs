@@ -63,6 +63,7 @@ public static class Program
         ["unsafejson"] = UnsafeJsonTarget.Run,
         ["unsafemarshal"] = UnsafeMarshalTarget.Run,
         ["textio"] = TextIoTarget.Run,
+        ["archive"] = ArchiveTarget.Run,
     };
 
     public static int Main(string[] args)
