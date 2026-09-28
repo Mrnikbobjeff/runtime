@@ -1,6 +1,6 @@
 # SharpFuzz findings: System.Private.CoreLib, System.Numerics.Tensors, span and array APIs (.NET 11 RC1)
 
-Campaign dates: 2026-09-26/27 (CoreLib, Tensors, span APIs), 2026-09-28 morning (collections, Uri, BigInteger, ASN.1, metadata) and 2026-09-28 afternoon ([round 3](#round-3-2026-09-28)). Harness and scripts: this directory (see [README.md](README.md)). The
+Campaign dates: 2026-09-26/27 (CoreLib, Tensors, span APIs), 2026-09-28 morning (collections, Uri, BigInteger, ASN.1, metadata) and 2026-09-28 afternoon ([round 3](#round-3-2026-09-28)) and evening ([round 4](#round-4-2026-09-28-evening-more-code-built-on-unsafe--pointers)). Harness and scripts: this directory (see [README.md](README.md)). The
 first campaign (Regex, JSON) is in [FINDINGS.md](FINDINGS.md).
 
 ## Environment
@@ -884,6 +884,48 @@ guard-page `unsafemem` target; 8.0.31 to 11.0 RC1.
 - In invariant globalization mode `new JapaneseCalendar()`, `new KoreanCalendar()` and
   `new TaiwanCalendar()` throw `TypeInitializationException` (they look up `ja-JP` / `ko-KR` /
   `zh-TW`), while the lunisolar and Thai calendars work.
+
+## Round 4 (2026-09-28 evening): more code built on Unsafe / pointers
+
+Areas with `Unsafe` / pointer / native-interop code that earlier rounds didn't reach, fuzzed with
+guard-page buffers (`SHARPFUZZ_GUARD=1`) against differential and round-trip checks, 30 minutes per
+area on at most 12 threads.
+
+### Round 4 campaign statistics
+
+| Target | Assemblies | Wall-clock | Execs | Edges | Result |
+|---|---|---|---|---|---|
+ROUND4_STATS
+
+### Round 4 summary
+
+| ID | Component | Kind | Severity (my assessment) | Versions |
+|----|-----------|------|--------------------------|----------|
+| [COMP-EXACT-1](#comp-exact-1) | `DeflateEncoder.TryCompress` (new in 11) | Fails for a destination of exactly the compressed size; one byte more works | Low–Medium | new .NET 11 API |
+| [COMP-EMPTY-1](#comp-empty-1) | `DeflateDecoder` / `ZLibDecoder` / `GZipDecoder.TryDecompress` (new in 11) | Decompressing an empty payload into an empty destination returns `false` | Low | new .NET 11 API |
+ROUND4_ROWS
+
+### COMP-EXACT-1
+
+**`DeflateEncoder.TryCompress` needs one byte more than the compressed size.** .NET 11 adds
+span-based `DeflateEncoder`, `ZLibEncoder` and `GZipEncoder` next to `BrotliEncoder`. For every
+input tried, `DeflateEncoder.TryCompress(source, destination, out written)` returns `false` when
+`destination` is exactly as long as the compressed output, and succeeds, writing that many bytes,
+with one byte more: an empty input compresses to 2 bytes but fails into 2, 840 bytes of text
+compress to 35 bytes but fail into 35, and so on. `ZLibEncoder`, `GZipEncoder` and `BrotliEncoder`
+succeed at the exact size. `false` is documented to mean "destination too small", so callers that
+size the buffer from a previous compression of the same data (or retry with the reported size) get
+a failure for a buffer that is big enough (I haven't traced the cause in the source). 11.0 RC1 only
+(new API). Found by the guard-page `unsafecomp` target.
+
+### COMP-EMPTY-1
+
+**The zlib-based decoders can't decompress an empty payload into an empty destination.**
+`DeflateDecoder.TryDecompress(compressedEmpty, Span<byte>.Empty, out written)` returns `false` (the
+same for `ZLibDecoder` and `GZipDecoder`), although the data decompresses to 0 bytes; with a
+one-byte destination it returns `true` with 0 bytes written. `BrotliDecoder` returns `true`. Callers
+that know the uncompressed length (a length-prefixed format) and allocate exactly that fail on empty
+payloads. 11.0 RC1 only (new API).
 
 ---
 
