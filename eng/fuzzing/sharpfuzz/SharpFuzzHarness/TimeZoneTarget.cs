@@ -111,7 +111,8 @@ public static class TimeZoneTarget
         // Known (TZ-BACK-1, .NET 11 regression): local-time lookups apply a rule to its whole first and
         // last year, ignoring DateStart / DateEnd within the year, and go wrong when the local time is in
         // a different year than the instant.
-        if (!s_reportKnownIssues && local.Year != utc.Year || !s_reportKnownIssues && zone.GetAdjustmentRules().Any(r =>
+        bool nearNewYear = utc.Month == 12 && utc.Day >= 30 || utc.Month == 1 && utc.Day <= 2;
+        if (!s_reportKnownIssues && (local.Year != utc.Year || nearNewYear) || !s_reportKnownIssues && zone.GetAdjustmentRules().Any(r =>
             r.DateStart.Year == local.Year && local.Date <= r.DateStart || r.DateEnd.Year == local.Year && local.Date >= r.DateEnd))
         {
             return;

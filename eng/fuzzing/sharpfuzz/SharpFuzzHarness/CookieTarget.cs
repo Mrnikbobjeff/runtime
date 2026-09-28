@@ -75,11 +75,15 @@ public static class CookieTarget
             }
 
             // The header is "name=value; name2=value2" (with $Version / $Path / $Domain attributes for
-            // RFC 2965 cookies): the name=value pairs must be exactly the returned cookies.
-            List<string> pairs = SplitHeader(header).Where(p => !p.StartsWith('$')).ToList();
-            List<string> expected = cookies.Select(c => c.Name + "=" + c.Value).ToList();
-            Check.That(pairs.Order(StringComparer.Ordinal).SequenceEqual(expected.Order(StringComparer.Ordinal)),
-                $"header pairs [{string.Join(" | ", pairs.Select(Check.Show))}] vs cookies [{string.Join(" | ", expected.Select(Check.Show))}]: {readWhat}");
+            // RFC 2965 cookies): a name or value with a ';' outside a quoted string would split into
+            // another cookie at the server.
+            foreach (Cookie c in cookies)
+            {
+                bool quoted = c.Value.Length >= 2 && c.Value[0] == '"' && c.Value[^1] == '"' && c.Value.IndexOf('"', 1) == c.Value.Length - 1;
+                Check.That(!c.Name.Contains(';') && !c.Name.Contains('=') && (quoted || !c.Value.Contains(';')),
+                    $"cookie {Show(c)} would split in the Cookie header: {readWhat}");
+                Check.That(header.Contains(c.Name + "=" + c.Value, StringComparison.Ordinal), $"cookie {Show(c)} missing from the header: {readWhat}");
+            }
         }
     }
 

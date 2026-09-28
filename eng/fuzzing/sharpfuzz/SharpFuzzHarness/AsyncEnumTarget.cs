@@ -28,17 +28,29 @@ public static class AsyncEnumTarget
             (sync, async) = Apply(op, p, sync, async, other);
         }
 
+        // Joins and SelectMany can multiply the length; keep the sequences small.
+        var size = Outcome<int>.Of(() => sync.Take(4097).Count(), Allowed);
+        if (size.Ok && size.Value > 4096)
+        {
+            return;
+        }
+
         string what = $"source [{string.Join(",", source)}] ops [{string.Join(" ", log)}]";
         var expected = Outcome<int[]>.Of(() => sync.ToArray(), Allowed);
         var actual = Outcome<int[]>.Of(() => Wait(async.ToArrayAsync()), Allowed);
-        Check.That(expected.SameAs(actual, new Check.By<int[]>((a, b) => a.SequenceEqual(b))),
-            $"IEnumerable {Show(expected)} vs IAsyncEnumerable {Show(actual)} for {what}");
+        if (!expected.SameAs(actual, new Check.By<int[]>((a, b) => a.SequenceEqual(b))))
+        {
+            Check.That(false, $"IEnumerable {Show(expected)} vs IAsyncEnumerable {Show(actual)} for {what}");
+        }
 
         byte terminal = input.Byte();
         int q = input.Byte();
         var t1 = Outcome<long>.Of(() => Terminal(terminal, q, sync, other), Allowed);
         var t2 = Outcome<long>.Of(() => Terminal(terminal, q, async, other), Allowed);
-        Check.That(t1.SameAs(t2), $"terminal {terminal % 16}({q}): IEnumerable {t1} vs IAsyncEnumerable {t2} for {what}");
+        if (!t1.SameAs(t2))
+        {
+            Check.That(false, $"terminal {terminal % 16}({q}): IEnumerable {t1} vs IAsyncEnumerable {t2} for {what}");
+        }
     }
 
     private static bool Allowed(Exception e) => e is InvalidOperationException or ArgumentOutOfRangeException or ArgumentException or OverflowException or DivideByZeroException;

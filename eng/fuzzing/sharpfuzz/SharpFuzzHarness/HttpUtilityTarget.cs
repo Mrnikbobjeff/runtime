@@ -158,8 +158,13 @@ public static class HttpUtilityTarget
             }
         }
 
+        // UrlPathEncode only encodes the part before '?'.
         string path = HttpUtility.UrlPathEncode(s);
-        Check.That(!path.Any(c => c <= ' ' || c >= 0x7F), $"UrlPathEncode output {Check.Show(path)} has an unsafe character for {what}");
+        int query = path.IndexOf('?');
+        // For an absolute URL (or UNC path) only the path is encoded, not the authority.
+        string pathPart = Uri.TryCreate(s, UriKind.Absolute, out _) ? "" : query < 0 ? path : path[..query];
+        // Known (HTTPUTIL-PATH-1): DEL (U+007F) is left unencoded while other control characters are encoded.
+        Check.That(!pathPart.Any(c => c <= ' ' || c > 0x7F || c == 0x7F && s_reportKnownIssues), $"UrlPathEncode output {Check.Show(path)} has an unsafe character in the path for {what}");
 
         // %uXXXX is an HttpUtility extension; otherwise the two decoders agree.
         if (!s.Contains("%u", StringComparison.OrdinalIgnoreCase) && !s.Contains("%U", StringComparison.Ordinal))
