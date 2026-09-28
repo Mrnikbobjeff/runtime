@@ -26,6 +26,13 @@ public static class AsyncEnumTarget
             int p = input.Byte();
             log.Add($"{op % 34}:{p}");
             (sync, async) = Apply(op, p, sync, async, other);
+
+            // Joins and SelectMany multiply lengths, and buffering operators evaluate all of it: stop early.
+            var length = Outcome<int>.Of(() => sync.Take(1025).Count(), Allowed);
+            if (length.Ok && length.Value > 1024)
+            {
+                break;
+            }
         }
 
         // Joins and SelectMany can multiply the length; keep the sequences small.

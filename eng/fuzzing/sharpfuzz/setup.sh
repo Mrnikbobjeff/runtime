@@ -20,7 +20,8 @@ TARGET_ASSEMBLIES=(System.Text.RegularExpressions System.Text.Json System.Linq S
     System.Private.Uri System.Runtime.Numerics System.Formats.Asn1 System.Reflection.Metadata
     System.Net.ServerSentEvents System.Data.Common System.Diagnostics.DiagnosticSource System.Net.Mail
     System.Text.Encoding.CodePages System.Memory System.Net.Primitives System.Web.HttpUtility System.Linq.AsyncEnumerable
-    System.Private.Xml System.Private.DataContractSerialization)
+    System.Private.Xml System.Private.DataContractSerialization System.Security.Cryptography
+    System.Threading.Channels)
 NUGET="https://api.nuget.org/v3-flatcontainer"
 
 mkdir -p "$WORK"
@@ -135,7 +136,7 @@ if [ ! -f "$WORK/instrumented/System.Numerics.Tensors.$tensors_hash.done" ]; the
 fi
 
 # Other out-of-band (NuGet-only) packages the harness references, instrumented the same way.
-OOB_PACKAGES=(System.Formats.Cbor System.IO.Hashing)
+OOB_PACKAGES=(System.Formats.Cbor System.IO.Hashing System.Security.Cryptography.Pkcs System.Security.Cryptography.Cose)
 for id in "${OOB_PACKAGES[@]}"; do
     lower="$(echo "$id" | tr '[:upper:]' '[:lower:]')"
     fetch_pkg "$lower" "$DOTNET_VERSION" "$WORK/pkg-$lower"

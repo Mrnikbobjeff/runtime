@@ -47,6 +47,10 @@ public static class Program
         ["cbor"] = CborTarget.Run,
         ["binxml"] = BinaryXmlTarget.Run,
         ["xsd"] = XsdTarget.Run,
+        ["pkcs"] = PkcsTarget.Run,
+        ["cose"] = CoseTarget.Run,
+        ["sortedcoll"] = SortedCollectionsTarget.Run,
+        ["channels"] = ChannelsTarget.Run,
     };
 
     public static int Main(string[] args)
