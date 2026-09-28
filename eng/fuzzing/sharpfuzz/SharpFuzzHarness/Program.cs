@@ -69,6 +69,7 @@ public static class Program
         ["unsafeder"] = UnsafeDerTarget.Run,
         ["unsafex509"] = UnsafeX509Target.Run,
         ["blobwriter"] = BlobWriterTarget.Run,
+        ["chunked"] = ChunkedTarget.Run,
     };
 
     public static int Main(string[] args)
