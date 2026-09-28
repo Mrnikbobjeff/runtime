@@ -1,13 +1,13 @@
 # SharpFuzz findings: System.Private.CoreLib, System.Numerics.Tensors, span and array APIs (.NET 11 RC1)
 
-Campaign dates: 2026-09-26/27 (CoreLib, Tensors, span APIs) and 2026-09-28 (collections, Uri, BigInteger, ASN.1, metadata). Harness and scripts: this directory (see [README.md](README.md)). The
+Campaign dates: 2026-09-26/27 (CoreLib, Tensors, span APIs), 2026-09-28 morning (collections, Uri, BigInteger, ASN.1, metadata) and 2026-09-28 afternoon ([round 3](#round-3-2026-09-28)). Harness and scripts: this directory (see [README.md](README.md)). The
 first campaign (Regex, JSON) is in [FINDINGS.md](FINDINGS.md).
 
 ## Environment
 
 | | |
 |---|---|
-| Runtime under test | .NET `11.0.0-rc.1.26425.128` (`Microsoft.NETCore.App.Runtime.linux-x64`), with R2R stripped and SharpFuzz-instrumented `System.Private.CoreLib` (1,026 of 1,911 top-level types, see `corelib-exclude.txt`), `System.Linq`, `System.Collections`, `System.Collections.Immutable`, `System.Private.Uri`, `System.Runtime.Numerics`, `System.Formats.Asn1`, `System.Reflection.Metadata`, `System.Text.RegularExpressions` and `System.Text.Json` |
+| Runtime under test | .NET `11.0.0-rc.1.26425.128` (`Microsoft.NETCore.App.Runtime.linux-x64`), with R2R stripped and SharpFuzz-instrumented `System.Private.CoreLib` (1,026 of 1,911 top-level types, see `corelib-exclude.txt`), `System.Linq`, `System.Collections`, `System.Collections.Immutable`, `System.Private.Uri`, `System.Runtime.Numerics`, `System.Formats.Asn1`, `System.Reflection.Metadata`, `System.Text.RegularExpressions` and `System.Text.Json`; in round 3 also `System.Net.ServerSentEvents`, `System.Data.Common`, `System.Diagnostics.DiagnosticSource`, `System.Net.Mail`, `System.Text.Encoding.CodePages`, `System.Memory`, `System.Net.Primitives`, `System.Web.HttpUtility`, `System.Linq.AsyncEnumerable`, `System.Private.Xml`, `System.Private.DataContractSerialization`, `System.Security.Cryptography` and `System.Threading.Channels`, and the NuGet packages `System.Formats.Cbor`, `System.IO.Hashing`, `System.Security.Cryptography.Pkcs` and `System.Security.Cryptography.Cose` (11.0 RC1) |
 | System.Numerics.Tensors | The `11.0.0-rc.1.26425.128` NuGet package, and local builds of the `tensorprimitives-block-reductions` and `argmin-blocks` branches (`TENSORS_DLL=...`) |
 | Fuzzer | AFL++ 4.00c (Ubuntu 22.04 under WSL2), SharpFuzz 2.3.0 (`Fuzzer.OutOfProcess`) |
 | Machine | Ryzen 7 7800X3D (8 cores / 16 threads, AVX-512). Fuzzers pinned with `SHARPFUZZ_CPUS` (taskset) to at most 12 threads. Each campaign ran one main instance with the full ISA and secondaries with `DOTNET_EnableAVX512=0` / `DOTNET_EnableAVX2=0`, so the Vector512/256/128 paths are all covered. |
@@ -364,6 +364,306 @@ Each is low severity, but together they mean that normalizing a URI by round-tri
 `AbsoluteUri` (a common pattern) can change or reject it. 11.0 RC1 also newly accepts
 `tp://"@.?` (degenerate host `"."`, `Host` `"%22@."`), which 8–10 reject; hosts other than `.`
 parse the same on all versions.
+
+---
+
+## Round 3 (2026-09-28)
+
+Header and stream parsers, System.Data, time zones, `Tensor<T>`, calendars, CBOR, hashing, XML
+variants and crypto containers. Round 3 covered areas no other session had fuzzed. Each target ran 30 minutes with three
+instances (one with the full ISA, two with AVX-512 / AVX2 disabled; 12 threads for four targets),
+after a 45-second shakedown that flushed out harness false positives. Out-of-band packages
+(`System.Formats.Cbor`, `System.IO.Hashing`, `System.Security.Cryptography.Pkcs` / `.Cose`) are the
+11.0 RC1 NuGet packages, instrumented like `System.Numerics.Tensors` (see `OOB_PACKAGES` in
+`setup.sh`).
+
+### Round 3 campaign statistics
+
+ROUND3_STATS
+
+### Round 3 summary
+
+| ID | Component | Kind | Severity (my assessment) | Versions |
+|----|-----------|------|--------------------------|----------|
+| [TZ-YEAR-1](#tz-year-1) | `TimeZoneInfo` (new transition cache) | Wrong UTC offsets around the new year and in the first year of a zone's POSIX rule; real zones (Sydney, Auckland, Santiago, ...) are off by an hour for hours to months | **High** | **.NET 11 regression** (8, 9, 10 correct) |
+| [HASH-CRC-EVEN-1](#hash-crc-even-1) | `Crc64ParameterSet.Create` (new in 11) | Reflected parameter sets with an even polynomial give wrong CRCs for inputs of 16+ bytes (vectorized path), right ones for shorter inputs | Medium | new .NET 11 API |
+| [CBOR-DUP-1](#cbor-dup-1) | `CborReader` (Strict) | A duplicate map key is not detected when the value before it is an indefinite-length string | Medium | 11.0 RC1 package |
+| [TENSOR-SQUEEZE-1](#tensor-squeeze-1) | `Tensor.Squeeze` | Squeezing a tensor whose lengths are all 1 returns an empty tensor: the element is lost | Medium | Tensors 11.0 RC1 package |
+| [DIAG-BAGGAGE-1](#diag-baggage-1) | `W3CPropagator` (the default since .NET 10) | Baggage percent-decoding accepts malformed UTF-8: `%E2%41%41` → U+2041, `%ED%20%80` → lone U+D800 | Low–Medium | .NET 10, 11 |
+| [BINXML-DT-1](#binxml-dt-1) | `XmlDictionaryWriter` (binary) | Copying binary XML with `WriteNode` turns UTC / local `DateTime` values into unspecified ones | Low–Medium | .NET 8, 9, 10, 11 |
+| [SSE-TYPE-1/2](#sse-type-1-2) | `SseParser` | `event:` with an empty value gives type `""` instead of `"message"`; an event type followed by a blank line without data leaks into the next event | Low–Medium | .NET 10, 11 |
+| [CP-CONVERT-1](#cp-convert-1) | `System.Text.Encoding.CodePages` | `Encoder.Convert` writes one replacement for an unencodable surrogate pair where `GetBytes` writes two (SBCS), or throws `ArgumentException` (DBCS), when the output fills up | Low–Medium | .NET 8, 9, 10, 11 |
+| [MAIL-CD-1/2](#mail-cd-1-2) | `ContentDisposition` | `"attachment; x"` throws `IndexOutOfRangeException`; a date with an offset beyond ±14 h throws `ArgumentOutOfRangeException` when read | Low–Medium | .NET 8, 9, 10, 11 |
+| [BINXML-ENC-1](#binxml-enc-1) | `XmlDictionaryReader.CreateTextReader` | An unterminated `encoding='...` in the XML declaration throws `IndexOutOfRangeException` | Low–Medium | .NET 8, 9, 10, 11 |
+| [COOKIE-PORT-1](#cookie-port-1) | `CookieContainer` | The `Port` attribute is validated leniently (CR/LF allowed around the numbers) and echoed into the `Cookie` request header | Low | .NET 8, 9, 10, 11 |
+| [TZ-RULE-1](#tz-rule-1) | `TimeZoneInfo.FindRuleForYear` | `ArgumentOutOfRangeException` for a rule ending 0001-01-01 under a negative offset | Low | .NET 11 regression |
+| [TENSOR-RESHAPE-1](#tensor-reshape-1) | `Tensor.Reshape` | `DivideByZeroException` / `IndexOutOfRangeException` instead of `ArgumentException` | Low | Tensors 11.0 RC1 package |
+| [CBOR-SIMPLE-1, CBOR-TRUNC-1](#cbor-simple-1-cbor-trunc-1) | `CborReader` | Reserved simple values: `PeekState` says `SimpleValue`, `ReadSimpleValue` throws `InvalidOperationException`; with multiple root values a trailing tag without content is accepted | Low | 11.0 RC1 package |
+| [DATA-SELECT-1](#data-select-1) | `DataTable.Select` | `Select("id > 1", "id, id")` throws `IndexOutOfRangeException` | Low | .NET 8, 9, 10, 11 |
+| [DATA-OVERFLOW-1](#data-overflow-1) | `DataTable` expressions | An overflow inside an `AND`/`OR` operand makes `ExprException.Overflow` throw `NullReferenceException` | Low | .NET 8, 9, 10, 11 |
+| [DATA-DOLLAR-1](#data-dollar-1) | `DbConnectionStringBuilder` | Regexes end in `$`: keys ending in `\n` pass validation, values ending in `\n` aren't quoted, the newline is lost | Low | .NET 8, 9, 10, 11 |
+| [DATA-ODBC-1](#data-odbc-1) | `DbConnectionStringBuilder` (ODBC rules) | Keys with `=` / `;` aren't escaped; values with control characters are written unquoted and don't parse | Low | .NET 8, 9, 10, 11 |
+| [MAIL-QUOTE-1](#mail-quote-1) | `MailAddress` | Display names with `\` or `"` don't round-trip through `ToString()` | Low | .NET 8–11 |
+| [TZ-DTO-1, TZ-SER-1](#tz-dto-1-tz-ser-1) | `TimeZoneInfo` | Custom zones with offsets past ±14 h are accepted, then `ConvertTime(DateTimeOffset)` throws; a truncated serialized rule throws `IndexOutOfRangeException` | Low | .NET 8, 9, 10, 11 |
+| [CAL-1](#cal-1) | `System.Globalization` calendars | `JulianCalendar.AddMonths` clamps to Feb 28 in Julian leap century years; `KoreanLunisolarCalendar` puts 952-12-25 in month 13 of a 12-month year; `HijriCalendar.GetYear` and `Calendar.GetWeekOfYear` throw for supported dates near the range ends | Low | .NET 8, 9, 10, 11 |
+| [DIAG-MISC-1](#diag-misc-1) | `ActivityTraceId`, `ActivityContext`, `Activity` | `CreateFromUtf8String` accepts invalid ids; `ActivityContext.TryParse` doesn't check the `-` separators; `SetParentId` accepts CR/LF, which the legacy propagator writes into `Request-Id` | Low | .NET 8, 9, 10, 11 |
+| [MISC-3](#misc-3) | various | See the list at the end of this section | Informational | |
+
+### TZ-YEAR-1
+
+**.NET 11 computes wrong UTC offsets around the new year for zones whose daylight time spans it,
+and in the first calendar year governed by a zone's POSIX TZ rule.** 8.0.31, 9.0.20 and 10.0.12
+are correct in every case below; 11.0 RC1 is not. The fuzzer found it on custom zones (the local
+time of an instant on Dec 31 converted back to a different instant); a scan of all 419 system
+zones confirmed it on real data.
+
+Offset changes of `TimeZoneInfo.FindSystemTimeZoneById(id).GetUtcOffset(utc)` scanned 1970–2045,
+.NET 11 vs .NET 10, with the stock Ubuntu 22.04 tzdata ("fat" TZif, explicit transitions until 2037):
+
+| Zone | .NET 10 | .NET 11 RC1 |
+|---|---|---|
+| Pacific/Auckland (also Antarctica/McMurdo) | +13 through 2037-12-31 / 2038-01-01 | +12 from 2037-12-31 11:00Z to 2038-01-01 00:00Z |
+| Australia/Sydney (also Melbourne, Hobart, Adelaide, Broken_Hill, Antarctica/Macquarie) | daylight time | standard time for the 10–13 hours before 2038-01-01 00:00Z |
+| America/Santiago, Pacific/Easter | transitions 2038-04-03 and 2038-09-04 | no 2038 transitions: wrong from April to September 2038 |
+| Australia/Lord_Howe, Pacific/Chatham, Pacific/Norfolk | 2038 transitions in April / October | moved to 2038-12-31 / 2039-01-01 |
+| Africa/Cairo | DST ends 2037-10-29 21:00Z (last Thursday 24:00) | a day early |
+
+The same zones compiled as "slim" TZif (`zic -b slim`, the zic default since 2020b), where the
+explicit transitions stop as soon as the POSIX rule describes the zone:
+
+| Zone | .NET 11 RC1 error |
+|---|---|
+| Australia/Sydney, Melbourne, Adelaide, Broken_Hill, Lord_Howe | 2008 transitions (Apr 5, Oct 4) missing: daylight time from April to October 2008 |
+| America/Santiago, Pacific/Easter | 2023 transitions (Apr 2, Sep 2) missing: five months wrong |
+| Pacific/Norfolk | DST starts 2020-01-01 instead of 2019-10-05 |
+| Pacific/Auckland, Chatham, Antarctica/McMurdo, Australia/Hobart, Antarctica/Macquarie | standard time for New Year's Eve 2007 (2011 for Macquarie) |
+
+So with slim TZif data, the first POSIX-rule year of a zone whose daylight time spans the new year
+is converted wrongly, and that year moves forward whenever the zone's rules change (as Chile's did
+in 2022/2023). Custom zones show the mechanism directly:
+
+- for an instant on Dec 31 whose local time is in the next year, the wrong year's rule is used:
+  a zone with base offset +13:11 and a 2001–2012 rule with `BaseUtcOffsetDelta` −1:30 gives
+  `GetUtcOffset(2001-12-31T20:52Z)` = 13:11 (8–10: 11:41);
+- a zone whose daylight time runs from April to the first Monday of January reports standard time
+  on `2045-12-31T20:36Z` (8–10: daylight time);
+- for a local time in a rule's first year but before its `DateStart`, the rule is applied anyway
+  (`GetUtcOffset(2021-01-01T10:03)` is 12:41 instead of 13:11 for a rule starting 2021-02-01).
+
+The per-year transition cache in `TimeZoneInfo.Cache.cs` is new in .NET 11.
+
+```csharp
+var tz = TimeZoneInfo.FindSystemTimeZoneById("Pacific/Auckland");
+tz.GetUtcOffset(new DateTime(2037, 12, 31, 12, 0, 0, DateTimeKind.Utc)); // .NET 10: 13:00, .NET 11 RC1: 12:00
+```
+
+### HASH-CRC-EVEN-1
+
+**`Crc64ParameterSet.Create` (new in .NET 11) with `reflectValues: true` and an even polynomial
+computes wrong CRCs for inputs of 16 bytes or more.** Against a bit-at-a-time Rocksoft-model CRC, 50
+random even polynomials: 0/50 differ for 5-byte inputs, 50/50 for 16, 64 and 300 bytes; odd
+polynomials, non-reflected parameter sets and every `Crc32ParameterSet` are always right. So the
+same parameter set gives results that depend on the input length (and on how it is split across
+`Append` calls). Real CRC polynomials have the x⁰ term, so either `Create` should reject even
+polynomials or the vectorized (carry-less multiply) path needs to handle them like the table path.
+Related (HASH-CRC-INIT-1, documentation): for reflected parameter sets the initial value is loaded
+into the reflected register as is, where the Rocksoft model and the CRC catalogue reflect it; the
+two agree only for bit-palindromic values (all catalogue CRC-32/64 entries use 0 or all ones).
+
+### CBOR-DUP-1
+
+**`CborReader` in `Strict` mode misses duplicate map keys when the preceding value is an
+indefinite-length string.** `A2 03 7F FF 03 61 6E` (`{3: "" (indefinite), 3: "n"}`) and
+`A2 03 5F FF 03 60` are accepted; `A2 03 60 03 61 6E` is rejected as expected. Duplicate-key
+rejection is what Strict mode is for (RFC 8949 §5.6), and a reader that lets one through can be
+made to disagree with other parsers about a map's contents. Canonical modes reject
+indefinite-length items, so they aren't affected. (CborWriter in Strict mode then refuses to write
+the map back.)
+
+### TENSOR-SQUEEZE-1
+
+**`Tensor.Squeeze` of a tensor whose lengths are all 1 loses the element.**
+`Tensor.Squeeze(Tensor.Create(new[] { 7 }, [1]))` returns a rank-1 tensor with `FlattenedLength`
+0 (enumerating it yields nothing), and so does `Squeeze` of a `[1, 1]` `TensorSpan`. Removing every
+dimension should leave a single element (NumPy returns a 0-d array with the value), or keep one
+dimension of length 1; returning an empty tensor silently drops data.
+
+### TENSOR-RESHAPE-1
+
+**`Tensor.Reshape` throws `DivideByZeroException` or `IndexOutOfRangeException`** instead of
+`ArgumentException`: `Reshape(new TensorSpan<int>(a, [4]), [-1, 0])` divides the element count by
+the product of the other lengths (0) to infer the `-1`; `Reshape` of an empty `[0, 0, 7]` span to
+`[0, 1, 0, 1]` indexes out of range.
+
+### DIAG-BAGGAGE-1
+
+**The W3C propagator (the default `DistributedContextPropagator` since .NET 10) decodes malformed
+UTF-8 in baggage values into other characters.** `TryDecodeBaggageValue` (`W3CPropagator.cs`)
+checks continuation bytes for 2- and 4-byte sequences but not for 3-byte ones, so
+`baggage: k=%E2%41%41` is extracted as `k` = `"⁁"` (U+2041) instead of U+FFFD + `"AA"`, and
+`%ED%20%80` becomes a lone surrogate U+D800 (the check that rejects encoded surrogates only looks at
+the second byte's range). Baggage comes from incoming request headers, so any server that
+propagates context gets code points that aren't in the header. 8/9's legacy propagator decodes these
+to U+FFFD.
+
+### BINXML-DT-1
+
+**Copying binary XML through `XmlDictionaryWriter.CreateBinaryWriter(...).WriteNode(reader, ...)`
+drops the `Kind` of typed `DateTime` values.** A `DateTime` record written from
+`new DateTime(2020, 1, 2, 3, 4, 5, DateTimeKind.Utc)` reads back as `...Z` (Utc) from the original
+but as unspecified after a binary-to-binary copy (a copy to text keeps the `Z`). Local times lose
+their offset the same way. Copying messages this way is what WCF-style message buffering does.
+
+### SSE-TYPE-1/2
+
+**`SseParser` deviates from the WHATWG event stream algorithm in two ways.** An `event:` line with
+an empty value sets the type to `""`; the spec only changes the type when the buffer is non-empty,
+so the event is a `"message"`. And the event type buffer is only reset when an event is
+dispatched: `event: ping\n\n` (no data, so nothing is dispatched) followed by `data: x\n\n` gives
+an item of type `"ping"`, where browsers deliver a `"message"`. A stream that sends typed
+keep-alives without data reroutes the next event.
+
+### CP-CONVERT-1
+
+**The code page encoders' `Encoder.Convert` loses or rejects the fallback for a surrogate pair
+when the output buffer fills up.** For `"abcdefg😀"` and code page 37, 437 or 1252, `GetBytes`
+writes nine bytes (two `?` for the pair) but `Convert` into an 8-byte buffer (looping until
+`completed`) writes eight; code page 932 throws `ArgumentException` with a 1- or 2-byte buffer.
+CoreLib's own ASCII and Latin-1 encoders are consistent, so this is in
+`System.Text.Encoding.CodePages`' encoder / fallback-buffer handling.
+
+### MAIL-CD-1/2
+
+`new ContentDisposition("attachment; x")` (a trailing parameter without `=value`) throws
+`IndexOutOfRangeException` from `ContentDisposition.ParseValue`. A date parameter with an
+out-of-range zone offset (`creation-date="Tue, 15 Nov 1994 08:12:31 +9900"`) parses, but reading
+`CreationDate` / `ModificationDate` / `ReadDate` throws `ArgumentOutOfRangeException` from
+`SmtpDateTime.Date`. Code that parses `Content-Disposition` headers of uploads with this class and
+catches `FormatException` fails on both.
+
+### BINXML-ENC-1
+
+`XmlDictionaryReader.CreateTextReader` (the DataContract / WCF text reader) throws
+`IndexOutOfRangeException` from `EncodingStreamWrapper.CheckUTF8DeclarationEncoding` when the XML
+declaration's encoding value is unterminated: `<?xml version='1.0' encoding='utf-8` (a truncated
+message) or `<?xml version="1.0" encoding="x`. `XmlException` is the documented failure.
+
+### COOKIE-PORT-1
+
+`CookieContainer.SetCookies` accepts an RFC 2965 `Port` attribute with whitespace (including CR and
+LF) around the port numbers, `Port="8\r,443"`, and `GetCookieHeader` echoes it verbatim as
+`$Port="8\r,443"`, so the `Cookie` header it produces contains a line break. `HttpClient` rejects
+such a header value when sending, but code that builds requests by hand gets a split header.
+(The container also stores cookies whose names contain control characters or spaces, and values
+with unbalanced quotes.)
+
+### TZ-RULE-1
+
+**`GetUtcOffset` / `ConvertTimeFromUtc` throw `ArgumentOutOfRangeException` for a zone with a rule
+ending on 0001-01-01 and a negative offset** (.NET 11 regression). `FindRuleForYear`
+(`TimeZoneInfo.Cache.cs`) evaluates `previousRule.DateEnd + (baseUtcOffset + BaseUtcOffsetDelta +
+DaylightDelta)`, which underflows `DateTime`. Real TZif data starts its first rule at 0001-01-01 but
+ends it on 0001-12-31, so this needs a custom or deserialized zone:
+`TimeZoneInfo.FromSerializedString("Z1;-360;Z1;Z1;Z1D;[01:01:0001;01:01:0001;60;[0;00:00:00;1;1;0;];[0;00:30:00;1;5;3;];][05:01:0001;08:23:0007;0;[0;12:30:00;9;3;2;];[0;00:30:00;1;5;3;];];")`
+then `ConvertTimeFromUtc(new DateTime(6, 10, 30, 17, 0, 0, DateTimeKind.Utc), zone)`. 8–10 return
+`0006-10-30T11:00`.
+
+### CBOR-SIMPLE-1, CBOR-TRUNC-1
+
+- For `FE` (major type 7 with the reserved additional information 28–30) `PeekState()` returns
+  `SimpleValue`, and `ReadSimpleValue()` / `SkipValue()` then throw `InvalidOperationException`
+  rather than `CborContentException`, in every conformance mode. Code that dispatches on
+  `PeekState` and catches `CborContentException` fails on it.
+- With `allowMultipleRootLevelValues: true`, `01 C7` (a root value, then a tag with no data item
+  after it) reads as `UnsignedInteger`, `Tag`, then `Finished`: the truncated input is accepted.
+  A single `C7` correctly throws `CborContentException` after `ReadTag`.
+
+### DATA-SELECT-1
+
+`DataTable.Select(filter, sort)` throws `IndexOutOfRangeException` from `Select.CreateIndex` when
+the sort names a column twice and the filter is not empty: `table.Select("id > 1", "id, id")`.
+Without a filter it works.
+
+### DATA-OVERFLOW-1
+
+`BinaryNode.EvalBinaryOp` evaluates the operands of `AND` / `OR` inside the `try` that turns an
+`OverflowException` into `ExprException.Overflow(DataStorage.GetTypeStorage(resultType))`; when the
+overflow comes from an operand, `resultType` is still `Empty`, `GetTypeStorage` returns null and
+`Overflow` throws `NullReferenceException`: `table.Select("(SUBSTRING(s, 9999999999, 2) = 'a') AND true")`.
+
+### DATA-DOLLAR-1
+
+`DbConnectionOptions`' key validation (`^(?![;\s])[^\p{Cc}]+(?<!\s)$`) and value quoting
+(`^[^"'=;\s\p{Cc}]*$`) regexes end in `$`, which also matches before a final `\n`. So
+`builder["k\n"] = "v"` is accepted, and `builder["k"] = "v\n"` is written unquoted as `k=v\n`;
+parsing the connection string back gives `k` = `"v"` in both cases. `\z` would fix both.
+
+### DATA-ODBC-1
+
+With `useOdbcRules: true`, keys are written without escaping: `builder["a=b"] = "c"` gives `a=b=c`,
+which parses as `a` = `b=c`, and a key containing `;` splits into two entries. Values with control
+characters are written without braces and the ODBC parser then rejects the whole string
+(`b=x\u0007`).
+
+### MAIL-QUOTE-1
+
+`MailAddress.ToString()` quotes the display name and, in 11 RC1, escapes `\` and `"` in it; the
+parser keeps quoted-pairs escaped. `new MailAddress("u@h.com", "a\"b\\c")` → `"a\"b\\c" <u@h.com>`
+→ reparsed display name `a\"b\\c` → next round trip `a\\\"b\\\\c`. On 8–10 the second parse throws
+`FormatException` instead.
+
+### TZ-DTO-1, TZ-SER-1
+
+- `CreateCustomTimeZone` validates the base offset and each rule's daylight delta against ±14 h but
+  not base + `BaseUtcOffsetDelta`: base −13:30 with a rule delta of −1:00 is accepted, `GetUtcOffset`
+  returns −14:30, `ConvertTimeFromUtc` works, and `ConvertTime(DateTimeOffset, zone)` throws
+  `ArgumentOutOfRangeException`.
+- `TimeZoneInfo.FromSerializedString("X;-480;X;X;X;[01:01:0001;12:31:2006;60;[0;02:00:00;4;1;0;];[0;02:00:00;10;5;0;];00;")`
+  throws `IndexOutOfRangeException` from `StringSerializer.GetNextAdjustmentRuleValue` (without the
+  trailing `00;` it gives the documented `SerializationException`).
+
+### CAL-1
+
+- `JulianCalendar.AddMonths` clamps the day with the wrong leap rule in century years:
+  `AddMonths(1399-08-31 (Julian), 6)` gives Feb 28, 1400, although `GetDaysInMonth(1400, 2)` is 29 in
+  the Julian calendar (also 700, 9100).
+- `KoreanLunisolarCalendar` returns year 952, month 13 for 952-12-25 … (Gregorian), while
+  `GetMonthsInYear(952)` is 12 and `GetLeapMonth(952)` is 0 (`GetMonthsInYear(953)` is 13): the
+  table data for that year is inconsistent.
+- `HijriCalendar` with a non-zero `HijriAdjustment` throws `ArgumentOutOfRangeException` from
+  `GetYear` for supported dates near the ends of its range, and `Calendar.GetWeekOfYear` throws for
+  supported dates near `MinSupportedDateTime` / `DateTime.MinValue` of several calendars (it looks at
+  days before them).
+
+### DIAG-MISC-1
+
+- `ActivityTraceId.CreateFromUtf8String` / `ActivitySpanId.CreateFromUtf8String` parse each 16-hex
+  half with `Utf8Parser.TryParse(..., 'x')` and ignore how many bytes it consumed, so
+  `"00-0af7651916cd43dd8448eb211c803"` becomes `00000000000000003dd8448eb211c803`; upper case and
+  all-zero ids are accepted too. `CreateFromString` rejects all of these.
+- `ActivityContext.TryParse` accepts a traceparent whose separators aren't `-`
+  (`00x0af7…319cxb7ad…3331x01`); the W3C propagator rejects it.
+- `Activity.SetParentId` accepts any string as a hierarchical id, including CR/LF, and the legacy
+  propagator writes the resulting `Activity.Id` into `Request-Id` unchanged.
+
+### MISC-3
+
+- `SseParser` parses `retry` with `long.TryParse`, which ignores trailing U+0000: `retry: 5\0` sets
+  5 ms although the field isn't all digits. `SseItem.EventId` rejects line breaks but accepts
+  U+0000; `SseFormatter` writes it and the parser then ignores the whole `id` field.
+- `ContentType.ToString()` writes parameter values with non-ASCII or control characters as RFC 2047
+  encoded-words that `new ContentType(...)` doesn't decode.
+- `HttpUtility.ParseQueryString("=x&y").ToString()` is `"x&y"`: the empty name loses its `=`.
+  `HttpUtility.UrlPathEncode` leaves DEL (U+007F) unencoded while encoding the other control
+  characters (`UrlPathEncodeImpl` uses the range `0x21..0x7F`).
+- `DataTable` expressions: `SUBSTRING(s, 0, 2)` throws `ArgumentOutOfRangeException` and
+  `SUBSTRING(s, '.', 2)` `InvalidCastException` instead of `EvaluateException`; some malformed
+  `Convert(x, 'type')` names throw `FileLoadException`.
+- `CborWriter` writes every NaN as the canonical `F9 7E00`, dropping sign and payload, in all
+  conformance modes.
+- In invariant globalization mode `new JapaneseCalendar()`, `new KoreanCalendar()` and
+  `new TaiwanCalendar()` throw `TypeInitializationException` (they look up `ja-JP` / `ko-KR` /
+  `zh-TW`), while the lunisolar and Thai calendars work.
 
 ---
 
