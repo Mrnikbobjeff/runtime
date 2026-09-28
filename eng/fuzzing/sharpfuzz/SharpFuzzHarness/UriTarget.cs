@@ -97,7 +97,7 @@ public static class UriTarget
     }
 
     /// <summary>Parsing the canonical form again must give the same URI and the same canonical form.</summary>
-    private static void Idempotent(Uri uri, string what)
+    private static void Idempotent(Uri uri, string what, bool resolved = false)
     {
         string canonical = uri.AbsoluteUri;
         var again = Outcome<Uri>.Of(() => new Uri(canonical, UriKind.Absolute), e => e is UriFormatException);
@@ -123,7 +123,9 @@ public static class UriTarget
         // original had characters that parsing escapes: '\' in a non-special scheme ("tp:\"), a stray '%'
         // next to non-ASCII ("h1:%\uFFFDx"), or ' ', '^', '|', '"' in the user info. So Equals is only
         // checked for text made of characters RFC 3986 allows unescaped.
-        if (s_reportKnownIssues || uri.OriginalString.All(c => char.IsAsciiLetterOrDigit(c) || "-._~:/?#[]@!$&'()*+,;=".Contains(c)))
+        // A Uri made by relative resolution can also compare unequal to its reparsed AbsoluteUri
+        // (new Uri(new Uri("mailto:0"), "0#[")), so Equals is only checked for directly parsed URIs.
+        if (s_reportKnownIssues || (!resolved && uri.OriginalString.All(c => char.IsAsciiLetterOrDigit(c) || "-._~:/?#[]@!$&'()*+,;=".Contains(c))))
         {
             Check.That(again.Value.Equals(uri), $"AbsoluteUri {Check.Show(canonical)} parses back as an unequal Uri for {what}");
         }
@@ -143,7 +145,7 @@ public static class UriTarget
         Components(resolved, what);
         if (resolved.IsAbsoluteUri)
         {
-            Idempotent(resolved, what);
+            Idempotent(resolved, what, resolved: true);
             var rel = Outcome<Uri>.Of(() => baseUri.MakeRelativeUri(resolved), e => e is InvalidOperationException);
             if (rel.Ok)
             {

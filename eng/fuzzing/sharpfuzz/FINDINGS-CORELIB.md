@@ -358,6 +358,7 @@ file after going through `Uri`.
 | `/E:` (implicit file path) | `file:///E:` | `UriFormatException` |
 | `/.//x` | `file:////x` | `file://x/` |
 | `/tmp/a%20b` | `file:///tmp/a%2520b` | same string, `Equals` false |
+| `new Uri(new Uri("mailto:0"), "0#[")` | `mailto:0.0.0.0#[` | same string, `Equals` false (direct parsing of the same text is consistent) |
 
 Each is low severity, but together they mean that normalizing a URI by round-tripping it through
 `AbsoluteUri` (a common pattern) can change or reject it. 11.0 RC1 also newly accepts
