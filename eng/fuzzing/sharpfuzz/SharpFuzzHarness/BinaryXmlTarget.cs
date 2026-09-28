@@ -36,11 +36,18 @@ public static class BinaryXmlTarget
 
     private static XmlDictionaryReaderQuotas Quotas => new() { MaxDepth = 64, MaxStringContentLength = 65536, MaxArrayLength = 65536, MaxBytesPerRead = 65536, MaxNameTableCharCount = 65536 };
 
-    // Known (BINXML-ENC-1): CreateTextReader indexes past the end of an unterminated XML declaration
-    // encoding (<?xml version='1.0' encoding='utf-8) and throws IndexOutOfRangeException.
+    // Known (BINXML-ENC-1): CreateTextReader's EncodingStreamWrapper indexes past the end of short input: an
+    // unterminated XML declaration encoding (<?xml version='1.0' encoding='utf-8) or a BOM followed by one
+    // character (EF BB BF 71) throws IndexOutOfRangeException.
     private static bool Allowed(Exception e) => e is XmlException or DecoderFallbackException or InvalidDataException ||
         e is InvalidOperationException && e.Message.Contains("quota", StringComparison.OrdinalIgnoreCase) ||
-        !s_reportKnownIssues && e is IndexOutOfRangeException && e.StackTrace?.Contains("CheckUTF8DeclarationEncoding", StringComparison.Ordinal) == true;
+        !s_reportKnownIssues && e is IndexOutOfRangeException && e.StackTrace?.Contains("EncodingStreamWrapper", StringComparison.Ordinal) == true ||
+        // Known (BINXML-SORT-1): invalid UTF-8 in an attribute prefix throws DecoderFallbackException inside the
+        // duplicate-attribute sort, which Array.Sort wraps in InvalidOperationException.
+        !s_reportKnownIssues && e is InvalidOperationException && e.InnerException is XmlException or DecoderFallbackException ||
+        // Known (BINXML-LIST-1): Value of a list-valued text record whose items can't be converted throws
+        // InvalidOperationException from ValueHandle.ToObject.
+        !s_reportKnownIssues && e is InvalidOperationException && e.StackTrace?.Contains("ValueHandle.ToObject", StringComparison.Ordinal) == true;
 
     public static void Run(ReadOnlySpan<byte> data)
     {
@@ -82,11 +89,30 @@ public static class BinaryXmlTarget
         var again = Outcome<List<string>>.Of(() => Nodes(XmlDictionaryReader.CreateBinaryReader(rewritten, 0, rewritten.Length, s_dictionary, Quotas)), Allowed);
         // Known (BINXML-DT-1): copying a DateTime record through the binary writer drops its Kind
         // ("...Z" / "+hh:mm" becomes unspecified).
-        // Empty text records ("") produce no node once copied.
+        // Empty text records ("") produce no node once copied, a bytes record may be split into several
+        // (their base64 concatenates to the same text), and redundant namespace declarations aren't written
+        // again (the element and attribute namespaces, which are compared, carry the meaning).
         static List<string> Kinds(List<string> list) => s_reportKnownIssues ? list :
-            list.Where(t => t != "Text:||=\"\"").Select(t => System.Text.RegularExpressions.Regex.Replace(t, @"(\d{4}-\d\d-\d\dT[\d:.]+)(Z|[+-]\d\d:\d\d)", "$1")).ToList();
-        Check.That(again.Ok && Kinds(again.Value).SequenceEqual(Kinds(nodes.Value)),
-            $"binary copy 0x{Convert.ToHexString(rewritten.AsSpan(0, Math.Min(rewritten.Length, 64)))} reads as {(again.Ok ? string.Join(" ", again.Value) : again.ToString())}, original {string.Join(" ", nodes.Value)}: {what}");
+            Normalize(list.Where(t => t != "Text:||=\"\"").Select(t => System.Text.RegularExpressions.Regex.Replace(t, @",?[^,\[]*\|http://www\.w3\.org/2000/xmlns/=""[^""]*""", "")).ToList()).Select(t => System.Text.RegularExpressions.Regex.Replace(t, @"(\d{4}-\d\d-\d\dT[\d:.]+)(Z|[+-]\d\d:\d\d)", "$1")).ToList();
+        Check.That(again.Ok, $"binary copy doesn't read back ({again}): {what}");
+        List<string> copy = Kinds(again.Value), original = Kinds(nodes.Value);
+        if (!copy.SequenceEqual(original))
+        {
+            int i = 0;
+            // Known (BINXML-NUM-1, informational): typed numeric records don't always survive the copy
+            // exactly (-0 becomes 0; decimals with an out-of-range scale are formatted differently).
+            if (!s_reportKnownIssues && copy.Count == original.Count && copy.Zip(original).All(p => p.First == p.Second || IsNumericText(p.First) && IsNumericText(p.Second)))
+            {
+                return;
+            }
+
+            while (i < copy.Count && i < original.Count && copy[i] == original[i])
+            {
+                i++;
+            }
+
+            Check.That(false, $"binary copy differs at node {i}: {(i < copy.Count ? copy[i] : "(end)")} vs original {(i < original.Count ? original[i] : "(end)")}; copy 0x{Convert.ToHexString(rewritten.AsSpan(0, Math.Min(rewritten.Length, 64)))}: {what}");
+        }
     }
 
     private static void Text(byte[] bytes, string what)
@@ -99,6 +125,9 @@ public static class BinaryXmlTarget
             Check.That(dc.Value.SequenceEqual(xml.Value), $"XmlDictionaryReader.CreateTextReader reads [{string.Join(" ", dc.Value)}], XmlReader reads [{string.Join(" ", xml.Value)}]: {what}");
         }
     }
+
+    private static bool IsNumericText(string token) =>
+        token.StartsWith("Text:||=\"", StringComparison.Ordinal) && double.TryParse(token.AsSpan(9, token.Length - 10), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _);
 
     /// <summary>The nodes as tokens: kind, qualified name and namespace, value, and sorted attributes.</summary>
     private static List<string> Nodes(XmlReader reader)

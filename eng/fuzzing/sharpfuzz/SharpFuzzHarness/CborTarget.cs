@@ -59,17 +59,20 @@ public static class CborTarget
         {
             Replay(replay, writer);
         }
-        catch (InvalidOperationException e) when (!s_reportKnownIssues && e.Message.Contains("duplicate keys", StringComparison.Ordinal) &&
-            tokens.Any(t => t is "SIB" or "SIT"))
+        catch (InvalidOperationException e) when (!s_reportKnownIssues && e.Message.Contains("duplicate keys", StringComparison.Ordinal))
         {
-            // Known (CBOR-DUP-1): the Strict reader misses a duplicate map key when the value before it is an
-            // indefinite-length string ({3: 7F FF, 3: "n"} is accepted); the writer then rejects it.
+            // Known (CBOR-DUP-1/2): the Strict reader misses a duplicate map key when the value before it is an
+            // indefinite-length string ({3: 7F FF, 3: "n"}), or when the two keys encode the same value
+            // differently ({1: 0, 1 as 18 01: 0}); the writer, which encodes values one way, then rejects it.
             return;
         }
         byte[] encoded = writer.Encode();
         // Without multiple root values the reader stops after the first one and leaves the rest.
         ReadOnlySpan<byte> consumed = bytes.AsSpan(0, bytes.Length - replay.BytesRemaining);
-        if (mode is CborConformanceMode.Canonical or CborConformanceMode.Ctap2Canonical && (s_reportKnownIssues || !nan))
+        // Known (CBOR-FLOAT-1, informational): the canonical readers accept floats that have a shorter exact
+        // encoding (FA 7F800000 for +Infinity), which the writer then shortens (F9 7C00).
+        bool floats = tokens.Any(t => t[0] is 'H' or 'F' or 'D' && t.Length > 1 && char.IsAsciiHexDigit(t[1]));
+        if (mode is CborConformanceMode.Canonical or CborConformanceMode.Ctap2Canonical && (s_reportKnownIssues || !nan && !floats))
         {
             Check.That(encoded.AsSpan().SequenceEqual(consumed), $"re-encoded as 0x{Convert.ToHexString(encoded)}: {what}");
         }
