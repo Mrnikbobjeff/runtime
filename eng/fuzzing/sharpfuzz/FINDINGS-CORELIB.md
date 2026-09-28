@@ -411,6 +411,7 @@ ROUND3_STATS
 | [XSD-FACET-1](#xsd-facet-1) | `XmlSchemaSet.Compile` | A `length` / `minLength` / `maxLength` / `totalDigits` / `fractionDigits` value above `int.MaxValue` throws `OverflowException` instead of `XmlSchemaException` | Low | .NET 8, 9, 10, 11 |
 | [BINXML-SORT-1, BINXML-LIST-1](#binxml-sort-1-binxml-list-1) | `XmlDictionaryReader.CreateBinaryReader` | An attribute name that isn't valid UTF-8 makes the duplicate-attribute check throw `InvalidOperationException` ("Failed to compare two elements"); `Value` of a list record with an item it can't convert throws `InvalidOperationException` | Low | .NET 8, 9, 10, 11 |
 | [PKCS-DECODE-1](#pkcs-decode-1) | `Pkcs12Info.Decode` | `30 80` (indefinite length, no content) throws `AsnContentException` instead of `CryptographicException` | Low | Pkcs 8.0.1, 9.0.20, 10.0.12, 11.0 RC1 packages |
+| [JSON-COPY-1](#json-copy-1) | `Utf8JsonReader.CopyString(Span<byte>)` | Throws "destination is too short" for an exactly sized destination when unescaped text follows the last escape (`"\u0041b"` into 2 bytes) | Low | .NET 8, 9, 10, 11 |
 | [BLOB-DT-1](#blob-dt-1) | `BlobReader.ReadDateTime` | Ticks outside `DateTime`'s range throw `ArgumentOutOfRangeException` instead of `BadImageFormatException` | Low | .NET 8, 9, 10, 11 |
 | [MISC-3](#misc-3) | various | See the list at the end of this section | Informational | |
 
@@ -718,6 +719,22 @@ should give `XmlException` (8.0.31, 9.0.20, 10.0.12 and 11.0 RC1):
 from `PkcsHelpers.FirstBerValueLength` (an indefinite length with no content), where every other
 truncated or malformed input (`30`, `30 81`, `30 84 FF FF FF FF`) throws the documented
 `CryptographicException`. Same in the 8.0.1 (8.0.10), 9.0.20, 10.0.12 and 11.0 RC1 packages.
+
+### JSON-COPY-1
+
+**`Utf8JsonReader.CopyString(Span<byte>)` rejects a destination that is exactly the size of the
+unescaped value** when the value contains an escape followed by unescaped text: `"\u0041b"` (`Ab`,
+2 bytes), `"a\\b"` (`a\b`, 3 bytes), `"x\ny\nz"` (5 bytes) and `"a\/b"` throw
+`ArgumentException` ("Destination is too short") with a 2-, 3- or 5-byte destination and succeed with
+one byte more. Values that end in an escape (`"x\ny\n"`, `"\"quoted\""`) are copied fine, and so
+is every value by the `Span<char>` overload. Single- and multi-segment readers behave the same, on
+8.0.31, 9.0.20, 10.0.12 and 11.0 RC1. In `JsonReaderHelper.TryUnescape`, the check before copying
+the unescaped run after an escape is `(uint)(written + nextUnescapedSegmentLength) >= (uint)destination.Length`;
+it should be `>` (a following escape is already caught by the loop's `written == destination.Length`
+check). Code that sizes the
+buffer from `ValueSpan.Length`, as the docs suggest, always has a spare byte, so this bites callers
+that size it exactly (for example from a known field length). The guard-page `unsafeenc` target
+found it on its first seed; no memory is touched out of bounds.
 
 ### BLOB-DT-1
 
