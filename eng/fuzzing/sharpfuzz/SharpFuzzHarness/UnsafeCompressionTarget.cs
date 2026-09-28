@@ -262,7 +262,7 @@ public static class UnsafeCompressionTarget
         using var decoder = new Codec(codec, encode: false, 0, 0);
         int position = 0;
         last = OperationStatus.NeedMoreData;
-        for (int i = 0; i < 100000 && output.Count <= MaxOutput; i++)
+        for (int i = 0; i < 3 * MaxOutput && output.Count <= MaxOutput; i++)
         {
             int n = Math.Min(inChunk, compressed.Length - position);
             ReadOnlySpan<byte> chunk = Guarded.Copy<byte>(compressed.AsSpan(position, n), atStart);
@@ -332,7 +332,8 @@ public static class UnsafeCompressionTarget
         using var decoder = new Codec(codec, encode: false, 0, 0);
         byte[] whole = new byte[MaxOutput + 1];
         OperationStatus status = decoder.Decompress(bytes, whole, out int c, out int w);
-        if (status == OperationStatus.Done && streamed.Length <= MaxOutput)
+        // (Streaming stops at MaxOutput bytes, so it can end with DestinationTooSmall on big outputs.)
+        if (status == OperationStatus.Done && streamed.Length <= MaxOutput && last != OperationStatus.DestinationTooSmall)
         {
             Check.That(last == OperationStatus.Done && streamed.AsSpan().SequenceEqual(whole.AsSpan(0, w)),
                 $"streaming decompression in chunks gave {last} with {streamed.Length} bytes, all at once Done with {w}: {what}");
