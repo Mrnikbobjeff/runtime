@@ -36,7 +36,7 @@ public static class XsdTarget
             set.Add(null, XmlReader.Create(new StringReader(schemaText), parse));
             set.Compile();
         }
-        catch (Exception e) when (e is XmlException or XmlSchemaException)
+        catch (Exception e) when (e is XmlException or XmlSchemaException || IsFacetOverflow(e))
         {
             return;
         }
@@ -64,7 +64,7 @@ public static class XsdTarget
             {
             }
         }
-        catch (Exception e) when (e is XmlException or XmlSchemaException)
+        catch (Exception e) when (e is XmlException or XmlSchemaException || IsFacetOverflow(e))
         {
             return;
         }
@@ -89,4 +89,12 @@ public static class XsdTarget
         doc.Validate((_, e) => documentErrors += e.Severity == XmlSeverityType.Error ? 1 : 0);
         Check.That((readerErrors == 0) == (documentErrors == 0), $"validating reader: {readerErrors} errors, XmlDocument.Validate: {documentErrors} errors for {what}");
     }
+
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
+    // Known (XSD-FACET-1): a length / minLength / maxLength / totalDigits / fractionDigits value above
+    // int.MaxValue passes the nonNegativeInteger check, then XmlBaseConverter.DecimalToInt32 throws
+    // OverflowException out of Compile (and inline-schema validation) instead of XmlSchemaException.
+    private static bool IsFacetOverflow(Exception e) =>
+        !s_reportKnownIssues && e is OverflowException && e.StackTrace?.Contains("FacetsCompiler", StringComparison.Ordinal) == true;
 }
