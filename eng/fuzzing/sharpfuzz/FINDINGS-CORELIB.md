@@ -1009,6 +1009,11 @@ payloads. 11.0 RC1 only (new API).
   beyond the type's range (`3.5e38` as `float`, `1e309` as `double`), so `JsonSerializer.Deserialize<float>("1e80")`
   gives `Infinity`, which `JsonSerializer.Serialize` then rejects with `ArgumentException` unless
   `AllowNamedFloatingPointLiterals` is set: the serializer can't write back what it read (8.0 to 11.0).
+- JSON-UTF8-1: a `JsonElement` (for example a `Dictionary<string, JsonElement>` value) keeps invalid
+  UTF-8 in property names as is (`{"Map":{"<B0>":1,"<8C>":2}}` deserializes, even with
+  `AllowDuplicateProperties = false`, since the names are different bytes), and writing it replaces
+  each invalid byte with U+FFFD, so the output has two `"�"` properties that the same options
+  then reject as duplicates. (A `Dictionary<string, double>` rejects such names up front.)
 - `BinaryReader.ReadChars` never flushes its decoder: an incomplete UTF-8 / UTF-16 sequence at the end
   of the stream is dropped, where `Encoding.GetString` and `StreamReader` produce U+FFFD.
 - `JsonNode.ToJsonString` of a node parsed from a string with an escaped lone surrogate throws
