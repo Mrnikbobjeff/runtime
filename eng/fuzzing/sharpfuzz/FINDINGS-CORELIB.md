@@ -889,13 +889,34 @@ guard-page `unsafemem` target; 8.0.31 to 11.0 RC1.
 
 Areas with `Unsafe` / pointer / native-interop code that earlier rounds didn't reach, fuzzed with
 guard-page buffers (`SHARPFUZZ_GUARD=1`) against differential and round-trip checks, 30 minutes per
-area on at most 12 threads.
+area on at most 12 threads: the new span compression encoders, System.Net parsers, the vector APIs'
+software fallbacks, JSON (serializer, nodes, multi-segment and async readers), interop marshalling,
+text I/O, archives, the managed WebSocket, PEM / ASN.1 / X.509 parsing, metadata writing, HTTP
+headers, the DataContract JSON stack and pipelines. Several targets also compare reading the same
+bytes whole and in small pieces, which is how SR-BOM-1 and DCJSON-ENC-1 turned up. As in round 3, no
+guard-page fault (out-of-bounds read or write) occurred; every saved crash replays clean against the
+final harness with the known issues below suppressed.
 
 ### Round 4 campaign statistics
 
 | Target | Assemblies | Wall-clock | Execs | Edges | Result |
 |---|---|---|---|---|---|
-ROUND4_STATS
+| `unsafecomp` | System.IO.Compression (`DeflateEncoder` / `ZLibEncoder` / `GZipEncoder` and decoders, new in 11), System.IO.Compression.Brotli; guarded | 30 min (3 instances) | 8.5 M | 2.7 k | COMP-EXACT-1, COMP-EMPTY-1 |
+| `unsafenet` | `IPAddress`, `IPNetwork`, `IPEndPoint`, `PhysicalAddress`, span `Uri.TryEscapeDataString` / `TryUnescapeDataString`; guarded | 30 min (3 instances) | 26.3 M | 5.1 k | no findings |
+| `vectorops` | `Vector128` / `256` / `512`, `Vector<T>` against a scalar model, all element types, three ISA levels; guarded loads / stores | 30 min (3 instances) | 49.1 M | 2.3 k | no findings |
+| `unsafejson` | `JsonSerializer`, `JsonNode` over guarded memory, exactly sized `IBufferWriter` | 30 min (3 instances) | 20.0 M | 20.0 k | JSON-DEEPEQ-1, ROUND4-MISC |
+| `unsafemarshal` | `Marshal.PtrToStructure` / `StructureToPtr`, `PtrToString*`, string marshallers; guarded native memory | 30 min (3 instances) | 30.6 M | 7.5 k | MARSHAL-TSTR-1 |
+| `textio` | `StreamReader`, `BinaryReader`, `StringBuilder` with chunked streams | 30 min (3 instances) | 39.8 M | 5.4 k | SR-BOM-1, BR-CHARS-1, ROUND4-MISC |
+| `archive` | `ZipArchive` (sync and async), `TarReader` (sync and async) | 30 min (3 instances) | 41.8 M | 7.9 k | ZIP-ENC-1 |
+| `arrays` | `BitArray`, `Array.Copy` widening, `Buffer.BlockCopy`, range operations, `BitOperations` (sentinels) | 30 min (3 instances) | 35.4 M | 2.9 k | no findings |
+| `websocket` | Managed `WebSocket` receive against a frame model; guarded receive buffers | 30 min (3 instances) | 52.0 M | 8.5 k | WS-UTF8-1 |
+| `unsafeder` | `PemEncoding`, `AsnDecoder.TryRead*` into exactly sized guarded spans | 30 min (3 instances) | 44.0 M | 8.6 k | no findings |
+| `unsafex509` | `X509CertificateLoader`, `CertificateRequest.LoadSigningRequest`, `X500DistinguishedName` from guarded memory | 30 min (3 instances) | 51.1 M | 8.8 k | no findings |
+| `blobwriter` | `BlobBuilder` / `BlobWriter` (System.Reflection.Metadata) read back from guarded memory | 30 min (3 instances) | 35.9 M | 3.6 k | no findings |
+| `chunked` | `Utf8JsonReader` multi-segment, `DeserializeAsync` / `ParseAsync`, decompression streams, `XmlReader`: chunked vs whole | 30 min (3 instances) | 37.8 M | 21.9 k | ZLIB-DICT-1, ROUND4-MISC (BROTLI-EXC-1) |
+| `httpheaders` | System.Net.Http header values (`TryParse` round trips, `HttpHeaders` views) | 30 min (3 instances) | 65.7 M | 10.7 k | ROUND4-MISC (HTTP-QVALUE-1) |
+| `dcjson` | DataContract JSON reader / writer against System.Text.Json | 30 min (3 instances) | 39.8 M | 8.3 k | DCJSON-ENC-1, DCJSON-SCOPE-1, ROUND4-MISC (DCJSON-LENIENT-1, DCJSON-CTRL-1) |
+| `pipelines` | System.IO.Pipelines against a byte-queue model | 30 min (3 instances) | 38.7 M | 2.3 k | no findings |
 
 ### Round 4 summary
 
