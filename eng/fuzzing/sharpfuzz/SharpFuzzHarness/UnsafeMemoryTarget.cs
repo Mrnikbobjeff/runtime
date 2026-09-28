@@ -56,7 +56,8 @@ public static unsafe class UnsafeMemoryTarget
             int offset = reader.Offset;
             log.Add($"{op % 24}({arg})@{offset}");
             string what = $"BlobReader over {model.Length} bytes 0x{Convert.ToHexString(model.AsSpan(0, Math.Min(model.Length, 32)))}, ops [{string.Join(" ", log)}]";
-            int size = (op % 24) switch { 0 => 1, 1 => 2, 2 => 4, 3 => 8, 4 => 4, 5 => 8, 6 => 16, 7 => 16, 8 => 8, 9 => 2, _ => -1 };
+            // A metadata decimal is 13 bytes (scale / sign byte and a 96-bit integer).
+            int size = (op % 24) switch { 0 => 1, 1 => 2, 2 => 4, 3 => 8, 4 => 4, 5 => 8, 6 => 16, 7 => 13, 8 => 8, 9 => 2, _ => -1 };
             if (size > 0)
             {
                 bool fits = offset + size <= model.Length;

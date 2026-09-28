@@ -34,6 +34,12 @@ public static class UnsafeFormatTarget
             return;
         }
 
+        // Standard formats take precisions up to 999,999,999 ("N999999999" asks for that many digits).
+        if (format.Length > 1 && char.IsAsciiLetter(format[0]) && int.TryParse(format.AsSpan(1), out int precision) && precision > 1000)
+        {
+            return;
+        }
+
         ReadOnlySpan<byte> v = input.Rest();
         Span<byte> raw = stackalloc byte[16];
         raw.Clear();
@@ -62,6 +68,21 @@ public static class UnsafeFormatTarget
             case 18: Format(new Version(raw[0] % 4 == 0 ? 0 : (int)(l & 0x7FFF), raw[1], raw[2] % 3 == 0 ? 0 : raw[3], raw[4]), format.Length == 0 ? "" : ((raw[5] % 5).ToString()), flags); break;
             default: Interpolated(l, BitConverter.ToDouble(raw[8..]), format, flags); break;
         }
+    }
+
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
+    private static bool EscapesNonAscii(string format)
+    {
+        for (int i = 0; i + 1 < format.Length; i++)
+        {
+            if (format[i] == '\\' && !char.IsAscii(format[i + 1]))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static decimal Decimal(ReadOnlySpan<byte> raw)
@@ -108,6 +129,16 @@ public static class UnsafeFormatTarget
 
             Span<char> small = Guarded.Copy<char>(new char[size], atStart);
             Check.That(!value.TryFormat(small, out _, format, CultureInfo.InvariantCulture), $"TryFormat into {size} < {text.Length} chars succeeded: {what}");
+        }
+
+        // Known (UTF8FMT-NUM-1): the UTF-8 number formatting appends a custom format's literal characters
+        // one char at a time through new Rune(char), which throws for each half of a surrogate pair.
+        // Known (UTF8FMT-DT-1): the UTF-8 date / time formatting writes an escaped literal ("\é") as the
+        // low byte of the char (E9), so non-ASCII escapes come out wrong (or throw, for surrogates).
+        if (!s_reportKnownIssues && (format.Any(char.IsSurrogate) ||
+            value is DateTime or DateTimeOffset or TimeSpan or DateOnly or TimeOnly && EscapesNonAscii(format)))
+        {
+            return;
         }
 
         // UTF-8.

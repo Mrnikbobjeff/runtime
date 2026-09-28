@@ -186,6 +186,13 @@ public static class UnsafeEncodingTarget
         // a full destination may be reported before the invalid data).
         Span<byte> urlDec = Out<byte>(urlStatus == OperationStatus.Done ? w7 : urlExpected.Length, outStart);
         OperationStatus urlGuardedStatus = Base64Url.DecodeFromUtf8(b, urlDec, out int c8, out int w8, final);
+        // Known (B64URL-EXACT-1): a final block with partial padding ("GQ=", "GQ%") decodes into a larger
+        // destination but is InvalidData when the destination is exactly the decoded size.
+        if (!s_reportKnownIssues && urlStatus == OperationStatus.Done && urlGuardedStatus == OperationStatus.InvalidData && bytes.AsSpan().IndexOfAny("=%"u8) >= 0)
+        {
+            return;
+        }
+
         Check.That(urlGuardedStatus == urlStatus && c8 == c7 && w8 == w7 && urlDec[..w8].SequenceEqual(urlExpected.AsSpan(0, w7)),
             $"Base64Url.DecodeFromUtf8 into {urlDec.Length} bytes: {urlGuardedStatus} {c8} {w8} vs {urlStatus} {c7} {w7}: {what}");
     }
@@ -377,9 +384,16 @@ public static class UnsafeEncodingTarget
             JavaScriptEncoder encoder = (place >> 6) switch { 0 => null, 1 => JavaScriptEncoder.UnsafeRelaxedJsonEscaping, 2 => JavaScriptEncoder.Create(UnicodeRanges.All), _ => JavaScriptEncoder.Create(UnicodeRanges.BasicLatin) };
             var writerOptions = new JsonWriterOptions { Indented = (place & 64) != 0, Encoder = encoder, SkipValidation = false };
             var array = new ArrayBufferWriter<byte>();
-            using (var w = new Utf8JsonWriter(array, writerOptions))
+            try
             {
+                using var w = new Utf8JsonWriter(array, writerOptions);
                 doc.WriteTo(w);
+            }
+            catch (InvalidOperationException e) when (!s_reportKnownIssues && e.Message.Contains("UTF-16", StringComparison.Ordinal))
+            {
+                // Known (JSON-SURR-1, informational): JsonDocument.Parse accepts an escaped lone surrogate
+                // ("\ud83d"), which WriteTo can't unescape. (The guarded writer below then isn't reached.)
+                return;
             }
 
             var exact = new GuardedBufferWriter(outStart);
