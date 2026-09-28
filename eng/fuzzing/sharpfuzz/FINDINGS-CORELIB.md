@@ -632,8 +632,9 @@ parser keeps quoted-pairs escaped. `new MailAddress("u@h.com", "a\"b\\c")` → `
 - `KoreanLunisolarCalendar` returns year 952, month 13 for 952-12-25 … (Gregorian), while
   `GetMonthsInYear(952)` is 12 and `GetLeapMonth(952)` is 0 (`GetMonthsInYear(953)` is 13): the
   table data for that year is inconsistent.
-- `HijriCalendar` with a non-zero `HijriAdjustment` throws `ArgumentOutOfRangeException` from
-  `GetYear` for supported dates near the ends of its range, and `Calendar.GetWeekOfYear` throws for
+- `HijriCalendar` with a non-zero `HijriAdjustment` misreports dates near the ends of its range:
+  with `HijriAdjustment = -2`, `GetYear(MinSupportedDateTime)` is 0 (not a valid Hijri year), and
+  `GetYear` throws `ArgumentOutOfRangeException` for other supported dates there. `Calendar.GetWeekOfYear` throws for
   supported dates near `MinSupportedDateTime` / `DateTime.MinValue` of several calendars (it looks at
   days before them).
 
