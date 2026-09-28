@@ -178,6 +178,11 @@ public static class ArraysTarget
     /// <summary>Array.Copy with primitive widening, and Buffer.BlockCopy, into arrays with sentinels.</summary>
     private static void Copies(byte[] bytes, byte p1, byte p2, byte p3, string what)
     {
+        if (bytes.Length < 8)
+        {
+            return;
+        }
+
         int count = Math.Min(bytes.Length / 8, p1 % 300);
         int srcIndex = p2 % 4, dstIndex = Pad + p3 % 4;
         sbyte[] sb = new sbyte[count + srcIndex];

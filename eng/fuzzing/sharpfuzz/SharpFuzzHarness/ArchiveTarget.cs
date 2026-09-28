@@ -49,6 +49,8 @@ public static class ArchiveTarget
 
     private static bool Allowed(Exception e) => e is InvalidDataException;
 
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
     private static string Describe(ZipArchiveEntry e) =>
         $"{Check.Show(e.FullName)} {e.Length}/{e.CompressedLength} crc {e.Crc32:X8} attr {e.ExternalAttributes:X} {e.LastWriteTime:O} enc {e.IsEncrypted} comment {Check.Show(e.Comment)}";
 
@@ -92,9 +94,13 @@ public static class ArchiveTarget
                 using Stream s = entry.Open();
                 content = Content(s);
             }
-            catch (InvalidDataException e)
+            catch (Exception e) when (e is InvalidDataException || e is NotSupportedException && entry.IsEncrypted)
             {
-                content = e.GetType().Name + ": " + e.Message;
+                // Only the exception type: Open and OpenAsync check an encrypted entry's header, method and
+                // password in different orders, so the messages differ (ZIP-ENC-1, informational).
+                // Known (ZIP-ENC-1): for an encrypted entry with an unknown encryption method, Open throws
+                // InvalidDataException and OpenAsync NotSupportedException.
+                content = e is NotSupportedException && !s_reportKnownIssues ? nameof(InvalidDataException) : e.GetType().Name;
             }
 
             sb.Append(" = ").Append(content).Append(';');
@@ -117,9 +123,13 @@ public static class ArchiveTarget
                 await using Stream s = await entry.OpenAsync();
                 content = await ContentAsync(s);
             }
-            catch (InvalidDataException e)
+            catch (Exception e) when (e is InvalidDataException || e is NotSupportedException && entry.IsEncrypted)
             {
-                content = e.GetType().Name + ": " + e.Message;
+                // Only the exception type: Open and OpenAsync check an encrypted entry's header, method and
+                // password in different orders, so the messages differ (ZIP-ENC-1, informational).
+                // Known (ZIP-ENC-1): for an encrypted entry with an unknown encryption method, Open throws
+                // InvalidDataException and OpenAsync NotSupportedException.
+                content = e is NotSupportedException && !s_reportKnownIssues ? nameof(InvalidDataException) : e.GetType().Name;
             }
 
             sb.Append(" = ").Append(content).Append(';');

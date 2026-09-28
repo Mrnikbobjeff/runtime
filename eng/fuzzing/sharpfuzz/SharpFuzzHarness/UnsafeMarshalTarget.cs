@@ -132,8 +132,8 @@ public static unsafe class UnsafeMarshalTarget
 
     private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
 
-    // Known (MARSHAL-TSTR-1): an ANSI (UTF-8) by-value string is encoded into SizeConst bytes, which throws
-    // ArgumentException when the UTF-8 is longer (ASCII strings are truncated instead).
+    // Known (MARSHAL-TSTR-1): an ANSI (UTF-8) by-value string or char array is encoded into SizeConst bytes,
+    // which throws ArgumentException when the UTF-8 is longer (ASCII strings are truncated instead).
     private static bool ToNative(object value, byte* native, string what)
     {
         try
@@ -141,7 +141,8 @@ public static unsafe class UnsafeMarshalTarget
             Marshal.StructureToPtr(value, (nint)native, fDeleteOld: false);
             return true;
         }
-        catch (ArgumentException e) when (!s_reportKnownIssues && e.StackTrace?.Contains("CSTRMarshaler.ConvertFixedToNative", StringComparison.Ordinal) == true)
+        catch (ArgumentException e) when (!s_reportKnownIssues && (e.StackTrace?.Contains("CSTRMarshaler.ConvertFixedToNative", StringComparison.Ordinal) == true ||
+            e.StackTrace?.Contains("AnsiCharArrayMarshaler", StringComparison.Ordinal) == true))
         {
             return false;
         }

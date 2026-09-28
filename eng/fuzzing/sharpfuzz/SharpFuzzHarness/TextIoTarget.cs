@@ -281,6 +281,10 @@ public static class TextIoTarget
             }
 
             Check.Equal(model, sb.ToString(), $"StringBuilder after op {i} ({op % 7}): {what}");
+            if (model.Length > 20000)
+            {
+                return; // repeated Replace("x", "xxxx") grows exponentially
+            }
         }
 
         // CopyTo into exactly sized guarded spans, whole and in parts; GetChunks.

@@ -903,9 +903,10 @@ ROUND4_STATS
 |----|-----------|------|--------------------------|----------|
 | [SR-BOM-1](#sr-bom-1) | `StreamReader` (BOM detection, the default) | When the first read returns 1–2 bytes, BOM detection runs again on later buffers: BOM-like bytes mid-stream are dropped or switch the decoding to UTF-16 / UTF-32; a BOM split across reads is missed | **Medium** | .NET 8, 9, 10, 11 |
 | [COMP-EXACT-1](#comp-exact-1) | `DeflateEncoder.TryCompress` (new in 11) | Fails for a destination of exactly the compressed size; one byte more works | Low–Medium | new .NET 11 API |
-| [MARSHAL-TSTR-1](#marshal-tstr-1) | `Marshal.StructureToPtr` (ANSI `ByValTStr`) | A non-ASCII string is cut inside a UTF-8 sequence, or throws `ArgumentException` when its UTF-8 is longer than `SizeConst`; ASCII strings are truncated | Low–Medium | .NET 8, 9, 10, 11 |
+| [MARSHAL-TSTR-1](#marshal-tstr-1) | `Marshal.StructureToPtr` (ANSI `ByValTStr`, ANSI by-value `char[]`) | A non-ASCII string is cut inside a UTF-8 sequence, or throws when its UTF-8 is longer than `SizeConst`; any non-ASCII char in a by-value `char[]` throws; ASCII strings are truncated | Low–Medium | .NET 8, 9, 10, 11 (exception type changed in 11) |
 | [BR-CHARS-1](#br-chars-1) | `BinaryReader.ReadChars` | Throws `ArgumentException` ("output char buffer is too small") for invalid UTF-8, or a character outside the BMP, at the end of the requested count | Low–Medium | .NET 8, 9, 10, 11 |
 | [JSON-DEEPEQ-1](#json-deepeq-1) | `JsonElement.DeepEquals`, `JsonNode.DeepEquals` | Throw `ArgumentOutOfRangeException` for any number whose exponent doesn't fit in an `int`, even when comparing a document with itself | Low–Medium | .NET 9, 10, 11 |
+| [ZIP-ENC-1](#zip-enc-1) | `ZipArchiveEntry.Open` / `OpenAsync` (encryption support new in 11) | For an encrypted entry with an unknown encryption method, `Open` throws `InvalidDataException` and `OpenAsync` `NotSupportedException`; the two also check header, method and password in different orders | Low | new .NET 11 API |
 | [COMP-EMPTY-1](#comp-empty-1) | `DeflateDecoder` / `ZLibDecoder` / `GZipDecoder.TryDecompress` (new in 11) | Decompressing an empty payload into an empty destination returns `false` | Low | new .NET 11 API |
 | [ROUND4-MISC](#round4-misc) | various | See the list at the end of this section | Informational | |
 
@@ -980,7 +981,14 @@ then forced to 0, instead of truncating at a character boundary that leaves room
 Structs read with `PtrToStructure` can't always be written back: the fuzzer got there by reading
 arbitrary bytes into such a struct (invalid UTF-8 becomes U+FFFD, three bytes each) and marshalling
 it again. Same on 8.0.31, 9.0.20, 10.0.12 and 11.0 RC1 (`CSTRMarshaler.ConvertFixedToNative`).
-Found by the guard-page `unsafemarshal` target.
+
+By-value `char` arrays in an ANSI struct (`[MarshalAs(UnmanagedType.ByValArray, SizeConst = 3)] char[]`)
+are worse: each char becomes UTF-8 into a `SizeConst`-byte field, so any non-ASCII char (`a`, `é`, `z`
+needs 4 bytes for 3) makes `StructureToPtr` fail. 8.0.31, 9.0.20 and 10.0.12 throw `COMException`
+(0x8007007A, "The data area passed to a system call is too small"); 11.0 RC1, where struct marshalling
+moved to managed code (`StructureMarshaler<T>`, `AnsiCharArrayMarshaler`), throws `ArgumentException`
+instead, a behavior change for code that catches the former. Found by the guard-page `unsafemarshal`
+target.
 
 ### JSON-DEEPEQ-1
 
@@ -993,6 +1001,21 @@ document throws instead of returning `true`, and so does `JsonNode.DeepEquals` o
 such a number. `JsonDocument.Parse` accepts these numbers (the JSON grammar has no limit), so any
 code comparing untrusted JSON with `DeepEquals` gets an unexpected exception type. Same on 9.0.20,
 10.0.12 and 11.0 RC1. Found by the `unsafejson` target.
+
+### ZIP-ENC-1
+
+**`ZipArchiveEntry.Open` and `OpenAsync` fail differently on the same encrypted entry.** .NET 11 adds
+zip encryption (`Open(ReadOnlySpan<char> password)`, `OpenAsync(password, ...)`, `IsEncrypted`,
+`EncryptionMethod`). For an entry whose central directory marks it as encrypted with a method the
+reader doesn't know (`EncryptionMethod == Unknown`), `Open()` and `Open(password)` throw
+`InvalidDataException` ("The archive entry was compressed using an unsupported compression method"),
+while `OpenAsync()` throws `NotSupportedException` ("The entry's encryption method is not supported").
+With the AES marker method (99), `Open()` reports an unsupported compression method and `OpenAsync()`
+that a password is required; with a corrupt local header, `Open()` reports the header and
+`OpenAsync()` the password. Code that catches `InvalidDataException` around the async API (the only
+exception the rest of `System.IO.Compression` uses for bad archives) sees `NotSupportedException`
+escape. 11.0 RC1 only (new API). Found by the `archive` target (synchronous against asynchronous
+reading).
 
 ### COMP-EMPTY-1
 
