@@ -813,16 +813,8 @@ public static unsafe class StructLayoutTarget
             }
 
             CompareFields(spec, expected, dst, "memcpy(byte*, [In] class, n)", what);
-            // [Out]: the stub's temporary is filled by memcpy from the expected bytes and copied into a fresh instance.
-            object fresh = Activator.CreateInstance(spec.Type);
-            object[] outArgs = [fresh, (IntPtr)expected, (nuint)size];
-            native.GetMethod("memcpyOut").Invoke(null, outArgs);
-            Check.That(SameStruct(spec, value, fresh), $"[Out] class came back as {Describe(spec, fresh)}, expected {Describe(spec, value)}: {what}");
-            // [In, Out]: starts from the value, memcpy overwrites the temporary with the same bytes, the value is copied back.
-            object inOut = Activator.CreateInstance(spec.Type);
-            native.GetMethod("memcpyInOut").Invoke(null, [inOut, (IntPtr)expected, (nuint)size]);
-            Check.That(SameStruct(spec, value, inOut), $"[In, Out] class came back as {Describe(spec, inOut)}, expected {Describe(spec, value)}: {what}");
-            // Arrays of layout classes: one native layout per element, in and out.
+
+            // Arrays of layout classes as [In]: one native layout per element.
             const int Count = 3;
             Array array = Array.CreateInstance(t, Count);
             for (int i = 0; i < Count; i++)
@@ -838,12 +830,30 @@ public static unsafe class StructLayoutTarget
                 CompareFields(spec, expected, dst3 + i * size, $"memcpy(byte*, [In] class[], n) element {i}", what);
             }
 
-            Array outArray = Array.CreateInstance(t, Count);
-            native.GetMethod("memcpyArrayOut").Invoke(null, [outArray, (IntPtr)dst3, (nuint)(size * Count)]);
-            for (int i = 0; i < Count; i++)
+            // The [Out] / [In, Out] directions have the callee "produce" the native data, which the marshaller then
+            // owns and frees. We can only supply callee-owned data safely when the class has no reference / pointer
+            // fields (feeding a reference field a pointer that `expected` also owns would double-free it, which is a
+            // harness aliasing bug, not a runtime one). So restrict those to blittable-only layout classes.
+            if (!spec.ContainsReferences && !spec.AnyPointer)
             {
-                Check.That(outArray.GetValue(i) is object element && SameStruct(spec, value, element), $"[Out] class[] element {i} came back as {Describe(spec, outArray.GetValue(i))}: {what}");
+                object fresh = Activator.CreateInstance(spec.Type);
+                native.GetMethod("memcpyOut").Invoke(null, [fresh, (IntPtr)expected, (nuint)size]);
+                Check.That(SameStruct(spec, value, fresh), $"[Out] class came back as {Describe(spec, fresh)}, expected {Describe(spec, value)}: {what}");
+                object inOut = Activator.CreateInstance(spec.Type);
+                native.GetMethod("memcpyInOut").Invoke(null, [inOut, (IntPtr)expected, (nuint)size]);
+                Check.That(SameStruct(spec, value, inOut), $"[In, Out] class came back as {Describe(spec, inOut)}, expected {Describe(spec, value)}: {what}");
+                Array outArray = Array.CreateInstance(t, Count);
+                native.GetMethod("memcpyArrayOut").Invoke(null, [outArray, (IntPtr)dst3, (nuint)(size * Count)]);
+                for (int i = 0; i < Count; i++)
+                {
+                    Check.That(outArray.GetValue(i) is object element && SameStruct(spec, value, element), $"[Out] class[] element {i} came back as {Describe(spec, outArray.GetValue(i))}: {what}");
+                }
             }
+        }
+        catch (TargetInvocationException e) when (Allowed(e.InnerException))
+        {
+            // An emitted stub rejected the type (e.g. a non-blittable field the layout-class marshaller
+            // won't handle): the reflection Invoke wraps the documented exception.
         }
         finally
         {

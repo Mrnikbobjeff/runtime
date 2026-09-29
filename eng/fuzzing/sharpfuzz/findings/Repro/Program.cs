@@ -250,6 +250,13 @@ var checks = new (string Id, string Title, Func<(bool, string)> Check)[]
         finally { Marshal.FreeHGlobal(p); }
     }),
 
+    ("RSA-IMPORT-1", "RSA.ImportParameters with an empty (non-null) Modulus or Exponent throws IndexOutOfRangeException instead of CryptographicException (ECDsa / DSA reject the same input cleanly)", () =>
+    {
+        try { using var rsa = System.Security.Cryptography.RSA.Create(); rsa.ImportParameters(new System.Security.Cryptography.RSAParameters { Modulus = [], Exponent = [] }); return (false, "ImportParameters accepted empty components"); }
+        catch (System.Security.Cryptography.CryptographicException) { return (false, "CryptographicException (clean)"); }
+        catch (IndexOutOfRangeException) { return (true, "IndexOutOfRangeException from RSA.ImportParameters with empty Modulus/Exponent"); }
+    }),
+
     ("SOCKADDR-SCOPE-1", "IPEndPoint.Create drops sin6_scope_id unless the address is link-local, while Serialize keeps it", () =>
     {
         var loopback = new IPEndPoint(new IPAddress(new byte[16] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, 3), 80);

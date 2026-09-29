@@ -1198,6 +1198,7 @@ final harness with the known issues below suppressed.
 | [LAYOUT-ALIAS-1](#layout-alias-1) | `Marshal.StructureToPtr` / `DestroyStructure` | Two reference fields at one explicit offset share a slot: the object is marshalled once per field into the same bytes and released once per field, which aborts the process | Low | .NET 8, 9, 10, 11 |
 | [SOCKADDR-SCOPE-1](#sockaddr-scope-1) | `IPEndPoint.Create(SocketAddress)` | `sin6_scope_id` is dropped unless the address is link-local, while `Serialize` keeps it | Low | .NET 8, 9, 10, 11 |
 | [FSNAME-1](#fsname-1) | Directory enumeration with `MatchType.Win32` (Unix) | `<`, `>` and `"` in the search pattern are literals for the enumeration but DOS wildcards for `FileSystemName.MatchesWin32Expression`, and `.` is `*` only for the enumeration, so the public matcher can't reproduce the enumeration's decisions | Informational | .NET 8, 9, 10, 11 |
+| [RSA-IMPORT-1](#rsa-import-1) | `RSA.ImportParameters` | An empty (non-null) `Modulus` or `Exponent` throws `IndexOutOfRangeException`, where ECDsa / DSA reject the same degenerate input with `CryptographicException` | Low–Medium | .NET 8, 9, 10, 11 |
 | [COLLATION-1](#collation-1) | `CompareInfo` search methods (ICU) | For values made of combining marks, `IndexOf` / `LastIndexOf` / `IsPrefix` / `IsSuffix` disagree with each other and with `Compare` | Informational | .NET 8, 9, 10, 11 |
 | [ROUND5-MISC](#round5-misc) | various | See the list at the end of this section | Informational | |
 
@@ -1341,6 +1342,26 @@ contain those characters (Unix) are affected; the documentation of `MatchesWin32
 presents it as the enumeration's matcher. The same normalization also turns the patterns `.`
 and `*.*` into `*` (`Directory.EnumerateFiles(dir, ".")` lists everything), which the matcher doesn't.
 Found by the `fsenum` target.
+
+### RSA-IMPORT-1
+
+**`RSA.ImportParameters` with an empty (but non-null) `Modulus` or `Exponent` throws
+`IndexOutOfRangeException`.** A zero-length `byte[]` component reaches an unguarded index in the
+key-blob writer / importer, so the exception that escapes is a raw `IndexOutOfRangeException`
+instead of the `CryptographicException` the family documents for bad key material:
+
+```
+using var rsa = RSA.Create();
+rsa.ImportParameters(new RSAParameters { Modulus = [], Exponent = [] }); // IndexOutOfRangeException
+```
+
+`ECDsa` and `DSA` reject the same degenerate parameters (empty `Q.X` / `Q.Y`, empty `P` / `Q` / `G` /
+`Y`) with a clean `CryptographicException` or `ArgumentException`, and `RSA` with a `null` `Modulus`
+throws `CryptographicException`, so a zero-length RSA component is the outlier. The fuzzer also reached
+the same `IndexOutOfRangeException` through `KeyBlobHelpers.WriteKeyParameterInteger` when re-exporting
+some degenerate-but-accepted RSA parameters. A caller importing untrusted `RSAParameters` (for example
+from a malformed JWK or key file) gets an exception its `catch (CryptographicException)` does not cover.
+Same on 8.0.31, 9.0.20, 10.0.12 and 11.0 RC1. Found by the `unsafecrypto` target.
 
 ### COLLATION-1
 

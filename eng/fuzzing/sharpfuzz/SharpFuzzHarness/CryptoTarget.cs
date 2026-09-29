@@ -80,7 +80,13 @@ public static unsafe class CryptoTarget
         return chunks;
     }
 
-    private static bool Allowed(Exception e) => e is CryptographicException or ArgumentException or PlatformNotSupportedException or NotSupportedException;
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
+    // RSA-IMPORT-1: RSA.ImportParameters with an empty (non-null) Modulus / Exponent, and re-export of some
+    // degenerate-but-accepted RSA parameters, throw IndexOutOfRangeException instead of CryptographicException
+    // (8.0-11.0). Suppressed so it doesn't drown the campaign; SHARPFUZZ_REPORT_KNOWN_ISSUES=1 re-enables it.
+    private static bool Allowed(Exception e) => e is CryptographicException or ArgumentException or PlatformNotSupportedException or NotSupportedException
+        || (!s_reportKnownIssues && e is IndexOutOfRangeException);
 
     // ------------------------------------------------------------ hashes and HMACs
 
