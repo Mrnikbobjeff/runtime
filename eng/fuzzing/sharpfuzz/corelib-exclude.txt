@@ -4,8 +4,37 @@
 Internal.
 Interop
 Microsoft.Win32.
-System.Runtime.
-System.StubHelpers.
+# System.Runtime: the compiler-services / intrinsics / loader plumbing stays out, but the interop
+# layer (System.Runtime.InteropServices.Marshalling, SafeBuffer, CollectionsMarshal, ComVariant,
+# NativeLibrary, and the System.StubHelpers marshalers behind DllImport stubs and
+# Marshal.StructureToPtr) is instrumented since round 5. Marshal, NativeMemory, GCHandle,
+# MemoryMarshal and the handle types are used by the trace's own setup and by every span, so they
+# stay excluded.
+System.Runtime.CompilerServices.
+System.Runtime.Intrinsics.
+System.Runtime.Loader.
+System.Runtime.ExceptionServices.
+System.Runtime.Versioning.
+System.Runtime.ConstrainedExecution.
+System.Runtime.Serialization.
+System.Runtime.Remoting.
+System.Runtime.DependentHandle
+System.Runtime.GCSettings
+System.Runtime.JitInfo
+System.Runtime.MemoryFailPoint
+System.Runtime.ControlledExecution
+System.Runtime.AmbiguousImplementationException
+System.Runtime.InteropServices.GCHandle
+System.Runtime.InteropServices.PinnedGCHandle
+System.Runtime.InteropServices.WeakGCHandle
+System.Runtime.InteropServices.MemoryMarshal
+System.Runtime.InteropServices.NativeMemory
+System.Runtime.InteropServices.SafeHandle
+System.Runtime.InteropServices.CriticalHandle
+System.Runtime.InteropServices.ComWrappers
+System.Runtime.InteropServices.ObjectiveC
+System.Runtime.InteropServices.Swift
+=System.Runtime.InteropServices.Marshal
 System.Threading.
 System.Diagnostics.Tracing.
 System.Diagnostics.StackTrace

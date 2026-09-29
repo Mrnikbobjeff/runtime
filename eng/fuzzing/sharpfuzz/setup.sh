@@ -21,7 +21,7 @@ TARGET_ASSEMBLIES=(System.Text.RegularExpressions System.Text.Json System.Text.E
     System.Net.ServerSentEvents System.Data.Common System.Diagnostics.DiagnosticSource System.Net.Mail
     System.Text.Encoding.CodePages System.Memory System.Net.Primitives System.Web.HttpUtility System.Linq.AsyncEnumerable
     System.Private.Xml System.Private.DataContractSerialization System.Security.Cryptography
-    System.Threading.Channels)
+    System.Threading.Channels System.Net.Sockets System.IO.MemoryMappedFiles System.IO.Pipes)
 NUGET="https://api.nuget.org/v3-flatcontainer"
 
 mkdir -p "$WORK"
@@ -88,7 +88,8 @@ done
 # System.Private.CoreLib: SharpFuzz requires an explicit type list for CoreLib, so instrument
 # every top-level type except the runtime-infrastructure prefixes in corelib-exclude.txt
 # (those recurse during startup). The exclusions are also passed as SharpFuzz "-prefix"
-# arguments so nested types and look-alike names stay excluded. Re-instruments whenever
+# arguments so nested types and look-alike names stay excluded; "=Type" lines exclude one
+# type by exact name (and its nested types are not listed either). Re-instruments whenever
 # corelib-exclude.txt changes. INSTRUMENT_CORELIB=0 keeps the stock CoreLib.
 if [ "${INSTRUMENT_CORELIB:-1}" != 0 ]; then
     # Bump the recipe version when the instrumentation steps change.
@@ -105,10 +106,12 @@ if [ "${INSTRUMENT_CORELIB:-1}" != 0 ]; then
         dotnet "$WORK/stripr2r/StripR2R.dll" --list-types "$WORK/instrumented/System.Private.CoreLib.dll" \
             | awk -v list="$(printf '%s\n' "${excludes[@]}")" '
                 BEGIN { n = split(tolower(list), ex, "\n") }
-                { t = tolower($0); for (i = 1; i <= n; i++) if (ex[i] != "" && index(t, ex[i]) == 1) next; print }' \
+                { t = tolower($0); for (i = 1; i <= n; i++) { e = ex[i]; if (e == "") continue; if (substr(e, 1, 1) == "=") { if (t == substr(e, 2)) next } else if (index(t, e) == 1) next } print }' \
             > "$WORK/instrumented/corelib-types.txt"
         echo "$(wc -l < "$WORK/instrumented/corelib-types.txt") CoreLib types selected for instrumentation"
-        exclude_arg="-$(IFS=,; echo "${excludes[*]}")"
+        # Exact-match entries ("=Type") only filter the list above; the prefixes also go to sharpfuzz.
+        mapfile -t prefixes < <(printf '%s\n' "${excludes[@]}" | grep -v '^=')
+        exclude_arg="-$(IFS=,; echo "${prefixes[*]}")"
         "$WORK/tools/sharpfuzz" "$WORK/instrumented/System.Private.CoreLib.dll" \
             "$(paste -sd, "$WORK/instrumented/corelib-types.txt")" "$exclude_arg"
         dotnet "$WORK/stripr2r/StripR2R.dll" --thread-static-trace "$WORK/instrumented/System.Private.CoreLib.dll"

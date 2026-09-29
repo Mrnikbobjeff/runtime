@@ -73,6 +73,18 @@ public static class Program
         ["httpheaders"] = HttpHeadersTarget.Run,
         ["dcjson"] = DcJsonTarget.Run,
         ["pipelines"] = PipelinesTarget.Run,
+        // Round 5: the managed / native boundary (guarded native memory where the runtime writes into it)
+        ["structlayout"] = StructLayoutTarget.Run,
+        ["abi"] = AbiTarget.Run,
+        ["pinvoke"] = PInvokeTarget.Run,
+        ["marshallers"] = MarshallersTarget.Run,
+        ["nativemem"] = NativeMemTarget.Run,
+        ["fileio"] = FileIoTarget.Run,
+        ["sockets"] = SocketsTarget.Run,
+        ["mmap"] = MmapTarget.Run,
+        ["globalization"] = GlobalizationTarget.Run, // needs the InvariantGlobalization=false build (harness-icu)
+        ["pipes"] = PipesTarget.Run,
+        ["fsenum"] = FsEnumTarget.Run,
     };
 
     public static int Main(string[] args)

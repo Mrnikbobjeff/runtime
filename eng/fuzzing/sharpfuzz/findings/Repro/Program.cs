@@ -1,5 +1,9 @@
+using System.Net;
+using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
+using Microsoft.Win32.SafeHandles;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -210,6 +214,115 @@ var checks = new (string Id, string Title, Func<(bool, string)> Check)[]
         string full = R(x);
         return (full == "OverflowException", $"int[32]: {full}; same values as int[31]: {R(shorter)} (Vector<int>.Count = {System.Numerics.Vector<int>.Count}, accelerated = {System.Numerics.Vector.IsHardwareAccelerated})");
     }),
+    // Round 5: the managed / native boundary (Linux where noted).
+    ("MARSHAL-CHARARR-1", "ANSI char[] P/Invoke parameters are converted as one UTF-8 string: [Out] elements shift and the tail is left stale, [In] non-ASCII chars overflow the byte-per-char buffer (Unix)", () =>
+    {
+        if (!OperatingSystem.IsLinux()) return (false, "Linux only");
+        byte[] src = [0x41, 0xC3, 0xA9, 0x42, 0xFF, 0x43, 0xE2, 0x82];
+        char[] outArray = "ABCDEFGH".ToCharArray();
+        Native.memcpy_chars_inout(outArray, src, (nuint)src.Length);
+        string got = string.Join(" ", outArray.Select(c => ((int)c).ToString("X4")));
+        string inResult;
+        IntPtr buffer = Marshal.AllocHGlobal(8);
+        try
+        {
+            for (int i = 0; i < 8; i++) Marshal.WriteByte(buffer, i, 0xCC);
+            try { Native.memcpy_chars_in(buffer, ['\u00e9', 'x', '\u20ac', 'y'], 4); inResult = "native " + Convert.ToHexString(Enumerable.Range(0, 4).Select(i => Marshal.ReadByte(buffer, i)).ToArray()) + " ('y' lost, '\u20ac' cut)"; }
+            catch (Exception e) { inResult = e.GetType().Name; }
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+        return (outArray[3] != 'B' || outArray[7] == 'H', $"[In, Out] char[8] after memcpy of 41 C3 A9 42 FF 43 E2 82 -> [{got}] (5 or 6 decoded chars, rest stale); [In] char[4] of \"\u00e9x\u20acy\" -> {inResult}");
+    }),
+
+    ("SOCKADDR-SCOPE-1", "IPEndPoint.Create drops sin6_scope_id unless the address is link-local, while Serialize keeps it", () =>
+    {
+        var loopback = new IPEndPoint(new IPAddress(new byte[16] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, 3), 80);
+        SocketAddress sa = loopback.Serialize();
+        long back = ((IPEndPoint)loopback.Create(sa)).Address.ScopeId;
+        var linkLocal = new IPEndPoint(IPAddress.Parse("fe80::1%3"), 80);
+        long backLinkLocal = ((IPEndPoint)linkLocal.Create(linkLocal.Serialize())).Address.ScopeId;
+        return (back != 3, $"[::1%3]:80 -> Serialize (scope bytes {sa[24]} {sa[25]} {sa[26]} {sa[27]}) -> Create: ScopeId {back}; [fe80::1%3]:80 round-trips to {backLinkLocal}");
+    }),
+
+    ("RA-IOV-1", "RandomAccess.Read with more than IOV_MAX (1024) buffers returns a short read although the data is there; Write handles any count", () =>
+    {
+        string path = Path.Combine(Path.GetTempPath(), "sharpfuzz-ra-iov-" + Environment.ProcessId);
+        try
+        {
+            using SafeFileHandle h = File.OpenHandle(path, FileMode.Create, FileAccess.ReadWrite, FileShare.None, FileOptions.DeleteOnClose);
+            RandomAccess.Write(h, new byte[1500], 0);
+            var segments = new List<Memory<byte>>();
+            for (int i = 0; i < 1500; i++) segments.Add(new byte[1]);
+            long read = RandomAccess.Read(h, segments, 0);
+            var sources = new List<ReadOnlyMemory<byte>>();
+            for (int i = 0; i < 1500; i++) sources.Add(new byte[1]);
+            RandomAccess.Write(h, sources, 2000);
+            return (read != 1500, $"Read into 1500 one-byte buffers of a 1500-byte file returned {read}; Write of 1500 one-byte buffers at 2000 made the file {RandomAccess.GetLength(h)} bytes");
+        }
+        finally { File.Delete(path); }
+    }),
+
+    ("FS-ISASYNC-1", "FileStream.IsAsync / SafeFileHandle.IsAsync are false for FileOptions.Asynchronous on Linux (true on .NET 8, 9 and 10)", () =>
+    {
+        if (!OperatingSystem.IsLinux()) return (false, "Linux only");
+        string path = Path.Combine(Path.GetTempPath(), "sharpfuzz-isasync-" + Environment.ProcessId);
+        using var fs = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.Asynchronous | FileOptions.DeleteOnClose);
+        return (!fs.IsAsync, $"FileStream.IsAsync = {fs.IsAsync}, SafeFileHandle.IsAsync = {fs.SafeFileHandle.IsAsync}");
+    }),
+
+    ("LAYOUT-ALIAS-1", "Two LPStr fields at one explicit offset: StructureToPtr marshals the shared string twice and DestroyStructure frees it twice (process abort; checked here without freeing)", () =>
+    {
+        // The double free itself would abort this process, so only the duplicated pointer is shown.
+        var value = new Aliased { A = "hello" };
+        IntPtr p = Marshal.AllocHGlobal(16);
+        try
+        {
+            Marshal.StructureToPtr(value, p, false);
+            IntPtr first = Marshal.ReadIntPtr(p);
+            // Marshal.DestroyStructure<Aliased>(p) here frees that pointer once per field and aborts the process
+            // ("free(): double free detected in tcache 2" on glibc), so it is left out; the leak is freed by hand.
+            Marshal.FreeCoTaskMem(first);
+            return (true, $"A and B share the slot ({value.B}); StructureToPtr marshalled the string once per field into the same 8 bytes (last pointer {first:X}, the first copy leaked); DestroyStructure would free it twice");
+        }
+        finally { Marshal.FreeHGlobal(p); }
+    }),
+    ("FS-STALE-1", "FileStream: after a buffered WriteAsync, a Seek that lands within the previous read buffer's window serves the write payload instead of the file (sync Write is fine)", () =>
+    {
+        string path = Path.Combine(Path.GetTempPath(), "sharpfuzz-fs-stale-" + Environment.ProcessId);
+        try
+        {
+            using var fs = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.None, 4096, FileOptions.DeleteOnClose);
+            fs.Write(new byte[47]);                                   // file: 47 zeros
+            fs.Seek(0, SeekOrigin.Begin);
+            fs.Read(new byte[363]);                                   // 47 bytes: the read buffer is filled and fully consumed
+            byte[] payload = Enumerable.Range(2, 166).Select(i => (byte)i).ToArray();
+            fs.WriteAsync(payload).AsTask().GetAwaiter().GetResult(); // buffered write at 47 (file: 213 bytes)
+            fs.Seek(228, SeekOrigin.Begin);                           // flushes the write, seeks past the end
+            fs.Seek(-12, SeekOrigin.End);                             // 201, judged to be inside the stale read window
+            byte[] read = new byte[439];
+            int n = fs.Read(read);
+            byte[] expected = payload.AsSpan(154, 12).ToArray();      // file[201..213)
+            return (n != 12 || !read.AsSpan(0, n).SequenceEqual(expected),
+                $"Read at 201 of a 213-byte file returned {n} bytes {Convert.ToHexString(read.AsSpan(0, Math.Min(n, 27)))} (expected 12: {Convert.ToHexString(expected)}), Position {fs.Position}, Length {fs.Length}");
+        }
+        finally { File.Delete(path); }
+    }),
+
+    ("FSNAME-1", "Directory enumeration with MatchType.Win32 treats '<', '>' and '\"' in the pattern as literals, FileSystemName.MatchesWin32Expression as DOS wildcards (Unix)", () =>
+    {
+        if (OperatingSystem.IsWindows()) return (false, "Unix only: those characters can't appear in Windows file names");
+        string dir = Path.Combine(Path.GetTempPath(), "sharpfuzz-fsname-" + Environment.ProcessId);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "l1"), "");
+            string translated = System.IO.Enumeration.FileSystemName.TranslateWin32Expression("<l*");
+            bool matcher = System.IO.Enumeration.FileSystemName.MatchesWin32Expression(translated, "l1", ignoreCase: true);
+            bool enumerated = Directory.EnumerateFiles(dir, "<l*", new EnumerationOptions { MatchType = MatchType.Win32, MatchCasing = MatchCasing.CaseInsensitive }).Any();
+            return (matcher != enumerated, $"pattern \"<l*\" (TranslateWin32Expression: \"{translated}\") on \"l1\": MatchesWin32Expression {matcher}, enumeration {enumerated}");
+        }
+        finally { Directory.Delete(dir, true); }
+    }),
 };
 
 Console.WriteLine(System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
@@ -244,5 +357,21 @@ partial class Program
         using JsonDocument a = JsonDocument.Parse(left), b = JsonDocument.Parse(right);
         try { return (bool)DeepEquals!.Invoke(null, [a.RootElement, b.RootElement])!; }
         catch (TargetInvocationException e) { throw e.InnerException!; }
+    }
+}
+
+partial class Program
+{
+    [StructLayout(LayoutKind.Explicit)]
+    struct Aliased
+    {
+        [FieldOffset(0)] [MarshalAs(UnmanagedType.LPStr)] public string A;
+        [FieldOffset(0)] [MarshalAs(UnmanagedType.LPStr)] public string B;
+    }
+
+    static class Native
+    {
+        [DllImport("libc", EntryPoint = "memcpy", CharSet = CharSet.Ansi)] public static extern IntPtr memcpy_chars_inout([In, Out] char[] dst, byte[] src, nuint n);
+        [DllImport("libc", EntryPoint = "memcpy", CharSet = CharSet.Ansi)] public static extern IntPtr memcpy_chars_in(IntPtr dst, [In] char[] src, nuint n);
     }
 }
