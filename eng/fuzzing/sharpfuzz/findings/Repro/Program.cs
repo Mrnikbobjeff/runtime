@@ -242,7 +242,7 @@ var checks = new (string Id, string Title, Func<(bool, string)> Check)[]
         IntPtr p = Marshal.AllocHGlobal(size);
         try
         {
-            new Span<byte>((void*)p, size).Fill(0);
+            Marshal.Copy(new byte[size], 0, p, size);
             Marshal.StructureToPtr(new AliasArray { A = ["a", "b", "c", "d"], S = "x" }, p, false);
             IntPtr slot1 = Marshal.ReadIntPtr(p, 8); // A[1] and S occupy the same native pointer slot
             return (true, $"SizeOf={size}, type loaded OK; A[1] and S share the native pointer at offset 8 ({slot1:X}); DestroyStructure would free it once per field (glibc 'double free detected')");
