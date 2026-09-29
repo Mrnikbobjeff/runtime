@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Minimal, uninstrumented reproductions of every finding in ../../FINDINGS.md.
+    Builds for net8.0 and rolls forward, so it can be run on any .NET 8+ runtime, e.g.
+      dotnet run -c Release
+      DOTNET_ROLL_FORWARD=LatestMajor DOTNET_ROLL_FORWARD_TO_PRERELEASE=1 dotnet bin/Release/net8.0/Repro.dll
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseAppHost>false</UseAppHost>
+    <RollForward>LatestMajor</RollForward>
+  </PropertyGroup>
+
+</Project>
