@@ -11,6 +11,8 @@ dotnet run 03-Tensor-ToString-OutOfBoundsRead.cs
 
 Each repro prints what it observed next to what was expected and ends with `REPRODUCED` or `NOT REPRODUCED`. The ones that need a NuGet package pin the 11.0 RC1 version with `#:package`, so they show the bug in shipped bits. This folder has its own `global.json`, `NuGet.config` and empty `Directory.Build.*` files so the repros don't pick up the runtime repo's build setup.
 
+This branch also has a separate AFL++ campaign against System.Text.RegularExpressions and System.Text.Json on the shipped 11.0 RC1 binaries (findings REGEX-1 to REGEX-6 and JSON-1 to JSON-3). Its report and harness are in [eng/fuzzing/sharpfuzz](../../../../eng/fuzzing/sharpfuzz/FINDINGS.md), and they don't overlap with the findings below.
+
 Findings 48 to 54 are in the ICU-based globalization code, so their repros only show the bug on Linux and macOS. On Windows, .NET uses NLS and the repros say so.
 
 ## Summary
