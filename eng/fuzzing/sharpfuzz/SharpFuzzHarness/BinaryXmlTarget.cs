@@ -1,0 +1,227 @@
+#nullable disable warnings
+using System.Text;
+using System.Xml;
+
+namespace SharpFuzzHarness;
+
+/// <summary>
+/// Fuzzes XmlDictionaryReader (System.Private.DataContractSerialization): the WCF binary XML reader /
+/// writer and the UTF-8 text reader, which is a separate XML parser from System.Private.Xml's.
+/// </summary>
+/// <remarks>
+/// Input layout:
+///   byte 0     0x01: the rest is UTF-8 text XML, otherwise binary XML
+///   rest       the document
+/// Checks: only XmlException (and quota exceptions) are thrown; a binary document copied through
+/// XmlDictionaryWriter.CreateBinaryWriter (WriteNode) reads back as the same nodes, and so does one
+/// copied to text and read with the text reader; for text XML both XmlDictionaryReader.CreateTextReader
+/// and XmlReader.Create accept it or reject it, and see the same nodes.
+/// </remarks>
+public static class BinaryXmlTarget
+{
+    private static readonly XmlDictionary s_dictionary = CreateDictionary();
+
+    private static XmlDictionary CreateDictionary()
+    {
+        var d = new XmlDictionary();
+        foreach (string s in (string[])["Envelope", "http://www.w3.org/2003/05/soap-envelope", "Header", "Body", "a", "b", "xmlns", "i", "http://www.w3.org/2001/XMLSchema-instance", "type", "nil", "Value"])
+        {
+            d.Add(s);
+        }
+
+        return d;
+    }
+
+    private static readonly bool s_reportKnownIssues = Environment.GetEnvironmentVariable("SHARPFUZZ_REPORT_KNOWN_ISSUES") is not null;
+
+    private static XmlDictionaryReaderQuotas Quotas => new() { MaxDepth = 64, MaxStringContentLength = 65536, MaxArrayLength = 65536, MaxBytesPerRead = 65536, MaxNameTableCharCount = 65536 };
+
+    // Known (BINXML-ENC-1): CreateTextReader's EncodingStreamWrapper indexes past the end of short input: an
+    // unterminated XML declaration encoding (<?xml version='1.0' encoding='utf-8) or a BOM followed by one
+    // character (EF BB BF 71) throws IndexOutOfRangeException.
+    private static bool Allowed(Exception e) => e is XmlException or DecoderFallbackException or InvalidDataException ||
+        e is InvalidOperationException && e.Message.Contains("quota", StringComparison.OrdinalIgnoreCase) ||
+        !s_reportKnownIssues && e is IndexOutOfRangeException && e.StackTrace?.Contains("EncodingStreamWrapper", StringComparison.Ordinal) == true ||
+        // Known (BINXML-SORT-1): invalid UTF-8 in an attribute prefix throws DecoderFallbackException inside the
+        // duplicate-attribute sort, which Array.Sort wraps in InvalidOperationException.
+        !s_reportKnownIssues && e is InvalidOperationException && e.InnerException is XmlException or DecoderFallbackException ||
+        // Known (BINXML-LIST-1): Value of a list-valued text record whose items can't be converted throws
+        // InvalidOperationException from ValueHandle.ToObject.
+        !s_reportKnownIssues && e is InvalidOperationException && e.StackTrace?.Contains("ValueHandle.ToObject", StringComparison.Ordinal) == true;
+
+    public static void Run(ReadOnlySpan<byte> data)
+    {
+        var input = new FuzzInput(data);
+        byte mode = input.Byte();
+        byte[] bytes = input.Rest().ToArray();
+        string what = $"{((mode & 1) != 0 ? "text" : "binary")} XML 0x{Convert.ToHexString(bytes.AsSpan(0, Math.Min(bytes.Length, 64)))}{(bytes.Length > 64 ? "..." : "")}";
+        if ((mode & 1) != 0)
+        {
+            Text(bytes, what);
+        }
+        else
+        {
+            Binary(bytes, what);
+        }
+    }
+
+    private static void Binary(byte[] bytes, string what)
+    {
+        var nodes = Outcome<List<string>>.Of(() => Nodes(XmlDictionaryReader.CreateBinaryReader(bytes, 0, bytes.Length, s_dictionary, Quotas)), Allowed);
+        if (!nodes.Ok)
+        {
+            return;
+        }
+
+        // Copy through the binary writer and read back.
+        var ms = new MemoryStream();
+        using (XmlDictionaryWriter writer = XmlDictionaryWriter.CreateBinaryWriter(ms, s_dictionary, null, ownsStream: false))
+        {
+            using XmlDictionaryReader reader = XmlDictionaryReader.CreateBinaryReader(bytes, 0, bytes.Length, s_dictionary, Quotas);
+            var copied = Outcome<bool>.Of(() => { writer.WriteNode(reader, defattr: true); return true; }, e => Allowed(e) || e is ArgumentException or InvalidOperationException);
+            if (!copied.Ok)
+            {
+                return; // e.g. content the writer refuses (invalid surrogates in names)
+            }
+        }
+
+        byte[] rewritten = ms.ToArray();
+        var again = Outcome<List<string>>.Of(() => Nodes(XmlDictionaryReader.CreateBinaryReader(rewritten, 0, rewritten.Length, s_dictionary, Quotas)), Allowed);
+        // Known (BINXML-DT-1): copying a DateTime record through the binary writer drops its Kind
+        // ("...Z" / "+hh:mm" becomes unspecified).
+        // Empty text records ("") produce no node once copied, a bytes record may be split into several
+        // (their base64 concatenates to the same text), and redundant namespace declarations aren't written
+        // again (the element and attribute namespaces, which are compared, carry the meaning).
+        static List<string> Kinds(List<string> list) => s_reportKnownIssues ? list :
+            // Known (BINXML-ARRAY-1): WriteNode drops comments that follow an array record, so comments
+            // aren't compared.
+            Normalize(list.Where(t => t is not "Text:||=\"\"" && !t.StartsWith("Comment:", StringComparison.Ordinal)).Select(Base64ToHex).Select(t => System.Text.RegularExpressions.Regex.Replace(t, @",?[^,\[]*\|http://www\.w3\.org/2000/xmlns/=""[^""]*""", "")).ToList()).Select(t => System.Text.RegularExpressions.Regex.Replace(t, @"(\d{4}-\d\d-\d\dT[\d:.]+)(Z|[+-]\d\d:\d\d)", "$1")).ToList();
+        Check.That(again.Ok, $"binary copy doesn't read back ({again}): {what}");
+        List<string> copy = Kinds(again.Value), original = Kinds(nodes.Value);
+        if (!copy.SequenceEqual(original))
+        {
+            int i = 0;
+            // Known (BINXML-NUM-1, informational): typed numeric records don't always survive the copy
+            // exactly (-0 becomes 0; decimals with an out-of-range scale are formatted differently).
+            if (!s_reportKnownIssues && copy.Count == original.Count && copy.Zip(original).All(p => p.First == p.Second || IsNumericText(p.First) && IsNumericText(p.Second) ||
+                p.First.Contains(new string('0', 30), StringComparison.Ordinal) || p.Second.Contains(new string('0', 30), StringComparison.Ordinal) ||
+                IsBase64Text(p.First) && IsBase64Text(p.Second)))
+            {
+                return;
+            }
+
+            while (i < copy.Count && i < original.Count && copy[i] == original[i])
+            {
+                i++;
+            }
+
+            Check.That(false, $"binary copy differs at node {i}: {(i < copy.Count ? Short(copy[i]) : "(end)")} vs original {(i < original.Count ? Short(original[i]) : "(end)")}; copy 0x{Convert.ToHexString(rewritten.AsSpan(0, Math.Min(rewritten.Length, 64)))}: {what}");
+        }
+    }
+
+    private static void Text(byte[] bytes, string what)
+    {
+        var dc = Outcome<List<string>>.Of(() => Normalize(Nodes(XmlDictionaryReader.CreateTextReader(bytes, Quotas))), Allowed);
+        var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 1 << 20 };
+        var xml = Outcome<List<string>>.Of(() => Normalize(Nodes(XmlReader.Create(new MemoryStream(bytes), settings))), Allowed);
+        if (dc.Ok && xml.Ok)
+        {
+            Check.That(dc.Value.SequenceEqual(xml.Value), $"XmlDictionaryReader.CreateTextReader reads [{Short(string.Join(" ", dc.Value))}], XmlReader reads [{Short(string.Join(" ", xml.Value))}]: {what}");
+        }
+    }
+
+    private static string Short(string t) => t.Length > 600 ? t[..600] + "..." : t;
+
+    /// <summary>Text that is base64 (bytes records) as hex of the bytes, so re-chunked records compare equal once merged.</summary>
+    private static string Base64ToHex(string token)
+    {
+        if (!token.StartsWith("Text:||=\"", StringComparison.Ordinal) || token.Length < 14 || (token.Length - 10) % 4 != 0)
+        {
+            return token;
+        }
+
+        byte[] buffer = new byte[token.Length];
+        return Convert.TryFromBase64Chars(token.AsSpan(9, token.Length - 10), buffer, out int n)
+            ? "Text:||=\"" + Convert.ToHexString(buffer, 0, n) + "\"" : token;
+    }
+
+    // Bytes records re-chunked by the copy: both sides are base64 (or its hex form) of the same bytes.
+    private static bool IsBase64Text(string token) =>
+        token.StartsWith("Text:||=\"", StringComparison.Ordinal) && token.AsSpan(9, token.Length - 10).IndexOfAnyExcept("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") < 0;
+
+    private static bool IsNumericText(string token) =>
+        token.StartsWith("Text:||=\"", StringComparison.Ordinal) && double.TryParse(token.AsSpan(9, token.Length - 10), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out _);
+
+    /// <summary>The nodes as tokens: kind, qualified name and namespace, value, and sorted attributes.</summary>
+    private static List<string> Nodes(XmlReader reader)
+    {
+        var nodes = new List<string>();
+        using (reader)
+        {
+            while (reader.Read() && nodes.Count < 5000)
+            {
+                var sb = new StringBuilder();
+                sb.Append(reader.NodeType).Append(':').Append(reader.Prefix).Append('|').Append(reader.LocalName).Append('|').Append(reader.NamespaceURI);
+                if (reader.NodeType is XmlNodeType.Text or XmlNodeType.CDATA or XmlNodeType.Whitespace or XmlNodeType.SignificantWhitespace or XmlNodeType.Comment or XmlNodeType.ProcessingInstruction)
+                {
+                    // In full: adjacent text is merged (and base64 decoded) before comparing.
+                    sb.Append('=').Append(Check.Escape(reader.Value, 1 << 20));
+                }
+
+                if (reader.NodeType == XmlNodeType.Element)
+                {
+                    sb.Append(reader.IsEmptyElement ? "/" : "");
+                    var attributes = new List<string>();
+                    while (reader.MoveToNextAttribute())
+                    {
+                        attributes.Add($"{reader.Prefix}|{reader.LocalName}|{reader.NamespaceURI}={Check.Show(reader.Value)}");
+                    }
+
+                    reader.MoveToElement();
+                    attributes.Sort(StringComparer.Ordinal);
+                    sb.Append('[').Append(string.Join(",", attributes)).Append(']');
+                }
+
+                nodes.Add(sb.ToString());
+            }
+        }
+
+        return nodes;
+    }
+
+    /// <summary>Makes the two text readers comparable: drops the XML declaration, turns CDATA into text and merges adjacent text.</summary>
+    private static List<string> Normalize(List<string> nodes)
+    {
+        var result = new List<string>();
+        foreach (string node in nodes)
+        {
+            if (node.StartsWith("XmlDeclaration:", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            string n = node.StartsWith("CDATA:", StringComparison.Ordinal) ? "Text:" + node["CDATA:".Length..] : node;
+            // The two readers split character data into text and whitespace nodes differently.
+            foreach (string ws in (string[])["Whitespace:", "SignificantWhitespace:"])
+            {
+                if (n.StartsWith(ws, StringComparison.Ordinal))
+                {
+                    n = "Text:" + n[ws.Length..];
+                }
+            }
+
+            // Adjacent text (or whitespace) nodes may be split differently by the two readers: merge them.
+            string kind = n[..(n.IndexOf(':') + 1)];
+            if (result.Count > 0 && kind is "Text:" or "Whitespace:" or "SignificantWhitespace:" && result[^1].StartsWith(kind, StringComparison.Ordinal))
+            {
+                string previous = result[^1];
+                result[^1] = previous[..^1] + n[(n.IndexOf("=\"", StringComparison.Ordinal) + 2)..];
+                continue;
+            }
+
+            result.Add(n);
+        }
+
+        return result;
+    }
+}

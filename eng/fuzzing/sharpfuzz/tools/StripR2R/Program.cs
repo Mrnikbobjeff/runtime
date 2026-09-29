@@ -19,9 +19,14 @@ if (args.Length == 2 && args[0] == "--list-types")
     return 0;
 }
 
+if (args.Length == 2 && args[0] == "--thread-static-trace")
+{
+    return MakePrevLocationThreadStatic(args[1]);
+}
+
 if (args.Length != 2)
 {
-    Console.Error.WriteLine("usage: StripR2R <input.dll> <output.dll> | StripR2R --list-types <assembly.dll>");
+    Console.Error.WriteLine("usage: StripR2R <input.dll> <output.dll> | StripR2R --list-types <assembly.dll> | StripR2R --thread-static-trace <instrumented System.Private.CoreLib.dll>");
     return 1;
 }
 
@@ -45,3 +50,37 @@ options.Cor20HeaderOptions.Flags &= ~ComImageFlags.StrongNameSigned;
 module.Write(args[1], options);
 Console.WriteLine($"{Path.GetFileName(args[0])}: machine={module.Machine} R2R={wasR2R} -> IL-only AnyCPU written to {args[1]}");
 return 0;
+
+// sharpfuzz embeds its own SharpFuzz.Common.Trace type in an instrumented CoreLib. Its
+// PrevLocation (the previous basic block, XOR-ed into each edge id) is one static shared by all
+// threads, so CoreLib code running on a background thread (SharpFuzz's parent-process watchdog,
+// the finalizer) produces edges mixed with the fuzzing thread's blocks: effectively random map
+// entries that wreck AFL's stability. With [ThreadStatic] each thread traces its own edges, so
+// background activity adds only a small, fixed set of edges.
+static int MakePrevLocationThreadStatic(string path)
+{
+    byte[] image = File.ReadAllBytes(path);
+    using var module = ModuleDefMD.Load(image);
+    TypeDef? trace = module.Types.FirstOrDefault(t => t.FullName == "SharpFuzz.Common.Trace");
+    FieldDef? prevLocation = trace?.Fields.FirstOrDefault(f => f.Name == "PrevLocation");
+    TypeDef? threadStatic = module.Find("System.ThreadStaticAttribute", isReflectionName: false);
+    if (prevLocation is null || threadStatic is null)
+    {
+        Console.Error.WriteLine($"{path}: no SharpFuzz.Common.Trace.PrevLocation / System.ThreadStaticAttribute found");
+        return 1;
+    }
+
+    if (prevLocation.CustomAttributes.Any(a => a.AttributeType == threadStatic))
+    {
+        Console.WriteLine($"{Path.GetFileName(path)}: Trace.PrevLocation is already [ThreadStatic]");
+        return 0;
+    }
+
+    MethodDef ctor = threadStatic.FindDefaultConstructor();
+    prevLocation.CustomAttributes.Add(new CustomAttribute(ctor));
+    var writerOptions = new ModuleWriterOptions(module);
+    writerOptions.MetadataOptions.Flags |= MetadataFlags.PreserveAll;
+    module.Write(path, writerOptions);
+    Console.WriteLine($"{Path.GetFileName(path)}: Trace.PrevLocation is now [ThreadStatic]");
+    return 0;
+}

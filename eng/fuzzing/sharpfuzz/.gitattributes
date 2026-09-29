@@ -1,0 +1,5 @@
+# Seed inputs are raw bytes: never convert line endings.
+seeds/** binary
+# AFL dictionaries and the WSL scripts need LF.
+dict/** text eol=lf
+*.sh text eol=lf
