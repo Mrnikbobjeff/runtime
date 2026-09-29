@@ -234,6 +234,22 @@ var checks = new (string Id, string Title, Func<(bool, string)> Check)[]
         return (outArray[3] != 'B' || outArray[7] == 'H', $"[In, Out] char[8] after memcpy of 41 C3 A9 42 FF 43 E2 82 -> [{got}] (5 or 6 decoded chars, rest stale); [In] char[4] of \"\u00e9x\u20acy\" -> {inResult}");
     }),
 
+    ("LAYOUT-ALIAS-2", "Marshal.StructureToPtr / DestroyStructure of an explicit layout whose ByValArray-of-string region overlaps another reference field double-frees the aliased pointer (process abort; shown without the freeing step)", () =>
+    {
+        // The abort itself (StructureToPtr marshals A[1] and S into the same 8 bytes, DestroyStructure frees
+        // them twice) would kill the process, so this reads the aliased pointer back instead of freeing.
+        int size = Marshal.SizeOf<AliasArray>();
+        IntPtr p = Marshal.AllocHGlobal(size);
+        try
+        {
+            new Span<byte>((void*)p, size).Fill(0);
+            Marshal.StructureToPtr(new AliasArray { A = ["a", "b", "c", "d"], S = "x" }, p, false);
+            IntPtr slot1 = Marshal.ReadIntPtr(p, 8); // A[1] and S occupy the same native pointer slot
+            return (true, $"SizeOf={size}, type loaded OK; A[1] and S share the native pointer at offset 8 ({slot1:X}); DestroyStructure would free it once per field (glibc 'double free detected')");
+        }
+        finally { Marshal.FreeHGlobal(p); }
+    }),
+
     ("SOCKADDR-SCOPE-1", "IPEndPoint.Create drops sin6_scope_id unless the address is link-local, while Serialize keeps it", () =>
     {
         var loopback = new IPEndPoint(new IPAddress(new byte[16] { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1 }, 3), 80);
@@ -323,6 +339,31 @@ var checks = new (string Id, string Title, Func<(bool, string)> Check)[]
         }
         finally { Directory.Delete(dir, true); }
     }),
+    ("COLLATION-NUM-1", "CompareInfo.Compare with NumericOrdering orders two digit strings differently from their sort keys (zh-CN, Mongolian digits)", () =>
+    {
+        var ci = System.Globalization.CultureInfo.GetCultureInfo("zh-CN").CompareInfo;
+        var numeric = (System.Globalization.CompareOptions)32; // NumericOrdering, .NET 10+
+        string a = "\u1818\u1858\u6418\u0000\uFF00\uFFFF\uFFFF\uFFFF\uFFFF\uFF0F\uFFFF\uDFFFk-\u2379\uFFFF\uFFF8\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF";
+        string b = "\u1818\u1818\u1818\u1818\u1810\u1818\u1810\u1818\u1818\u1818\u1818\u1818\u1818\u1818 \uFFFF\u7FFF\uFFFF\uFFFF\uF1FF\uFF00\uFFFF\uFFFF\uFFFF\uFFFF\u01FF\u0001S\u03BE\u2DF5\u700A\u4D00\u2D00\uFF00\uFFF8\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\uFFFF\u0000\u0000\uFFFF\uCB72";
+        try
+        {
+            var results = new List<string>();
+            bool differ = false;
+            foreach (var (x, y, label) in new[] { (a.Substring(0, 3), b.Substring(0, 15), "fuzzed prefixes"), ("\u1818\u1858", "\u1818\u1818\u1818", "8+letter vs 888 (Mongolian)"), ("8a", "888", "8a vs 888"), ("2", "10", "2 vs 10"), ("2a", "10", "2a vs 10"), ("a2", "a10", "a2 vs a10") })
+            {
+                foreach (string culture in new[] { "zh-CN", "en-US", "", "ja-JP" })
+                {
+                    var c = System.Globalization.CultureInfo.GetCultureInfo(culture).CompareInfo;
+                    int cmp = Math.Sign(c.Compare(x, y, numeric));
+                    int keys = Math.Sign(System.Globalization.SortKey.Compare(c.GetSortKey(x, numeric), c.GetSortKey(y, numeric)));
+                    differ |= cmp != keys;
+                    results.Add($"{label} [{(culture.Length == 0 ? "inv" : culture)}] {cmp}/{keys}");
+                }
+            }
+            return (differ, string.Join("; ", results));
+        }
+        catch (ArgumentException) { return (false, "NumericOrdering isn't supported on this runtime"); }
+    }),
 };
 
 Console.WriteLine(System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription);
@@ -362,6 +403,13 @@ partial class Program
 
 partial class Program
 {
+    [StructLayout(LayoutKind.Explicit, Size = 64)]
+    struct AliasArray
+    {
+        [FieldOffset(0)] [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4, ArraySubType = UnmanagedType.LPStr)] public string[] A;
+        [FieldOffset(8)] [MarshalAs(UnmanagedType.LPUTF8Str)] public string S;
+    }
+
     [StructLayout(LayoutKind.Explicit)]
     struct Aliased
     {

@@ -43,9 +43,9 @@ public static unsafe class PipesTarget
         var inheritability = (flags & 4) != 0 ? HandleInheritability.Inheritable : HandleInheritability.None;
         using var server = new AnonymousPipeServerStream(direction, inheritability, (flags >> 3) * 512);
         string handle = server.GetClientHandleAsString();
-        Check.That(int.TryParse(handle, out int fd) && fd >= 0, $"client handle string {Check.Show(handle)}");
-        using var client = new AnonymousPipeClientStream(direction == PipeDirection.In ? PipeDirection.Out : PipeDirection.In, handle);
-        // (DisposeLocalCopyOfClientHandle is for a parent that handed the descriptor to a child process; here it would close the client's descriptor.)
+        Check.That(long.TryParse(handle, out long fd) && fd == (long)server.ClientSafePipeHandle.DangerousGetHandle(), $"client handle string {Check.Show(handle)} vs {server.ClientSafePipeHandle.DangerousGetHandle()}");
+        // The string form hands the descriptor to a child process; in one process the client shares the handle object.
+        using var client = new AnonymousPipeClientStream(direction == PipeDirection.In ? PipeDirection.Out : PipeDirection.In, server.ClientSafePipeHandle);
         Check.Equal(PipeTransmissionMode.Byte, server.TransmissionMode, "anonymous TransmissionMode");
         Check.That(server.IsConnected && client.IsConnected, "anonymous pipe not connected");
         Check.That(!server.CanSeek && !client.CanSeek, "anonymous pipe CanSeek");
@@ -143,7 +143,7 @@ public static unsafe class PipesTarget
             int length = input.UInt16() % 3000;
             switch (kind)
             {
-                case 0:
+                case 0 when pending.Count + length <= 1024:
                 {
                     byte[] payload = new byte[length];
                     ReadOnlySpan<byte> pattern = input.Bytes(Math.Min(length, 16));

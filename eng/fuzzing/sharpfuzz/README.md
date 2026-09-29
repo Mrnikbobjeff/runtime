@@ -59,6 +59,7 @@ dnceng feeds.
 | `pipes` | `[kind][flags] name chunks` | `AnonymousPipe*` and `NamedPipe*` streams (Unix domain sockets) with fuzzed names, connect / disconnect cycles, reads into guarded spans, read modes. |
 | `fsenum` | `[flags] (kind, name)... pattern` | Files, directories and links with names from the input under `/dev/shm`, enumerated through `Directory`, `DirectoryInfo` and `FileSystemEnumerator`, matched with fuzzed patterns, link targets and attributes read back. |
 | `globalization` | `[op][flags][culture][len] a b` | ICU: normalization forms, `CompareInfo` in 16 cultures and 15 option sets (antisymmetry, hashes, sort keys into guarded buffers, searching), `TextInfo` casing, `IdnMapping`, `CultureInfo` lookups with fuzzed names. Needs the `InvariantGlobalization=false` build (`-p:InvariantGlobalization=false -o .work/harness-icu`, then `SHARPFUZZ_HARNESS`). |
+| `unsafecrypto` | `[op][flags][seed] data` | The OpenSSL shim through the one-shot and incremental APIs, destinations against guard pages: hashes / HMACs (one-shot, span, stream, incremental, cloned, legacy), AEAD (round trips, tampering, in-place, sizes), AES / TripleDES CBC / ECB / CFB (one-shot vs CryptoStream vs transform, padding), PBKDF2 / HKDF / SP800-108, the RNG, and RSA / ECDSA / ECDH / DSA with fuzzed parameters and key blobs plus signature / encryption / key round trips. |
 
 Only documented exceptions are swallowed (`RegexParseException`, `RegexMatchTimeoutException`,
 `JsonException`, lazily-detected invalid UTF-8/UTF-16 in strings, ...). Anything else, and any

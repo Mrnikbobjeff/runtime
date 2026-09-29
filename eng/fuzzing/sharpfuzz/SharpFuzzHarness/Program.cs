@@ -85,6 +85,7 @@ public static class Program
         ["globalization"] = GlobalizationTarget.Run, // needs the InvariantGlobalization=false build (harness-icu)
         ["pipes"] = PipesTarget.Run,
         ["fsenum"] = FsEnumTarget.Run,
+        ["unsafecrypto"] = CryptoTarget.Run,
     };
 
     public static int Main(string[] args)

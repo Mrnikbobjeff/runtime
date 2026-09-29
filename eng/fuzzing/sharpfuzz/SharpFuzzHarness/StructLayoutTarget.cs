@@ -26,7 +26,7 @@ namespace SharpFuzzHarness;
 /// <remarks>
 /// Input layout:
 ///   byte 0     layout kind (0 sequential, 1 explicit, 2 auto) | charset (bits 2-3) | pack index (bits 4-7)
-///   byte 1     field count (1-8), bit 7: emit an inner struct first (then the outer may embed it)
+///   byte 1     field count (1-8), bit 7: emit an inner struct first (then the outer may embed it), bit 6: layout classes instead of structs
 ///   bytes 2-3  Size (0 = none; capped at 512)
 ///   per field  kind byte, parameter byte, explicit offset (2 bytes, only for explicit layout)
 ///   (the inner struct, when present, comes first with the same layout)
@@ -77,13 +77,14 @@ public static unsafe class StructLayoutTarget
         public List<FieldSpec> Fields = new();
         public Type Type;
         public bool TypeConfused;
+        public bool IsClass;     // a layout class (reference type): marshalled as a pointer to its native layout
         public int Pack => PackIndex == 0 ? (HasInt128 ? 16 : 8) : 1 << (PackIndex - 1);
         public bool HasInt128 => Fields.Any(f => f.Type == typeof(Int128) || (f.Inner?.HasInt128 ?? false));
         public int NativeAlign => Math.Min(Pack, Fields.Count == 0 ? 1 : Fields.Max(f => f.NativeAlign));
         public bool AnyPointer => Fields.Any(f => f.Pointer || (f.Inner?.AnyPointer ?? false));
         public bool AnyMayFail => Fields.Any(f => f.MayFail || (f.Inner?.AnyMayFail ?? false));
         public bool ContainsReferences => Fields.Any(f => f.IsReference || (f.Inner?.ContainsReferences ?? false));
-        public override string ToString() => $"{Layout}/{CharSet}/pack{PackIndex}/size{Size}[{string.Join(", ", Fields.Select(f => $"{f.Name}:{Describe(f)}"))}]";
+        public override string ToString() => $"{(IsClass ? "class " : "")}{Layout}/{CharSet}/pack{PackIndex}/size{Size}[{string.Join(", ", Fields.Select(f => $"{f.Name}:{Describe(f)}"))}]";
 
         private static string Describe(FieldSpec f) =>
             (f.Inner is not null ? (f.Type.IsArray ? "inner[](" + f.Inner + ")" : "inner(" + f.Inner + ")") : f.Type.Name) + (f.MarshalAs is null ? "" : $"/{f.MarshalAs}") + (f.SizeConst >= 0 ? $"x{f.SizeConst}" : "") + (f.ArraySubType is null ? "" : $"/{f.ArraySubType}") + (f.Offset >= 0 ? $"@{f.Offset}" : "");
@@ -100,12 +101,14 @@ public static unsafe class StructLayoutTarget
         int packIndex = (header >> 4) % s_packs.Length;
         int count = (countByte & 7) + 1;
         bool withInner = (countByte & 0x80) != 0;
+        bool isClass = (countByte & 0x40) != 0;
 
         var module = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("Fuzz" + Interlocked.Increment(ref s_assemblies)), AssemblyBuilderAccess.RunAndCollect).DefineDynamicModule("m");
         Spec inner = null;
         if (withInner)
         {
             inner = Describe(ref input, layout, charSet, packIndex, size, Math.Max(1, count / 2), null);
+            inner.IsClass = isClass;
             if (!Emit(module, inner, "Inner"))
             {
                 return;
@@ -113,6 +116,7 @@ public static unsafe class StructLayoutTarget
         }
 
         Spec outer = Describe(ref input, layout, charSet, packIndex, size, count, inner);
+        outer.IsClass = isClass;
         if (!Emit(module, outer, "Outer") || outer.TypeConfused || (inner?.TypeConfused ?? false))
         {
             return;
@@ -145,7 +149,7 @@ public static unsafe class StructLayoutTarget
         TypeAttributes attrs = TypeAttributes.Public | TypeAttributes.Sealed |
             spec.Layout switch { LayoutKind.Explicit => TypeAttributes.ExplicitLayout, LayoutKind.Auto => TypeAttributes.AutoLayout, _ => TypeAttributes.SequentialLayout } |
             spec.CharSet switch { CharSet.Unicode => TypeAttributes.UnicodeClass, CharSet.Auto => TypeAttributes.AutoClass, _ => TypeAttributes.AnsiClass };
-        TypeBuilder tb = module.DefineType(name, attrs, typeof(ValueType), s_packs[spec.PackIndex], spec.Size);
+        TypeBuilder tb = module.DefineType(name, attrs, spec.IsClass ? typeof(object) : typeof(ValueType), s_packs[spec.PackIndex], spec.Size);
         foreach (FieldSpec f in spec.Fields)
         {
             f.Builder = tb.DefineField(f.Name, f.Type, FieldAttributes.Public);
@@ -190,11 +194,12 @@ public static unsafe class StructLayoutTarget
         // treated as opaque (the loader's rules for those are stricter still).
         if (spec.Layout == LayoutKind.Explicit)
         {
-            // Overlapping reference fields are legal but alias one managed slot (writing one changes
-            // the other; StructureToPtr then marshals the same object twice and DestroyStructure frees
-            // it twice, LAYOUT-ALIAS-1), so such layouts aren't exercised beyond the loader checks.
-            var refs = spec.Fields.Where(f => f.IsReference).ToList();
-            spec.TypeConfused = refs.Any(r => refs.Any(o => o != r && r.Offset < o.Offset + 8 && o.Offset < r.Offset + 8));
+            // Overlapping reference-bearing fields alias native pointer slots (LAYOUT-ALIAS-1): StructureToPtr
+            // marshals overlapping strings / arrays into the same bytes and DestroyStructure frees them per field,
+            // which double-frees. A ByValArray of strings owns k inline pointers, so its whole [offset, offset +
+            // k*8) region counts. Such layouts are only exercised through the loader checks below, not marshalled.
+            var refs = spec.Fields.Where(f => f.IsReference || (f.Inner?.ContainsReferences ?? false)).ToList();
+            spec.TypeConfused = refs.Any(r => refs.Any(o => o != r && r.Offset < o.Offset + Math.Max(o.NativeSize, 8) && o.Offset < r.Offset + Math.Max(r.NativeSize, 8)));
             // Non-reference overlaps alias managed memory too: a DateTime or decimal whose bits another
             // field overwrote is (rightly) rejected as an invalid OLE date / currency, so skip those as well.
             spec.TypeConfused |= spec.Fields.Any(f => (f.Type == typeof(DateTime) || f.Type == typeof(decimal) || f.Type == typeof(DateTimeOffset)) &&
@@ -317,7 +322,7 @@ public static unsafe class StructLayoutTarget
             case 42 when inner?.Type is not null:
                 return new FieldSpec
                 {
-                    Type = inner.Type, Inner = inner, NativeSize = NativeSizeOf(inner), NativeAlign = inner.NativeAlign, Pointer = inner.AnyPointer, IsReference = inner.ContainsReferences, MayFail = inner.AnyMayFail,
+                    Type = inner.Type, Inner = inner, NativeSize = NativeSizeOf(inner), NativeAlign = inner.NativeAlign, Pointer = inner.AnyPointer, IsReference = inner.IsClass || inner.ContainsReferences, MayFail = inner.AnyMayFail || inner.IsClass,
                     Value = (ref FuzzInput i) => Instantiate(inner, ref i),
                     Same = (a, b) => SameStruct(inner, a, b),
                 };
@@ -502,10 +507,15 @@ public static unsafe class StructLayoutTarget
 
     private static string Describe(Spec spec, object boxed)
     {
+        if (boxed is null)
+        {
+            return "null";
+        }
+
         var sb = new StringBuilder("{");
         foreach (FieldSpec f in spec.Fields)
         {
-            object v = spec.Type.GetField(f.Name).GetValue(boxed);
+            object v = boxed is null ? null : spec.Type.GetField(f.Name).GetValue(boxed);
             sb.Append(f.Name).Append('=').Append(v switch
             {
                 null => "null",
@@ -610,6 +620,13 @@ public static unsafe class StructLayoutTarget
         try
         {
             back = Marshal.PtrToStructure((nint)p, t);
+            if (spec.IsClass)
+            {
+                // The in-place overload fills an existing instance.
+                object existing = Activator.CreateInstance(t);
+                Marshal.PtrToStructure((nint)p, existing);
+                Check.That(SameStruct(spec, value, existing), $"in-place PtrToStructure changed the value: {Describe(spec, value)} -> {Describe(spec, existing)}: {what}");
+            }
         }
         finally
         {
@@ -622,7 +639,14 @@ public static unsafe class StructLayoutTarget
         // hand memcpy the same bytes StructureToPtr produces (field by field; padding is unspecified).
         if ((input.Byte() & 1) != 0 && strict)
         {
-            Stubs(module, spec, value, size, what);
+            if (spec.IsClass)
+            {
+                ClassStubs(module, spec, value, size, what);
+            }
+            else
+            {
+                Stubs(module, spec, value, size, what);
+            }
         }
 
         // Arbitrary bytes as the native representation (only without pointers), marshalled back out
@@ -737,6 +761,88 @@ public static unsafe class StructLayoutTarget
             for (int i = 0; i < Count; i++)
             {
                 CompareFields(spec, expected, dst3 + i * size, $"memcpy(byte*, T[], n) element {i}", what);
+            }
+        }
+        finally
+        {
+            Marshal.DestroyStructure((nint)expected, t);
+        }
+    }
+
+    /// <summary>Layout classes as P/Invoke parameters: [In] (pointer to the native layout), [Out] and [In, Out] (copied back), and arrays of them.</summary>
+    private static void ClassStubs(ModuleBuilder module, Spec spec, object value, int size, string what)
+    {
+        Type t = spec.Type;
+        CharSet charSet = spec.CharSet == CharSet.None ? CharSet.Ansi : spec.CharSet;
+        TypeBuilder tb = module.DefineType("Native", TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed);
+        MethodBuilder inStub = tb.DefinePInvokeMethod("memcpyIn", "libc", "memcpy", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl, CallingConventions.Standard,
+            typeof(IntPtr), [typeof(IntPtr), t, typeof(nuint)], CallingConvention.Cdecl, charSet);
+        inStub.SetImplementationFlags(MethodImplAttributes.PreserveSig);
+        MethodBuilder outStub = tb.DefinePInvokeMethod("memcpyOut", "libc", "memcpy", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl, CallingConventions.Standard,
+            typeof(IntPtr), [t, typeof(IntPtr), typeof(nuint)], CallingConvention.Cdecl, charSet);
+        outStub.SetImplementationFlags(MethodImplAttributes.PreserveSig);
+        outStub.DefineParameter(1, ParameterAttributes.Out, "dst");
+        MethodBuilder inOutStub = tb.DefinePInvokeMethod("memcpyInOut", "libc", "memcpy", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl, CallingConventions.Standard,
+            typeof(IntPtr), [t, typeof(IntPtr), typeof(nuint)], CallingConvention.Cdecl, charSet);
+        inOutStub.SetImplementationFlags(MethodImplAttributes.PreserveSig);
+        inOutStub.DefineParameter(1, ParameterAttributes.In | ParameterAttributes.Out, "dst");
+        MethodBuilder arrayIn = tb.DefinePInvokeMethod("memcpyArrayIn", "libc", "memcpy", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl, CallingConventions.Standard,
+            typeof(IntPtr), [typeof(IntPtr), t.MakeArrayType(), typeof(nuint)], CallingConvention.Cdecl, charSet);
+        arrayIn.SetImplementationFlags(MethodImplAttributes.PreserveSig);
+        MethodBuilder arrayOut = tb.DefinePInvokeMethod("memcpyArrayOut", "libc", "memcpy", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.PinvokeImpl, CallingConventions.Standard,
+            typeof(IntPtr), [t.MakeArrayType(), typeof(IntPtr), typeof(nuint)], CallingConvention.Cdecl, charSet);
+        arrayOut.SetImplementationFlags(MethodImplAttributes.PreserveSig);
+        arrayOut.DefineParameter(1, ParameterAttributes.Out, "dst");
+        Type native = tb.CreateType();
+
+        byte* expected = Guarded.Allocate(size, atStart: true);
+        new Span<byte>(expected, size).Fill(0xCC);
+        Marshal.StructureToPtr(value, (nint)expected, fDeleteOld: false);
+        try
+        {
+            // [In]: memcpy reads the native layout the stub built.
+            byte* dst = Guarded.Allocate(size, atStart: false);
+            new Span<byte>(dst, size).Fill(0xCC);
+            try
+            {
+                native.GetMethod("memcpyIn").Invoke(null, [(IntPtr)dst, value, (nuint)size]);
+            }
+            catch (TargetInvocationException e) when (Allowed(e.InnerException))
+            {
+                return;
+            }
+
+            CompareFields(spec, expected, dst, "memcpy(byte*, [In] class, n)", what);
+            // [Out]: the stub's temporary is filled by memcpy from the expected bytes and copied into a fresh instance.
+            object fresh = Activator.CreateInstance(spec.Type);
+            object[] outArgs = [fresh, (IntPtr)expected, (nuint)size];
+            native.GetMethod("memcpyOut").Invoke(null, outArgs);
+            Check.That(SameStruct(spec, value, fresh), $"[Out] class came back as {Describe(spec, fresh)}, expected {Describe(spec, value)}: {what}");
+            // [In, Out]: starts from the value, memcpy overwrites the temporary with the same bytes, the value is copied back.
+            object inOut = Activator.CreateInstance(spec.Type);
+            native.GetMethod("memcpyInOut").Invoke(null, [inOut, (IntPtr)expected, (nuint)size]);
+            Check.That(SameStruct(spec, value, inOut), $"[In, Out] class came back as {Describe(spec, inOut)}, expected {Describe(spec, value)}: {what}");
+            // Arrays of layout classes: one native layout per element, in and out.
+            const int Count = 3;
+            Array array = Array.CreateInstance(t, Count);
+            for (int i = 0; i < Count; i++)
+            {
+                array.SetValue(value, i);
+            }
+
+            byte* dst3 = Guarded.Allocate(size * Count, atStart: false);
+            new Span<byte>(dst3, size * Count).Fill(0xCC);
+            native.GetMethod("memcpyArrayIn").Invoke(null, [(IntPtr)dst3, array, (nuint)(size * Count)]);
+            for (int i = 0; i < Count; i++)
+            {
+                CompareFields(spec, expected, dst3 + i * size, $"memcpy(byte*, [In] class[], n) element {i}", what);
+            }
+
+            Array outArray = Array.CreateInstance(t, Count);
+            native.GetMethod("memcpyArrayOut").Invoke(null, [outArray, (IntPtr)dst3, (nuint)(size * Count)]);
+            for (int i = 0; i < Count; i++)
+            {
+                Check.That(outArray.GetValue(i) is object element && SameStruct(spec, value, element), $"[Out] class[] element {i} came back as {Describe(spec, outArray.GetValue(i))}: {what}");
             }
         }
         finally

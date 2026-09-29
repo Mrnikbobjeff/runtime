@@ -263,7 +263,8 @@ public static unsafe class GlobalizationTarget
     }
 
     private static bool IsIgnorable(CompareInfo ci, char c, CompareOptions options) =>
-        char.IsSurrogate(c) || ci.Compare(c.ToString(), "", options) == 0;
+        char.IsSurrogate(c) || ci.Compare(c.ToString(), "", options) == 0 ||
+        char.GetUnicodeCategory(c) is UnicodeCategory.NonSpacingMark or UnicodeCategory.SpacingCombiningMark or UnicodeCategory.EnclosingMark;
 
     // ------------------------------------------------------------ casing
 

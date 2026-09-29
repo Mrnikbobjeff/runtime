@@ -1152,6 +1152,283 @@ payloads. 11.0 RC1 only (new API).
 
 ---
 
+## Round 5 (2026-09-29): the managed / native boundary
+
+The interop layer itself, which the earlier rounds only touched through the APIs built on it:
+struct layouts generated at run time and pushed through `Marshal` and emitted `DllImport` stubs
+(the .NET 11 managed `StructureMarshaler` / `LayoutClassMarshaler` / array element marshalers),
+unmanaged function pointers into `UnmanagedCallersOnly` methods and delegate thunks (struct
+classification, stack spills, sign extension, reverse marshalling of strings and arrays), built-in
+and source-generated P/Invokes into libc with every parameter shape, the public
+`System.Runtime.InteropServices.Marshalling` marshallers with caller buffers against guard pages,
+`NativeMemory` / `Marshal.Copy` / `GCHandle` / `SecureString`, and the System.Native layer behind
+files (`RandomAccess`, `FileStream`, pipes, enumeration), sockets, memory-mapped files and ICU
+globalization. All native memory the runtime writes into sits against guard pages
+(`SHARPFUZZ_GUARD=1`); 30 minutes per area on at most 12 threads. For this round the CoreLib
+instrumentation was widened to `System.StubHelpers`, `System.Runtime.InteropServices.Marshalling`,
+`SafeBuffer`, `CollectionsMarshal` and `ComVariant` (see `corelib-exclude.txt`), and
+`System.Net.Sockets`, `System.IO.MemoryMappedFiles` and `System.IO.Pipes` were added to the
+instrumented assemblies. No guard-page fault occurred; every saved crash replays clean against the
+final harness with the known issues below suppressed.
+
+### Round 5 campaign statistics
+
+| Target | Assemblies | Wall-clock | Execs | Edges | Result |
+|---|---|---|---|---|---|
+| `structlayout` | System.Private.CoreLib (`Marshal`, `System.StubHelpers` struct / array marshalers, `System.Reflection.Emit`), emitted `DllImport` stubs; guarded | 55 min (3 instances) | 2.4 M | 11.9 k | LAYOUT-ALIAS-1, ROUND5-MISC (VariantBool, Auto charset) |
+| `abi` | Unmanaged function pointers, `UnmanagedCallersOnly` entry stubs, delegate thunks (reverse P/Invoke marshalling); guarded arrays / strings | 30 min (3 instances) | 13.3 M | 3.9 k | no findings |
+| `pinvoke` | Built-in `DllImport` stubs and `LibraryImport` into libc / libm, `NativeLibrary`, `SafeHandle` marshalling; guarded | 30 min (3 instances) | 13.5 M | 9.9 k | MARSHAL-CHARARR-1, ROUND5-MISC (Int128 / decimal, glibc remainder) |
+| `marshallers` | `System.Runtime.InteropServices.Marshalling` (string, array, span, pointer-array, SafeHandle, exception marshallers), `ComVariant`; guarded caller buffers | 30 min (3 instances) | 18.4 M | 5.2 k | no findings |
+| `nativemem` | `Marshal.Copy` / `Read*` / `Write*`, `NativeMemory`, `GCHandle` variants, `SecureString`, BSTR / HRESULT helpers; guarded | 30 min (3 instances) | 12.0 M | 3.9 k | no findings |
+| `fileio` | `RandomAccess`, `FileStream` strategies, `File`, Unix modes / times (System.Private.CoreLib over System.Native); guarded destinations | 30 min (3 instances) | 8.5 M | 5.0 k | FS-STALE-1, RA-IOV-1, FS-ISASYNC-1 |
+| `sockets` | `SocketAddress`, `IPEndPoint`, `UnixDomainSocketEndPoint`, System.Net.Sockets over loopback UDP and Unix datagram sockets; guarded receive spans | 30 min (3 instances) | 12.4 M | 6.6 k | SOCKADDR-SCOPE-1 |
+| `mmap` | System.IO.MemoryMappedFiles views (mmap through System.Native) against a byte model | 30 min (3 instances) | 12.8 M | 3.1 k | no findings |
+| `pipes` | System.IO.Pipes (anonymous pipes, named pipes over Unix domain sockets); guarded reads | 27 min (3 instances) | 300 k | 10.4 k | no findings (see the false positives) |
+| `fsenum` | Directory / `DirectoryInfo` / `FileSystemEnumerator` enumeration, links, attributes with fuzzed names (System.Private.CoreLib over System.Native) | 27 min (3 instances) | 5.5 M | 6.2 k | FSNAME-1 |
+| `globalization` | ICU through libSystem.Globalization.Native: normalization, `CompareInfo`, `TextInfo`, `IdnMapping`, `CultureInfo` (harness-icu build); guarded sort-key buffers | 27 min (3 instances) | 16.2 M | 8.5 k | COLLATION-1, COLLATION-NUM-1 |
+
+### Round 5 summary
+
+| ID | Component | Kind | Severity (my assessment) | Versions |
+|----|-----------|------|--------------------------|----------|
+| [FS-STALE-1](#fs-stale-1) | `FileStream` (buffered strategy) | After a buffered `WriteAsync`, a `Seek` that lands inside the window of an earlier, fully consumed read buffer makes the next reads return the write payload instead of the file; the position can end up past `Length` | **Medium** | .NET 8, 9, 10, 11 |
+| [MARSHAL-CHARARR-1](#marshal-chararr-1) | Built-in P/Invoke marshalling of ANSI `char[]` (Unix) | The array is converted as one UTF-8 string, not char by char: `[Out]` elements shift and the tail keeps stale values; `[In]` non-ASCII chars are cut mid-sequence (8–10) or throw (11) | Low–Medium | .NET 8, 9, 10, 11 (behavior change in 11) |
+| [FS-ISASYNC-1](#fs-isasync-1) | `FileStream.IsAsync`, `SafeFileHandle.IsAsync` (Linux) | `false` for a file opened with `FileOptions.Asynchronous`; 8, 9 and 10 return `true` | Low | **.NET 11 change** |
+| [RA-IOV-1](#ra-iov-1) | `RandomAccess.Read(SafeFileHandle, IReadOnlyList<Memory<byte>>, long)` | Stops after `IOV_MAX` (1024) buffers and returns a short read although the data is there; `Write` handles any number | Low | .NET 8, 9, 10, 11 |
+| [LAYOUT-ALIAS-1](#layout-alias-1) | `Marshal.StructureToPtr` / `DestroyStructure` | Two reference fields at one explicit offset share a slot: the object is marshalled once per field into the same bytes and released once per field, which aborts the process | Low | .NET 8, 9, 10, 11 |
+| [SOCKADDR-SCOPE-1](#sockaddr-scope-1) | `IPEndPoint.Create(SocketAddress)` | `sin6_scope_id` is dropped unless the address is link-local, while `Serialize` keeps it | Low | .NET 8, 9, 10, 11 |
+| [FSNAME-1](#fsname-1) | Directory enumeration with `MatchType.Win32` (Unix) | `<`, `>` and `"` in the search pattern are literals for the enumeration but DOS wildcards for `FileSystemName.MatchesWin32Expression`, and `.` is `*` only for the enumeration, so the public matcher can't reproduce the enumeration's decisions | Informational | .NET 8, 9, 10, 11 |
+| [COLLATION-1](#collation-1) | `CompareInfo` search methods (ICU) | For values made of combining marks, `IndexOf` / `LastIndexOf` / `IsPrefix` / `IsSuffix` disagree with each other and with `Compare` | Informational | .NET 8, 9, 10, 11 |
+| [ROUND5-MISC](#round5-misc) | various | See the list at the end of this section | Informational | |
+
+### FS-STALE-1
+
+**A buffered `FileStream` can answer a read from its buffer after the buffer was reused for an
+asynchronous write.** `Read` fills the internal buffer and records how much of it is valid; a
+following `WriteAsync` reuses the same buffer for the pending write without clearing that record
+(the synchronous `Write` path does clear it). The next `Seek` or `Position` set flushes the write and
+returns early, still without clearing it. A second, relative `Seek` (`Current` or `End`) whose
+target lies within the recorded window then decides the target is "still in the buffer", so the
+reads that follow copy the write payload out of the buffer instead of reading the file, and the
+position advances past what the file holds. With a 4096-byte buffer (`FileOptions.Asynchronous`
+makes no difference):
+
+```
+fs.Write(new byte[47]);                          // 47 bytes
+fs.Seek(0, SeekOrigin.Begin);
+fs.Read(new byte[363]);                          // returns 47, the buffer is filled and fully consumed
+await fs.WriteAsync(payload);                    // 166 bytes, buffered at 47 (the file becomes 213 bytes)
+fs.Seek(228, SeekOrigin.Begin);                  // flushes the write, past the end
+fs.Seek(-12, SeekOrigin.End);                    // 201, judged to be inside the stale window
+int n = fs.Read(new byte[439]);                  // 27 bytes: payload[20..47) instead of file[201..213); Position 228, Length 213
+```
+
+`Seek(100, Begin)` followed by `Seek(-30, Current)`, or `Position = 100` followed by the same
+relative seek, give the same wrong bytes for the first 30 bytes of the read (the rest is then read
+from the file), so no seek past the end is needed; a `Flush()` before the seeks avoids it, and so
+does replacing `WriteAsync` by `Write`. Same on 8.0.31, 9.0.20, 10.0.12 and 11.0 RC1. Found by
+the `fileio` target's model of the stream (three independent op sequences, minimized with the probe
+in `findings/Repro`).
+
+### MARSHAL-CHARARR-1
+
+**On Unix, a `char[]` parameter marshalled as ANSI (the default `CharSet`) is converted as a
+whole UTF-8 string rather than one byte per element.** Native code sees a buffer of `Length` bytes,
+so the two directions disagree about what an element is:
+
+| Parameter | What native code sees / writes | Managed result |
+|---|---|---|
+| `[In, Out] char[8]` holding `ABCDEFGH` | native writes `41 C3 A9 42 FF 43 E2 82` | 8–10: `A é B � C F G H`; 11: `A é B � C � G H` |
+| `[Out] char[8]` | native writes the same 8 bytes | 8–10: `A é B � C \0 \0 \0`; 11: `A é B � C � \0 \0` |
+| `[In] char[4]` holding `éx€y` | 8–10: the 4-byte buffer holds `C3 A9 78 E2` (`€` cut after its first byte, `y` lost) | |
+| `[In] char[4]` holding `éx€y` | 11: `ArgumentException` ("The output byte buffer is too small") before the call | |
+
+The bytes are decoded as one string, so a multi-byte sequence shifts every later element left, the
+elements after the decoded text keep whatever the array held before (`[In, Out]`) or zeros
+(`[Out]`), and 11's managed `AnsiCharArrayMarshaler` additionally reports an incomplete trailing
+sequence as U+FFFD where 8–10 dropped it. In the other direction the UTF-8 of the chars can be
+longer than the array; 8–10 silently truncate it inside a sequence, 11 throws. The by-value case
+(`ByValArray` of `char` in a struct) is MARSHAL-TSTR-1 from round 4. Native APIs that take a
+`char` buffer of a fixed element count can't be called with `char[]` from Unix reliably; `byte[]`
+with an explicit conversion is the workaround. Found by the `pinvoke` target's `[Out]` and
+`[In, Out]` `char[]` cases.
+
+### FS-ISASYNC-1
+
+**On Linux, `FileStream.IsAsync` and `SafeFileHandle.IsAsync` return `false` for a file opened
+with `FileOptions.Asynchronous` in 11.0 RC1; 8.0.31, 9.0.20 and 10.0.12 return `true`.** The
+option itself still works (`ReadAsync` / `WriteAsync` behave as before), so this is an observable
+change for code that branches on `IsAsync` (for example to decide whether an async API is worth
+calling, or in tests). It may well be intentional, since file I/O on Linux is never asynchronous at
+the OS level, but I couldn't find it documented as a breaking change. Found by the `fileio` target.
+
+### RA-IOV-1
+
+**`RandomAccess.Read` with more than `IOV_MAX` buffers reads only the first 1024.** The scatter
+read issues one `preadv` with at most `IOV_MAX` (1024) entries and returns its result: 1500
+one-byte buffers over a 1500-byte file give 1024, although the documentation reserves a short read
+for the case that fewer bytes are available. `RandomAccess.Write` with the same 1500 buffers loops
+and writes everything. A caller that sizes its buffer list by the data to read gets a short read it
+can't tell apart from a short file unless it loops itself. Same on 8.0.31 to 11.0 RC1. Found by the
+`fileio` target's vectored reads into guarded one-byte segments.
+
+### LAYOUT-ALIAS-1
+
+**Reference fields that overlap in an explicit layout are one managed slot, but the marshaller
+treats them as separate fields.** The loader accepts two object references at the same offset (a
+long-standing, unverifiable feature), so
+
+```
+[StructLayout(LayoutKind.Explicit)]
+struct Aliased
+{
+    [FieldOffset(0)] [MarshalAs(UnmanagedType.LPStr)] public string A;
+    [FieldOffset(0)] [MarshalAs(UnmanagedType.LPStr)] public string B;
+}
+```
+
+has `A` and `B` always equal. `Marshal.StructureToPtr` converts the string once per field into
+the same 8 native bytes (the first copy is leaked), and `Marshal.DestroyStructure` (or
+`StructureToPtr` with `fDeleteOld`) releases the pointer once per field, which glibc reports as
+"free(): double free detected in tcache 2" and aborts the process.
+
+The same corruption comes from a `ByValArray` of strings whose inline pointer region overlaps
+another reference field or a second string array, which the fuzzer reached far more often than the
+two-plain-strings case:
+
+```
+[StructLayout(LayoutKind.Explicit, Size = 64)]
+struct S
+{
+    [FieldOffset(0)]  [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4, ArraySubType = UnmanagedType.LPStr)] public string[] A;
+    [FieldOffset(8)]  [MarshalAs(UnmanagedType.LPUTF8Str)] public string S;   // sits inside A's 4-pointer region
+}
+```
+
+`Marshal.SizeOf<S>()` succeeds and the type loads, but `StructureToPtr` writes `A`'s element
+pointers and `S`'s pointer into overlapping bytes and `DestroyStructure` frees the aliased pointer
+twice. A struct with two overlapping `ByValArray`-of-`LPStr` fields, or with a `string[]` extending
+over a later reference field, aborts the same way. This reproduces on 8.0.31, 9.0.20, 10.0.12 and
+11.0 RC1 (a smaller two-string case at offsets 0/8 with `SizeConst = 4` aborts only on 8, 9 and 10;
+the .NET 11 managed marshaller tolerates that particular geometry but not the larger ones).
+
+Only code that deliberately declares such an overlapping explicit layout is affected; the fuzzer got
+there because it emits explicit layouts with arbitrary offsets. The harness now skips any layout
+whose reference-bearing fields overlap (using each field's full native footprint, so inline string
+arrays count). Found by the `structlayout` target.
+
+### SOCKADDR-SCOPE-1
+
+**`IPEndPoint.Create(SocketAddress)` keeps the IPv6 scope id only for link-local addresses.**
+`new IPEndPoint(new IPAddress(::1, 3), 80).Serialize()` stores 3 in `sin6_scope_id` (bytes 24–27),
+and `Create` on that address gives `ScopeId` 0; `[fe80::1%3]:80` round-trips to 3, and a raw
+`sockaddr_in6` for `fe80::1` with scope 7 gives 7. So `ep.Create(ep.Serialize()).Equals(ep)` is
+false for a scoped address that isn't link-local, although the native `SystemNative_GetIPv6Address`
+copies the field unconditionally. Scope ids are only meaningful for link-local (and multicast)
+addresses, so the drop is probably deliberate; it is undocumented. Same on 8.0.31 to 11.0 RC1.
+Found by the `sockets` target's `SocketAddress` round trips.
+
+### FSNAME-1
+
+**The enumeration and the public matcher disagree about DOS wildcard characters in a Win32
+pattern on Unix.** `Directory.EnumerateFiles(dir, "<l*", MatchType.Win32)` finds nothing in a
+directory containing `l1`, while `FileSystemName.MatchesWin32Expression(FileSystemName.TranslateWin32Expression("<l*"), "l1", true)`
+is `true`: `FileSystemEnumerableFactory.NormalizeInputs` escapes `\`, `"`, `<` and `>` in the
+user's pattern before translating it (so a literal `<x` matches a file named `<x`), whereas the
+public `TranslateWin32Expression` doesn't, and `MatchesWin32Expression` treats them as `DOS_STAR`,
+`DOS_DOT` and `DOS_QM`. The same holds for `<l1`, `l<`, `<.*` and `l.<`. Only file names that can
+contain those characters (Unix) are affected; the documentation of `MatchesWin32Expression`
+presents it as the enumeration's matcher. The same normalization also turns the patterns `.`
+and `*.*` into `*` (`Directory.EnumerateFiles(dir, ".")` lists everything), which the matcher doesn't.
+Found by the `fsenum` target.
+
+### COLLATION-1
+
+**The culture-sensitive search methods don't agree on values that consist of combining marks.** With
+ICU 70, for a value of only non-spacing marks:
+
+| Culture, options | Source | Value | Result |
+|---|---|---|---|
+| invariant, `None` | `"\u0320\u0303\u0303"` | `"\u0303"` | `IsSuffix` true, `LastIndexOf` −1 |
+| invariant, `None` | `"\u06E8\u0606\u0222"` | `"\u0606"` | `IsPrefix` true, `IndexOf` 1 |
+| tr-TR, `IgnoreSymbols` | `"\u0303\u0303\u0303"` | `"\u0303\u0303"` | `IndexOf` 0 with `matchLength` 0, `Compare("", value)` ≠ 0 |
+| invariant, `IgnoreSymbols` | `"3"` | `"\uFE20"` | `IndexOf` 0 with `matchLength` 0, `Compare("", value)` ≠ 0 |
+| de-DE, `IgnoreCase | IgnoreNonSpace` | `"\u06D1\u060E\u06D1\u000E\u0F06\u0008"` | `"\u0F06\u0602"` | `IsSuffix` true, `LastIndexOf` 4 with length 1 |
+
+So `IsSuffix(s, v)` can be true while `LastIndexOf(s, v)` finds nothing, `IsPrefix` can be true while
+`IndexOf` returns a later index, and `IndexOf` can report a zero-length match for a value that
+`Compare` doesn't consider empty. The search side goes through ICU's string search (which skips
+characters it treats as ignorable at the start of a match), the prefix / suffix side through
+collation element comparison, and `Compare` through `ucol_strcoll`; the documentation describes
+them as one comparison. A related item found by the same target: with `NumericOrdering` (new in
+.NET 10) under the zh-CN and ja-JP collations, `Compare("\u1818\u1858", "\u1818\u1818\u1818")`
+(Mongolian digit eight followed by a letter, against three digits) returns 1 while the sort keys of
+the two strings order them the other way; en-US and the invariant culture agree with the sort
+keys, and ASCII digits are fine everywhere (COLLATION-NUM-1, ICU 70, .NET 10 and 11; both sides are
+ICU calls). Found by the `globalization` target.
+
+### ROUND5-MISC
+
+- `[MarshalAs(UnmanagedType.VariantBool)]` on a `bool` field makes `Marshal.SizeOf` (and so every
+  struct marshalling API) throw `ArgumentException` ("cannot be marshaled as an unmanaged structure")
+  on Unix, 8.0 to 11.0; as a parameter it is rejected with `MarshalDirectiveException` ("booleans
+  must be paired with I1, U1, or Bool"). `U1`, `I1` and `Bool` work.
+- `Int128` / `UInt128` can't be passed or returned by value through unmanaged function pointers or
+  P/Invokes (`MarshalDirectiveException`), and `decimal` isn't allowed on `UnmanagedCallersOnly`
+  methods (`InvalidProgramException`), even though both are blittable in the C# sense.
+- `CharSet.Auto` is ANSI on Unix for the built-in marshaller: a `char` field of an `Auto` struct
+  is one byte (UTF-8 lead byte of the char) and comes back as U+FFFD.
+- `Marshal.SizeOf<DateTime>()` throws ("no meaningful size") because `DateTime` is auto layout,
+  while a `DateTime` field marshals as an OLE `DATE`; `DateTime.FromOADate(-0.5).ToOADate()` is `0.5`
+  (documented).
+- `CompareInfo.IsPrefix` / `IsSuffix` with an empty value return `true` before validating the
+  options, so `StringSort` / `NumericOrdering` (rejected by every other search method) pass there.
+- The `remainder` of glibc 2.35 returns the wrong sign of zero for some subnormal divisors
+  (`remainder(1.03e-267, 6.95e-310)` is `-0`), where `Math.IEEERemainder` returns `+0`; a libm
+  matter, listed because the `pinvoke` target compares the two.
+- Recursive enumeration (`Directory.EnumerateFiles(dir, pattern, SearchOption.AllDirectories)`)
+  follows a symbolic link to a directory and lists its files again under the link's name.
+- In one process, `AnonymousPipeClientStream(direction, string handle)` wraps the same descriptor
+  the server's `ClientSafePipeHandle` owns, so either side's `Dispose` closes it under the other one
+  (later reads fail with "Operation canceled" or read from whatever reused the number). The
+  `SafePipeHandle` overload shares the handle object; the string form is for child processes.
+- `RandomAccess` and `FileStream` reads into memory that a `MemoryManager<byte>` places against a
+  guard page, `Socket.Receive*` into guarded spans, `preadv` with more segments than `IOV_MAX`,
+  `MemoryMappedViewAccessor` reads and writes at every width and position, `SecureString`
+  conversions, every `Marshal.Copy` overload with out-of-range requests, the marshallers' buffer
+  choices and the struct layouts' native offsets all matched their models.
+
+### Harness false positives fixed in round 5
+
+- `PtrToStructure` reads a `ByValTStr` field of `SizeConst` units without needing a terminator,
+  `StructureToPtr` writes at most `SizeConst - 1` plus the NUL; when the text fills the field the
+  terminator overwrites the last byte (MARSHAL-TSTR-1). The layout model now expects that.
+- The native size of a sequential struct is rounded up to its alignment only when no metadata
+  `Size` is given (`classlayoutinfo.cpp`), `Int128` fields are 16-byte aligned and lift the default
+  packing to 16, and `CharSet.Auto` is ANSI on Unix.
+- A `char` parameter of an unmanaged function pointer is marshalled as ANSI by the caller, so the
+  reverse-P/Invoke `char` cases pass `ushort`.
+- `StringSort` and `NumericOrdering` are documented as invalid for the search methods; the target
+  now checks that all of them reject the combination the same way.
+- `AnonymousPipeServerStream.DisposeLocalCopyOfClientHandle` is for a parent that handed the
+  descriptor to a child process; in-process it closes the client's descriptor, whose number is then
+  reused (`ENOTSOCK`, `EPIPE`).
+- `Socket.Send(IList<ArraySegment<byte>>)` needs a connected socket; the sockets target connects
+  before the gather send. A name shortened in the middle of a surrogate pair comes back from the
+  kernel as U+FFFD.
+- An empty memory-mapped view (offset equal to the capacity) reports `PointerOffset` 0.
+- A single-threaded write-then-read over a pipe deadlocks once the unread bytes exceed the socket
+  buffers; the pipes target keeps them under 1 KB. `NamedPipeClientStream.Connect` attempts that
+  wait for a server that isn't there count as AFL hangs.
+- Recursive enumeration follows links to directories, so the enumeration target only links to
+  files or missing targets; `.` and `*.*` patterns are skipped (see FSNAME-1).
+- The globalization target only cross-checks the search methods when neither string contains a
+  character the collator ignores or a combining mark (see COLLATION-1), and expects
+  `StringSort` / `NumericOrdering` to be rejected by every search method except with an empty value
+  (`IsPrefix` / `IsSuffix` return before validating the options then).
+
+---
+
 ## Harness false positives fixed during the campaign
 
 These were raised by the first versions of the targets and turned out to be documented behaviour:
@@ -1195,3 +1472,7 @@ These were raised by the first versions of the targets and turned out to be docu
 - Campaigns were short (30–60 minutes per target) and shared 12 hardware threads.
 - Guard pages (`SHARPFUZZ_GUARD=1`, see `Guarded.cs`) catch reads and writes just past the ends of
   spans the harness allocates, not overruns inside the framework's own arrays or buffers.
+- Round 5: `Marshal`, `NativeMemory`, `GCHandle` and `MemoryMarshal` themselves are still not
+  instrumented (they are used by the trace's own setup), so coverage of those comes only through their
+  callers; the `pipes` target runs at about 100 executions per second and its inputs that wait for a
+  connection count as hangs; the globalization target ran against ICU 70 (Ubuntu 22.04) only.

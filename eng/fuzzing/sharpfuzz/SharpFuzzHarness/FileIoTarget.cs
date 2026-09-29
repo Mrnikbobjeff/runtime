@@ -46,13 +46,14 @@ public static unsafe class FileIoTarget
     private static void Random(ref FuzzInput input, byte flags)
     {
         bool atStart = (flags & 1) != 0;
-        var model = new List<byte>();
+        var model = new SparseModel();
+        bool big = input.Byte() % 3 == 0; // offsets past 2^31 and 2^32 (sparse file)
         using SafeFileHandle handle = File.OpenHandle(NewPath(), FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, FileOptions.DeleteOnClose | ((flags & 2) != 0 ? FileOptions.Asynchronous : 0), preallocationSize: flags >> 2);
         var log = new List<string>();
         for (int step = 0; step < 24 && input.Remaining > 0; step++)
         {
             int kind = input.Byte() % 8;
-            long offset = input.UInt16() % 4200;
+            long offset = big ? (long)input.UInt16() << 16 : input.UInt16() % 4200;
             int length = input.UInt16() % 2100;
             log.Add($"{kind}@{offset}x{length}");
             string what = $"RandomAccess over {model.Count} bytes: {string.Join(" ", log)}";
@@ -167,13 +168,16 @@ public static unsafe class FileIoTarget
             Check.Equal((long)model.Count, RandomAccess.GetLength(handle), $"{what}: GetLength");
         }
 
-        // Everything at once.
-        byte[] whole = new byte[model.Count];
-        Check.Equal(model.Count, RandomAccess.Read(handle, whole, 0), "final Read length");
-        Check.That(whole.SequenceEqual(model), "final Read contents");
+        // Everything at once (small files only).
+        if (model.Count <= 1 << 20)
+        {
+            byte[] whole = new byte[(int)model.Count];
+            Check.Equal((int)model.Count, RandomAccess.Read(handle, whole, 0), "final Read length");
+            Check.That(whole.AsSpan().SequenceEqual(model.ToArray()), "final Read contents");
+        }
         try
         {
-            RandomAccess.Read(handle, whole, -1);
+            RandomAccess.Read(handle, new byte[16], -1);
             Check.That(false, "Read at a negative offset succeeded");
         }
         catch (ArgumentOutOfRangeException)
@@ -193,46 +197,65 @@ public static unsafe class FileIoTarget
         return payload;
     }
 
-    private static void Apply(List<byte> model, long offset, byte[] payload)
+    /// <summary>The file's contents as written bytes over an implicit sea of zeros, so positions past 4 GB cost nothing.</summary>
+    private sealed class SparseModel
     {
-        if (payload.Length == 0)
+        private readonly SortedDictionary<long, byte> _bytes = new();
+
+        public long Count { get; private set; }
+
+        public byte this[long index] => _bytes.TryGetValue(index, out byte b) ? b : (byte)0;
+
+        public void Apply(long offset, byte[] payload)
         {
-            return;
+            for (int i = 0; i < payload.Length; i++)
+            {
+                _bytes[offset + i] = payload[i];
+            }
+
+            if (payload.Length > 0)
+            {
+                Count = Math.Max(Count, offset + payload.Length);
+            }
         }
 
-        while (model.Count < offset + payload.Length)
+        public void Resize(long length)
         {
-            model.Add(0);
+            if (length < Count)
+            {
+                foreach (long key in _bytes.Keys.Where(k => k >= length).ToList())
+                {
+                    _bytes.Remove(key);
+                }
+            }
+
+            Count = length;
         }
 
-        for (int i = 0; i < payload.Length; i++)
+        public byte[] Expected(long offset, int length)
         {
-            model[(int)offset + i] = payload[i];
+            if (offset >= Count)
+            {
+                return [];
+            }
+
+            byte[] result = new byte[(int)Math.Min(length, Count - offset)];
+            for (int i = 0; i < result.Length; i++)
+            {
+                result[i] = this[offset + i];
+            }
+
+            return result;
         }
+
+        public byte[] ToArray() => Expected(0, (int)Math.Min(Count, int.MaxValue));
     }
 
-    private static void Resize(List<byte> model, long length)
-    {
-        if (length < model.Count)
-        {
-            model.RemoveRange((int)length, model.Count - (int)length);
-        }
+    private static void Apply(SparseModel model, long offset, byte[] payload) => model.Apply(offset, payload);
 
-        while (model.Count < length)
-        {
-            model.Add(0);
-        }
-    }
+    private static void Resize(SparseModel model, long length) => model.Resize(length);
 
-    private static byte[] Expected(List<byte> model, long offset, int length)
-    {
-        if (offset >= model.Count)
-        {
-            return [];
-        }
-
-        return model.GetRange((int)offset, (int)Math.Min(length, model.Count - offset)).ToArray();
-    }
+    private static byte[] Expected(SparseModel model, long offset, int length) => model.Expected(offset, length);
 
     private sealed class Manager(byte* pointer, int length) : MemoryManager<byte>
     {
@@ -249,7 +272,8 @@ public static unsafe class FileIoTarget
         bool atStart = (flags & 1) != 0;
         bool async = (flags & 2) != 0;
         int bufferSize = (flags >> 2) switch { 0 => 0, 1 => 1, 2 => 7, 3 => 64, 4 => 4096, _ => 1 + (flags >> 2) * 37 };
-        var model = new List<byte>();
+        var model = new SparseModel();
+        bool big = input.Byte() % 3 == 0; // positions past 2^31 and 2^32 (sparse file)
         long position = 0;
         using var fs = new FileStream(NewPath(), FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, bufferSize, FileOptions.DeleteOnClose | (async ? FileOptions.Asynchronous : 0));
         var log = new List<string>();
@@ -258,6 +282,7 @@ public static unsafe class FileIoTarget
         {
             int kind = input.Byte() % 12;
             int arg = input.UInt16() % 3000;
+            long pos = big ? (long)arg << 21 : arg;
             log.Add($"{kind}({arg})");
             if (asyncWrite && kind is 4 or 5 or 6)
             {
@@ -289,7 +314,7 @@ public static unsafe class FileIoTarget
                 case 2:
                 {
                     int value = fs.ReadByte();
-                    Check.That(!trust || value == (position < model.Count ? model[(int)position] : -1), $"{what}: ReadByte");
+                    Check.That(!trust || value == (position < model.Count ? model[position] : -1), $"{what}: ReadByte");
                     if (value >= 0)
                     {
                         position++;
@@ -305,12 +330,12 @@ public static unsafe class FileIoTarget
                 case 4:
                 {
                     SeekOrigin origin = (SeekOrigin)(arg % 3);
-                    long target = origin switch { SeekOrigin.Begin => arg, SeekOrigin.Current => position + arg % 100 - 50, _ => model.Count + arg % 100 - 50 };
+                    long target = origin switch { SeekOrigin.Begin => pos, SeekOrigin.Current => position + arg % 100 - 50, _ => model.Count + arg % 100 - 50 };
                     if (target < 0)
                     {
                         try
                         {
-                            fs.Seek(origin == SeekOrigin.Begin ? arg : arg % 100 - 50, origin);
+                            fs.Seek(origin == SeekOrigin.Begin ? pos : arg % 100 - 50, origin);
                             Check.That(false, $"{what}: Seek before the start succeeded");
                         }
                         catch (IOException)
@@ -319,22 +344,22 @@ public static unsafe class FileIoTarget
                     }
                     else
                     {
-                        Check.Equal(target, fs.Seek(origin == SeekOrigin.Begin ? arg : arg % 100 - 50, origin), $"{what}: Seek");
+                        Check.Equal(target, fs.Seek(origin == SeekOrigin.Begin ? pos : arg % 100 - 50, origin), $"{what}: Seek");
                         position = target;
                     }
 
                     break;
                 }
                 case 5:
-                    fs.Position = arg;
-                    position = arg;
+                    fs.Position = pos;
+                    position = pos;
                     break;
                 case 6:
-                    fs.SetLength(arg);
-                    Resize(model, arg);
-                    if (position > arg)
+                    fs.SetLength(pos);
+                    Resize(model, pos);
+                    if (position > pos)
                     {
-                        position = arg; // documented: the position is moved back to the new end
+                        position = pos; // documented: the position is moved back to the new end
                     }
 
                     break;
@@ -412,14 +437,17 @@ public static unsafe class FileIoTarget
             }
         }
 
-        // CopyTo from the current position into a MemoryStream, then the whole file through the handle.
-        var ms = new MemoryStream();
-        fs.CopyTo(ms, Math.Max(1, bufferSize));
-        Check.That(tainted || ms.ToArray().SequenceEqual(Expected(model, position, model.Count)), "CopyTo contents");
-        fs.Flush();
-        byte[] whole = new byte[model.Count];
-        Check.Equal(model.Count, RandomAccess.Read(fs.SafeFileHandle, whole, 0), "handle Read length");
-        Check.That(whole.SequenceEqual(model), "handle Read contents");
+        // CopyTo from the current position into a MemoryStream, then the whole file through the handle (small files only).
+        if (model.Count <= 1 << 20)
+        {
+            var ms = new MemoryStream();
+            fs.CopyTo(ms, Math.Max(1, bufferSize));
+            Check.That(tainted || ms.ToArray().AsSpan().SequenceEqual(Expected(model, position, (int)model.Count)), "CopyTo contents");
+            fs.Flush();
+            byte[] whole = new byte[(int)model.Count];
+            Check.Equal((int)model.Count, RandomAccess.Read(fs.SafeFileHandle, whole, 0), "handle Read length");
+            Check.That(whole.AsSpan().SequenceEqual(model.ToArray()), "handle Read contents");
+        }
     }
 
     // ------------------------------------------------------------ pipes
