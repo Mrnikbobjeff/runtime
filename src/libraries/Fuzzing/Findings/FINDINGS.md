@@ -77,6 +77,7 @@ Findings 48 to 54 are in the ICU-based globalization code, so their repros only 
 | 56 | Compression (zstd) | `ZstandardDecoder.TryDecompress` accepts frames with a raw/RLE block larger than the window, which the format forbids and `Decompress`/`ZstandardStream` reject, so the same bytes decode or fail depending on the API, and `TryGetMaxDecompressedLength` underestimates the output | Low | Yes | [56](repros/56-Zstandard-OneShotAcceptsOversizedBlock.cs) |
 | 57 | Compression (zstd) | Whether a Zstandard frame decodes depends on how its bytes are split across `Decompress` calls or `Stream.Read` results: a 10-byte frame decodes whole but is `InvalidData` in smaller chunks, and `ZstandardStream` rejects it as a later concatenated frame or over a trickling stream | Low | Yes | [57](repros/57-Zstandard-ResultDependsOnInputChunking.cs) |
 | 58 | CompareInfo (ICU) | With `IgnoreSymbols`, `Compare` isn't transitive and disagrees with the sort keys (`"-\u0001\u0301"` = `"-\u0301"` = `"-"` but the first > the last), so `Array.Sort` with that comparer returns unsorted arrays | Medium | Yes | [58](repros/58-CompareInfo-IgnoreSymbols-NotTransitive.cs) |
+| 59 | Tensors | Two-operand `Dot`/`Distance`/`CosineSimilarity` and the broadcasting comparison `*All`/`*Any` operators read out of bounds (heap disclosure, then `AccessViolationException`) when the operands' `FlattenedLength` differ, because `TensorOperation.Invoke` iterates whichever operand is longer instead of the broadcast shape | High (memory safety) | Yes | [59](repros/59-Tensor-BroadcastOutOfBoundsRead.cs) |
 
 "Shipped in 11.0 RC1" was checked against the `11.0.0-rc.1` NuGet packages and the 11.0 RC1 shared framework.
 
@@ -364,6 +365,19 @@ The cause is in the bundled zstd 1.5.7. `ZSTD_decompressStream` takes a single-p
 
 A non-transitive comparer breaks sorting. Sorting six such strings with `CompareInfo.GetStringComparer(IgnoreSymbols)` in all 720 input orders leaves 220 results that aren't sorted according to that same comparer. Hashing is fine: across 200,000 random pairs, `Compare` returning 0 always came with equal sort keys, so `StringComparer.GetHashCode` stays consistent with `Equals` and dictionaries work. The cause is the same shifted-mode handling of marks as finding 51, this time inside ICU's comparison rather than its search. Found by `GlobalizationIcuFuzzer`'s "sort keys order strings like Compare" check.
 
+### 59. Out-of-bounds read in the two-operand broadcasting tensor operations
+
+[Repro](repros/59-Tensor-BroadcastOutOfBoundsRead.cs). `Tensor.Dot`, `Tensor.Distance`, `Tensor.CosineSimilarity` and the two-tensor, no-destination comparison operators (`EqualsAll`/`EqualsAny`, `GreaterThanAll`/`GreaterThanAny`, `GreaterThanOrEqualAll`/`GreaterThanOrEqualAny`, `LessThanAll`/`LessThanAny`, `LessThanOrEqualAll`/`LessThanOrEqualAny`) go through the two-operand `TensorOperation.Invoke(x, y)`. It chooses its iteration shape as whichever operand has the larger `FlattenedLength` (`TensorOperation.cs:34` for the boolean comparisons, `:226` for the reductions) and then walks both operands over that shape with `TensorShape.AdjustToNextIndex`.
+
+When the two operands are legally bidirectionally broadcast-compatible but the operand that was *not* chosen has a longer inner dimension, the carry in `AdjustToNextIndex` resets the index and subtracts `stride * length` (`TensorShape.cs:443`), returning a running offset outside the operand's `[0, LinearLength)` range. The "we should only be here if we were broadcast" guard just above it is only a `Debug.Assert` and does nothing in release. `Unsafe.Add(ref operand._reference, offset)` then reads out of bounds. For `x` of shape `[4,1]` and `y` of shape `[1,3]` the engine iterates `x`'s shape and walks `y` to linear offsets 0, -2, -4, -6, so three of the four reads land before `y`'s three-element storage.
+
+Both symptoms come from the safe array-backed public API on operands that are each individually in bounds:
+
+- Memory disclosure: `Tensor.Dot(new ReadOnlyTensorSpan<int>([2, 3, 5, 7], [4, 1], default), new ReadOnlyTensorSpan<int>([11, 13, 17], [1, 3], default))` returns the heap bytes in front of `y`'s array (the value changes from run to run) instead of the broadcast dot product 697.
+- Memory safety: with `y`'s storage placed against an unmapped page, the same call throws `AccessViolationException` and crashes the process.
+
+This is the release-mode memory-safety consequence of the shape-selection bug behind findings 6 and 7. Finding 6 reports the comparison operators returning the wrong boolean (they visit the wrong subset of pairs) and a `Debug.Assert` hit in Debug builds; this finding shows that in release the same selection reads out of bounds, and that the `Dot`/`Distance`/`CosineSimilarity` reductions, which are not comparisons and go through the second `Invoke` at `:226`, are affected as well. The three-operand overloads that take an explicit destination (`Add(x, y, destination)` and friends) compute and iterate the true broadcast shape and are not affected. The fix is to iterate the broadcast result shape (per dimension `Max(xLen, yLen)`, which the destination-taking overloads already compute) instead of whichever operand is longer, or to bound-check `AdjustToNextIndex` rather than trusting the assert. Found by `TensorOperationsFuzzer`.
+
 ## Things that looked like bugs but aren't
 
 - `NrbfDecoderFuzzer` OOM on the repo's own seed `largeArrayOfNulls.nrbf`: the input asks for an `Array.MaxLength` array, and the `ArrayRecord.GetArray` docs tell callers to check `Lengths` first. It only fails on machines that can't allocate 16 GB.
@@ -393,7 +407,7 @@ Clean runs, with the known issues above tolerated so the fuzzers could get past 
 | TensorPrimitives on `argmin-blocks` and `tensorprimitives-block-reductions`, 128/256/512-bit | `TensorPrimitivesFuzzer` | 1.9M, no findings |
 | TensorPrimitives on main | `TensorPrimitivesFuzzer` | 0.45M |
 | Tensor/TensorSpan constructors and views | `TensorSpanFuzzer` | 3.7M |
-| Tensor operations over strided/broadcast views | `TensorOperationsFuzzer` | 25M |
+| Tensor operations over strided/broadcast views | `TensorOperationsFuzzer` | 25M (finding 59) |
 | TensorPrimitives math, integer and conversion ops | `TensorPrimitivesMathFuzzer` | 15M |
 | CborReader, all modes plus incremental reading | `CborReaderFuzzer` | 17M |
 | SseParser, sync and async, small buffer limits | `SseParserFuzzer` | 22M |
