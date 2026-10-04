@@ -71,6 +71,8 @@ Response Center rather than a public issue. The harness suppresses it as `UTF8CA
 
 A second withheld finding, B64URL-AVX2-1 in `Base64Url` UTF-8 decoding, is listed in
 [Base64 guard-page campaign](#base64-guard-page-campaign-2026-10-04).
+A third, TEXT-24-1, is in the
+[unsafe-code best-practices review](#unsafe-code-best-practices-review-2026-10-04).
 
 Replay the saved inputs with `SHARPFUZZ_REPORT_KNOWN_ISSUES=1 ./repro.sh <target> <input>`; without
 that variable the harness suppresses every finding in this document so that new ones stand out.
@@ -1198,6 +1200,124 @@ that, or the instrumented CoreLib is involved. Triage was stopped at this point.
 to replay the saved inputs (WSL: `/root/sharpfuzz/out-b64g/base64guard/*/crashes`, stacks bucketed
 in `/root/sharpfuzz/triage-b64g/stacks.txt`) with guard pages on the stock RC1 runtime, and then
 report through MSRC. The harness does not suppress this finding: it is a process crash.
+
+## Unsafe-code best-practices review (2026-10-04)
+
+A source review, not a fuzzing campaign. It checks the areas covered by the guard-page targets
+against all 26 sections of Microsoft's
+[unsafe code best practices](https://learn.microsoft.com/en-us/dotnet/standard/unsafe-code/best-practices)
+on `main` (the same code as 11.0 RC1 for these files). Seven areas: Base64 / Base64Url encoding and
+hex; text transcoding and ASCII / Latin-1; number formatting and parsing; span search and
+`SearchValues`; System.IO.Compression and Brotli; System.Text.Json and System.Text.Encodings.Web;
+the IP / `Uri` parsers and the managed WebSocket. Base64 decoding is covered by B64URL-AVX2-1 above, and
+the UTF-8 ignore-case helpers are excluded (UTF8CASE-1).
+
+Each finding below was checked at two levels. First, the pattern exists at the cited lines; the
+key lines of every finding were re-read. Second, every caller in the repo was traced to decide
+whether the assumption the code depends on can actually break. Nothing was built or run for this
+review. Unless a finding says otherwise, **the assumption holds for every caller today**. These are
+hardening gaps: the only guard is a `Debug.Assert`, a comment, caller arithmetic, or a runtime
+implementation detail. They are not reachable memory-safety bugs.
+
+### Summary
+
+| Areas reviewed | Findings | DON'T rules broken | Hardening gaps (assumption holds) | Reachable by a caller | Withheld |
+|---|---|---|---|---|---|
+| 7 (about 120 files) | 35 | 4 (NUM-5/11-1, TEXT-11-1, WS-2/22-1, STJ-1-1) | 30 | TEXT-11-1 (process crash), STJ-5-1, STJ-16-2, STJ-20-1 (wrong output, no memory corruption) | TEXT-24-1 |
+
+The most common gap, in most areas, is rule 9 / 24. Vector loads and stores, and table lookups
+with `Unsafe.Add`, are bounded only by caller arithmetic, and the `Debug.Assert`s that back them up
+are missing or check a smaller width than the access. The second is pointers stored inside `fixed`
+(rules 1 / 2), which stay in native or struct state after the pin ends.
+
+### Findings that a caller can trigger
+
+- **TEXT-11-1** (`Text/Latin1Utility.cs:997-1021`, `WidenLatin1ToUtf16_Sse2`; rules 11, 24; DON'T
+  rule broken).
+  - The alignment offset is computed as if the UTF-16 destination were at an even address, and the
+    stores use `Sse2.StoreAligned`.
+  - A `char` destination at an odd address, which is possible through `Latin1Encoding.GetChars(byte*,
+    int, char*, int)` or a span reinterpreted with `MemoryMarshal.Cast`, makes the aligned store
+    fault. The result is a process crash, not an exception.
+  - Destinations backed by a `string` or `char[]` are always aligned.
+  - The ASCII equivalent (`Ascii.Utility.cs:2211-2222`) handles odd destinations and uses `Store`.
+  - Fix: use `Store`, or skip the alignment step for odd pointers.
+- **STJ-5-1** (`Writer/Utf8JsonWriter.cs:140-175`, `Utf8JsonWriter.WriteValues.StringSegment.cs:35-39`;
+  rules 5, 11, 21).
+  - All three segment kinds (UTF-8, UTF-16, Base64) share one 3-byte leftover buffer, and the
+    UTF-16 view reinterprets it with `MemoryMarshal.Cast<byte, char>`.
+  - With `SkipValidation = true`, switching segment encoding mid-string doesn't clear the leftover,
+    so 1-3 leftover bytes are read back as a different encoding and written out.
+  - Memory-safe, but the output is wrong. Fix: clear the leftover when the container kind changes.
+- **STJ-16-2** (`Utf8JsonWriter.WriteValues.String.cs:181-205`, `WriteProperties.Helpers.cs:220-225`,
+  `JsonWriterHelper.Escaping.cs:130-143, 254-262`; rule 16).
+  - The writer reserves 6 bytes per input char and checks the transcoding status only in Debug.
+  - A custom `JavaScriptEncoder` that emits non-ASCII escapes, or lone surrogates, gets its string
+    silently truncated in Release.
+  - The writes are bounds-checked.
+- **STJ-20-1** (`Document/JsonDocument.cs:61-89`, `JsonMarshal.cs:25-47`,
+  `JsonSerializer.Read.Element.cs`; rules 20, 23).
+  - `Dispose` returns the document's pooled buffers while spans obtained after `CheckNotDisposed`,
+    such as `JsonMarshal.GetRawUtf8Value` or `Deserialize(JsonElement)`, may still be read.
+  - This happens only when a caller misuses the documented not-thread-safe contract: disposing on
+    another thread, or from a converter. The reader then sees cleared or reused data. Nothing is
+    written.
+
+### TEXT-24-1 (withheld, needs confirmation)
+
+This may have security impact, so it should go to MSRC rather than a public issue.
+
+- **Where:** `Ascii.Utility.cs`, `GetIndexOfFirstNonAsciiChar_Vector` (used on AVX2 / AVX-512
+  machines), and `Latin1Utility.cs`, `GetIndexOfFirstNonLatin1Char_Default` (non-SSE2 machines,
+  such as Arm64).
+- **What the review reports:** when the `char` input starts at an odd address, the alignment step
+  mixes byte and char counts. That can return a wrong index, which makes `GetByteCount` undercount,
+  and may read one byte past the end of the input.
+- **Status:** not reproduced. Downstream writers check destination lengths, so the review found no
+  write past a destination.
+
+### Hardening gaps (the assumption holds for every caller)
+
+| ID | Where | Rules | What |
+|---|---|---|---|
+| B64ENC-24-1 | `Base64UrlEncoder.cs:246-248` → `Base64EncoderHelper.cs:37-42` | 9, 16, 24 | The Base64Url source limit isn't capped at the source length. For a 1,610,612,734-byte source with an `int.MaxValue` destination, the limit is one past the end. Loop strides keep the reads in bounds, but the call returns `DestinationTooSmall` instead of encoding the last byte (a functional bug). Plain Base64 caps it. |
+| B64ENC-24-2 | `Base64EncoderHelper.cs:164, 408, 803, 887` | 9, 24 | `AssertRead`/`AssertWrite` check a smaller width than the SIMD access (32 of 64, 16 of 48, 16 of 64 bytes; 16 of 64 chars). |
+| B64URL-1/26-1 | `Base64UrlEncoder.cs:162-172`; `Directory.Build.props:307` | 1, 26 | `EncodeToString` passes `&source` (a span) to `string.Create` as an `IntPtr`. CS8500 is suppressed repo-wide. `Base64.EncodeToString` passes the span directly. |
+| HEX-24-1 / HEX-24-2 | `Common/src/System/HexConverter.cs:120-184, 304-453` | 9, 16, 24 | The vectorized hex encode and decode store without checks. The destination sizes are `Debug.Assert` only (lines 189, 206, 307-308). |
+| NUM-5/11-1 | `Number.Formatting.cs:1777-1798, 2287-2320` | 5, 11 | `MemoryMarshal.Cast<char, DigitPair(uint)>` followed by plain `uint` stores. For odd-length strings the stores are only 2-byte aligned. Fine on x64 / Arm64; `WriteTwoDigits` uses `MemoryMarshal.Write`. |
+| NUM-9/5/3-1 | `Number.BigInteger.cs:849-855` | 3, 5, 9 | `Unsafe.As<byte, BigInteger>` over a static table. The full extent is `Debug.Assert` only, and on 64-bit the table has no slack (121 of 121 elements). |
+| NUM-9-2 | `Number.BigInteger.cs`, `ShiftLeft` | 9, 16 | The overflow guard checks the input length, not the shifted length, so the `SetZero` fallback never runs. Bounds-checked inline-array accesses would throw. The margin is thin (about 3,682 of 3,690 bits). |
+| NUM-19-1 | `Number.BigInteger.cs`, `SkipInit` sites; `GetBlock`/`GetBits64`/`HasZeroTail` | 19 | Blocks past `_length` are uninitialized, and indices are checked against `_length` in Debug only. |
+| NUM-9-3 | `FormattingHelpers.CountDigits.cs:54-55` | 9 | Unchecked `Unsafe.Add` table read (maximum index 20 of 21). |
+| NUM-17-1 | `Number.Formatting.cs:288-293` | 17 | `GetFreshStringSpan` returns a writable span over any string. Only a comment says the string must be fresh; every caller passes `FastAllocateString`. |
+| TEXT-19-1 | `Utf8Utility.Transcoding.cs:886-891, 948-959` | 19 | `Unsafe.SkipInit` of a vector mask, safe only while two copies of the same ISA condition stay identical. |
+| SV-1-1 | `SearchValues/ProbabilisticMapState.cs:31`; `ProbabilisticMap.cs:376-395` | 1, 8, 16 | An ordinary struct stores a `ReadOnlySpan<char>*` to the caller's stack-local span. The lifetime rule is a comment. |
+| SV-15-1 | `SearchValues/ProbabilisticMap.cs:27-103` | 3, 4, 15, 16 | Eight `uint` fields are addressed as an array via `Unsafe.Add(ref _e0, …)`. `[InlineArray(8)]` would express this. |
+| SV-5-1 | `SearchValues/Strings/AsciiStringSearchValuesTeddyBase.cs:113-141, 565-660` | 5 | Unchecked `Unsafe.As<string[]>`/`Unsafe.As<string>` on object buckets, chosen by a generic constant. |
+| SPAN-9-1 | `SpanHelpers.Byte.cs:298-450`, `SpanHelpers.Char.cs:313-465` | 9, 24 | The substring `LastIndexOf` SIMD loops have no bounds asserts; the `IndexOf` counterparts do. |
+| SPAN-16-1 | `SpanHelpers.Char.cs:530-870`, `SpanHelpers.Byte.cs:451-740` | 16, 24 | The null-terminator scans read past the terminator within a page (by design). `IndexOfNullByte` compares a length to an offset, which is misleading. |
+| COMPR-16-1 | `DeflateZLib/Inflater.cs:58-69` | 9, 16, 22 | `Inflate(byte[], offset, length)` hands `bufPtr + offset`/`length` to zlib with no range check. |
+| COMPR-16-2 | `Crc32Helper.ZLib.cs:12-19` | 9, 16, 22 | The length goes to native `crc32` with only a `Debug.Assert`. |
+| COMPR-2-1 | `DeflateEncoder.cs:202-236`, `DeflateDecoder.cs:77-108`, `Inflater.cs:280-291`, `Deflater.cs:111-128` | 1, 2, 22 | `NextIn`/`NextOut` set inside `fixed` stay in the zlib state after the pin ends. |
+| WS-2/22-1 | `WebSockets/Compression/WebSocketInflater.cs:126-252` | 2, 22 | Same as COMPR-2-1, but the buffer has also been returned to the pool before `Finish()` calls `inflate`. Safe only because `AvailIn == 0`, which is checked by `Debug.Assert` only. The deflater zeroes `NextIn`. |
+| COMPR-5-1 | `Zstandard/ZstandardDictionary.cs:105-139` | 3, 5, 11, 16 | `ArrayPool<byte>.Rent(n * sizeof(nuint))` with an unchecked multiply, then `MemoryMarshal.Cast` to `nuint` for native code. This relies on array-data alignment. |
+| COMPR-14-1 | `WinZipAesKeyMaterial.cs:42-67` | 14 | The `stackalloc` length's upper bound is `Debug.Assert` only. |
+| URI-20-1 | `System.Private.Uri/src/System/Uri.cs:4310-4321` | 16, 20 | In-place unescape reads a slice of the `ValueStringBuilder` it appends to. If the builder grew, the array would go back to the pool mid-read. |
+| URI-19/20-2 | `UriHelper.cs:153-192`, `UriExt.cs:576-616` | 19, 20 | A `ValueStringBuilder` over the caller's destination is assumed never to grow; the check is `Debug.Assert` only. |
+| URI-9/19-3 | `Common/src/System/Text/ValueStringBuilder.cs:34-43, 78-85` | 9, 19 | The indexer and `Length` setter check against `_pos` in Debug only, over a `SkipLocalsInit` `stackalloc`. |
+| STJ-1-1 | `Reader/JsonReaderHelper.netstandard.cs:20-139` (netstandard / .NET Framework builds only) | 1, 9, 24 | `Unsafe.AsPointer` on an unpinned byref to compute alignment (affects performance only), plus unchecked `AddByteOffset` reads. |
+| STJ-16-1 | `Reader/JsonReaderHelper.Unescaping.cs:356-375, 513` | 9, 16 | `Unescape` ignores the `TryUnescape` result in Release. Line 513 uses `>=`, which may make `CopyString` reject a destination of exactly the unescaped length (functional; needs confirmation). |
+| STJ-20-2 | `JsonSerializer.Write.Document.cs:127-156`, `Common/src/System/Net/ArrayBuffer.cs:60-70`, escape scratch buffers | 19, 20 | Serialized payloads and escape buffers go back to the shared pool uncleared, which contradicts the code comment. |
+| TEW-13-1 | `System.Text.Encodings.Web/.../TextEncoder.cs:42-48, 539-547` | 4, 13, 16 | A null or past-the-end pinned pointer (with length 0) is passed to user-overridable `unsafe` virtual methods. |
+
+Not memory-related: `Base64.EncodeToUtf8InPlace` returns `Done` for an empty buffer before it
+validates `dataLength`.
+
+Areas with no findings beyond these: the IP address parsers, `IriHelper`, `DomainNameHelper`, the
+`ManagedWebSocket` receive and send paths, Brotli, zlib / Brotli / Zstd handle lifetimes,
+`ProbabilisticMap` and `IndexOfAnyAsciiSearcher` vector loops, `SpanHelpers.T` / `.Packed`, UTF-8 / UTF-16
+validation, `Utf8Formatter` / `Utf8Parser`, `OptimizedInboxTextEncoder`, and the `Reflection.Emit`
+member accessor in System.Text.Json.
 
 ## Harness false positives fixed during the campaign
 
