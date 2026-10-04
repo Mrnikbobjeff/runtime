@@ -71,7 +71,7 @@ Response Center rather than a public issue. The harness suppresses it as `UTF8CA
 
 A second withheld finding, B64URL-AVX2-1 in `Base64Url` UTF-8 decoding, is listed in
 [Base64 guard-page campaign](#base64-guard-page-campaign-2026-10-04).
-TEXT-24-1 and the wave 2 and wave 3 items (18 + 18, listed by ID with functional descriptions) are in the
+TEXT-24-1 and the wave 2-6 items (18 + 18 + 6, listed by ID with functional descriptions) are in the
 [unsafe-code best-practices review](#unsafe-code-best-practices-review-2026-10-04).
 
 Replay the saved inputs with `SHARPFUZZ_REPORT_KNOWN_ISSUES=1 ./repro.sh <target> <input>`; without
@@ -1521,6 +1521,105 @@ left over from wave 2.
 | OS1-16/19-2 | SunOS `Interop.ProcFs.*.cs` | 16, 19, 22 | Native reports success when `/proc` can't be opened; an unbounded scan of uninitialized stack follows. |
 | OS2-3-1 | `LdapSessionOptions.cs`, `Interop.Ldap.cs` | 3, 5 | Native code writes into the fields of a sequential class. |
 | OS2-16-4 | FreeBSD `Interop.Process.GetProcInfo.cs` | 3, 16, 22 | `kinfo_proc` size check is Debug-only; allocator mismatch. |
+
+### Waves 4-6 (2026-10-04): NativeAOT, JS interop and leftovers, CoreCLR tools, P/Invoke declarations
+
+These waves used the same method on the remaining 1,025 files:
+
+- 103 files in NativeAOT runtime libraries, JavaScript interop, Microsoft.CSharp and leftovers.
+- 60 files in the CoreCLR build-time tools. Here the threat considered is malformed input images.
+- 862 files whose unsafe use is only declarations: P/Invoke signatures, pointer-typed structs and
+  fields. These were swept for rules 22, 12, 15 and 26, comparing against the native headers and
+  sources.
+
+#### Withheld (MSRC; functional descriptions only)
+
+| ID | Component | What can happen | Condition |
+|---|---|---|---|
+| AOT-16-1 | NativeAOT `ByValTStr` ANSI struct-field marshalling | The UTF-16 length is capped at N-1, but the conversion writes the full encoded byte count plus a NUL into the N-byte inline field. Up to about 3(N-1)+1 bytes are written, overwriting the following fields or running past the native buffer. | Any non-ASCII string (Unix UTF-8; DBCS / UTF-8 ANSI code pages on Windows). No concurrency needed. CoreCLR's equivalent is bounded. |
+| DECL1-22-2 | OpenLDAP SASL interactive bind (linux-arm32) | A `ulong` is used for C `unsigned long`, so the managed element is 8 bytes larger than native. Each element write spills into the next one and walks past the end of libsasl's array. | Any SASL bind with a non-empty challenge list on 32-bit Linux |
+| DECL3-16/19-2 | `X509BasicConstraintsExtension` (legacy OID 2.5.29.10, Windows) | The CA flag is read from `pbData[0]` without checking `cbData > 0`, inside an unzeroed stack decode buffer. | A certificate with a zero-length subjectType bit string (needs confirmation) |
+| MIX-1-1 | JS interop `ToJS(Span<T>)` | A raw pointer to unpinned span data is handed to JS. The generator never pins it, and JS can re-enter .NET and trigger a GC during the call. | Depends on runtime GC / conservative scanning behaviour (needs confirmation) |
+| MIX-16-3 | `RegistryKey.GetValueNames()` on `HKEY_PERFORMANCE_DATA` | An unbounded NUL scan over a pooled buffer that was not cleared. | The OS leaves the name unterminated on the more-data path (needs confirmation) |
+| DECL3-16-1 | `DeserializingResourceReader` (System.Resources.Extensions) | An `UnmanagedMemoryStream` over the resource blob uses a file-supplied length that is never checked against the remaining bytes. CoreLib's `ResourceReader` has this check. | A malformed .resources file read from a UMS (the reader is not meant for untrusted input) |
+
+#### Functional bugs (public)
+
+- **TOOL2-9-4** (`src/coreclr/tools/aot/ILCompiler.Compiler/Compiler/DependencyAnalysis/DehydratedDataNode.cs:276`):
+  while it extends a run of relocations, NativeAOT reads the next relocation's addend at the
+  *first* relocation's offset. Two adjacent relocations of the same type with different addends
+  then get the wrong addend in the dehydrated data, which is a wrong pointer at runtime. Fix:
+  `nextReloc.Offset`.
+- **DECL1-22-1** (`Common/src/Interop/Interop.Ldap.cs:175-180` used by the OpenLDAP declarations):
+  `LDAP_TIMEVAL {int, int}` is passed where libldap reads a 16-byte `struct timeval` on Linux
+  x64/arm64 and macOS. Effects:
+  - a sub-second `LdapConnection.Timeout` becomes enormous;
+  - `-1` ("no limit") becomes 4,294,967,295 s;
+  - the `{0,0}` poll gets 8 bytes of adjacent stack as `tv_usec`.
+- **DECL1-22-2, all platforms:** the SASL default result length is in UTF-16 chars rather than
+  UTF-8 bytes, so non-ASCII credentials are truncated, and native copies are leaked.
+- **DECL2-22-1** (`MemoryMappedView.Windows.cs:59-91`): the result of `VirtualAlloc(MEM_COMMIT)`
+  is discarded (the wrong handle is checked). A failed commit gives a view over reserved pages,
+  and the first access crashes with an access violation instead of throwing.
+- **TOOL1-9/16-1, TOOL2-22/16-1:** r2rdump / `ILCompiler.Reflection.ReadyToRun` read native
+  memory past the image array for malformed Webcil section headers or R2R runtime-function
+  sizes. These are developer tools.
+- **DECL3-22-4:** `VirtualFree` has no `SetLastError`, but `MemoryFailPoint` reads the last
+  error.
+- **DECL3-12-3:** `VT_BYREF | VT_DECIMAL` is reinterpreted without clearing `wReserved` (an
+  invalid decimal).
+- **TOOL1-13-2** (latent): a write through `Unsafe.NullRef`.
+- **TOOL2-22/12-1** (latent, no callers): `bool*` is passed for `BOOL*`, and the address of a
+  managed object is passed as a COM pointer.
+
+#### Hardening gaps (the assumption holds for every caller)
+
+| ID | Where | Rules | What |
+|---|---|---|---|
+| AOT-1/3-2 | `CachedInterfaceDispatch.cs:26-32`, `RuntimeInstance.cpp:350-357` | 1, 3 | Native keeps a permanent pointer to a managed static (relies on the pinned object heap). |
+| AOT-5/9-3 | `RuntimeExports.cs:245-291`, `RuntimeAugments.cs:143-159` | 5, 9, 16 | Unbox copies the source size; compatibility is Debug-only. |
+| AOT-9/16-4 | `Array.NativeAot.cs:131-162` | 9, 14, 16 | The lengths count is trusted to equal the rank (Debug-only). |
+| AOT-3/5-5 | TypeLoader `EETypeCreator.cs` and others | 3, 5 | `*(IntPtr*)&handle` instead of `.Value` / `FromIntPtr`. |
+| MIX-3/5-2 | `JSHostImplementation.Types.cs:52-63` | 3, 5, 12 | An `IntPtr` overlaid on `RuntimeMethodHandle` (an object reference on CoreCLR; Mono-only caller). |
+| MIX-6/3-4 | `JSMarshalerArgument.String.cs` | 3, 6 | Mono by-reference mode stores GC references as `IntPtr`. |
+| MIX-5-5 | `BinaryFormatterWriter.cs:84-92` | 3, 5 | `Unsafe.As<DateTime, long>`. |
+| MIX-1-6 | Microsoft.CSharp `ComRuntimeHelpers.cs`, `DynamicVariantExtensions.cs` | 1, 2 | `AsPointer` over expression-tree locals placed in DISPPARAMS. |
+| TOOL2-7-1 | `UnmanagedPdbSymbolReader.cs` | 7 | COM wrappers make vcalls without `GC.KeepAlive` while finalizers `Release`. |
+| TOOL2-16/22-2, TOOL2-9/16-3, TOOL2-9/16-5 | PDB reader buffers, dotnet-pgo LBR events, object-writer relocations | 9, 16, 22 | Unchecked buffer capacities / sizes. |
+| TOOL1-14-3, TOOL1-5-4, TOOL1-21-5, TOOL1-2/5-6, TOOL1-15/3-7, TOOL1-2-8, TOOL1-1-9 | crossgen2 / ILCompiler / r2rdump | 1-21 | Negative `stackalloc` possible, class-to-struct `Unsafe.As`, raw `bool[]`, ref escaping `fixed`, field-spanning name buffer, leaked GCHandle, undocumented unmanaged-`this` contract. |
+| DECL1-22-3, DECL1-16-5, DECL1-15-6, DECL1-16-7, DECL1-1-8 | Network.framework ALPN, GSS status, JIT instruction-set flags, Unix bignum, crypto alloc tracking | 1, 9, 15, 16, 22 | The native side ignores capacity, a NUL scan instead of the length, an unchecked fixed buffer, a delegate address as context. |
+| DECL2-22-2 | `Interop.CertGetCertificateChain.cs:25-37` | 22 | A pointer field declared as `int` (88 vs 96 bytes on 64-bit). |
+| DECL2-1/26-3, DECL3-1/26-8 | `Archiving.Utils.Windows.cs:53-86`, `PemEncoding.cs:735-757` | 1, 26 | Span addresses passed through `string.Create` state (same as B64URL-1/26-1). |
+| DECL2-22-4 | `Interop.BCryptFinishHash.cs`, `HashProviderDispenser.Windows.cs:321` | 16, 22 | The length is independent of the span; one fallback path ignores NTSTATUS. |
+| DECL2-7/22-5 | `LdapConnection.cs:880-929` | 7, 22 | The client certificate handle is returned to wldap32 without keeping it alive. |
+| DECL2-22-6, DECL2-22-7 | `Interop.SSPI.cs:151-162`; CMSG union accessors | 22 | Mislabeled struct for the issuer list; Debug-only union discriminants. |
+| DECL3-22-5 | `Interop.FILE_STANDARD_INFO.cs:12-19` | 22 | `BOOL` instead of `BOOLEAN` (32 vs 24 bytes). |
+| DECL3-7/23-6 | `NetworkAddressChange.OSX.cs:191-246` | 7, 23 | Run-loop handle re-read without the lock (needs confirmation). |
+| DECL3-16-7, DECL3-26-9 | `SafeChannelBindingHandle.cs:21-29`; `Marshal.Mono.cs` | 1, 6, 9, 16, 26 | Debug-only copy bound; suppressed ref-safety warning. |
+
+### Coverage and totals
+
+Every file in the repo that matches `unsafe`, `Unsafe.`, `MemoryMarshal.`, `stackalloc` or
+`fixed (` has been reviewed: 2,235 files under `src/libraries/**/src`,
+`src/coreclr/{System.Private.CoreLib,nativeaot,tools}` and `src/mono/System.Private.CoreLib`.
+
+- 1,373 of them use those constructs for real work, and each was reviewed in full or at every
+  unsafe site.
+- The 862 that only declare were swept against the native side.
+- No file remains unreviewed.
+
+Native C/C++ code was out of scope except to verify callers.
+
+| Wave | Files | Withheld (MSRC) | Public bugs | Hardening gaps |
+|---|---|---|---|---|
+| 1 | ~120 | 1 (+ B64URL-AVX2-1 from fuzzing) | 4 | 30 |
+| 2 | 553 | 18 | 6 | ~30 |
+| 3 | 497 | 18 | ~12 | ~27 |
+| 4-6 | 1,025 | 6 | 9 | ~25 |
+
+Nothing in this review was built or run. Each item's pattern was verified in the source, and its
+reachability was traced through callers. Items marked "needs confirmation" depend on behaviour
+(OS, native library, GC timing) that could not be established from source.
 
 ## Harness false positives fixed during the campaign
 
