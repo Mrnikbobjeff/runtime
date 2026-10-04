@@ -69,6 +69,9 @@ One further finding, in UTF-8 number parsing with custom `NumberFormatInfo` symb
 described here because it may have security impact; it should go through the Microsoft Security
 Response Center rather than a public issue. The harness suppresses it as `UTF8CASE-1`.
 
+A second withheld finding, B64URL-AVX2-1 in `Base64Url` UTF-8 decoding, is listed in
+[Base64 guard-page campaign](#base64-guard-page-campaign-2026-10-04).
+
 Replay the saved inputs with `SHARPFUZZ_REPORT_KNOWN_ISSUES=1 ./repro.sh <target> <input>`; without
 that variable the harness suppresses every finding in this document so that new ones stand out.
 
@@ -1151,6 +1154,50 @@ payloads. 11.0 RC1 only (new API).
   `InvalidOperationException`, the same as JSON-SURR-1 (round 3) through the node API.
 
 ---
+
+## Base64 guard-page campaign (2026-10-04)
+
+A targeted follow-up on Base64 / Base64Url decoding. The new `base64guard` target
+(`Base64GuardTarget.cs`) calls every decoding entry point: UTF-8 and UTF-16, one-shot, streaming
+(`isFinalBlock: false`), in-place, `Try*`, the allocating overloads, `IsValid` and
+`Convert.TryFromBase64Chars`. Sources and destinations are exactly sized against guard pages, the
+destination size comes from the fuzzer (exact, short, scaled or oversized), and every result has to
+match the same call on plain arrays and the reference decoder from `Base64Target`. In the payload,
+each byte below 0xF0 maps onto the alphabet, so long valid inputs that reach the vector paths are
+easy to generate.
+
+Before fuzzing, the decode paths of the RC1 CoreLib were checked against a local build of `main`
+(2026-09-18): every `Base64Helper` decode method has the same IL size, so RC1 results apply to the
+code that is about to ship.
+
+| Target | Assemblies | Wall-clock | Execs | Edges | Crashes | Result |
+|---|---|---|---|---|---|---|
+| `base64guard` | CoreLib (guarded, `SHARPFUZZ_GUARD=1`) | 30 min (8 instances) | 38.9 M | 4.5 k | 156 | B64URL-AVX2-1 (all 156) |
+| `base64` | CoreLib | 30 min (4 instances) | 44.6 M | 5.5 k | 0 | no new findings |
+
+### B64URL-AVX2-1
+
+**Withheld: this may have security impact, so it should go to the Microsoft Security Response
+Center rather than a public issue.**
+
+All 156 crashes are `AccessViolationException`s from a guard page, with the same top frames:
+`Base64Helper.Avx2Decode<Base64UrlDecoderByte, byte>` called from `Base64Url.DecodeFromUtf8(source,
+destination, out, out, isFinalBlock)`. That call is reached directly, through `TryDecodeFromUtf8`,
+through the streaming loop, and through the whitespace fallback.
+
+- It happens only when the AVX2 path is enabled, with AVX-512 on or off (61 with the full ISA, 90 with
+  `DOTNET_EnableAVX512=0`), and never with `DOTNET_EnableAVX2=0`.
+- In every direct call it happens with `isFinalBlock: true` and a destination that ends at a guard
+  page and is smaller than the decoded output.
+- `Base64` (not Url), the UTF-16 overloads, in-place decoding and `IsValid` never crashed.
+
+**Not yet confirmed outside the fuzzer.** A plain repro was clean on stock 9.0.20, 10.0.12 and 11 RC1,
+with every ISA setting. It decodes valid Base64Url text into every too-short destination carved out
+of a larger array and checks the bytes after the slice. So the triggering inputs need more than
+that, or the instrumented CoreLib is involved. Triage was stopped at this point. The next step is
+to replay the saved inputs (WSL: `/root/sharpfuzz/out-b64g/base64guard/*/crashes`, stacks bucketed
+in `/root/sharpfuzz/triage-b64g/stacks.txt`) with guard pages on the stock RC1 runtime, and then
+report through MSRC. The harness does not suppress this finding: it is a process crash.
 
 ## Harness false positives fixed during the campaign
 

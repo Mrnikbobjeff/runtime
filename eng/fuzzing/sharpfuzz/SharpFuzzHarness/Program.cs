@@ -15,6 +15,7 @@ public static class Program
         ["version"] = VersionTarget.Run,
         ["enum"] = EnumTarget.Run,
         ["base64"] = Base64Target.Run,
+        ["base64guard"] = Base64GuardTarget.Run,
         ["encoding"] = EncodingTarget.Run,
         ["searchvalues"] = SearchValuesTarget.Run,
         ["compositeformat"] = CompositeFormatTarget.Run,

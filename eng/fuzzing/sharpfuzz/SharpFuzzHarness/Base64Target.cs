@@ -72,7 +72,7 @@ public static class Base64Target
     /// long) with at most two '=' at the very end, and the unused low bits of the last symbol are 0.
     /// Returns null for invalid input.
     /// </summary>
-    private static byte[]? Reference(ReadOnlySpan<char> text, bool url)
+    internal static byte[]? Reference(ReadOnlySpan<char> text, bool url)
     {
         var symbols = new List<char>(text.Length);
         foreach (char c in text)
