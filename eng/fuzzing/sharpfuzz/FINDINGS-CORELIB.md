@@ -71,7 +71,7 @@ Response Center rather than a public issue. The harness suppresses it as `UTF8CA
 
 A second withheld finding, B64URL-AVX2-1 in `Base64Url` UTF-8 decoding, is listed in
 [Base64 guard-page campaign](#base64-guard-page-campaign-2026-10-04).
-A third, TEXT-24-1, is in the
+TEXT-24-1 and the wave 2 items (18, listed by ID with functional descriptions) are in the
 [unsafe-code best-practices review](#unsafe-code-best-practices-review-2026-10-04).
 
 Replay the saved inputs with `SHARPFUZZ_REPORT_KNOWN_ISSUES=1 ./repro.sh <target> <input>`; without
@@ -1318,6 +1318,103 @@ Areas with no findings beyond these: the IP address parsers, `IriHelper`, `Domai
 `ProbabilisticMap` and `IndexOfAnyAsciiSearcher` vector loops, `SpanHelpers.T` / `.Packed`, UTF-8 / UTF-16
 validation, `Utf8Formatter` / `Utf8Parser`, `OptimizedInboxTextEncoder`, and the `Reflection.Emit`
 member accessor in System.Text.Json.
+
+### Wave 2 (2026-10-04): interop, cryptography, networking, CoreLib text and core types
+
+Same method as above, applied to 553 more files.
+
+| Area | Files | Not covered |
+|---|---|---|
+| CoreLib core types and vector intrinsics | 63 | |
+| CoreLib text / globalization | 62 | `CompareInfo.Utf8.cs` (UTF8CASE-1 exclusion) |
+| Interop marshalling, CompilerServices | 73 | |
+| System.Security.Cryptography (managed) | 104 | 7 pattern-scanned only |
+| Crypto / security interop, Pkcs, Cose, Bcl | 121 | |
+| HTTP, HttpListener, WinHttpHandler, QUIC | 57 | 4 generated WASI binding files |
+| Sockets, TLS, DNS, NetworkInformation | 73 | |
+
+Files listed under "Not covered" go to a later wave. Wave 2 found 18 withheld items, 6 functional
+or leak bugs, and about 50 hardening gaps.
+
+#### Withheld (MSRC; functional descriptions only)
+
+These may have security impact. For the ones marked "needs confirmation", the code pattern is
+verified but whether the triggering condition can occur in practice was not established. None was
+reproduced.
+
+| ID | Component | What can happen | Condition |
+|---|---|---|---|
+| NETB-22-1 | `SocketAsyncEventArgs` (Windows) | The native address buffer is sized for the first address family, but later receive operations report the IPv6 size to the OS and copy that much back. | A `SocketAsyncEventArgs` reused from an IPv4 to an IPv6 `ReceiveFrom` / `ReceiveMessageFrom` |
+| NETA-9/16-1 | HttpListener request body read (Windows) | The per-chunk copy length is clamped to the whole read size, not the space left, so the copy can run past the caller's buffer. | http.sys returns two or more entity chunks (needs confirmation) |
+| CRYPTO-7-1 | `X509Chain` (Windows) | `ChainStatus` reads the native chain after its handle was released. | The caller disposes `chain.SafeHandle`, then reads `ChainStatus` |
+| CRYPTOI-7-1 | `TlsSocketSession` (OpenSSL) | Native TLS I/O and shutdown use a raw socket descriptor without holding the socket handle. | The socket handle is disposed or finalized while the session is alive |
+| CRYPTO-16-2 | CNG key property strings (Windows) | A NUL scan with no length bound over a property value. | The provider or the caller supplies an unterminated value (needs confirmation) |
+| CLTEXT-16-1 | ICU locale strings | `new string(char*)` over a 100-char stack buffer that ICU may leave unterminated. | An ICU result of exactly 100 code units (needs confirmation) |
+| CLTEXT-22-1 | Browser locale info (WASM) | A JS-returned length is not checked against the 80-char stack buffer, and the JS fallback path writes unbounded. | An 81-85 char culture name accepted by ICU but rejected by `Intl` (needs confirmation) |
+| NETA-7-3 | QUIC stream setup | A context GCHandle is freed twice. | The connection is disposed concurrently with opening a stream |
+| NETA-7/22-4 | WinHttpHandler | A callback resolves a GCHandle that was already freed. | A synchronous `WinHttpSendRequest` failure followed by a late close callback (needs confirmation) |
+| CRYPTOI-7-3 | OpenSSL session cache callbacks | A GCHandle lookup races with its release. | A `TlsContext` is disposed during a handshake (needs confirmation) |
+| NETB-7-5 | SslStream on macOS / iOS | A native certificate is used after its managed owner became unreachable. | An intermediate certificate with a private key (needs confirmation) |
+| NETB-20/22-7 | Network.framework TLS | A pooled buffer is unpinned and returned while a queued native block may still use it. | Dispose during a transport read (needs confirmation) |
+| CRYPTOI-16-3 | Android bignum export | A native write with no capacity; a failed size query moves the start past the array. | A JNI failure in the size query (needs confirmation) |
+| CLCORE-23/24-1 | `BitArray.CopyTo(bool[])` | Vector stores loop to a re-read length field, so they can go past the destination. | `Length` is grown concurrently (misuse; inconsistent with the type's own snapshot policy) |
+| INTEROP-16-1 | ANSI `StringBuilder` marshalling | The NUL terminator is written 1 byte past the native block; NativeAOT helpers take no destination length. | The builder is grown concurrently during the call |
+| CLTEXT-16-2 | `StringBuilder.Append(ref char, int)` | The source read length is recomputed from fields, so the read goes past the source. | The builder is mutated concurrently |
+| CRYPTOI-9-1 | ML-KEM CNG blob reader | The header and parameter-set length are read before any length check. | A third-party key storage provider |
+| NETB-7/22-2 | Managed NTLM (Android / tvOS) | Channel-binding memory is read with no reference held and no size or offset validation. | A caller-supplied `ChannelBinding` subclass |
+
+#### Functional and leak bugs (public)
+
+- **NETA-7/22-2:** `QuicStream` gives its safe handle a boxed copy of an empty `MsQuicBuffers`
+  struct, so the native send buffers are never freed. It leaks per stream.
+- **NativeAOT `Marshal.GetObjectForNativeVariant`**
+  (`nativeaot/.../InteropServices/Marshal.Com.cs:324`): `VT_BOOL` is handled as
+  `data->As<short>() != -1`. That throws for every `VT_BOOL` variant, and the comparison is
+  inverted. The fix is `data->As<bool>()`.
+- **NETB-12/21-4:** `NetSecurityTelemetry` (and `HttpTelemetry`) publish a `bool` argument as a
+  4-byte EventSource payload, so 3 bytes of adjacent stack go into handshake events.
+- **NETB-19-8:** the WSARecvMsg control buffer is parsed without checking the returned control
+  length. Uninitialized stack data or stale data can surface as `IPPacketInformation` after the
+  option was cleared with `SetRawSocketOption`.
+- **`Ordinal.LastIndexOf(string, string, int, int, bool)`** (`Globalization/Ordinal.cs:598-656`):
+  dead code with a missing `return`.
+- **SSPI `CompleteAuthToken`** (`SecuritySafeHandles.cs:902`): an inverted `Debug.Assert`.
+
+#### Hardening gaps (the assumption holds for every caller)
+
+| ID | Where | Rules | What |
+|---|---|---|---|
+| CLCORE-4-1 | `Memory.cs:384-432`, `ReadOnlyMemory.cs:300-347` | 4, 9, 23 | `Pin()` doesn't re-validate `_index` against a torn struct; the `Span` getter does. |
+| CLCORE-5/11-1 | `Numerics/Matrix4x4.cs:40-55` | 5, 11 | `Unsafe.As` to an `Impl` that has 16-byte alignment; relies on unaligned SIMD codegen. |
+| CLTEXT-11-1 | `Text/UnicodeEncoding.cs:1338-1413` | 10, 11 | Checks the destination's alignment, then does aligned 8-byte source reads. |
+| CLTEXT-3-1 | `String.Comparison.cs:57-99, 485-499, 768-899` | 3, 4, 11 | Reads padding, the terminator and the length field; relies on zeroed allocation. |
+| CLTEXT-1-1 | `Text/Unicode/Utf8.cs`, `Text/Encoding.Internal.cs` | 1 | `Unsafe.AsPointer` on slices of a pinned span. |
+| CLTEXT-14-1 | `Text/UTF8Encoding.Sealed.cs:56-145` | 14, 16 | `stackalloc` into raw pointers, then the unvalidated span constructor. |
+| CLTEXT-17-1 | `String.cs:537-560` | 17, 19 | A raw pointer into a fresh string is handed to any `Encoding`; the count is `Debug.Assert` only. |
+| INTEROP-1/8-1 | `coreclr/.../AsyncHelpers.CoreCLR.cs:184-284, 929-1165` | 1, 2, 8 | Stack addresses are published to thread statics with no `try/finally`. |
+| INTEROP-1-1 | `TypeMapLazyDictionary.cs:421, 502` | 1, 7 | `QCallTypeHandle` built from a heap field. |
+| INTEROP-3/9-1 | `AsyncStateMachineDiagnostics.cs:44-100` | 3, 4, 9 | An `int` read at a reflected offset with no type or size check (profiler only). |
+| INTEROP-4/16-1 | `ComWrappers.cs:936-973` | 4, 16 | A span longer than its allocation; only the loop `break` bounds it. |
+| INTEROP-4/13-1, CRYPTO-4-1 | `MemoryMarshal.cs:128-140`, crypto `Helpers.cs:366-378` | 4, 13 | A ref to address 1 for empty spans (documented, pin-only). |
+| CRYPTO-1-1 | `OpenSslX509ChainProcessor.cs:642-701` | 1, 2, 8, 26 | A stack-local address is left as `X509_STORE_CTX` app data. |
+| CRYPTO-16-1 | `LiteHash.Unix.cs:157-261` | 16, 22 | The destination length goes to a native finalizer that ignores it; the size check is Debug-only. |
+| CRYPTO-20-1 | `X509CertificateLoader.Windows.cs:221-231`, `X509CertificateLoader.Pkcs12.cs:1082-1330` | 19, 20 | Plaintext private keys are left in unzeroed intermediates during Windows PFX import. |
+| CRYPTO-19-1 | `UniversalCryptoDecryptor.cs:152-158` (+2) | 19 | Uninitialized arrays are returned; "fully written" is `Debug.Assert` only. |
+| CRYPTO-20-2 | `AsymmetricAlgorithm.cs:778-835`, `RSA.cs`, `PemKeyHelpers.cs` | 19, 20 | A failed third-party `Try*` export leaves its partial output in the pool. |
+| CRYPTO-19-2 | `HKDFManagedImplementation.cs:64-92`, `Rfc2898DeriveBytes.OneShot.cs` | 14, 19 | Derived-key residue is left on the stack or in the pool. |
+| CRYPTO-9-1 | `X509Pal.Windows.PublicKey.cs:168-199` | 9, 16 | A blob header is read with a Debug-only length check. |
+| CRYPTOI-7-2 | `SspiCli/SecuritySafeHandles.cs:405-443, 673-711, 957-961` | 7, 22 | `ChannelBinding` pointer used without AddRef; the Unix path does AddRef. |
+| CRYPTOI-16-1 | `Interop.EvpPkey.cs:131-216`, `Interop.Encode.cs`, `Interop.OCSP.cs`, `Interop.Pkcs7.cs` | 16, 20, 22 | Size, then encode with no capacity passed; `written` is checked in Debug only. |
+| CRYPTOI-22-1 | `Interop.BCryptSignHash.cs:118-155` | 19, 22 | An empty destination becomes NULL, which BCrypt treats as a size query. |
+| CRYPTOI-16-4 | `Interop.EVP.Cipher.cs:94-143`, Android `Interop.Cipher.cs` | 16, 22 | Cipher update / final calls pass no output length. |
+| CRYPTOI-2-1 | `Interop.OpenSsl.cs:1237-1246` | 1, 2 | A pointer escapes a `fixed` block (the memory is native). |
+| NETA-7/8-5 | `HttpListenerRequest.Windows.cs:109-125, 292-301` | 7, 8, 23 | The request blob is a bare `IntPtr`; a concurrent `Close` frees it. |
+| NETA-16-6 | `MsQuicTlsSecret.cs:52-76`, `MsQuicApi.cs:151-175` | 14, 16, 22 | Native lengths are used unclamped; strlen on a raw stackalloc. |
+| NETA-20-7 | `WinHttpResponseStream.cs:104-170` | 20 | A pooled buffer is returned while still pinned. |
+| NETB-7/8-6 | `TlsSession.OpenSsl.cs:196-223` | 7, 8, 23 | A span over a native BIO buffer is read without AddRef. |
+| NETB-2-3 | `SocketPal.Unix.cs:483-536` | 2, 22 | A `MessageHeader` is used after its `fixed` block ends. |
+| NETB-2/8-9 | `SocketAsyncContext.Unix.cs` | 2, 8 | A `byte*` from `fixed` is stored in queued operation objects; safe by design rule only. |
+| NETB-16/22-10 | `SocketPal.Unix.cs`, `SocketPal.Windows.cs` | 9, 16, 22 | The kernel gets caller-supplied lengths without a clamp. |
 
 ## Harness false positives fixed during the campaign
 
