@@ -71,7 +71,7 @@ Response Center rather than a public issue. The harness suppresses it as `UTF8CA
 
 A second withheld finding, B64URL-AVX2-1 in `Base64Url` UTF-8 decoding, is listed in
 [Base64 guard-page campaign](#base64-guard-page-campaign-2026-10-04).
-TEXT-24-1 and the wave 2 items (18, listed by ID with functional descriptions) are in the
+TEXT-24-1 and the wave 2 and wave 3 items (18 + 18, listed by ID with functional descriptions) are in the
 [unsafe-code best-practices review](#unsafe-code-best-practices-review-2026-10-04).
 
 Replay the saved inputs with `SHARPFUZZ_REPORT_KNOWN_ISSUES=1 ./repro.sh <target> <input>`; without
@@ -1415,6 +1415,112 @@ reproduced.
 | NETB-2-3 | `SocketPal.Unix.cs:483-536` | 2, 22 | A `MessageHeader` is used after its `fixed` block ends. |
 | NETB-2/8-9 | `SocketAsyncContext.Unix.cs` | 2, 8 | A `byte*` from `fixed` is stored in queued operation objects; safe by design rule only. |
 | NETB-16/22-10 | `SocketPal.Unix.cs`, `SocketPal.Windows.cs` | 9, 16, 22 | The kernel gets caller-supplied lengths without a clamp. |
+
+### Wave 3 (2026-10-04): Tensors, rest of CoreLib, format / parser libraries, OS-facing libraries
+
+Same method again, on 497 more files: every file in each scope was reviewed, plus the 12 files
+left over from wave 2.
+
+| Area | Files |
+|---|---|
+| System.Numerics.Tensors | 27 |
+| CoreLib threading, I/O, tracing, reflection, environment, GC (CoreCLR / NativeAOT / Mono included) | 192 |
+| Format / parser libraries (BigInteger, CodePages, XML, DataContract, Hashing, Reflection.Metadata, Formats.*, Regex, Immutable, LINQ) and the wave-2 leftovers | 126 |
+| OS-facing libraries (Process, Console, PerformanceCounter, DirectoryServices, IO.Ports, EventLog, FileVersionInfo, Common interop) | 150 |
+
+#### Withheld (MSRC; functional descriptions only)
+
+| ID | Component | What can happen | Condition |
+|---|---|---|---|
+| OS2-22-1 | `Process.ReadAllText` / `ReadAllBytes` (Windows) | The overlapped state is freed and the buffers are unpinned and returned to the pool while the other pipe's read is still pending, so the kernel later completes into freed or moved memory. | A non-EOF pipe error, a `GetOverlappedResult` failure, or buffer growth failing on one stream |
+| CLSYS1-22/16-1 | `RandomAccess.Read` / `ReadAsync(IReadOnlyList<Memory<byte>>)` (Unix) | The iovec count given to the kernel is re-read from the list, so the kernel can read uninitialized or out-of-range iovecs and write file data there. | The list is mutated during an async read, or a custom list's `Count` is unstable |
+| CLSYS2-1/8-3 | `FileSystemEntry.FileName` (Unix) | Safe user code can get a span into dead stack storage. | Copy the ref struct, then return `copy.FileName` |
+| OS2-7-1 | `CounterData` (PerformanceCounter) | A raw pointer into a native block that the owning dataset frees on `Dispose` or finalization. | A `CounterData` kept after its dataset |
+| OS2-7-2 | `GetAuthorizationGroups` result enumeration | SID pointers into freed AuthZ buffers are dereferenced. | Enumerating after the result is disposed |
+| OS1-11-1 | Shared performance-counter memory (cross-user) | Unaligned atomics at offsets another user controls (fault on Windows ARM64); offset cycles cause a stack overflow or a hang. | Another local user writes the shared mapping (needs confirmation) |
+| FMT-9/16-1 | `System.Reflection.Metadata` WinMD string compare | A 1-byte read past the #Strings heap. | Malformed WinMD metadata |
+| OS2-16-1 | SID parsing in DirectoryServices.AccountManagement / EventLog | Over-reads, and a wild read when the sub-authority count is 0. | Malformed `objectSid` from LDAP / SAM, or a mismatched event-record SID length (needs confirmation) |
+| OS2-16-2 | `FileVersionInfo.GetVersionInfo` (Windows) | `VerQueryValue` lengths are ignored, so reads can go past version-resource values. | A crafted version resource (needs confirmation) |
+| OS2-2-1 | `SerialPort` event loop (Windows) | The kernel writes the event mask into an unpinned field. | Shutdown while `WaitCommEvent` is incomplete (driver-dependent; needs confirmation) |
+| OS1-19-3 | `TriggerSyncReplicaFromNeighbors` | 16 uninitialized heap bytes are passed as a source GUID to `DsReplicaSyncW`. | Always on that path; whether the GUID reaches the DC needs confirmation |
+| CLSYS2-16/19-4 | `Environment.UserDomainName` (Windows) | An uninitialized, unterminated stack buffer is passed as a NUL-terminated name. | `GetUserNameExW` fails with another error (needs confirmation) |
+| CLSYS1-23-1 | Windows thread pool native OVERLAPPED free list | No ABA protection: one OVERLAPPED can be handed out twice. | Concurrent allocate / free (needs confirmation) |
+| OS1-7-1, OS1-7-2 | `Process.Kill` / priority / affinity; `SafeProcessHandle.Resume` | A non-owning handle alias, or a raw thread handle, is used without holding a reference, so the call can act on a recycled handle. | The owner is collected or disposed during the call |
+| CLSYS2-9/16-1 | EventSource → EventListener decoding | Reads past the caller's `EventData` array and copies from that descriptor's pointer. | An EventSource whose `WriteEvent` call doesn't match the event's `byte[]` / Guid / decimal signature |
+| CLSYS2-9-5 | Custom attribute prolog read (CoreCLR) | A 1-3 byte over-read of the attribute blob. | A malformed assembly |
+| FMT-23/24-1 | `XxHash3` / `XxHash128.Append` | Overflows the 256-byte inline buffer. | Concurrent `Append` calls (misuse) |
+| FMT-5/23-1 | LINQ `OfType<T>().Select(f).Last()` | A wrongly typed object is passed to the selector (`Unsafe.As` on the delegate). | A concurrent store into the source array (needs confirmation) |
+
+#### Functional bugs and public issues
+
+- **OS1-19-1** (`System.Console/src/System/ConsolePal.Unix.cs:519`): on an incomplete
+  cursor-position reply, `TransferBytes(readBytes.Slice(readBytesPos), r)` pushes the unwritten
+  tail of an unzeroed `stackalloc byte[256]` into stdin. The fix is `Slice(0, readBytesPos)`.
+  - Effect: stale stack bytes are returned by `Console.Read` / `ReadKey` / `ReadLine`, and the
+    bytes the user actually typed are lost.
+  - Trigger: commonly a terminal without cursor-position-report support, reached through
+    `Console.CursorLeft` / `CursorTop` / `GetCursorPosition`.
+- **CLSYS1-3-1** (`Interlocked.cs:569-570`, `Volatile.cs:89-96` on 32-bit, and the CoreCLR /
+  NativeAOT copies): `Interlocked.Read(ref readonly …)` is
+  `CompareExchange(ref Unsafe.AsRef(in x), 0, 0)`. That writes to the location (it is not a JIT
+  intrinsic) and faults on memory mapped read-only.
+- **CLSYS1-12/21-1** (`FrameworkEventSource.cs:53-55`): a `bool` is published as a 4-byte
+  payload. That leaks 3 stack bytes, and in-process listeners can decode `true` as `false`. This
+  is the same class as NETB-12/21-4.
+- **FMT-12/21-1:** binary XML `ReadArray(bool[])`, `ReadArray(decimal[])` and the little-endian
+  `ReadDecimal` copy raw bytes with no normalization or validation.
+- **FMT-XML-9-1:** a binary XML decimal with a scale of 39-255 throws `IndexOutOfRangeException`
+  rather than `XmlException`.
+- **FMT-XML-5-1:** binary XML on big-endian: characters are validated little-endian but returned
+  in machine order, which bypasses `CheckCharacters`.
+- **FMT-XML-16-1:** `XmlWriter.WriteChars(buf, buf.Length, 0)` throws `IndexOutOfRangeException`
+  in the sync raw writers.
+- **FMT-X509-19-1:** `SafePasswordHandle` zeroes only up to the first U+0000 of a password.
+- **TENS-24-2:** `TensorMarshal.CreateTensorSpan(…, dataLength: -1, …)` silently skips the
+  backing-length check, because -1 is an internal sentinel.
+- **TENS-9-2:** latent. The in-place `SinCos` / `SinCosPi` vector tail would corrupt results once
+  vectorized.
+- Smaller items:
+  - **OS2-16-3 / OS1-16-4:** the Windows OS encoding reports counts it never wrote, and
+    `GetLeadByteRanges` tests the wrong array, so DBCS lead-byte tracking never runs.
+  - The "is it S-1-5" SID test is misparenthesized.
+  - **CLSYS2-22-6:** a stale `SetLastError` in the ANSI char-array marshaler.
+  - **CLSYS2-13-8:** a NULL DACL causes a `NullReferenceException` in the named-object check.
+  - TraceLogging writes 2-byte length prefixes from the high half on big-endian.
+  - HTML writers' `WriteChars` skips HTML escaping.
+  - `X509CertificateLoader.Unix.cs:444` has `Oids.Rsa or Oids.Rsa`.
+
+#### Hardening gaps (the assumption holds for every caller)
+
+| ID | Where | Rules | What |
+|---|---|---|---|
+| TENS-9-1 | `TensorShape.cs:494-622`, `TensorOperation.cs:312-367` | 4, 9, 24 | Broadcast compatibility is trusted via `Debug.Assert` only. |
+| TENS-24-1 | `TensorPrimitives.IAggregationOperator.cs:2391-2601` | 5, 9, 24 | Mask-table vector loads have no row bound (zero slack). |
+| TENS-11-1 | `TensorPrimitives.Single.netstandard.cs` | 5, 10, 11 | Aligned `Vector<float>` dereferences on float-aligned memory (netstandard asset). |
+| TENS-5-1 | `TensorPrimitives.Helpers.cs:48-69` | 5, 9 | Span `BitCast` keeps `Length`; the size check is Debug-only. |
+| CLSYS1-3/22-1 | `UnixHandleAsyncContext.Wasi.cs` | 3, 22 | Mirrors private wasi-libc structs and writes into libc memory. |
+| CLSYS1-9-1 | NativeAOT `DynamicInvokeInfo.cs:315-765` | 9, 16 | Writes into a 4-slot byref buffer; the count is Debug-only. |
+| CLSYS1-16-1 | `UnmanagedMemoryAccessor.cs:539-563` | 9, 16 | `WriteArray` doesn't check the accessor window (`ReadArray` does). |
+| CLSYS1-2/7-1 | `EventProvider.cs:596-623` | 2, 7, 20 | Pointers escape `fixed`; pinned handles leak on a throw. |
+| CLSYS1-1-1 | `ThreadBlockingInfo.cs:51-122` | 1 | `Unsafe.AsPointer(ref this)` is published to a thread static. |
+| CLSYS2-10/11-9 | `EventPipeMetadataGenerator.cs:224-239` | 9, 10, 11 | Aligned typed stores at 2-aligned offsets. |
+| CLSYS2-9/16-10 | `StubHelpers.cs:1328-1336` | 9, 16 | Blittable array marshaler `Memmove` has no bound against the managed array. |
+| CLSYS2-22-7 | `NativeRuntimeEventSource.Threading.cs:489-504` | 16, 22 | Values passed as payload pointers (dead code today). |
+| FMT-7-1 | CodePages `BaseCodePageEncoding.cs`, SBCS / DBCS / GB18030 | 7 | Cached table pointers without AddRef; `CheckMemorySection` is dead. |
+| FMT-11-1 | `SBCSCodePageEncoding.cs`, `DBCSCodePageEncoding.cs` | 9, 10, 11, 16 | Aligned `ushort*` reads at odd addresses; unbounded table walk (trusted resource). |
+| FMT-3-1, OS2-3-2 | `SequenceReader.cs`, `ImmutableInterlocked.cs`, `ActivityCreationOptions.cs`, `StringSequence` / `ObjectSequence` | 3, 15 | `readonly` fields mutated via `Unsafe.AsRef`; separate fields treated as an array. |
+| FMT-9/18-1 | `RegexCompiler.cs:6514-6545` | 9, 18 | Emitted IL reads an array element unchecked, then `Unsafe.As`. |
+| FMT-16-1 | `BlobUtilities.cs:64-133` | 9, 16 | `WriteUTF8` has no destination bound; two UTF-8 counters must agree. |
+| FMT-XML-9-2 | XML / HTML raw text writers (templates) | 9, 16 | Escape bursts use a 32-element slack guarded only by comments. |
+| FMT-XML-14-1 | `XPathConvert.cs` | 9, 14 | `stackalloc` into raw pointers with Debug-only bounds. |
+| FMT-XML-20-1 | `XsdDuration.cs`, `XsdDateTime.cs` | 19, 20 | A `ValueStringBuilder` over the caller's destination is never disposed. |
+| FMT-X509-7-1 | `AndroidCertificatePal.cs`; `DuplicateHandle` in `Interop.Rsa` / `EcKey` / `Dsa` | 7, 22 | Global references taken without keeping the source alive. |
+| FMT-X509-22-2 | `StorePal.Android.*.cs` | 22 | An exception can escape an `UnmanagedCallersOnly` callback. |
+| FMT-WASI-22-1 | Generated WASI HTTP bindings | 20, 22 | Pins and native buffers are released only on success. |
+| OS1-7-3 | `SharedPerformanceCounter.cs` | 1, 7 | Raw view pointers without AddRef (narrow window after the category is deleted). |
+| OS1-16/19-2 | SunOS `Interop.ProcFs.*.cs` | 16, 19, 22 | Native reports success when `/proc` can't be opened; an unbounded scan of uninitialized stack follows. |
+| OS2-3-1 | `LdapSessionOptions.cs`, `Interop.Ldap.cs` | 3, 5 | Native code writes into the fields of a sequential class. |
+| OS2-16-4 | FreeBSD `Interop.Process.GetProcInfo.cs` | 3, 16, 22 | `kinfo_proc` size check is Debug-only; allocator mismatch. |
 
 ## Harness false positives fixed during the campaign
 
