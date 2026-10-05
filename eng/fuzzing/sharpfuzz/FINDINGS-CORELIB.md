@@ -1621,6 +1621,125 @@ Nothing in this review was built or run. Each item's pattern was verified in the
 reachability was traced through callers. Items marked "needs confirmation" depend on behaviour
 (OS, native library, GC timing) that could not be established from source.
 
+## Verification pass on the withheld items (2026-10-05)
+
+Each of the 44 withheld items was independently re-reviewed by a second analyst whose task was to
+**refute** it — find the Release-time guard the first pass missed, show no caller reaches the bad
+state, or point to the OS/library behavior that prevents it. Still source analysis only; nothing was
+built or run. The second analyst's refutations (not just the original claims) were spot-checked
+against the source. Outcome: 5 refuted, 9 downgraded, 21 confirmed, 9 left resting on external
+behavior.
+
+### Refuted — false positives, removed
+
+- **MIX-1-1** — Mono forces conservative stack marking (`sgen-mono.c:2704`), so the span's backing
+  array is pinned for the synchronous JS call. The "missing" pin is supplied by the collector.
+- **TEXT-24-1** — the over-read arithmetic is correct only for an odd `char*`; every caller passes
+  2-byte-aligned char/string data, so the odd address is unreachable.
+- **CLCORE-23/24-1** — the only way the `BitArray.CopyTo` bound moves past the destination is a
+  concurrent `Length` setter, a data race on a type documented as not thread-safe; out of the
+  threat model.
+- **CRYPTOI-16-3** — the Android bignum export arithmetic is self-consistent (`offset =
+  targetSize - compactSize >= 0`, native writes exactly `compactSize`), and the `FAIL==0` corner
+  is unreachable because a bad handle fails both JNI calls and throws.
+- **OS1-19-3** — the GUID is uninitialized only on the `sourceServer == null` path, and both such
+  call sites pass `DS_REPSYNC_ALL_SOURCES`, under which `DsReplicaSyncW` ignores that argument.
+
+### Downgraded — real pattern, not memory-unsafe in supported use
+
+Each of these is safe single-threaded / on the supported path; the bad outcome needs concurrent
+misuse of a non-thread-safe type, a crafted assembly, or a trusted-input violation, or the worst
+case is only a wrong value / leak:
+
+- **CLTEXT-16-2**, **FMT-23/24-1**, **FMT-5/23-1** — safe single-threaded; the OOB (read / write /
+  type-confusion) needs a concurrent race on `StringBuilder` / `XxHash3` / a LINQ source array.
+- **INTEROP-16-1** — capacity-bounded single-threaded; the 1-byte (CoreCLR) or multi-byte (AOT)
+  overrun needs a `StringBuilder` grown concurrently mid-marshal.
+- **CLSYS2-9/16-1** — out-of-bounds **read** only, and needs a buggy `EventSource` subclass feeding
+  a self-inconsistent payload through the manual (explicitly unsafe) `WriteEventCore` contract plus
+  an in-proc listener.
+- **CLSYS2-9-5** — a 1-3 byte read of a crafted assembly's metadata (loading untrusted assemblies
+  is already outside the threat model); lands in the mapped metadata heap and is then validated.
+- **DECL3-16-1** — the OOB branch only fires for a memory-mapped embedded resource (a trusted
+  artifact); ordinary streams and `MemoryMappedViewStream` take the bounds-checked path.
+- **CRYPTOI-7-3** — the callback-vs-release race is real, but `GCHandle.FromIntPtr(..).Target` is a
+  bounded handle-table lookup (null, or a type-rejected cast); the worst case is a logic error, not
+  an OOB/UAF.
+- **OS1-11-1** — the alignment is gated behind `IsMisaligned` and every offset is bounds-checked by
+  `ResolveOffset`/`ResolveAddress`; the residual is cross-user DoS/integrity (offset-cycle loops,
+  bogus counter values), not OOB/UAF.
+
+### Confirmed — survive scrutiny
+
+These could not be refuted on the managed side; the unsafe outcome and reachability both hold.
+Grouped by how hard they are to reach.
+
+**Reachable on an ordinary single-threaded path (report first):**
+- **AOT-16-1** — NativeAOT `ByValTStr`-ANSI struct-field marshalling of a non-ASCII string writes
+  up to `(N-1)*maxBytesPerChar + 1` bytes into an N-byte inline field (out-of-bounds **write**).
+  Ordinary `Marshal.StructureToPtr` / P/Invoke struct marshalling, no race. CoreCLR's marshaller
+  passes the capacity and is bounded; the AOT path omits it.
+- **NETB-22-1** — reusing one `SocketAsyncEventArgs` from an IPv4 to an IPv6 `ReceiveMessageFrom`
+  reports the 28-byte address size over a 16-byte un-realloc'd native block → WSARecvMsg OOB
+  **write** (~12 bytes) plus copy-back OOB read. Windows.
+- **CLSYS1-22/16-1** — the Unix vectored `RandomAccess.Read` passes `buffers.Count` to the syscall
+  (re-read) rather than the cached count used to fill the iovec array; a custom `IReadOnlyList`
+  with an unstable `Count` (single-threaded, legal) makes the kernel **write** file data through
+  uninitialized iovec pointers.
+- **CRYPTO-7-1** — reading `X509Chain.ChainStatus` (lazy) after disposing `chain.SafeHandle` reads
+  the freed native chain context (UAF read). Single-threaded, Windows.
+- **FMT-9/16-1** — the `i > limit` guard should be `i >= limit`; a malformed WinMD image gives a
+  1-byte read past the #Strings heap.
+- **CLTEXT-16-1**, **CLTEXT-22-1** — a locale display string of exactly 100 units over-reads a
+  stack buffer (ICU gives no terminator); an 81-85 char culture name overruns the 80-char WASM
+  buffer. (CLTEXT-16-1 rests partly on ICU's documented not-terminated behavior; the in-repo native
+  code provides no termination.)
+
+**Reachable only under a concurrency race / unordered finalization (not thread-safe types):**
+- **CLSYS1-23-1** (OVERLAPPED free-list ABA — but this is concurrent-by-design runtime code, so the
+  race is in scope), **OS2-22-1** (pipe overlapped freed on an unexpected error while the sibling
+  read is pending), **OS2-7-1** / **OS2-7-2** (raw pointer / SID into a block freed by a parent's
+  Dispose or finalizer), **OS1-7-1** / **OS1-7-2** (non-owning process/thread handle used without
+  AddRef; note OS1-7-1's filed repro was wrong — the alias path needs `_haveProcessHandle`),
+  **NETA-7-3** (GCHandle double-free if the parent closes between StreamOpen and the ctor's
+  AddRef), **NETB-7/22-2** (channel-binding read without AddRef), **NETB-7-5** (reloaded
+  certificate unrooted before the native call), **CRYPTOI-7-1** (TLS socket fd used after
+  close/finalize-order; experimental Unix API).
+
+**Reachable only with an untrusted/third-party source or a specific RID:**
+- **OS2-16-1** (malformed `objectSid` from an untrusted LDAP/SAM server; many sibling sites already
+  guard with `IsValidSid`, so it is a validation inconsistency), **CRYPTOI-9-1** (third-party NCrypt
+  KSP returning an inconsistent ML-KEM blob), **DECL1-22-2** (linux-arm32 only: `ulong` for C
+  `unsigned long`), **CLSYS2-1/8-3** (safe-code footgun: copy a `FileSystemEntry` and return
+  `FileName` → dangling read-only span; documented in-comment).
+
+### Unresolved — managed read is real, safety hinges on external behavior (to MSRC with that caveat)
+
+- **MIX-16-3** (RegEnumValueW NUL-terminating a perf-data value name on ERROR_MORE_DATA),
+  **DECL3-16/19-2** (CryptDecodeObjectEx X509_BASIC_CONSTRAINTS `pbData`/`cbData` shape),
+  **CLSYS2-16/19-4** (LookupAccountNameW scanning an unterminated LPCWSTR), **OS2-2-1** (serial
+  driver completing a canceled WaitCommEvent after the pin ends), **OS2-16-2** (version.dll
+  returning an unterminated / undersized version-resource value), **NETA-9/16-1** (http.sys ever
+  returning ≥2 inline entity chunks — ~20 years with no known CVE suggests not, but unprovable from
+  the repo), **NETA-7/22-4** (WinHTTP delivering HANDLE_CLOSING asynchronously after dispose; the
+  double-free sub-claim was refuted), **CRYPTO-16-2** (an NCrypt/BCrypt provider returning a
+  non-terminated property value), **NETB-20/22-7** (nw_framer_deliver_input retaining the input
+  pointer async).
+
+### Where this leaves the list
+
+| Verdict | Count | Action |
+|---|---|---|
+| Refuted (false positive) | 5 | dropped |
+| Downgraded (not memory-unsafe as shipped) | 9 | keep as hardening notes, not MSRC |
+| Confirmed, ordinary single-threaded path | 7 | MSRC first — AOT-16-1, NETB-22-1, CLSYS1-22/16-1, CRYPTO-7-1, FMT-9/16-1, CLTEXT-16-1, CLTEXT-22-1 |
+| Confirmed, race / finalization only | 10 | MSRC, flagged as concurrency-gated |
+| Confirmed, untrusted-source / specific-RID / footgun | 4 | MSRC / issue, flagged |
+| Unresolved-native | 9 | MSRC with the exact external question to settle |
+
+Still not reproduced: confirmation here is independent source review plus caller/native tracing, not
+execution. B64URL-AVX2-1 (from the fuzzer) remains the only item backed by actual crashes.
+
 ## Harness false positives fixed during the campaign
 
 These were raised by the first versions of the targets and turned out to be documented behaviour:
