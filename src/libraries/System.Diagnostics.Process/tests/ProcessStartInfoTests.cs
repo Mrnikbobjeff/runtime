@@ -4,28 +4,39 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Security;
+using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
-using System.ComponentModel;
-using System.Security;
 using System.Threading;
 using Microsoft.DotNet.RemoteExecutor;
 using Microsoft.DotNet.XUnitExtensions;
 using Microsoft.Win32;
-using Microsoft.Win32.SafeHandles;
 using Xunit;
 
 namespace System.Diagnostics.Tests
 {
-    public class ProcessStartInfoTests : ProcessTestBase
+    public partial class ProcessStartInfoTests : ProcessTestBase
     {
+        private const string ItemSeparator = "CAFF9451396B4EEF8A5155A15BDC2080"; // random string that shouldn't be in any env vars; used instead of newline to separate env var strings
+
+        private static bool IsAdmin_IsNotNano_RemoteExecutorIsSupported
+            => PlatformDetection.IsWindows && PlatformDetection.IsNotWindowsNanoServer
+            && PlatformDetection.IsPrivilegedProcess && RemoteExecutor.IsSupported;
+
         [Fact]
         public void TestEnvironmentProperty()
         {
-            Assert.NotEqual(0, new Process().StartInfo.Environment.Count);
+            // Whole list of environment variables can no longer be accessed on non-OSX apple platforms
+            if (!PlatformDetection.IsiOS && !PlatformDetection.IstvOS && !PlatformDetection.IsMacCatalyst)
+            {
+                Assert.NotEqual(0, new Process().StartInfo.Environment.Count);
+            }
 
             ProcessStartInfo psi = new ProcessStartInfo();
 
@@ -33,8 +44,11 @@ namespace System.Diagnostics.Tests
             // with current environmental variables.
 
             IDictionary<string, string> environment = psi.Environment;
-
-            Assert.NotEqual(0, environment.Count);
+            // Whole list of environment variables can no longer be accessed on non-OSX apple platforms
+            if (!PlatformDetection.IsiOS && !PlatformDetection.IstvOS && !PlatformDetection.IsMacCatalyst)
+            {
+                Assert.NotEqual(0, environment.Count);
+            }
 
             int countItems = environment.Count;
 
@@ -196,6 +210,28 @@ namespace System.Diagnostics.Tests
             });
         }
 
+        [Fact]
+        public void EnvironmentVariableContainingNull_ThrowsArgumentException()
+        {
+            const string InvalidKey = "Name\0Suffix";
+            const string InvalidValue = "Value\0Suffix";
+            ProcessStartInfo psi = new ProcessStartInfo();
+            IDictionary environment = (IDictionary)psi.Environment;
+            ICollection<KeyValuePair<string, string>> environmentCollection = psi.Environment;
+
+            AssertExtensions.Throws<ArgumentException>("key", () => psi.Environment[InvalidKey] = "value");
+            AssertExtensions.Throws<ArgumentException>("key", () => environment[InvalidKey] = "value");
+            AssertExtensions.Throws<ArgumentException>("key", () => psi.Environment.Add(InvalidKey, "value"));
+            AssertExtensions.Throws<ArgumentException>("key", () => environmentCollection.Add(new KeyValuePair<string, string>(InvalidKey, "value")));
+            AssertExtensions.Throws<ArgumentException>("key", () => environment.Add(InvalidKey, "value"));
+
+            AssertExtensions.Throws<ArgumentException>("value", () => psi.Environment["key"] = InvalidValue);
+            AssertExtensions.Throws<ArgumentException>("value", () => environment["key"] = InvalidValue);
+            AssertExtensions.Throws<ArgumentException>("value", () => psi.Environment.Add("key", InvalidValue));
+            AssertExtensions.Throws<ArgumentException>("value", () => environmentCollection.Add(new KeyValuePair<string, string>("key", InvalidValue)));
+            AssertExtensions.Throws<ArgumentException>("value", () => environment.Add("key", InvalidValue));
+        }
+
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
         public void TestSetEnvironmentOnChildProcess()
         {
@@ -219,9 +255,10 @@ namespace System.Diagnostics.Tests
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
         public void TestEnvironmentOfChildProcess()
         {
-            const string ItemSeparator = "CAFF9451396B4EEF8A5155A15BDC2080"; // random string that shouldn't be in any env vars; used instead of newline to separate env var strings
             const string ExtraEnvVar = "TestEnvironmentOfChildProcess_SpecialStuff";
             Environment.SetEnvironmentVariable(ExtraEnvVar, "\x1234" + Environment.NewLine + "\x5678"); // ensure some Unicode characters and newlines are in the output
+            const string EmptyEnvVar = "TestEnvironmentOfChildProcess_Empty";
+            Environment.SetEnvironmentVariable(EmptyEnvVar, "");
             try
             {
                 // Schedule a process to see what env vars it gets.  Have it write out those variables
@@ -261,7 +298,130 @@ namespace System.Diagnostics.Tests
             finally
             {
                 Environment.SetEnvironmentVariable(ExtraEnvVar, null);
+                Environment.SetEnvironmentVariable(EmptyEnvVar, null);
             }
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void EnvironmentNullValue()
+        {
+            const string NullEnvVar = "TestEnvironmentOfChildProcess_Null";
+            Environment.SetEnvironmentVariable(NullEnvVar, "");
+            try
+            {
+                Process p = CreateProcess(() =>
+                {
+                    // Verify that setting the value to null in StartInfo is going to remove the process environment.
+                    Assert.Null(Environment.GetEnvironmentVariable(NullEnvVar));
+                    return RemoteExecutor.SuccessExitCode;
+                });
+                p.StartInfo.Environment[NullEnvVar] = null;
+                Assert.Null(p.StartInfo.Environment[NullEnvVar]);
+                p.Start();
+                Assert.True(p.WaitForExit(WaitInMS));
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable(NullEnvVar, null);
+            }
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/76140", TestPlatforms.LinuxBionic)]
+        public void EnvironmentGetEnvironmentVariablesIsCaseSensitive()
+        {
+            var caseSensitiveEnvVars = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "NPM_CONFIG_CACHE", "VALUE" },
+                { "npm_config_cache", "value" },
+            };
+
+            string[] printedEnvVars = ExecuteProcessAndReturnParsedOutput(
+                caseSensitiveEnvVars,
+                () =>
+                {
+                    Console.Write(string.Join(ItemSeparator, Environment.GetEnvironmentVariables().Cast<DictionaryEntry>().Select(e => Convert.ToBase64String(Encoding.UTF8.GetBytes(e.Key + "=" + e.Value)))));
+                    return RemoteExecutor.SuccessExitCode;
+                });
+
+            foreach (var providedEnvVar in caseSensitiveEnvVars)
+            {
+                Assert.Single(printedEnvVars, envVar => envVar.Equals($"{providedEnvVar.Key}={providedEnvVar.Value}", StringComparison.Ordinal));
+            }
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/76140", TestPlatforms.LinuxBionic)]
+        public void ProcessStartInfoEnvironmentDoesNotThrowForCaseSensitiveDuplicates()
+        {
+            var caseSensitiveEnvVars = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "NPM_CONFIG_CACHE", "^" },
+                { "npm_config_cache", "^" },
+            };
+
+            string[] printedEnvVars = ExecuteProcessAndReturnParsedOutput(
+                caseSensitiveEnvVars,
+                () =>
+                {
+                    Console.Write(string.Join(ItemSeparator, new ProcessStartInfo().Environment.Select(e => Convert.ToBase64String(Encoding.UTF8.GetBytes(e.Key + "=" + e.Value)))));
+                    return RemoteExecutor.SuccessExitCode;
+                });
+
+            StringComparison osSpecificComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            foreach (var providedEnvVar in caseSensitiveEnvVars)
+            {
+                Assert.Single(printedEnvVars, envVar => envVar.Equals($"{providedEnvVar.Key}={providedEnvVar.Value}", osSpecificComparison));
+            }
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/76140", TestPlatforms.LinuxBionic)]
+        public void ProcessStartInfoEnvironmentVariablesDoesNotThrowForCaseSensitiveDuplicates()
+        {
+            var caseSensitiveEnvVars = new Dictionary<string, string>(StringComparer.Ordinal)
+            {
+                { "NPM_CONFIG_CACHE", "^" },
+                { "npm_config_cache", "^" },
+            };
+
+            string[] printedEnvVars = ExecuteProcessAndReturnParsedOutput(
+                caseSensitiveEnvVars,
+                () =>
+                {
+                    Console.Write(string.Join(ItemSeparator, new ProcessStartInfo().EnvironmentVariables.Cast<DictionaryEntry>().Select(e => Convert.ToBase64String(Encoding.UTF8.GetBytes(e.Key + "=" + e.Value)))));
+                    return RemoteExecutor.SuccessExitCode;
+                });
+
+            StringComparison osSpecificComparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+            foreach (var providedEnvVar in caseSensitiveEnvVars)
+            {
+                Assert.Single(printedEnvVars, envVar => envVar.Equals($"{providedEnvVar.Key}={providedEnvVar.Value}", osSpecificComparison));
+            }
+        }
+
+        private string[] ExecuteProcessAndReturnParsedOutput(Dictionary<string, string> envVars, Func<int> processWork)
+        {
+            // Schedule a process to see what env vars it gets.  Have it write out those variables
+            // to its output stream so we can read them.
+            Process p = CreateProcess(processWork);
+            p.StartInfo.StandardOutputEncoding = Encoding.UTF8;
+            p.StartInfo.RedirectStandardOutput = true;
+
+            // Environment Variables are case-insensitive on Windows.
+            // But it's possible to start a process with duplicate case-sensitive env vars using CreateProcess API (see #42029)
+            // To mimic this behaviour, we can't use Environment.SetEnvironmentVariable here as it's case-insensitive on Windows.
+            // We also can't use p.StartInfo.Environment as it's comparer is set to OrdinalIgnoreCAse.
+            // But we can overwrite it using reflection to mimic the CreateProcess behaviour and avoid having this test call CreateProcess directly.
+            Type.GetType("System.Collections.Specialized.DictionaryWrapper, System.Diagnostics.Process")!
+                .GetField("_contents", Reflection.BindingFlags.NonPublic | Reflection.BindingFlags.Instance)
+                .SetValue(p.StartInfo.Environment, envVars);
+
+            p.Start();
+            string output = p.StandardOutput.ReadToEnd();
+            Assert.True(p.WaitForExit(WaitInMS));
+
+            return output.Split(new[] { ItemSeparator }, StringSplitOptions.None).Select(s => Encoding.UTF8.GetString(Convert.FromBase64String(s))).ToArray();
         }
 
         [Fact]
@@ -309,6 +469,17 @@ namespace System.Diagnostics.Tests
             Assert.Equal("-arg3 -arg4", psi.Arguments);
         }
 
+        [Fact]
+        public void TestArgumentsNullProperty()
+        {
+            string? args = null;
+            ProcessStartInfo psi = new ProcessStartInfo("filename", args);
+            Assert.Equal(string.Empty, psi.Arguments);
+
+            psi.Arguments = null;
+            Assert.Equal(string.Empty, psi.Arguments);
+        }
+
         [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported)), InlineData(true), InlineData(false)]
         public void TestCreateNoWindowProperty(bool value)
         {
@@ -340,7 +511,7 @@ namespace System.Diagnostics.Tests
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
         public void TestWorkingDirectoryPropertyInChildProcess()
         {
-            string workingDirectory = string.IsNullOrEmpty(Environment.SystemDirectory) ? TestDirectory : Environment.SystemDirectory ;
+            string workingDirectory = string.IsNullOrEmpty(Environment.SystemDirectory) ? TestDirectory : Environment.SystemDirectory;
             Assert.NotEqual(workingDirectory, Directory.GetCurrentDirectory());
             var psi = new ProcessStartInfo { WorkingDirectory = workingDirectory };
             RemoteExecutor.Invoke(wd =>
@@ -350,66 +521,67 @@ namespace System.Diagnostics.Tests
             }, workingDirectory, new RemoteInvokeOptions { StartInfo = psi }).Dispose();
         }
 
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/18978")]
-                [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported)), PlatformSpecific(TestPlatforms.Windows), OuterLoop] // Uses P/Invokes, Requires admin privileges
-        public void TestUserCredentialsPropertiesOnWindows()
+        [ConditionalTheory(typeof(ProcessStartInfoTests), nameof(IsAdmin_IsNotNano_RemoteExecutorIsSupported))] // Nano has no "netapi32.dll", Admin rights are required
+        [PlatformSpecific(TestPlatforms.Windows)]
+        [OuterLoop("Requires admin privileges")]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/80019", TestRuntimes.Mono)]
+        [InlineData(true)]
+        [InlineData(false)]
+        public void TestUserCredentialsPropertiesOnWindows(bool killOnParentExit)
         {
-            // [SuppressMessage("Microsoft.Security", "CS002:SecretInNextLine", Justification="Unit test dummy credentials.")]
-            string username = "test", password = "PassWord123!!";
-            try
+            using Process longRunning = CreateProcessLong();
+            longRunning.StartInfo.LoadUserProfile = true;
+            longRunning.StartInfo.KillOnParentExit = killOnParentExit;
+
+            using TestProcessState testAccountCleanup = CreateUserAndExecute(longRunning, Setup, Cleanup);
+
+            string username = testAccountCleanup.ProcessAccountName.Split('\\').Last();
+            Assert.Equal(username, Helpers.GetProcessUserName(longRunning));
+            bool isProfileLoaded = GetNamesOfUserProfiles().Any(profile => profile.Equals(username));
+            Assert.True(isProfileLoaded);
+
+            void Setup(string username, string workingDirectory)
             {
-                Interop.NetUserAdd(username, password);
-            }
-            catch (Exception exc)
-            {
-                Console.Error.WriteLine("TestUserCredentialsPropertiesOnWindows: NetUserAdd failed: {0}", exc.Message);
-                return; // test is irrelevant if we can't add a user
-            }
-
-            bool hasStarted = false;
-            SafeProcessHandle handle = null;
-            Process p = null;
-
-            try
-            {
-                p = CreateProcessLong();
-
-                p.StartInfo.LoadUserProfile = true;
-                p.StartInfo.UserName = username;
-                p.StartInfo.PasswordInClearText = password;
-
-                hasStarted = p.Start();
-
-                if (Interop.OpenProcessToken(p.SafeHandle, 0x8u, out handle))
+                if (PlatformDetection.IsNotWindowsServerCore) // for this particular Windows version it fails with Attempted to perform an unauthorized operation (#46619)
                 {
-                    SecurityIdentifier sid;
-                    if (Interop.ProcessTokenToSid(handle, out sid))
-                    {
-                        string actualUserName = sid.Translate(typeof(NTAccount)).ToString();
-                        int indexOfDomain = actualUserName.IndexOf('\\');
-                        if (indexOfDomain != -1)
-                            actualUserName = actualUserName.Substring(indexOfDomain + 1);
-
-                        bool isProfileLoaded = GetNamesOfUserProfiles().Any(profile => profile.Equals(username));
-
-                        Assert.Equal(username, actualUserName);
-                        Assert.True(isProfileLoaded);
-                    }
+                    // ensure the new user can access the .exe (otherwise you get Access is denied exception)
+                    SetAccessControl(username, longRunning.StartInfo.FileName, workingDirectory, add: true);
                 }
             }
-            finally
+
+            void Cleanup(string username, string workingDirectory)
             {
-                IEnumerable<uint> collection = new uint[] { 0 /* NERR_Success */, 2221 /* NERR_UserNotFound */ };
-                Assert.Contains<uint>(Interop.NetUserDel(null, username), collection);
-
-                if (handle != null)
-                    handle.Dispose();
-
-                if (hasStarted)
+                if (PlatformDetection.IsNotWindowsServerCore)
                 {
-                    p.Kill();
+                    // remove the access
+                    SetAccessControl(username, longRunning.StartInfo.FileName, workingDirectory, add: false);
+                }
+            }
+        }
 
-                    Assert.True(p.WaitForExit(WaitInMS));
+        private static void SetAccessControl(string userName, string filePath, string directoryPath, bool add)
+        {
+            FileInfo fileInfo = new FileInfo(filePath);
+            FileSecurity fileSecurity = fileInfo.GetAccessControl();
+            Apply(userName, fileSecurity, FileSystemRights.ReadAndExecute, add);
+            fileInfo.SetAccessControl(fileSecurity);
+
+            DirectoryInfo directoryInfo = new DirectoryInfo(directoryPath);
+            DirectorySecurity directorySecurity = directoryInfo.GetAccessControl();
+            Apply(userName, directorySecurity, FileSystemRights.Read, add);
+            directoryInfo.SetAccessControl(directorySecurity);
+
+            static void Apply(string userName, FileSystemSecurity accessControl, FileSystemRights rights, bool add)
+            {
+                FileSystemAccessRule fileSystemAccessRule = new FileSystemAccessRule(userName, rights, AccessControlType.Allow);
+
+                if (add)
+                {
+                    accessControl.AddAccessRule(fileSystemAccessRule);
+                }
+                else
+                {
+                    accessControl.RemoveAccessRule(fileSystemAccessRule);
                 }
             }
         }
@@ -654,7 +826,11 @@ namespace System.Diagnostics.Tests
 
             StringDictionary environmentVariables = psi.EnvironmentVariables;
 
-            Assert.NotEqual(0, environmentVariables.Count);
+            // Whole list of environment variables can no longer be accessed on non-OSX apple platforms
+            if (!PlatformDetection.IsiOS && !PlatformDetection.IstvOS && !PlatformDetection.IsMacCatalyst)
+            {
+                Assert.NotEqual(0, environmentVariables.Count);
+            }
 
             int CountItems = environmentVariables.Count;
 
@@ -764,12 +940,35 @@ namespace System.Diagnostics.Tests
             });
         }
 
+        [Fact]
+        [PlatformSpecific(TestPlatforms.Windows)]
+        public void CreateNewProcessGroup_SetWindows_GetReturnsExpected()
+        {
+            ProcessStartInfo psi = new ProcessStartInfo();
+            Assert.False(psi.CreateNewProcessGroup);
+
+            psi.CreateNewProcessGroup = true;
+            Assert.True(psi.CreateNewProcessGroup);
+
+            psi.CreateNewProcessGroup = false;
+            Assert.False(psi.CreateNewProcessGroup);
+        }
+
+        [Fact]
+        [PlatformSpecific(TestPlatforms.AnyUnix)]
+        public void CreateNewProcessGroup_GetSetUnix_ThrowsPlatformNotSupportedException()
+        {
+            var info = new ProcessStartInfo();
+            Assert.Throws<PlatformNotSupportedException>(() => info.CreateNewProcessGroup);
+            Assert.Throws<PlatformNotSupportedException>(() => info.CreateNewProcessGroup = true);
+        }
+
         [Theory]
         [InlineData(null)]
         [InlineData("")]
         [InlineData("domain")]
         [PlatformSpecific(TestPlatforms.Windows)]
-        public void Domain_SetWindows_GetReturnsExpected(string domain)
+        public void Domain_SetWindows_GetReturnsExpected(string? domain)
         {
             var info = new ProcessStartInfo { Domain = domain };
             Assert.Equal(domain ?? string.Empty, info.Domain);
@@ -788,7 +987,7 @@ namespace System.Diagnostics.Tests
         [InlineData(null)]
         [InlineData("")]
         [InlineData("filename")]
-        public void FileName_Set_GetReturnsExpected(string fileName)
+        public void FileName_Set_GetReturnsExpected(string? fileName)
         {
             var info = new ProcessStartInfo { FileName = fileName };
             Assert.Equal(fileName ?? string.Empty, info.FileName);
@@ -814,11 +1013,30 @@ namespace System.Diagnostics.Tests
         }
 
         [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        [PlatformSpecific(TestPlatforms.Windows)]
+        public void UseCredentialsForNetworkingOnly_SetWindows_GetReturnsExpected(bool useCredentialsForNetworkingOnly)
+        {
+            var info = new ProcessStartInfo { UseCredentialsForNetworkingOnly = useCredentialsForNetworkingOnly };
+            Assert.Equal(useCredentialsForNetworkingOnly, info.UseCredentialsForNetworkingOnly);
+        }
+
+        [Fact]
+        [PlatformSpecific(TestPlatforms.AnyUnix)]
+        public void UseCredentialsForNetworkingOnly_GetSetUnix_ThrowsPlatformNotSupportedException()
+        {
+            var info = new ProcessStartInfo();
+            Assert.Throws<PlatformNotSupportedException>(() => info.UseCredentialsForNetworkingOnly);
+            Assert.Throws<PlatformNotSupportedException>(() => info.UseCredentialsForNetworkingOnly = false);
+        }
+
+        [Theory]
         [InlineData(null)]
         [InlineData("")]
         [InlineData("passwordInClearText")]
         [PlatformSpecific(TestPlatforms.Windows)]
-        public void PasswordInClearText_SetWindows_GetReturnsExpected(string passwordInClearText)
+        public void PasswordInClearText_SetWindows_GetReturnsExpected(string? passwordInClearText)
         {
             var info = new ProcessStartInfo { PasswordInClearText = passwordInClearText };
             Assert.Equal(passwordInClearText, info.PasswordInClearText);
@@ -858,7 +1076,7 @@ namespace System.Diagnostics.Tests
         [InlineData(null)]
         [InlineData("")]
         [InlineData("domain")]
-        public void UserName_Set_GetReturnsExpected(string userName)
+        public void UserName_Set_GetReturnsExpected(string? userName)
         {
             var info = new ProcessStartInfo { UserName = userName };
             Assert.Equal(userName ?? string.Empty, info.UserName);
@@ -868,7 +1086,7 @@ namespace System.Diagnostics.Tests
         [InlineData(null)]
         [InlineData("")]
         [InlineData("verb")]
-        public void Verb_Set_GetReturnsExpected(string verb)
+        public void Verb_Set_GetReturnsExpected(string? verb)
         {
             var info = new ProcessStartInfo { Verb = verb };
             Assert.Equal(verb ?? string.Empty, info.Verb);
@@ -898,7 +1116,7 @@ namespace System.Diagnostics.Tests
         [InlineData(null)]
         [InlineData("")]
         [InlineData("workingdirectory")]
-        public void WorkingDirectory_Set_GetReturnsExpected(string workingDirectory)
+        public void WorkingDirectory_Set_GetReturnsExpected(string? workingDirectory)
         {
             var info = new ProcessStartInfo { WorkingDirectory = workingDirectory };
             Assert.Equal(workingDirectory ?? string.Empty, info.WorkingDirectory);
@@ -928,6 +1146,7 @@ namespace System.Diagnostics.Tests
         [MemberData(nameof(UseShellExecute))]
         [OuterLoop("Launches notepad")]
         [PlatformSpecific(TestPlatforms.Windows)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/34685", TestRuntimes.Mono)]
         public void StartInfo_NotepadWithContent(bool useShellExecute)
         {
             string tempFile = GetTestFilePath() + ".txt";
@@ -936,7 +1155,7 @@ namespace System.Diagnostics.Tests
             ProcessStartInfo info = new ProcessStartInfo
             {
                 UseShellExecute = useShellExecute,
-                FileName = @"notepad.exe",
+                FileName = "notepad.exe",
                 Arguments = tempFile,
                 WindowStyle = ProcessWindowStyle.Minimized
             };
@@ -947,11 +1166,7 @@ namespace System.Diagnostics.Tests
 
                 try
                 {
-                    process.WaitForInputIdle(); // Give the file a chance to load
-                    Assert.Equal("notepad", process.ProcessName);
-
-                    // On some Windows versions, the file extension is not included in the title
-                    Assert.StartsWith(Path.GetFileNameWithoutExtension(tempFile), process.MainWindowTitle);
+                    VerifyNotepadMainWindowTitle(process, tempFile);
                 }
                 finally
                 {
@@ -960,16 +1175,21 @@ namespace System.Diagnostics.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer), // Nano does not support UseShellExecute
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer), // Nano does not support UseShellExecute and has not notepad
+                                                    nameof(PlatformDetection.IsNotWindowsServerCore), // https://github.com/dotnet/runtime/issues/26231
                                                     nameof(PlatformDetection.IsNotWindows8x))] // https://github.com/dotnet/runtime/issues/22007
         [OuterLoop("Launches notepad")]
         [PlatformSpecific(TestPlatforms.Windows)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/34685", TestRuntimes.Mono)]
         public void StartInfo_TextFile_ShellExecute()
         {
-            if (Thread.CurrentThread.CurrentCulture.ToString() != "en-US")
-                return; // [ActiveIssue(https://github.com/dotnet/runtime/issues/25823)]
+            // create a new extension that nobody else should be using
+            const string fileExtension = ".dotnetRuntimeTestExtension";
+            // associate Notepad with the new extension
+            FileAssociations.EnsureAssociationSet(fileExtension, "Used For Testing ShellExecute", "notepad.exe", "Notepad");
+            // from here we can try to open with with given extension and be sure that Notepad is going to open it (not other text file editor like Notepad++)
 
-            string tempFile = GetTestFilePath() + ".txt";
+            string tempFile = GetTestFilePath() + fileExtension;
             File.WriteAllText(tempFile, $"StartInfo_TextFile_ShellExecute");
 
             ProcessStartInfo info = new ProcessStartInfo
@@ -985,18 +1205,7 @@ namespace System.Diagnostics.Tests
 
                 try
                 {
-                    process.WaitForInputIdle(); // Give the file a chance to load
-                    Assert.Equal("notepad", process.ProcessName);
-
-                    if (PlatformDetection.IsInAppContainer)
-                    {
-                        Assert.Throws<PlatformNotSupportedException>(() => process.MainWindowTitle);
-                    }
-                    else
-                    {
-                        // On some Windows versions, the file extension is not included in the title
-                        Assert.StartsWith(Path.GetFileNameWithoutExtension(tempFile), process.MainWindowTitle);
-                    }
+                    VerifyNotepadMainWindowTitle(process, tempFile);
                 }
                 finally
                 {
@@ -1022,7 +1231,7 @@ namespace System.Diagnostics.Tests
                 return $"Didn't get expected HRESULT (1) when getting char count. HRESULT was 0x{result:x8}";
 
             string value = new string((char)0, (int)count - 1);
-            fixed(char* s = value)
+            fixed (char* s = value)
             {
                 result = AssocQueryStringW(flags, str, pszAssoc, pszExtra, s, ref count);
             }
@@ -1040,12 +1249,11 @@ namespace System.Diagnostics.Tests
             sb.AppendLine("------------------------------");
 
             string open = GetAssociationString(0, 1 /* ASSOCSTR_COMMAND */, ".txt", "open");
-            sb.AppendFormat("Open command: {0}", open);
-            sb.AppendLine();
+            sb.AppendLine($"Open command: {open}");
 
             string progId = GetAssociationString(0, 20 /* ASSOCSTR_PROGID */, ".txt", null);
-            sb.AppendFormat("ProgID: {0}", progId);
-            sb.AppendLine();
+            sb.AppendLine($"ProgID: {progId}");
+
             return sb.ToString();
         }
 
@@ -1073,7 +1281,7 @@ namespace System.Diagnostics.Tests
             {
                 TheoryData<bool> data = new TheoryData<bool> { false };
 
-                if (   !PlatformDetection.IsInAppContainer // https://github.com/dotnet/runtime/issues/21919
+                if (!PlatformDetection.IsInAppContainer // https://github.com/dotnet/runtime/issues/21919
                     && !PlatformDetection.IsWindowsNanoServer // By design
                     && !PlatformDetection.IsWindowsIoTCore)
                     data.Add(true);
@@ -1084,6 +1292,7 @@ namespace System.Diagnostics.Tests
         private const int ERROR_SUCCESS = 0x0;
         private const int ERROR_FILE_NOT_FOUND = 0x2;
         private const int ERROR_BAD_EXE_FORMAT = 0xC1;
+        private const int ERROR_SHARING_VIOLATION = 0x20;
 
         [Theory]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/34685", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
@@ -1116,17 +1325,17 @@ namespace System.Diagnostics.Tests
                 FileName = tempFile
             };
 
-            int expected = ERROR_BAD_EXE_FORMAT;
-
-            // Windows Nano bug see https://github.com/dotnet/runtime/issues/17919
-            if (PlatformDetection.IsWindowsNanoServer)
-                expected = ERROR_SUCCESS;
-
-            Assert.Equal(expected, Assert.Throws<Win32Exception>(() => Process.Start(info)).NativeErrorCode);
+            int errorCode = Assert.Throws<Win32Exception>(() => Process.Start(info)).NativeErrorCode;
+            
+            if (!PlatformDetection.IsWindowsNanoServer)
+            {
+                // We can not rely on the error code returned on Windows Nano https://github.com/dotnet/runtime/issues/17919
+                Assert.Equal(ERROR_BAD_EXE_FORMAT, errorCode);
+            }
         }
 
         [Fact]
-        public void UnintializedArgumentList()
+        public void UninitializedArgumentList()
         {
             ProcessStartInfo psi = new ProcessStartInfo();
             Assert.Equal(0, psi.ArgumentList.Count);
@@ -1136,21 +1345,40 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
-        public void InitializeWithArgumentList()
+        public void InitializeWithArgumentList_Add()
         {
             ProcessStartInfo psi = new ProcessStartInfo("filename");
-            psi.ArgumentList.Add("arg1");
-            psi.ArgumentList.Add("arg2");
 
-            Assert.Equal(2, psi.ArgumentList.Count);
-            Assert.Equal("arg1", psi.ArgumentList[0]);
-            Assert.Equal("arg2", psi.ArgumentList[1]);
+            string[] args = new[] { "arg1", "arg2", " arg3", "arg4 ", "arg 5", $"arg{Environment.NewLine}6" };
+            foreach (string arg in args)
+            {
+                psi.ArgumentList.Add(arg);
+            }
+
+            Assert.Equal(args, psi.ArgumentList);
+        }
+
+        [Fact]
+        public void InitializeWithArgumentList_Enumerable()
+        {
+            string[] args = new[] { "arg1", "arg2", " arg3", "arg4 ", "arg 5", $"arg{Environment.NewLine}6" };
+            ProcessStartInfo psi = new ProcessStartInfo("filename", args);
+
+            Assert.Equal(args, psi.ArgumentList);
+        }
+
+        [Fact]
+        public void InitializeWithArgumentList_ThrowsArgumentNullException()
+        {
+            Assert.Throws<ArgumentNullException>("fileName", () => new ProcessStartInfo(null, new[] { "a", "b" }));
+            Assert.Throws<ArgumentNullException>("arguments", () => new ProcessStartInfo("a", (IEnumerable<string>)null));
         }
 
         [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))] // No Notepad on Nano
         [MemberData(nameof(UseShellExecute))]
         [OuterLoop("Launches notepad")]
         [PlatformSpecific(TestPlatforms.Windows)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/34685", TestRuntimes.Mono)]
         public void StartInfo_NotepadWithContent_withArgumentList(bool useShellExecute)
         {
             string tempFile = GetTestFilePath() + ".txt";
@@ -1159,7 +1387,7 @@ namespace System.Diagnostics.Tests
             ProcessStartInfo info = new ProcessStartInfo
             {
                 UseShellExecute = useShellExecute,
-                FileName = @"notepad.exe",
+                FileName = "notepad.exe",
                 Arguments = null,
                 WindowStyle = ProcessWindowStyle.Minimized
             };
@@ -1172,16 +1400,155 @@ namespace System.Diagnostics.Tests
 
                 try
                 {
-                    process.WaitForInputIdle(); // Give the file a chance to load
-                    Assert.Equal("notepad", process.ProcessName);
-
-                    // On some Windows versions, the file extension is not included in the title
-                    Assert.StartsWith(Path.GetFileNameWithoutExtension(tempFile), process.MainWindowTitle);
+                    VerifyNotepadMainWindowTitle(process, tempFile);
                 }
                 finally
                 {
                     process?.Kill();
                 }
+            }
+        }
+
+        private void VerifyNotepadMainWindowTitle(Process process, string filename)
+        {
+            if (PlatformDetection.IsWindowsServerCore)
+            {
+                return; // On Server Core, notepad exists but does not return a title
+            }
+
+            if (PlatformDetection.IsWindows10Version22000OrGreater)
+            {
+                return; // On Windows 11, we aren't able to get the title for some reason; Windows 10 coverage should be sufficient
+            }
+
+            // On some Windows versions, the file extension is not included in the title
+            string expected = Path.GetFileNameWithoutExtension(filename);
+
+            process.WaitForInputIdle(); // Give the file a chance to load
+            Assert.Equal("notepad", process.ProcessName.ToLower());
+
+            // Notepad calls CreateWindowEx with pWindowName of empty string, then calls SetWindowTextW
+            // with "Untitled - Notepad" then finally if you're opening a file, calls SetWindowTextW
+            // with something similar to "myfilename - Notepad". So there's a race between input idle
+            // and the expected MainWindowTitle because of how Notepad is implemented.
+            string title = process.MainWindowTitle;
+            int count = 0;
+            while (!title.StartsWith(expected) && count < 500)
+            {
+                Thread.Sleep(10);
+                process.Refresh();
+                title = process.MainWindowTitle;
+                count++;
+            }
+
+            Assert.StartsWith(expected, title);
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))] // No Notepad on Nano
+        [OuterLoop("Launches notepad")]
+        [PlatformSpecific(TestPlatforms.Windows)]
+        public void StartInfo_LoadUserProfile_And_UseCredentialsForNetworkingOnly_AreIncompatible()
+        {
+            ProcessStartInfo info = new ProcessStartInfo
+            {
+                LoadUserProfile = true,
+                UseCredentialsForNetworkingOnly = true,
+                UserName = "dummy",
+                PasswordInClearText = "not used, because ArgumentException should be thrown before",
+                FileName = "notepad.exe",
+                Arguments = null,
+                WindowStyle = ProcessWindowStyle.Minimized
+            };
+
+            Assert.Throws<ArgumentException>("startInfo", () =>
+            {
+                using (var process = Process.Start(info))
+                {
+                    Assert.False(process != null, $"Process started despite incompatible options {nameof(info.LoadUserProfile)} and {nameof(info.UseCredentialsForNetworkingOnly)} were enabled");
+                }
+            });
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst, "Process.Start is not supported on iOS, tvOS, and MacCatalyst.")]
+        public void UserNameCantBeCombinedWithInheritedHandles()
+        {
+            using Process longRunning = CreateProcessLong();
+            longRunning.StartInfo.UserName = nameof(ProcessStartInfo.UserName);
+            longRunning.StartInfo.InheritedHandles = [];
+
+            Assert.Throws<InvalidOperationException>(() => longRunning.Start());
+        }
+
+        private static TestProcessState CreateUserAndExecute(
+            Process process,
+            Action<string, string> additionalSetup = null,
+            Action<string, string> additionalCleanup = null,
+            [CallerMemberName] string memberName = "")
+        {
+            string callerIntials = new string(memberName.Where(c => char.IsUpper(c)).Take(18).ToArray());
+
+            WindowsTestAccount processAccount = new WindowsTestAccount(string.Concat("d", callerIntials));
+            string workingDirectory = string.IsNullOrEmpty(process.StartInfo.WorkingDirectory)
+                    ? Directory.GetCurrentDirectory()
+                    : process.StartInfo.WorkingDirectory;
+
+            additionalSetup?.Invoke(processAccount.AccountName, workingDirectory);
+
+            process.StartInfo.UserName = processAccount.AccountName.Split('\\').Last();
+            process.StartInfo.Domain = processAccount.AccountName.Split('\\').First();
+            process.StartInfo.PasswordInClearText = processAccount.Password;
+
+            try
+            {
+                bool hasStarted = process.Start();
+                return new TestProcessState(process, hasStarted, processAccount, workingDirectory, additionalCleanup);
+            }
+            catch (Win32Exception ex) when (ex.NativeErrorCode == ERROR_SHARING_VIOLATION)
+            {
+                throw new SkipTestException($"{process.StartInfo.FileName} has been locked by some other process");
+            }
+        }
+
+        private class TestProcessState : IDisposable
+        {
+            private readonly Process _process;
+
+            private readonly bool _hasStarted;
+
+            private readonly WindowsTestAccount _processAccount;
+
+            private readonly string _workingDirectory;
+
+            private readonly Action<string, string> _additionalCleanup;
+
+            public TestProcessState(
+                Process process,
+                bool hasStarted,
+                WindowsTestAccount processAccount,
+                string workingDirectory,
+                Action<string, string> additionalCleanup)
+            {
+                _process = process;
+                _hasStarted = hasStarted;
+                _processAccount = processAccount;
+                _workingDirectory = workingDirectory;
+                _additionalCleanup = additionalCleanup;
+            }
+
+            public string ProcessAccountName => _processAccount?.AccountName;
+
+            public void Dispose()
+            {
+                if (_hasStarted)
+                {
+                    _process.Kill();
+
+                    Assert.True(_process.WaitForExit(WaitInMS));
+                }
+
+                _additionalCleanup?.Invoke(_processAccount?.AccountName, _workingDirectory);
+                _processAccount?.Dispose();
             }
         }
     }

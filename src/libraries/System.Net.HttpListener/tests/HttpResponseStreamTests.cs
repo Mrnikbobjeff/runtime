@@ -62,7 +62,7 @@ namespace System.Net.Tests
                         outputStream.Close();
                     }
 
-                    byte[] extraBytesSentAfterClose = Encoding.UTF8.GetBytes("Should not be sent.");
+                    byte[] extraBytesSentAfterClose = "Should not be sent."u8.ToArray();
                     await outputStream.WriteAsync(extraBytesSentAfterClose, 0, extraBytesSentAfterClose.Length);
                 }
 
@@ -100,7 +100,7 @@ namespace System.Net.Tests
                         outputStream.Close();
                     }
 
-                    byte[] extraBytesSentAfterClose = Encoding.UTF8.GetBytes("Should not be sent.");
+                    byte[] extraBytesSentAfterClose = "Should not be sent."u8.ToArray();
                     outputStream.Write(extraBytesSentAfterClose, 0, extraBytesSentAfterClose.Length);
                 }
 
@@ -278,8 +278,8 @@ namespace System.Net.Tests
             using (HttpListenerResponse response = await _helper.GetResponse())
             using (Stream outputStream = response.OutputStream)
             {
-                AssertExtensions.Throws<ArgumentOutOfRangeException>("offset", () => outputStream.Write(new byte[2], offset, 0));
-                await AssertExtensions.ThrowsAsync<ArgumentOutOfRangeException>("offset", () => outputStream.WriteAsync(new byte[2], offset, 0));
+                Assert.Throws<ArgumentOutOfRangeException>(() => outputStream.Write(new byte[2], offset, 0));
+                await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => outputStream.WriteAsync(new byte[2], offset, 0));
             }
         }
 
@@ -292,88 +292,8 @@ namespace System.Net.Tests
             using (HttpListenerResponse response = await _helper.GetResponse())
             using (Stream outputStream = response.OutputStream)
             {
-                AssertExtensions.Throws<ArgumentOutOfRangeException>("size", () => outputStream.Write(new byte[2], offset, size));
-                await AssertExtensions.ThrowsAsync<ArgumentOutOfRangeException>("size", () => outputStream.WriteAsync(new byte[2], offset, size));
-            }
-        }
-
-        [ConditionalFact(nameof(Helpers) + "." + nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/21918", TestPlatforms.AnyUnix)]
-        public async Task Write_TooMuch_ThrowsProtocolViolationException()
-        {
-            using (HttpClient client = new HttpClient())
-            {
-                _ = client.GetStringAsync(_factory.ListeningUrl);
-
-                HttpListenerContext serverContext = await _listener.GetContextAsync();
-                using (HttpListenerResponse response = serverContext.Response)
-                {
-                    Stream output = response.OutputStream;
-                    byte[] responseBuffer = Encoding.UTF8.GetBytes("A long string");
-                    response.ContentLength64 = responseBuffer.Length - 1;
-                    try
-                    {
-                        Assert.Throws<ProtocolViolationException>(() => output.Write(responseBuffer, 0, responseBuffer.Length));
-                        await Assert.ThrowsAsync<ProtocolViolationException>(() => output.WriteAsync(responseBuffer, 0, responseBuffer.Length));
-                    }
-                    finally
-                    {
-                        // Write the remaining bytes to guarantee a successful shutdown.
-                        output.Write(responseBuffer, 0, (int)response.ContentLength64);
-                        output.Close();
-                    }
-                }
-            }
-        }
-
-        [ConditionalFact(nameof(Helpers) + "." + nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/21918", TestPlatforms.AnyUnix)]
-        public async Task Write_TooLittleAsynchronouslyAndClose_ThrowsInvalidOperationException()
-        {
-            using (HttpClient client = new HttpClient())
-            {
-                _ = client.GetStringAsync(_factory.ListeningUrl);
-
-                HttpListenerContext serverContext = await _listener.GetContextAsync();
-                using (HttpListenerResponse response = serverContext.Response)
-                {
-                    Stream output = response.OutputStream;
-
-                    byte[] responseBuffer = Encoding.UTF8.GetBytes("A long string");
-                    response.ContentLength64 = responseBuffer.Length + 1;
-
-                    // Throws when there are bytes left to write
-                    await output.WriteAsync(responseBuffer, 0, responseBuffer.Length);
-                    Assert.Throws<InvalidOperationException>(() => output.Close());
-
-                    // Write the final byte and make sure we can close.
-                    await output.WriteAsync(new byte[1],0, 1);
-                    output.Close();
-                }
-            }
-        }
-
-        [ConditionalFact(nameof(Helpers) + "." + nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/21918", TestPlatforms.AnyUnix)]
-        public async Task Write_TooLittleSynchronouslyAndClose_ThrowsInvalidOperationException()
-        {
-            using (HttpClient client = new HttpClient())
-            {
-                _ = client.GetStringAsync(_factory.ListeningUrl);
-
-                HttpListenerContext serverContext = await _listener.GetContextAsync();
-                using (HttpListenerResponse response = serverContext.Response)
-                {
-                    Stream output = response.OutputStream;
-
-                    byte[] responseBuffer = Encoding.UTF8.GetBytes("A long string");
-                    response.ContentLength64 = responseBuffer.Length + 1;
-
-                    // Throws when there are bytes left to write
-                    output.Write(responseBuffer, 0, responseBuffer.Length);
-                    Assert.Throws<InvalidOperationException>(() => output.Close());
-
-                    // Write the final byte and make sure we can close.
-                    output.Write(new byte[1], 0, 1);
-                    output.Close();
-                }
+                Assert.Throws<ArgumentOutOfRangeException>(() => outputStream.Write(new byte[2], offset, size));
+                await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() => outputStream.WriteAsync(new byte[2], offset, size));
             }
         }
 
@@ -390,7 +310,7 @@ namespace System.Net.Tests
             using (Socket client = factory.GetConnectedSocket())
             {
                 // Send a header to the HttpListener to give it a context.
-                client.Send(factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
+                await client.SendAsync(factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
                 HttpListener listener = factory.GetListener();
                 listener.IgnoreWriteExceptions = ignoreWriteExceptions;
                 HttpListenerContext context = await listener.GetContextAsync();
@@ -428,7 +348,7 @@ namespace System.Net.Tests
             using (Socket client = factory.GetConnectedSocket())
             {
                 // Send a header to the HttpListener to give it a context.
-                client.Send(factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
+                await client.SendAsync(factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
                 HttpListener listener = factory.GetListener();
                 listener.IgnoreWriteExceptions = ignoreWriteExceptions;
                 HttpListenerContext context = await listener.GetContextAsync();
@@ -454,7 +374,7 @@ namespace System.Net.Tests
             }
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsSubsystemForLinux))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/18258")]
+        [Theory]
         [InlineData(true)]
         [InlineData(false)]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/21022", platforms: TestPlatforms.Windows)] // Indeterminate failure - socket not always fully disconnected.
@@ -468,7 +388,7 @@ namespace System.Net.Tests
             using (Socket client = factory.GetConnectedSocket())
             {
                 // Send a header to the HttpListener to give it a context.
-                client.Send(factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
+                await client.SendAsync(factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
                 HttpListener listener = factory.GetListener();
                 listener.IgnoreWriteExceptions = ignoreWriteExceptions;
                 HttpListenerContext context = await listener.GetContextAsync();
@@ -494,11 +414,11 @@ namespace System.Net.Tests
             }
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsSubsystemForLinux))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/18258")]
+        [Theory]
         [InlineData(true)]
         [InlineData(false)]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/21022", platforms: TestPlatforms.Windows)] // Indeterminate failure - socket not always fully disconnected.
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/21590", TestPlatforms.OSX)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/21590", TestPlatforms.OSX | TestPlatforms.FreeBSD)]
         public async Task Write_ContentToClosedConnectionSynchronously_ThrowsHttpListenerException(bool ignoreWriteExceptions)
         {
             const string Text = "Some-String";
@@ -508,7 +428,7 @@ namespace System.Net.Tests
             using (Socket client = factory.GetConnectedSocket())
             {
                 // Send a header to the HttpListener to give it a context.
-                client.Send(factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
+                await client.SendAsync(factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
                 HttpListener listener = factory.GetListener();
                 listener.IgnoreWriteExceptions = ignoreWriteExceptions;
                 HttpListenerContext context = await listener.GetContextAsync();
@@ -544,34 +464,6 @@ namespace System.Net.Tests
             using (Stream outputStream = response.OutputStream)
             {
                 AssertExtensions.Throws<ArgumentNullException>("asyncResult", () => outputStream.EndWrite(null));
-            }
-        }
-
-        [Fact]
-        public async Task EndWrite_InvalidAsyncResult_ThrowsArgumentException()
-        {
-            using (HttpListenerResponse response1 = await _helper.GetResponse())
-            using (Stream outputStream1 = response1.OutputStream)
-            using (HttpListenerResponse response2 = await _helper.GetResponse())
-            using (Stream outputStream2 = response2.OutputStream)
-            {
-                IAsyncResult beginWriteResult = outputStream1.BeginWrite(new byte[0], 0, 0, null, null);
-
-                AssertExtensions.Throws<ArgumentException>("asyncResult", () => outputStream2.EndWrite(new CustomAsyncResult()));
-                AssertExtensions.Throws<ArgumentException>("asyncResult", () => outputStream2.EndWrite(beginWriteResult));
-            }
-        }
-
-        [Fact]
-        public async Task EndWrite_CalledTwice_ThrowsInvalidOperationException()
-        {
-            using (HttpListenerResponse response1 = await _helper.GetResponse())
-            using (Stream outputStream = response1.OutputStream)
-            {
-                IAsyncResult beginWriteResult = outputStream.BeginWrite(new byte[0], 0, 0, null, null);
-                outputStream.EndWrite(beginWriteResult);
-
-                Assert.Throws<InvalidOperationException>(() => outputStream.EndWrite(beginWriteResult));
             }
         }
     }

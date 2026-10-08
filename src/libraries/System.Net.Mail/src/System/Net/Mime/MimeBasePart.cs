@@ -2,15 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Specialized;
-using System.Text;
 using System.Net.Mail;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace System.Net.Mime
 {
-    internal class MimeBasePart
+    internal abstract class MimeBasePart
     {
         internal const string DefaultCharSet = "utf-8";
-        private static readonly char[] s_decodeEncodingSplitChars = new char[] { '?', '\r', '\n' };
 
         protected ContentType? _contentType;
         protected ContentDisposition? _contentDisposition;
@@ -36,15 +37,11 @@ namespace System.Net.Mime
 
             encoding ??= Encoding.GetEncoding(DefaultCharSet);
 
-            EncodedStreamFactory factory = new EncodedStreamFactory();
-            IEncodableStream stream = factory.GetEncoderForHeader(encoding, base64Encoding, headerLength);
+            IEncodableStream stream = EncodedStreamFactory.GetEncoderForHeader(encoding, base64Encoding, headerLength);
 
             stream.EncodeString(value, encoding);
             return stream.GetEncodedString();
         }
-
-        private static readonly char[] s_headerValueSplitChars = new char[] { '\r', '\n', ' ' };
-        private static readonly char[] s_questionMarkSplitChars = new char[] { '?' };
 
         internal static string DecodeHeaderValue(string? value)
         {
@@ -53,39 +50,58 @@ namespace System.Net.Mime
                 return string.Empty;
             }
 
-            string newValue = string.Empty;
-
-            //split strings, they may be folded.  If they are, decode one at a time and append the results
-            string[] substringsToDecode = value.Split(s_headerValueSplitChars, StringSplitOptions.RemoveEmptyEntries);
-
-            foreach (string foldedSubString in substringsToDecode)
+            if (!value.Contains("=?", StringComparison.Ordinal))
             {
-                //an encoded string has as specific format in that it must start and end with an
-                //'=' char and contains five parts, separated by '?' chars.
-                //the first and last part are therefore '=', the second part is the byte encoding (B or Q)
-                //the third is the unicode encoding type, and the fourth is encoded message itself.  '?' is not valid inside of
-                //an encoded string other than as a separator for these five parts.
-                //If this check fails, the string is either not encoded or cannot be decoded by this method
-                string[] subStrings = foldedSubString.Split(s_questionMarkSplitChars);
-                if ((subStrings.Length != 5 || subStrings[0] != "=" || subStrings[4] != "="))
+                return value;
+            }
+
+            StringBuilder decodedValue = new StringBuilder(value.Length);
+            ReadOnlySpan<char> valueSpan = value;
+            bool decodedAny = false;
+            bool previousTokenWasEncoded = false;
+            int current = 0;
+
+            while (current < valueSpan.Length)
+            {
+                int whitespaceStart = current;
+                while (current < valueSpan.Length && IsLinearWhiteSpace(valueSpan[current]))
                 {
-                    return value;
+                    current++;
                 }
 
-                string charSet = subStrings[1];
-                bool base64Encoding = (subStrings[2] == "B");
-                byte[] buffer = Encoding.ASCII.GetBytes(subStrings[3]);
-                int newLength;
+                int tokenStart = current;
+                while (current < valueSpan.Length && !IsLinearWhiteSpace(valueSpan[current]))
+                {
+                    current++;
+                }
 
-                EncodedStreamFactory encoderFactory = new EncodedStreamFactory();
-                IEncodableStream s = encoderFactory.GetEncoderForHeader(Encoding.GetEncoding(charSet), base64Encoding, 0);
+                if (tokenStart == current)
+                {
+                    decodedValue.Append(valueSpan[whitespaceStart..current]);
+                    break;
+                }
 
-                newLength = s.DecodeBytes(buffer, 0, buffer.Length);
+                ReadOnlySpan<char> token = valueSpan[tokenStart..current];
+                if (TryDecodeHeaderValue(token, out string decodedToken))
+                {
+                    if (!previousTokenWasEncoded)
+                    {
+                        decodedValue.Append(valueSpan[whitespaceStart..tokenStart]);
+                    }
 
-                Encoding encoding = Encoding.GetEncoding(charSet);
-                newValue += encoding.GetString(buffer, 0, newLength);
+                    decodedValue.Append(decodedToken);
+                    decodedAny = true;
+                    previousTokenWasEncoded = true;
+                }
+                else
+                {
+                    decodedValue.Append(valueSpan[whitespaceStart..tokenStart]);
+                    decodedValue.Append(token);
+                    previousTokenWasEncoded = false;
+                }
             }
-            return newValue;
+
+            return decodedAny ? decodedValue.ToString() : value;
         }
 
         // Detect the encoding: "=?encoding?BorQ?content?="
@@ -99,35 +115,207 @@ namespace System.Net.Mime
                 return null;
             }
 
-            string[] subStrings = value.Split(s_decodeEncodingSplitChars);
-            if ((subStrings.Length < 5 || subStrings[0] != "=" || subStrings[4] != "="))
+            ReadOnlySpan<char> valueSpan = value;
+            int current = 0;
+
+            while (current < valueSpan.Length)
             {
-                return null;
+                while (current < valueSpan.Length && IsLinearWhiteSpace(valueSpan[current]))
+                {
+                    current++;
+                }
+
+                int tokenStart = current;
+                while (current < valueSpan.Length && !IsLinearWhiteSpace(valueSpan[current]))
+                {
+                    current++;
+                }
+
+                ReadOnlySpan<char> token = valueSpan[tokenStart..current];
+                if (TryParseEncodedWord(token, out Range charSet, out _, out _))
+                {
+                    Encoding? encoding = TryGetEncoding(token[charSet]);
+                    if (encoding is not null)
+                    {
+                        return encoding;
+                    }
+                }
             }
 
-            string charSet = subStrings[1];
-            return Encoding.GetEncoding(charSet);
+            return null;
         }
 
-        internal static bool IsAscii(string value, bool permitCROrLF)
+        internal static bool IsFullyEncoded(string value)
         {
-            if (value == null)
+            ReadOnlySpan<char> valueSpan = value;
+            bool encodedAny = false;
+            int current = 0;
+
+            while (current < valueSpan.Length)
             {
-                throw new ArgumentNullException(nameof(value));
+                int whitespaceStart = current;
+                while (current < valueSpan.Length && IsLinearWhiteSpace(valueSpan[current]))
+                {
+                    current++;
+                }
+
+                if (!IsValidHeaderWhiteSpace(valueSpan[whitespaceStart..current]))
+                {
+                    return false;
+                }
+
+                int tokenStart = current;
+                while (current < valueSpan.Length && !IsLinearWhiteSpace(valueSpan[current]))
+                {
+                    current++;
+                }
+
+                if (tokenStart == current)
+                {
+                    break;
+                }
+
+                ReadOnlySpan<char> token = valueSpan[tokenStart..current];
+                if (!TryParseEncodedWord(token, out Range charSet, out _, out _) ||
+                    TryGetEncoding(token[charSet]) is null ||
+                    token.ContainsAny('"', '\\'))
+                {
+                    return false;
+                }
+
+                encodedAny = true;
+            }
+
+            return encodedAny;
+        }
+
+        private static bool TryDecodeHeaderValue(ReadOnlySpan<char> value, out string decodedValue)
+        {
+            decodedValue = string.Empty;
+            if (!TryParseEncodedWord(value, out Range charSetRange, out bool base64Encoding, out Range encodedTextRange))
+            {
+                return false;
+            }
+
+            Encoding? encoding = TryGetEncoding(value[charSetRange]);
+            if (encoding is null)
+            {
+                return false;
+            }
+
+            ReadOnlySpan<char> encodedText = value[encodedTextRange];
+            byte[] buffer = new byte[encodedText.Length];
+            Encoding.ASCII.GetBytes(encodedText, buffer);
+            IEncodableStream stream = EncodedStreamFactory.GetEncoderForHeader(encoding, base64Encoding, 0);
+            int decodedLength = stream.DecodeBytes(buffer);
+            decodedValue = encoding.GetString(buffer, 0, decodedLength);
+            return true;
+        }
+
+        private static bool TryParseEncodedWord(
+            ReadOnlySpan<char> value,
+            out Range charSet,
+            out bool base64Encoding,
+            out Range encodedText)
+        {
+            charSet = default;
+            base64Encoding = false;
+            encodedText = default;
+
+            if (value.Length < 7 || !value.StartsWith("=?") || !value.EndsWith("?="))
+            {
+                return false;
             }
 
             foreach (char c in value)
             {
-                if (c > 0x7f)
-                {
-                    return false;
-                }
-                if (!permitCROrLF && (c == '\r' || c == '\n'))
+                if (c is < '!' or > '~')
                 {
                     return false;
                 }
             }
+
+            int charSetEnd = value[2..].IndexOf('?');
+            if (charSetEnd <= 0)
+            {
+                return false;
+            }
+            charSetEnd += 2;
+
+            int encodingEnd = value[(charSetEnd + 1)..].IndexOf('?');
+            if (encodingEnd != 1)
+            {
+                return false;
+            }
+            encodingEnd += charSetEnd + 1;
+
+            char encodingIdentifier = value[charSetEnd + 1];
+            if (encodingIdentifier is 'B' or 'b')
+            {
+                base64Encoding = true;
+            }
+            else if (encodingIdentifier is not ('Q' or 'q'))
+            {
+                return false;
+            }
+
+            ReadOnlySpan<char> encodedTextValue = value[(encodingEnd + 1)..^2];
+            if (encodedTextValue.Contains('?'))
+            {
+                return false;
+            }
+
+            charSet = 2..charSetEnd;
+            encodedText = (encodingEnd + 1)..^2;
             return true;
+        }
+
+        private static Encoding? TryGetEncoding(ReadOnlySpan<char> charSet)
+        {
+            try
+            {
+                return Encoding.GetEncoding(charSet.ToString());
+            }
+            catch (ArgumentException)
+            {
+                return null;
+            }
+            catch (NotSupportedException)
+            {
+                return null;
+            }
+        }
+
+        private static bool IsValidHeaderWhiteSpace(ReadOnlySpan<char> value)
+        {
+            for (int i = 0; i < value.Length; i++)
+            {
+                if (value[i] is ' ' or '\t')
+                {
+                    continue;
+                }
+
+                if (value[i] != '\r' ||
+                    i + 2 >= value.Length ||
+                    value[i + 1] != '\n' ||
+                    value[i + 2] is not (' ' or '\t'))
+                {
+                    return false;
+                }
+
+                i += 2;
+            }
+
+            return true;
+        }
+
+        private static bool IsLinearWhiteSpace(char value) => value is ' ' or '\t' or '\r' or '\n';
+
+        internal static bool IsAscii(string value, bool permitCROrLF)
+        {
+            ArgumentNullException.ThrowIfNull(value);
+
+            return Ascii.IsValid(value) && (permitCROrLF || !value.AsSpan().ContainsAny('\r', '\n'));
         }
 
         internal string? ContentID
@@ -167,21 +355,12 @@ namespace System.Net.Mime
             get
             {
                 //persist existing info before returning
-                if (_headers == null)
-                {
-                    _headers = new HeaderCollection();
-                }
+                _headers ??= new HeaderCollection();
 
-                if (_contentType == null)
-                {
-                    _contentType = new ContentType();
-                }
+                _contentType ??= new ContentType();
                 _contentType.PersistIfNeeded(_headers, false);
 
-                if (_contentDisposition != null)
-                {
-                    _contentDisposition.PersistIfNeeded(_headers, false);
-                }
+                _contentDisposition?.PersistIfNeeded(_headers, false);
 
                 return _headers;
             }
@@ -192,10 +371,7 @@ namespace System.Net.Mime
             get { return _contentType ??= new ContentType(); }
             set
             {
-                if (value == null)
-                {
-                    throw new ArgumentNullException(nameof(value));
-                }
+                ArgumentNullException.ThrowIfNull(value);
 
                 _contentType = value;
                 _contentType.PersistIfNeeded((HeaderCollection)Headers, true);
@@ -214,49 +390,6 @@ namespace System.Net.Mime
             }
         }
 
-        internal virtual void Send(BaseWriter writer, bool allowUnicode)
-        {
-            throw new NotImplementedException();
-        }
-
-        internal virtual IAsyncResult BeginSend(BaseWriter writer, AsyncCallback? callback,
-            bool allowUnicode, object? state)
-        {
-            throw new NotImplementedException();
-        }
-
-        internal void EndSend(IAsyncResult asyncResult)
-        {
-            if (asyncResult == null)
-            {
-                throw new ArgumentNullException(nameof(asyncResult));
-            }
-
-            LazyAsyncResult? castedAsyncResult = asyncResult as MimePartAsyncResult;
-
-            if (castedAsyncResult == null || castedAsyncResult.AsyncObject != this)
-            {
-                throw new ArgumentException(SR.net_io_invalidasyncresult, nameof(asyncResult));
-            }
-
-            if (castedAsyncResult.EndCalled)
-            {
-                throw new InvalidOperationException(SR.Format(SR.net_io_invalidendcall, nameof(EndSend)));
-            }
-
-            castedAsyncResult.InternalWaitForCompletion();
-            castedAsyncResult.EndCalled = true;
-            if (castedAsyncResult.Result is Exception)
-            {
-                throw (Exception)castedAsyncResult.Result;
-            }
-        }
-
-        internal class MimePartAsyncResult : LazyAsyncResult
-        {
-            internal MimePartAsyncResult(MimeBasePart part, object? state, AsyncCallback? callback) : base(part, state, callback)
-            {
-            }
-        }
+        internal abstract Task SendAsync<TIOAdapter>(BaseWriter writer, bool allowUnicode, CancellationToken cancellationToken) where TIOAdapter : IReadWriteAdapter;
     }
 }

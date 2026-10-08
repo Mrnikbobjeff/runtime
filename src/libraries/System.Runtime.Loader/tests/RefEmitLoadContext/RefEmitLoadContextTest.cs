@@ -38,10 +38,7 @@ namespace System.Runtime.Loader.Tests
             var assemblyFilename = "System.Runtime.Loader.Noop.Assembly.dll";
 
             // Form the dynamic path that would not collide if another instance of this test is running.
-            s_loadFromPath = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
-
-            // Create the folder
-            Directory.CreateDirectory(s_loadFromPath);
+            s_loadFromPath = Directory.CreateTempSubdirectory().FullName;
 
             var targetPath = Path.Combine(s_loadFromPath, assemblyFilename);
 
@@ -67,8 +64,9 @@ namespace System.Runtime.Loader.Tests
             catch { }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.HasAssemblyFiles))]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/31804", TestRuntimes.Mono)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/124344", typeof(PlatformDetection), nameof(PlatformDetection.IsAppleMobile), nameof(PlatformDetection.IsCoreCLR))]
         public static void LoadRefEmitAssembly()
         {
             Init();

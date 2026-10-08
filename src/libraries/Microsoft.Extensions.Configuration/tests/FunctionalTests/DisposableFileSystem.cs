@@ -14,9 +14,13 @@ namespace Microsoft.Extensions.Configuration.Test
 
         public DisposableFileSystem()
         {
-            RootPath = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName());
-            CreateFolder("");
-            DirectoryInfo = new DirectoryInfo(RootPath);
+#if NET
+            DirectoryInfo = Directory.CreateTempSubdirectory();
+#else
+            DirectoryInfo = new DirectoryInfo(Path.Combine(Path.GetTempPath(), Path.GetRandomFileName()));
+            DirectoryInfo.Create();
+#endif
+            RootPath = DirectoryInfo.FullName;
         }
 
         public string RootPath { get; }
@@ -44,11 +48,22 @@ namespace Microsoft.Extensions.Configuration.Test
                 ? path
                 : Path.Combine(RootPath, path);
 
-            File.WriteAllText(fullPath, text);
+            WriteFileNoWait(path, text, absolute);
 
             WaitForFileSystem(
                 () => File.ReadAllText(fullPath).Length == text.Length,
                 $"File.WriteAllText(\"{fullPath}\", \"{text}\") failed");
+
+            return this;
+        }
+
+        public DisposableFileSystem WriteFileNoWait(string path, string text = "temp", bool absolute = false)
+        {
+            var fullPath = absolute
+                ? path
+                : Path.Combine(RootPath, path);
+
+            File.WriteAllText(fullPath, text);
 
             return this;
         }
@@ -85,6 +100,16 @@ namespace Microsoft.Extensions.Configuration.Test
             }
 
             return this;
+        }
+
+        /// <summary>
+        /// Lock specified file for reading. However, it can still be written to, and changes trigger FileSystemWatcher events.
+        /// </summary>
+        /// <returns>IDisposable which removes lock on Dispose()</returns>
+        public IDisposable LockFileReading(string path)
+        {
+            var fullPath = Path.Combine(RootPath, path);
+            return new FileStream(fullPath, FileMode.Open, FileAccess.Read, FileShare.Write);
         }
 
         public void Dispose()

@@ -111,7 +111,7 @@ namespace System.Xml
         }
 
         // Adds a XmlNode using its Name property
-        [return: NotNullIfNotNull("node")]
+        [return: NotNullIfNotNull(nameof(node))]
         public override XmlNode? SetNamedItem(XmlNode? node)
         {
             if (node == null)
@@ -152,7 +152,7 @@ namespace System.Xml
         public XmlAttribute Append(XmlAttribute node)
         {
             XmlDocument doc = node.OwnerDocument;
-            if (doc == null || doc.IsLoading == false)
+            if (doc == null || !doc.IsLoading)
             {
                 if (doc != null && doc != parent.OwnerDocument)
                 {
@@ -326,7 +326,7 @@ namespace System.Xml
             return retNode;
         }
 
-        internal void Detach(XmlAttribute attr)
+        internal static void Detach(XmlAttribute attr)
         {
             attr.OwnerElement!.Attributes.Remove(attr);
         }

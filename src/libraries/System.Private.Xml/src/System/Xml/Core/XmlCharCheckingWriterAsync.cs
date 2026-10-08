@@ -2,20 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.IO;
-using System.Text;
-using System.Xml.Schema;
 using System.Collections;
 using System.Diagnostics;
-
+using System.IO;
+using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Schema;
 
 namespace System.Xml
 {
     //
     // XmlCharCheckingWriter
     //
-    internal partial class XmlCharCheckingWriter : XmlWrappingWriter
+    internal sealed partial class XmlCharCheckingWriter : XmlWrappingWriter
     {
         public override Task WriteDocTypeAsync(string name, string? pubid, string? sysid, string? subset)
         {
@@ -29,7 +28,7 @@ namespace System.Xml
                 if (pubid != null)
                 {
                     int i;
-                    if ((i = _xmlCharType.IsPublicId(pubid)) >= 0)
+                    if ((i = XmlCharType.IsPublicId(pubid)) >= 0)
                     {
                         throw XmlConvert.CreateInvalidCharException(pubid, i);
                     }
@@ -60,10 +59,7 @@ namespace System.Xml
         {
             if (_checkNames)
             {
-                if (localName == null || localName.Length == 0)
-                {
-                    throw new ArgumentException(SR.Xml_EmptyLocalName);
-                }
+                ArgumentException.ThrowIfNullOrEmpty(localName);
 
                 ValidateNCName(localName);
 
@@ -79,10 +75,7 @@ namespace System.Xml
         {
             if (_checkNames)
             {
-                if (localName == null || localName.Length == 0)
-                {
-                    throw new ArgumentException(SR.Xml_EmptyLocalName);
-                }
+                ArgumentException.ThrowIfNullOrEmpty(localName);
 
                 ValidateNCName(localName);
 
@@ -171,16 +164,13 @@ namespace System.Xml
 
         public override Task WriteWhitespaceAsync(string? ws)
         {
-            if (ws == null)
-            {
-                ws = string.Empty;
-            }
+            ws ??= string.Empty;
 
             // "checkNames" is intentional here; if false, the whitespace is checked in XmlWellformedWriter
             if (_checkNames)
             {
                 int i;
-                if ((i = _xmlCharType.IsOnlyWhitespaceWithPos(ws)) != -1)
+                if ((i = XmlCharType.IsOnlyWhitespaceWithPos(ws)) != -1)
                 {
                     throw new ArgumentException(SR.Format(SR.Xml_InvalidWhitespaceCharacter, XmlException.BuildCharExceptionArgs(ws, i)));
                 }
@@ -219,22 +209,11 @@ namespace System.Xml
 
         public override Task WriteCharsAsync(char[] buffer, int index, int count)
         {
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (index < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index));
-            }
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-            if (count > buffer.Length - index)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+            ArgumentNullException.ThrowIfNull(buffer);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, buffer.Length - index);
 
             if (_checkValues)
             {
@@ -257,10 +236,7 @@ namespace System.Xml
         {
             if (_checkNames)
             {
-                if (name == null || name.Length == 0)
-                {
-                    throw new ArgumentException(SR.Xml_EmptyName);
-                }
+                ArgumentException.ThrowIfNullOrEmpty(name);
                 XmlConvert.VerifyNMTOKEN(name);
             }
             return writer.WriteNmTokenAsync(name);

@@ -1,16 +1,18 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Xunit;
 namespace NetClient
 {
     using System;
     using System.Runtime.InteropServices;
 
     using TestLibrary;
+    using Xunit;
     using Server.Contract;
     using Server.Contract.Servers;
 
-    class Program
+    public class Program
     {
         class ManagedInner : AggregationTestingClass
         {
@@ -21,12 +23,19 @@ namespace NetClient
             var managedInner = new ManagedInner();
             var nativeOuter = (AggregationTesting)managedInner;
 
-            Assert.IsTrue(nativeOuter.IsAggregated());
-            Assert.IsTrue(nativeOuter.AreAggregated(managedInner, nativeOuter));
-            Assert.IsFalse(nativeOuter.AreAggregated(nativeOuter, new object()));
+            Assert.True(typeof(ManagedInner).IsCOMObject);
+            Assert.True(typeof(AggregationTestingClass).IsCOMObject);
+            Assert.False(typeof(AggregationTesting).IsCOMObject);
+            Assert.True(Marshal.IsComObject(managedInner));
+            Assert.True(Marshal.IsComObject(nativeOuter));
+
+            Assert.True(nativeOuter.IsAggregated());
+            Assert.True(nativeOuter.AreAggregated(managedInner, nativeOuter));
+            Assert.False(nativeOuter.AreAggregated(nativeOuter, new object()));
         }
 
-        static int Main(string[] doNotUse)
+        [Fact]
+        public static int TestEntryPoint()
         {
             // RegFree COM is not supported on Windows Nano
             if (Utilities.IsWindowsNanoServer)

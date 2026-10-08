@@ -1,11 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
+    <TargetFramework Condition="'$(WasmEnableThreads)' != 'true'">$(NetCoreAppCurrent)</TargetFramework>
+    <TargetFrameworks Condition="'$(WasmEnableThreads)' == 'true'">$(NetCoreAppCurrent);$(NetCoreAppCurrent)-browser</TargetFrameworks>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <TargetFrameworks>$(NetCoreAppCurrent)</TargetFrameworks>
-	<Nullable>enable</Nullable>
+    <UseCompilerGeneratedDocXmlFile>false</UseCompilerGeneratedDocXmlFile>
   </PropertyGroup>
+
+  <PropertyGroup>
+    <TargetPlatformIdentifier>$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)'))</TargetPlatformIdentifier>
+    <DefineConstants Condition="'$(WasmEnableThreads)' == 'true'">$(DefineConstants);FEATURE_WASM_MANAGED_THREADS</DefineConstants>
+  </PropertyGroup>
+
   <!-- Compiled Source Files -->
   <ItemGroup>
+    <Compile Include="$(CommonPath)System\Collections\HashHelpers.cs" Link="Common\System\Collections\HashHelpers.cs" />
     <Compile Include="System\Linq\Parallel\Channels\AsynchronousChannel.cs" />
     <Compile Include="System\Linq\Parallel\Channels\SynchronousChannel.cs" />
     <Compile Include="System\Linq\Parallel\Enumerables\AggregationMinMaxHelpers.cs" />
@@ -18,6 +27,7 @@
     <Compile Include="System\Linq\Parallel\Enumerables\QueryAggregationOptions.cs" />
     <Compile Include="System\Linq\Parallel\Enumerables\RangeEnumerable.cs" />
     <Compile Include="System\Linq\Parallel\Enumerables\RepeatEnumerable.cs" />
+    <Compile Include="System\Linq\Parallel\JaggedArray.cs" />
     <Compile Include="System\Linq\Parallel\Merging\ArrayMergeHelper.cs" />
     <Compile Include="System\Linq\Parallel\Merging\AsynchronousChannelMergeEnumerator.cs" />
     <Compile Include="System\Linq\Parallel\Merging\DefaultMergeHelper.cs" />
@@ -123,7 +133,6 @@
     <Compile Include="System\Linq\Parallel\Scheduling\Scheduling.cs" />
     <Compile Include="System\Linq\Parallel\Scheduling\SpoolingTask.cs" />
     <Compile Include="System\Linq\Parallel\Scheduling\SpoolingTaskBase.cs" />
-    <Compile Include="System\Linq\Parallel\Helpers.cs" />
     <Compile Include="System\Linq\Parallel\Utils\CancellableEnumerable.cs" />
     <Compile Include="System\Linq\Parallel\Utils\ExceptionAggregator.cs" />
     <Compile Include="System\Linq\Parallel\Utils\ExchangeUtilities.cs" />
@@ -144,13 +153,16 @@
     <Compile Include="System\Linq\Parallel\Utils\Wrapper.cs" />
     <Compile Include="System\Linq\Parallel\Utils\WrapperEqualityComparer.cs" />
   </ItemGroup>
+
   <ItemGroup>
-    <Reference Include="System.Collections" />
-    <Reference Include="System.Collections.Concurrent" />
-    <Reference Include="System.Diagnostics.Tracing" />
-    <Reference Include="System.Linq" />
-    <Reference Include="System.Runtime" />
-    <Reference Include="System.Runtime.Extensions" />
-    <Reference Include="System.Threading" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Collections\src\System.Collections.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Collections.Concurrent\src\System.Collections.Concurrent.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Diagnostics.Tracing\src\System.Diagnostics.Tracing.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Linq\src\System.Linq.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Memory\src\System.Memory.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Runtime\src\System.Runtime.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Threading\src\System.Threading.csproj" Condition="'$(WasmEnableThreads)' != 'true'" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Threading.WebAssembly.Threading\ref\System.Threading.WebAssembly.Threading.csproj" Condition="'$(WasmEnableThreads)' == 'true'" />
   </ItemGroup>
+
 </Project>

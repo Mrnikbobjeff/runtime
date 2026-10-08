@@ -7,6 +7,7 @@ using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.ExceptionServices;
 using System.Runtime.Loader;
 using System.Runtime.Remoting;
@@ -19,16 +20,26 @@ namespace System
 {
     public sealed partial class AppDomain : MarshalByRefObject
     {
-        private static readonly AppDomain s_domain = new AppDomain();
-        private readonly object _forLock = new object();
+        private static AppDomain? s_domain;
+
         private IPrincipal? _defaultPrincipal;
         private PrincipalPolicy _principalPolicy = PrincipalPolicy.NoPrincipal;
-        private Func<IPrincipal>? s_getWindowsPrincipal;
-        private Func<IPrincipal>? s_getUnauthenticatedPrincipal;
 
         private AppDomain() { }
 
-        public static AppDomain CurrentDomain => s_domain;
+        public static AppDomain CurrentDomain
+        {
+            get
+            {
+                // Create AppDomain instance only once external code asks for it. AppDomain brings lots of unnecessary
+                // dependencies into minimal trimmed app via ToString method.
+                if (s_domain == null)
+                {
+                    Interlocked.CompareExchange(ref s_domain, new AppDomain(), null);
+                }
+                return s_domain;
+            }
+        }
 
         public string BaseDirectory => AppContext.BaseDirectory;
 
@@ -47,7 +58,7 @@ namespace System
 
         public string? DynamicDirectory => null;
 
-        [Obsolete("AppDomain.SetDynamicBase has been deprecated. Please investigate the use of AppDomainSetup.DynamicBase instead. https://go.microsoft.com/fwlink/?linkid=14202")]
+        [Obsolete("AppDomain.SetDynamicBase has been deprecated and is not supported.")]
         public void SetDynamicBase(string? path) { }
 
         public string FriendlyName
@@ -69,33 +80,43 @@ namespace System
 
         public event EventHandler<FirstChanceExceptionEventArgs>? FirstChanceException
         {
-            add { AppContext.FirstChanceException += value; }
+            add
+            {
+                AppContext.FirstChanceException += value;
+#if CORECLR
+                // Once a handler is added, the runtime will attempt
+                // to deliver first chance notifications for all exceptions.
+                // We don't care if handlers are removed.
+                AppContext.SetFirstChanceExceptionHandler();
+#endif
+            }
             remove { AppContext.FirstChanceException -= value; }
         }
 
-        public event EventHandler? ProcessExit
+        public event EventHandler? ProcessExit;
+
+        internal static void OnProcessExit()
         {
-            add { AppContext.ProcessExit += value; }
-            remove { AppContext.ProcessExit -= value; }
+            AppDomain? domain = s_domain;
+            domain?.ProcessExit?.Invoke(domain, EventArgs.Empty);
         }
 
         public string ApplyPolicy(string assemblyName)
         {
-            if (assemblyName == null)
+            ArgumentException.ThrowIfNullOrEmpty(assemblyName);
+            if (assemblyName[0] == '\0')
             {
-                throw new ArgumentNullException(nameof(assemblyName));
-            }
-            if (assemblyName.Length == 0 || assemblyName[0] == '\0')
-            {
-                throw new ArgumentException(SR.Argument_StringZeroLength, nameof(assemblyName));
+                throw new ArgumentException(SR.Argument_EmptyString, nameof(assemblyName));
             }
 
             return assemblyName;
         }
 
+        [Obsolete(Obsoletions.AppDomainCreateUnloadMessage, DiagnosticId = Obsoletions.AppDomainCreateUnloadDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         public static AppDomain CreateDomain(string friendlyName)
         {
-            if (friendlyName == null) throw new ArgumentNullException(nameof(friendlyName));
+            ArgumentNullException.ThrowIfNull(friendlyName);
+
             throw new PlatformNotSupportedException(SR.PlatformNotSupported_AppDomains);
         }
 
@@ -105,16 +126,15 @@ namespace System
         [RequiresUnreferencedCode("Types and members the loaded assembly depends on might be removed")]
         public int ExecuteAssembly(string assemblyFile, string?[]? args)
         {
-            if (assemblyFile == null)
-            {
-                throw new ArgumentNullException(nameof(assemblyFile));
-            }
+            ArgumentNullException.ThrowIfNull(assemblyFile);
+
             string fullPath = Path.GetFullPath(assemblyFile);
             Assembly assembly = Assembly.LoadFile(fullPath);
             return ExecuteAssembly(assembly, args);
         }
 
         [RequiresUnreferencedCode("Types and members the loaded assembly depends on might be removed")]
+        [Obsolete(Obsoletions.CodeAccessSecurityMessage, DiagnosticId = Obsoletions.CodeAccessSecurityDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         public int ExecuteAssembly(string assemblyFile, string?[]? args, byte[]? hashValue, Configuration.Assemblies.AssemblyHashAlgorithm hashAlgorithm)
         {
             throw new PlatformNotSupportedException(SR.PlatformNotSupported_CAS); // This api is only meaningful for very specific partial trust/CAS scenarios
@@ -122,17 +142,14 @@ namespace System
 
         private static int ExecuteAssembly(Assembly assembly, string?[]? args)
         {
-            MethodInfo? entry = assembly.EntryPoint;
-            if (entry == null)
-            {
+            MethodInfo entry = assembly.EntryPoint ??
                 throw new MissingMethodException(SR.Arg_EntryPointNotFoundException);
-            }
 
             object? result = entry.Invoke(
                 obj: null,
                 invokeAttr: BindingFlags.DoNotWrapExceptions,
                 binder: null,
-                parameters: entry.GetParameters().Length > 0 ? new object?[] { args } : null,
+                parameters: entry.GetParametersAsSpan().Length > 0 ? [args] : null,
                 culture: null);
 
             return result != null ? (int)result : 0;
@@ -163,12 +180,11 @@ namespace System
         public override string ToString() =>
             SR.AppDomain_Name + FriendlyName + Environment.NewLineConst + SR.AppDomain_NoContextPolicies;
 
+        [Obsolete(Obsoletions.AppDomainCreateUnloadMessage, DiagnosticId = Obsoletions.AppDomainCreateUnloadDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         public static void Unload(AppDomain domain)
         {
-            if (domain == null)
-            {
-                throw new ArgumentNullException(nameof(domain));
-            }
+            ArgumentNullException.ThrowIfNull(domain);
+
             throw new CannotUnloadAppDomainException(SR.Arg_PlatformNotSupported);
         }
 
@@ -182,7 +198,7 @@ namespace System
 
         public Assembly Load(string assemblyString) => Assembly.Load(assemblyString);
 
-        public Assembly[] ReflectionOnlyGetAssemblies() => Array.Empty<Assembly>();
+        public Assembly[] ReflectionOnlyGetAssemblies() => [];
 
         public static bool MonitoringIsEnabled
         {
@@ -209,27 +225,27 @@ namespace System
 
         public long MonitoringTotalAllocatedMemorySize => GC.GetTotalAllocatedBytes(precise: false);
 
-        [Obsolete("AppDomain.GetCurrentThreadId has been deprecated because it does not provide a stable Id when managed threads are running on fibers (aka lightweight threads). To get a stable identifier for a managed thread, use the ManagedThreadId property on Thread.  https://go.microsoft.com/fwlink/?linkid=14202", false)]
+        [Obsolete("AppDomain.GetCurrentThreadId has been deprecated because it does not provide a stable Id when managed threads are running on fibers (aka lightweight threads). To get a stable identifier for a managed thread, use the ManagedThreadId property on Thread instead.")]
         public static int GetCurrentThreadId() => Environment.CurrentManagedThreadId;
 
         public bool ShadowCopyFiles => false;
 
-        [Obsolete("AppDomain.AppendPrivatePath has been deprecated. Please investigate the use of AppDomainSetup.PrivateBinPath instead. https://go.microsoft.com/fwlink/?linkid=14202")]
+        [Obsolete("AppDomain.AppendPrivatePath has been deprecated and is not supported.")]
         public void AppendPrivatePath(string? path) { }
 
-        [Obsolete("AppDomain.ClearPrivatePath has been deprecated. Please investigate the use of AppDomainSetup.PrivateBinPath instead. https://go.microsoft.com/fwlink/?linkid=14202")]
+        [Obsolete("AppDomain.ClearPrivatePath has been deprecated and is not supported.")]
         public void ClearPrivatePath() { }
 
-        [Obsolete("AppDomain.ClearShadowCopyPath has been deprecated. Please investigate the use of AppDomainSetup.ShadowCopyDirectories instead. https://go.microsoft.com/fwlink/?linkid=14202")]
+        [Obsolete("AppDomain.ClearShadowCopyPath has been deprecated and is not supported.")]
         public void ClearShadowCopyPath() { }
 
-        [Obsolete("AppDomain.SetCachePath has been deprecated. Please investigate the use of AppDomainSetup.CachePath instead. https://go.microsoft.com/fwlink/?linkid=14202")]
+        [Obsolete("AppDomain.SetCachePath has been deprecated and is not supported.")]
         public void SetCachePath(string? path) { }
 
-        [Obsolete("AppDomain.SetShadowCopyFiles has been deprecated. Please investigate the use of AppDomainSetup.ShadowCopyFiles instead. https://go.microsoft.com/fwlink/?linkid=14202")]
+        [Obsolete("AppDomain.SetShadowCopyFiles has been deprecated and is not supported.")]
         public void SetShadowCopyFiles() { }
 
-        [Obsolete("AppDomain.SetShadowCopyPath has been deprecated. Please investigate the use of AppDomainSetup.ShadowCopyDirectories instead. https://go.microsoft.com/fwlink/?linkid=14202")]
+        [Obsolete("AppDomain.SetShadowCopyPath has been deprecated and is not supported.")]
         public void SetShadowCopyPath(string? path) { }
 
         public Assembly[] GetAssemblies() => AssemblyLoadContext.GetLoadedAssemblies();
@@ -267,40 +283,27 @@ namespace System
 
         public void SetThreadPrincipal(IPrincipal principal)
         {
-            if (principal == null)
-            {
-                throw new ArgumentNullException(nameof(principal));
-            }
+            ArgumentNullException.ThrowIfNull(principal);
 
-            lock (_forLock)
+            // Set the principal while checking it has not been set previously.
+            if (Interlocked.CompareExchange(ref _defaultPrincipal, principal, null) is not null)
             {
-                // Check that principal has not been set previously.
-                if (_defaultPrincipal != null)
-                {
-                    throw new SystemException(SR.AppDomain_Policy_PrincipalTwice);
-                }
-                _defaultPrincipal = principal;
+                throw new SystemException(SR.AppDomain_Policy_PrincipalTwice);
             }
         }
 
         [RequiresUnreferencedCode("Type and its constructor could be removed")]
         public ObjectHandle? CreateInstance(string assemblyName, string typeName)
         {
-            if (assemblyName == null)
-            {
-                throw new ArgumentNullException(nameof(assemblyName));
-            }
+            ArgumentNullException.ThrowIfNull(assemblyName);
 
             return Activator.CreateInstance(assemblyName, typeName);
         }
 
         [RequiresUnreferencedCode("Type and its constructor could be removed")]
-        public ObjectHandle? CreateInstance(string assemblyName, string typeName, bool ignoreCase, BindingFlags bindingAttr, Binder? binder, object?[]? args, System.Globalization.CultureInfo? culture, object?[]? activationAttributes)
+        public ObjectHandle? CreateInstance(string assemblyName, string typeName, bool ignoreCase, BindingFlags bindingAttr, Binder? binder, object?[]? args, Globalization.CultureInfo? culture, object?[]? activationAttributes)
         {
-            if (assemblyName == null)
-            {
-                throw new ArgumentNullException(nameof(assemblyName));
-            }
+            ArgumentNullException.ThrowIfNull(assemblyName);
 
             return Activator.CreateInstance(assemblyName,
                                             typeName,
@@ -315,10 +318,7 @@ namespace System
         [RequiresUnreferencedCode("Type and its constructor could be removed")]
         public ObjectHandle? CreateInstance(string assemblyName, string typeName, object?[]? activationAttributes)
         {
-            if (assemblyName == null)
-            {
-                throw new ArgumentNullException(nameof(assemblyName));
-            }
+            ArgumentNullException.ThrowIfNull(assemblyName);
 
             return Activator.CreateInstance(assemblyName, typeName, activationAttributes);
         }
@@ -331,7 +331,7 @@ namespace System
         }
 
         [RequiresUnreferencedCode("Type and its constructor could be removed")]
-        public object? CreateInstanceAndUnwrap(string assemblyName, string typeName, bool ignoreCase, BindingFlags bindingAttr, Binder? binder, object?[]? args, System.Globalization.CultureInfo? culture, object?[]? activationAttributes)
+        public object? CreateInstanceAndUnwrap(string assemblyName, string typeName, bool ignoreCase, BindingFlags bindingAttr, Binder? binder, object?[]? args, Globalization.CultureInfo? culture, object?[]? activationAttributes)
         {
             ObjectHandle? oh = CreateInstance(assemblyName,
                                              typeName,
@@ -358,7 +358,7 @@ namespace System
         }
 
         [RequiresUnreferencedCode("Type and its constructor could be removed")]
-        public ObjectHandle? CreateInstanceFrom(string assemblyFile, string typeName, bool ignoreCase, BindingFlags bindingAttr, Binder? binder, object?[]? args, System.Globalization.CultureInfo? culture, object?[]? activationAttributes)
+        public ObjectHandle? CreateInstanceFrom(string assemblyFile, string typeName, bool ignoreCase, BindingFlags bindingAttr, Binder? binder, object?[]? args, Globalization.CultureInfo? culture, object?[]? activationAttributes)
         {
             return Activator.CreateInstanceFrom(assemblyFile,
                                                 typeName,
@@ -384,7 +384,7 @@ namespace System
         }
 
         [RequiresUnreferencedCode("Type and its constructor could be removed")]
-        public object? CreateInstanceFromAndUnwrap(string assemblyFile, string typeName, bool ignoreCase, BindingFlags bindingAttr, Binder? binder, object?[]? args, System.Globalization.CultureInfo? culture, object?[]? activationAttributes)
+        public object? CreateInstanceFromAndUnwrap(string assemblyFile, string typeName, bool ignoreCase, BindingFlags bindingAttr, Binder? binder, object?[]? args, Globalization.CultureInfo? culture, object?[]? activationAttributes)
         {
             ObjectHandle? oh = CreateInstanceFrom(assemblyFile,
                                                  typeName,
@@ -404,9 +404,6 @@ namespace System
             return oh?.Unwrap();
         }
 
-        // TODO: Remove these DynamicDependencyAttributes when https://github.com/mono/linker/issues/943 is fixed.
-        [DynamicDependency("GetDefaultInstance", "System.Security.Principal.GenericPrincipal", "System.Security.Claims")]
-        [DynamicDependency("GetDefaultInstance", "System.Security.Principal.WindowsPrincipal", "System.Security.Principal.Windows")]
         internal IPrincipal? GetThreadPrincipal()
         {
             IPrincipal? principal = _defaultPrincipal;
@@ -415,39 +412,32 @@ namespace System
                 switch (_principalPolicy)
                 {
                     case PrincipalPolicy.UnauthenticatedPrincipal:
-                        if (s_getUnauthenticatedPrincipal == null)
-                        {
-                            Type type = Type.GetType("System.Security.Principal.GenericPrincipal, System.Security.Claims", throwOnError: true)!;
-                            MethodInfo? mi = type.GetMethod("GetDefaultInstance", BindingFlags.NonPublic | BindingFlags.Static);
-                            Debug.Assert(mi != null);
-                            // Don't throw PNSE if null like for WindowsPrincipal as UnauthenticatedPrincipal should
-                            // be available on all platforms.
-                            Volatile.Write(ref s_getUnauthenticatedPrincipal,
-                                mi.CreateDelegate<Func<IPrincipal>>());
-                        }
-
-                        principal = s_getUnauthenticatedPrincipal();
+                        principal = (IPrincipal)GetDefaultPrincipal(null);
                         break;
-
                     case PrincipalPolicy.WindowsPrincipal:
-                        if (s_getWindowsPrincipal == null)
-                        {
-                            Type type = Type.GetType("System.Security.Principal.WindowsPrincipal, System.Security.Principal.Windows", throwOnError: true)!;
-                            MethodInfo? mi = type.GetMethod("GetDefaultInstance", BindingFlags.NonPublic | BindingFlags.Static);
-                            if (mi == null)
-                            {
-                                throw new PlatformNotSupportedException(SR.PlatformNotSupported_Principal);
-                            }
-                            Volatile.Write(ref s_getWindowsPrincipal,
-                                mi.CreateDelegate<Func<IPrincipal>>());
-                        }
-
-                        principal = s_getWindowsPrincipal();
+#if TARGET_WINDOWS
+                        principal = (IPrincipal)GetDefaultWindowsPrincipal(null);
                         break;
+#else
+                        // WindowsPrincipal is not available, throw PNSE
+                        throw new PlatformNotSupportedException(SR.PlatformNotSupported_Principal);
+#endif
                 }
             }
 
             return principal;
+
+            [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "GetDefaultInstance")]
+            [return: UnsafeAccessorType("System.Security.Principal.GenericPrincipal, System.Security.Claims")]
+            static extern object GetDefaultPrincipal(
+                [UnsafeAccessorType("System.Security.Principal.GenericPrincipal, System.Security.Claims")] object? _);
+
+#if TARGET_WINDOWS
+            [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "GetDefaultInstance")]
+            [return: UnsafeAccessorType("System.Security.Principal.WindowsPrincipal, System.Security.Principal.Windows")]
+            static extern object GetDefaultWindowsPrincipal(
+                [UnsafeAccessorType("System.Security.Principal.WindowsPrincipal, System.Security.Principal.Windows")] object? _);
+#endif
         }
     }
 }

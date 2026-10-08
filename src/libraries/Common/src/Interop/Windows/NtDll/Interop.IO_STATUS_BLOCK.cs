@@ -4,9 +4,9 @@
 using System;
 using System.Runtime.InteropServices;
 
-internal partial class Interop
+internal static partial class Interop
 {
-    internal partial class NtDll
+    internal static partial class NtDll
     {
         // https://msdn.microsoft.com/en-us/library/windows/hardware/ff550671.aspx
         [StructLayout(LayoutKind.Sequential)]
@@ -32,14 +32,16 @@ internal partial class Interop
                 /// The completion status, either STATUS_SUCCESS if the operation was completed successfully or
                 /// some other informational, warning, or error status.
                 /// </summary>
+                /// <safety>Overlaps only the Pointer field; both views are non-reference integers (uint and IntPtr), so the union cannot forge a managed reference.</safety>
                 [FieldOffset(0)]
-                public uint Status;
+                public safe uint Status;
 
                 /// <summary>
                 /// Reserved for internal use.
                 /// </summary>
+                /// <safety>Overlaps only the Status field; both views are non-reference integers (IntPtr and uint), so the union cannot forge a managed reference.</safety>
                 [FieldOffset(0)]
-                public IntPtr Pointer;
+                public safe IntPtr Pointer;
             }
         }
     }

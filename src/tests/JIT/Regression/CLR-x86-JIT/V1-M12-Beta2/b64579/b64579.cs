@@ -1,7 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b64579;
+
 using System;
+using Xunit;
 public class Padre
 {
     private double _x = 10;
@@ -22,13 +26,14 @@ public class Hijo : Padre
         base.Incrementa(b);
     }
 }
-internal class Test
+public class Test_b64579
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         Hijo h = new Hijo();
         h.Incrementa(1.0);
         h.print();
-        return 100;
     }
 }

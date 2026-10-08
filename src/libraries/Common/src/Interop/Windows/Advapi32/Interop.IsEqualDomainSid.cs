@@ -8,7 +8,11 @@ internal static partial class Interop
 {
     internal static partial class Advapi32
     {
-        [DllImport(Interop.Libraries.Advapi32, EntryPoint = "EqualDomainSid", SetLastError = true, CharSet = CharSet.Unicode)]
-        internal static extern int IsEqualDomainSid(byte[] sid1, byte[] sid2, out bool result);
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [LibraryImport(Interop.Libraries.Advapi32, EntryPoint = "EqualDomainSid", SetLastError = true)]
+        internal static partial int IsEqualDomainSid(
+            byte[] sid1,
+            byte[] sid2,
+            [MarshalAs(UnmanagedType.Bool)] out bool result);
     }
 }

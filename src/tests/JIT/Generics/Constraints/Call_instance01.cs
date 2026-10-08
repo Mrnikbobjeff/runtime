@@ -2,7 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Generics_Constraints_Call_instance01;
+
 using System;
+using Xunit;
 
 public interface IFoo
 {
@@ -45,7 +48,7 @@ public struct GenStruct<T> where T : IFoo
         return (t.InterfaceMethod().Equals(typeof(T)));
     }
 }
-public class Test
+public class Test_Call_instance01
 {
     public static int counter = 0;
     public static bool result = true;
@@ -60,7 +63,9 @@ public class Test
 
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         Eval(new GenClass<FooClass>().CallOnConstraint(new FooClass()));
         Eval(new GenClass<FooStruct>().CallOnConstraint(new FooStruct()));

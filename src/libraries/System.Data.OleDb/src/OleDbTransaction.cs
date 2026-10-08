@@ -4,11 +4,13 @@
 using System.Data.Common;
 using System.Data.ProviderBase;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace System.Data.OleDb
 {
+    [RequiresDynamicCode(OleDbConnection.TrimWarning)]
     public sealed class OleDbTransaction : DbTransaction
     {
         private readonly OleDbTransaction? _parentTransaction; // strong reference to keep parent alive
@@ -25,13 +27,12 @@ namespace System.Data.OleDb
 
             internal WrappedTransaction(UnsafeNativeMethods.ITransactionLocal transaction, int isolevel, out OleDbHResult hr) : base(transaction)
             {
-                int transactionLevel = 0;
                 RuntimeHelpers.PrepareConstrainedRegions();
                 try
                 { }
                 finally
                 {
-                    hr = transaction.StartTransaction(isolevel, 0, IntPtr.Zero, out transactionLevel);
+                    hr = transaction.StartTransaction(isolevel, 0, IntPtr.Zero, out _);
                     if (0 <= hr)
                     {
                         _mustComplete = true;
@@ -137,7 +138,7 @@ namespace System.Data.OleDb
             _isolationLevel = isolevel;
         }
 
-        public new OleDbConnection Connection
+        public new OleDbConnection? Connection
         {
             get
             {
@@ -145,7 +146,7 @@ namespace System.Data.OleDb
             }
         }
 
-        protected override DbConnection DbConnection
+        protected override DbConnection? DbConnection
         {
             get
             {
@@ -181,7 +182,7 @@ namespace System.Data.OleDb
             }
             else if ((null != _nestedTransaction) && _nestedTransaction.IsAlive)
             {
-                throw ADP.ParallelTransactionsNotSupported(Connection);
+                throw ADP.ParallelTransactionsNotSupported(Connection!);
             }
             // either the connection will be open or this will be a zombie
 
@@ -287,16 +288,16 @@ namespace System.Data.OleDb
                 _parentTransaction._nestedTransaction = null;
                 //_parentTransaction = null;
             }
-            else if (null != _parentConnection)
+            else
             {
-                _parentConnection.LocalTransaction = null;
+                _parentConnection?.LocalTransaction = null;
             }
             _parentConnection = null!;
         }
 
         private void ProcessResults(OleDbHResult hr)
         {
-            Exception? e = OleDbConnection.ProcessResults(hr, _parentConnection, this);
+            Exception? e = OleDbConnection.ProcessResults(hr, _parentConnection);
             if (null != e)
             { throw e; }
         }

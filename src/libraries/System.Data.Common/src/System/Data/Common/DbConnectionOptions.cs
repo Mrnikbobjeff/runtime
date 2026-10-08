@@ -8,7 +8,7 @@ using System.Text;
 
 namespace System.Data.Common
 {
-    internal partial class DbConnectionOptions
+    internal sealed partial class DbConnectionOptions
     {
         // instances of this class are intended to be immutable, i.e readonly
         // used by pooling classes so it is easier to verify correctness
@@ -17,13 +17,13 @@ namespace System.Data.Common
 
         // differences between OleDb and Odbc
         // ODBC:
-        //     https://docs.microsoft.com/en-us/sql/odbc/reference/syntax/sqldriverconnect-function
+        //     https://learn.microsoft.com/sql/odbc/reference/syntax/sqldriverconnect-function
         //     do not support == -> = in keywords
         //     first key-value pair wins
         //     quote values using \{ and \}, only driver= and pwd= appear to generically allow quoting
         //     do not strip quotes from value, or add quotes except for driver keyword
         // OLEDB:
-        //     https://docs.microsoft.com/en-us/dotnet/framework/data/adonet/connection-string-syntax#oledb-connection-string-syntax
+        //     https://learn.microsoft.com/dotnet/framework/data/adonet/connection-string-syntax#oledb-connection-string-syntax
         //     support == -> = in keywords
         //     last key-value pair wins
         //     quote values using \" or \'
@@ -37,7 +37,7 @@ namespace System.Data.Common
         {
             _useOdbcRules = useOdbcRules;
             _parsetable = new Dictionary<string, string?>();
-            _usersConnectionString = ((null != connectionString) ? connectionString : "");
+            _usersConnectionString = connectionString ?? "";
 
             // first pass on parsing, initial syntax check
             if (0 < _usersConnectionString.Length)
@@ -57,7 +57,7 @@ namespace System.Data.Common
             ADP.CheckArgumentNull(builder, nameof(builder));
             ADP.CheckArgumentLength(keyName, nameof(keyName));
 
-            if ((null == keyName) || !s_connectionStringValidKeyRegex.IsMatch(keyName))
+            if ((null == keyName) || !ConnectionStringValidKeyRegex.IsMatch(keyName))
             {
                 throw ADP.InvalidKeyname(keyName);
             }
@@ -87,9 +87,8 @@ namespace System.Data.Common
                 if (useOdbcRules)
                 {
                     if ((0 < keyValue.Length) &&
-                        // string.Contains(char) is .NetCore2.1+ specific
-                        (('{' == keyValue[0]) || (0 <= keyValue.IndexOf(';')) || string.Equals(DbConnectionStringKeywords.Driver, keyName, StringComparison.OrdinalIgnoreCase)) &&
-                        !s_connectionStringQuoteOdbcValueRegex.IsMatch(keyValue))
+                        (('{' == keyValue[0]) || keyValue.Contains(';') || string.Equals(DbConnectionStringKeywords.Driver, keyName, StringComparison.OrdinalIgnoreCase)) &&
+                        !ConnectionStringQuoteOdbcValueRegex.IsMatch(keyValue))
                     {
                         // always quote Driver value (required for ODBC Version 2.65 and earlier)
                         // always quote values that contain a ';'
@@ -100,7 +99,7 @@ namespace System.Data.Common
                         builder.Append(keyValue);
                     }
                 }
-                else if (s_connectionStringQuoteValueRegex.IsMatch(keyValue))
+                else if (ConnectionStringQuoteValueRegex.IsMatch(keyValue))
                 {
                     // <value> -> <value>
                     builder.Append(keyValue);
@@ -127,7 +126,7 @@ namespace System.Data.Common
             }
         }
 
-        protected internal virtual string Expand() => _usersConnectionString;
+        internal string Expand() => _usersConnectionString;
 
         internal string ExpandKeyword(string keyword, string replacementValue)
         {
@@ -184,11 +183,11 @@ namespace System.Data.Common
 
         internal static void ValidateKeyValuePair(string keyword, string value)
         {
-            if ((null == keyword) || !s_connectionStringValidKeyRegex.IsMatch(keyword))
+            if ((null == keyword) || !ConnectionStringValidKeyRegex.IsMatch(keyword))
             {
                 throw ADP.InvalidKeyname(keyword);
             }
-            if ((null != value) && !s_connectionStringValidValueRegex.IsMatch(value))
+            if ((null != value) && value.Contains('\0'))
             {
                 throw ADP.InvalidValue(keyword);
             }

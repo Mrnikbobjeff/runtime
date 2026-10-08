@@ -2,14 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Security;
 using System.Runtime.InteropServices;
+using System.Security;
 
 namespace Microsoft.Win32.SafeHandles
 {
     internal sealed class SafeEvpMdCtxHandle : SafeHandle
     {
-        private SafeEvpMdCtxHandle() :
+        public SafeEvpMdCtxHandle() :
             base(IntPtr.Zero, ownsHandle: true)
         {
         }

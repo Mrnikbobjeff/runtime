@@ -15,21 +15,21 @@ namespace Microsoft.Extensions.Configuration
         /// Tries to get a configuration value for the specified key.
         /// </summary>
         /// <param name="key">The key.</param>
-        /// <param name="value">The value.</param>
-        /// <returns><c>True</c> if a value for the specified key was found, otherwise <c>false</c>.</returns>
-        bool TryGet(string key, out string value);
+        /// <param name="value">When this method returns, contains the value for the specified key.</param>
+        /// <returns><see langword="true" /> if a value for the specified key was found, otherwise <see langword="false" />.</returns>
+        bool TryGet(string key, out string? value);
 
         /// <summary>
         /// Sets a configuration value for the specified key.
         /// </summary>
         /// <param name="key">The key.</param>
         /// <param name="value">The value.</param>
-        void Set(string key, string value);
+        void Set(string key, string? value);
 
         /// <summary>
-        /// Returns a change token if this provider supports change tracking, null otherwise.
+        /// Attempts to get an <see cref="IChangeToken"/> for change tracking.
         /// </summary>
-        /// <returns>The change token.</returns>
+        /// <returns>An <see cref="IChangeToken"/> token if this provider supports change tracking, <see langword="null"/> otherwise.</returns>
         IChangeToken GetReloadToken();
 
         /// <summary>
@@ -38,13 +38,13 @@ namespace Microsoft.Extensions.Configuration
         void Load();
 
         /// <summary>
-        /// Returns the immediate descendant configuration keys for a given parent path based on this
-        /// <see cref="IConfigurationProvider"/>s data and the set of keys returned by all the preceding
-        /// <see cref="IConfigurationProvider"/>s.
+        /// Returns the immediate descendant configuration keys for a given parent path based on the data of this
+        /// <see cref="IConfigurationProvider"/> and the set of keys returned by all the preceding
+        /// <see cref="IConfigurationProvider"/> providers.
         /// </summary>
         /// <param name="earlierKeys">The child keys returned by the preceding providers for the same parent path.</param>
         /// <param name="parentPath">The parent path.</param>
         /// <returns>The child keys.</returns>
-        IEnumerable<string> GetChildKeys(IEnumerable<string> earlierKeys, string parentPath);
+        IEnumerable<string> GetChildKeys(IEnumerable<string> earlierKeys, string? parentPath);
     }
 }

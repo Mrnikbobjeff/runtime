@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace Microsoft.Extensions.Configuration
 {
     /// <summary>
@@ -9,13 +11,14 @@ namespace Microsoft.Extensions.Configuration
     public class ChainedConfigurationSource : IConfigurationSource
     {
         /// <summary>
-        /// The chained configuration.
+        /// Gets or sets the chained configuration.
         /// </summary>
-        public IConfiguration Configuration { get; set; }
+        [DisallowNull]
+        public IConfiguration? Configuration { get; set; }
 
         /// <summary>
-        /// Whether the chained configuration should be disposed when the
-        /// configuration provider gets disposed.
+        /// Gets or sets a value that indicates whether the chained configuration
+        /// is disposed when the configuration provider is disposed.
         /// </summary>
         public bool ShouldDisposeConfiguration { get; set; }
 
@@ -23,7 +26,7 @@ namespace Microsoft.Extensions.Configuration
         /// Builds the <see cref="ChainedConfigurationProvider"/> for this source.
         /// </summary>
         /// <param name="builder">The <see cref="IConfigurationBuilder"/>.</param>
-        /// <returns>A <see cref="ChainedConfigurationProvider"/></returns>
+        /// <returns>A <see cref="ChainedConfigurationProvider"/> instance.</returns>
         public IConfigurationProvider Build(IConfigurationBuilder builder)
             => new ChainedConfigurationProvider(this);
     }

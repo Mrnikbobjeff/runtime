@@ -17,18 +17,15 @@ namespace System.DirectoryServices.ActiveDirectory
             }
         }
 
-        public ApplicationPartition this[int index] => (ApplicationPartition)InnerList[index];
+        public ApplicationPartition this[int index] => (ApplicationPartition)InnerList[index]!;
 
         public bool Contains(ApplicationPartition applicationPartition)
         {
-            if (applicationPartition == null)
-            {
-                throw new ArgumentNullException(nameof(applicationPartition));
-            }
+            ArgumentNullException.ThrowIfNull(applicationPartition);
 
             for (int i = 0; i < InnerList.Count; i++)
             {
-                ApplicationPartition tmp = (ApplicationPartition)InnerList[i];
+                ApplicationPartition tmp = (ApplicationPartition)InnerList[i]!;
                 if (Utils.Compare(tmp.Name, applicationPartition.Name) == 0)
                 {
                     return true;
@@ -39,14 +36,11 @@ namespace System.DirectoryServices.ActiveDirectory
 
         public int IndexOf(ApplicationPartition applicationPartition)
         {
-            if (applicationPartition == null)
-            {
-                throw new ArgumentNullException(nameof(applicationPartition));
-            }
+            ArgumentNullException.ThrowIfNull(applicationPartition);
 
             for (int i = 0; i < InnerList.Count; i++)
             {
-                ApplicationPartition tmp = (ApplicationPartition)InnerList[i];
+                ApplicationPartition tmp = (ApplicationPartition)InnerList[i]!;
                 if (Utils.Compare(tmp.Name, applicationPartition.Name) == 0)
                 {
                     return i;

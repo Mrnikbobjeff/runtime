@@ -41,6 +41,12 @@ namespace System.Net.Http.Functional.Tests
                 return;
             }
 
+            if (PlatformDetection.IsBrowser && LoopbackServerFactory.Version < HttpVersion20.Value)
+            {
+                // Browser request streaming is only supported on HTTP/2 or higher
+                return;
+            }
+
             var serverRelease = new TaskCompletionSource<bool>();
             await LoopbackServerFactory.CreateClientAndServerAsync(async uri =>
             {
@@ -56,6 +62,13 @@ namespace System.Net.Http.Functional.Tests
                         var req = new HttpRequestMessage(HttpMethod.Post, uri) { Version = UseVersion };
                         req.Content = new ByteAtATimeContent(int.MaxValue, waitToSend.Task, contentSending, millisecondDelayBetweenBytes: 1);
                         req.Headers.TransferEncodingChunked = chunkedTransfer;
+
+                        if (PlatformDetection.IsBrowser)
+                        {
+#if !NETFRAMEWORK
+                            req.Options.Set(new HttpRequestOptionsKey<bool>("WebAssemblyEnableStreamingRequest"), true);
+#endif
+                        }
 
                         Task<HttpResponseMessage> resp = client.SendAsync(TestAsync, req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
                         waitToSend.SetResult(true);
@@ -73,11 +86,7 @@ namespace System.Net.Http.Functional.Tests
                 }
             }, async server =>
             {
-                try
-                {
-                    await server.AcceptConnectionAsync(connection => serverRelease.Task);
-                }
-                catch { };  // Ignore any closing errors since we did not really process anything.
+                await IgnoreExceptions(server.AcceptConnectionAsync(connection => serverRelease.Task));
             });
         }
 
@@ -109,7 +118,7 @@ namespace System.Net.Http.Functional.Tests
                     Task serverTask = server.AcceptConnectionAsync(async connection =>
                     {
                         await connection.ReadRequestDataAsync();
-                        await connection.SendResponseAsync(HttpStatusCode.OK, content: null, isFinal: false);
+                        await connection.SendPartialResponseHeadersAsync(HttpStatusCode.OK);
 
                         partialResponseHeadersSent.TrySetResult(true);
                         await clientFinished.Task;
@@ -126,17 +135,17 @@ namespace System.Net.Http.Functional.Tests
                         await getResponse;
                     });
 
-                    try
-                    {
-                        clientFinished.SetResult(true);
-                        await serverTask;
-                    } catch { }
+                    clientFinished.SetResult(true);
+
+                    await IgnoreExceptions(serverTask);
                 });
             }
         }
 
+// There's no LoadIntoBufferAsync(CancellationToken) overload on Framework.
+// So no way to pass and propagate cancellation when buffering response content.
+#if !NETFRAMEWORK
         [Theory]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/25760")]
         [MemberData(nameof(TwoBoolsAndCancellationMode))]
         public async Task GetAsync_CancelDuringResponseBodyReceived_Buffered_TaskCanceledQuickly(bool chunkedTransfer, bool connectionClose, CancellationMode mode)
         {
@@ -183,17 +192,17 @@ namespace System.Net.Http.Functional.Tests
                         await getResponse;
                     });
 
-                    try
-                    {
-                        clientFinished.SetResult(true);
-                        await serverTask;
-                    } catch { }
+                    clientFinished.SetResult(true);
+
+                    await IgnoreExceptions(serverTask);
                 });
             }
         }
+#endif
 
         [Theory]
         [MemberData(nameof(ThreeBools))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/65429", typeof(PlatformDetection), nameof(PlatformDetection.IsNodeJS))]
         public async Task GetAsync_CancelDuringResponseBodyReceived_Unbuffered_TaskCanceledQuickly(bool chunkedTransfer, bool connectionClose, bool readOrCopyToAsync)
         {
             if (LoopbackServerFactory.Version >= HttpVersion20.Value && (chunkedTransfer || connectionClose))
@@ -201,7 +210,7 @@ namespace System.Net.Http.Functional.Tests
                 // There is no chunked encoding or connection header in HTTP/2 and later
                 return;
             }
-            
+
             if (IsWinHttpHandler && UseVersion >= HttpVersion20.Value)
             {
                 return;
@@ -228,10 +237,16 @@ namespace System.Net.Http.Functional.Tests
                         await connection.ReadRequestDataAsync();
                         await connection.SendResponseAsync(HttpStatusCode.OK, headers: headers, isFinal: false);
                         await clientFinished.Task;
+
+#if TARGET_BROWSER
+                        // make sure that the browser closed the connection
+                        await connection.WaitForCloseAsync(CancellationToken.None);
+#endif
                     });
 
                     var req = new HttpRequestMessage(HttpMethod.Get, url) { Version = UseVersion };
                     req.Headers.ConnectionClose = connectionClose;
+
                     Task<HttpResponseMessage> getResponse = client.SendAsync(TestAsync, req, HttpCompletionOption.ResponseHeadersRead, cts.Token);
                     await ValidateClientCancellationAsync(async () =>
                     {
@@ -242,21 +257,21 @@ namespace System.Net.Http.Functional.Tests
                             respStream.CopyToAsync(Stream.Null, 10, cts.Token);
                         cts.Cancel();
                         await readTask;
-                    });
+                    }).WaitAsync(TimeSpan.FromSeconds(30));
 
-                    try
-                    {
-                        clientFinished.SetResult(true);
-                        await serverTask;
-                    } catch { }
+                    clientFinished.SetResult(true);
+
+                    await IgnoreExceptions(serverTask);
                 });
             }
         }
+
         [Theory]
         [InlineData(CancellationMode.CancelPendingRequests, false)]
         [InlineData(CancellationMode.DisposeHttpClient, false)]
         [InlineData(CancellationMode.CancelPendingRequests, true)]
         [InlineData(CancellationMode.DisposeHttpClient, true)]
+        [SkipOnPlatform(TestPlatforms.Browser, "Browser doesn't have blocking synchronous Stream.ReadByte and so it waits for whole body")]
         public async Task GetAsync_CancelPendingRequests_DoesntCancelReadAsyncOnResponseStream(CancellationMode mode, bool copyToAsync)
         {
             if (IsWinHttpHandler && UseVersion >= HttpVersion20.Value)
@@ -329,6 +344,7 @@ namespace System.Net.Http.Functional.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.Browser, "MaxConnectionsPerServer is not supported on Browser")]
         public async Task MaxConnectionsPerServer_WaitingConnectionsAreCancelable()
         {
             if (LoopbackServerFactory.Version >= HttpVersion20.Value)
@@ -351,10 +367,10 @@ namespace System.Net.Http.Functional.Tests
                     Task serverTask1 = server.AcceptConnectionAsync(async connection1 =>
                     {
                         await connection1.ReadRequestHeaderAsync();
-                        await connection1.Writer.WriteAsync($"HTTP/1.1 200 OK\r\nConnection: close\r\nDate: {DateTimeOffset.UtcNow:R}\r\n");
+                        await connection1.WriteStringAsync($"HTTP/1.1 200 OK\r\nConnection: close\r\nDate: {DateTimeOffset.UtcNow:R}\r\n");
                         serverAboutToBlock.SetResult(true);
                         await blockServerResponse.Task;
-                        await connection1.Writer.WriteAsync("Content-Length: 5\r\n\r\nhello");
+                        await connection1.WriteStringAsync("Content-Length: 5\r\n\r\nhello");
                     });
 
                     Task get1 = client.GetAsync(url);
@@ -383,39 +399,18 @@ namespace System.Net.Http.Functional.Tests
         [Fact]
         public async Task SendAsync_Cancel_CancellationTokenPropagates()
         {
-            TaskCompletionSource<bool> clientCanceled = new TaskCompletionSource<bool>();
-            await LoopbackServerFactory.CreateClientAndServerAsync(
-                async uri =>
-                {
-                    var cts = new CancellationTokenSource();
-                    cts.Cancel();
+            var cts = new CancellationTokenSource();
+            cts.Cancel();
 
-                    using (HttpClient client = CreateHttpClient())
-                    {
-                        OperationCanceledException ex = null;
-                        try
-                        {
-                            await client.GetAsync(uri, cts.Token);
-                        }
-                        catch (OperationCanceledException e)
-                        {
-                            ex = e;
-                        }
-                        Assert.True(ex != null, "Expected OperationCancelledException, but no exception was thrown.");
+            using HttpClient client = CreateHttpClient();
 
-                        Assert.True(cts.Token.IsCancellationRequested, "cts token IsCancellationRequested");
+            OperationCanceledException oce = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                () => client.GetAsync(TestAsync, InvalidUri, cancellationToken: cts.Token));
 
-                        // .NET Framework has bug where it doesn't propagate token information.
-                        Assert.True(ex.CancellationToken.IsCancellationRequested, "exception token IsCancellationRequested");
-
-                        clientCanceled.SetResult(true);
-                    }
-                },
-                async server =>
-                {
-                    Task serverTask = server.HandleRequestAsync();
-                    await clientCanceled.Task;
-                });
+            // .NET Framework has bug where it doesn't propagate token information.
+#if !NETFRAMEWORK
+            Assert.Equal(cts.Token, oce.CancellationToken);
+#endif
         }
 
         public static IEnumerable<object[]> PostAsync_Cancel_CancellationTokenPassedToContent_MemberData()
@@ -465,7 +460,7 @@ namespace System.Net.Http.Functional.Tests
                     canSeekFunc: () => true,
                     lengthFunc: () => 1,
                     positionGetFunc: () => 0,
-                    positionSetFunc: _ => {},
+                    positionSetFunc: _ => { },
                     readAsyncFunc: async (buffer, offset, count, cancellationToken) =>
                     {
                         int result = 1;
@@ -501,7 +496,7 @@ namespace System.Net.Http.Functional.Tests
                     canSeekFunc: () => true,
                     lengthFunc: () => 1,
                     positionGetFunc: () => 0,
-                    positionSetFunc: _ => {},
+                    positionSetFunc: _ => { },
                     readAsyncFunc: async (buffer, offset, count, cancellationToken) =>
                     {
                         int result = 1;
@@ -528,7 +523,6 @@ namespace System.Net.Http.Functional.Tests
         }
 
 #if !NETFRAMEWORK
-        [OuterLoop("Uses Task.Delay")]
         [Theory]
         [MemberData(nameof(PostAsync_Cancel_CancellationTokenPassedToContent_MemberData))]
         public async Task PostAsync_Cancel_CancellationTokenPassedToContent(HttpContent content, CancellationTokenSource cancellationTokenSource)
@@ -537,7 +531,7 @@ namespace System.Net.Http.Functional.Tests
             {
                 return;
             }
-            // Skipping test for a sync scenario becasue DelegateStream drops the original cancellationToken when it calls Read/Write methods.
+            // Skipping test for a sync scenario because DelegateStream drops the original cancellationToken when it calls Read/Write methods.
             // As a result, ReadAsyncFunc receives default in cancellationToken, which will never get signaled through the cancellationTokenSource.
             if (!TestAsync)
             {
@@ -549,14 +543,14 @@ namespace System.Net.Http.Functional.Tests
                 {
                     using (var invoker = new HttpMessageInvoker(CreateHttpClientHandler()))
                     using (var req = new HttpRequestMessage(HttpMethod.Post, uri) { Content = content, Version = UseVersion })
-                    try
-                    {
-                        using (HttpResponseMessage resp = await invoker.SendAsync(TestAsync, req, cancellationTokenSource.Token))
+                        try
                         {
-                            Assert.Equal("Hello World", await resp.Content.ReadAsStringAsync());
+                            using (HttpResponseMessage resp = await invoker.SendAsync(TestAsync, req, cancellationTokenSource.Token))
+                            {
+                                Assert.Equal("Hello World", await resp.Content.ReadAsStringAsync());
+                            }
                         }
-                    }
-                    catch (OperationCanceledException) { }
+                        catch (OperationCanceledException) { }
                 },
                 async server =>
                 {
@@ -565,7 +559,7 @@ namespace System.Net.Http.Functional.Tests
                         await server.HandleRequestAsync(content: "Hello World");
                     }
                     catch (Exception) { }
-                });
+                }).WaitAsync(TestHelper.PassingTestTimeout);
         }
 #endif
 

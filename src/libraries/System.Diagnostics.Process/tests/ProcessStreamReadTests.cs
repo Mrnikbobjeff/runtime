@@ -82,7 +82,7 @@ namespace System.Diagnostics.Tests
             p.WaitForExit(); // This ensures async event handlers are finished processing.
 
             const string Expected = RemotelyInvokable.TestConsoleApp + " started error stream" + RemotelyInvokable.TestConsoleApp + " closed error stream";
-            Assert.Equal(Expected, sb.ToString());
+            AssertExtensions.Equal(Expected, sb.ToString());
             Assert.Equal(invokeRequired ? 3 : 0, invokeCalled);
         }
 
@@ -344,7 +344,6 @@ namespace System.Diagnostics.Tests
             }
         }
 
-        [PlatformSpecific(~TestPlatforms.Windows)] // currently on Windows these operations async-over-sync on Windows
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
         public async Task ReadAsync_OutputStreams_Cancel_RespondsQuickly()
         {
@@ -571,7 +570,7 @@ namespace System.Diagnostics.Tests
             p.StartInfo.RedirectStandardError = true;
 
             // On netfx, the handler is called once with the Data as null, even if the process writes nothing to the pipe.
-            // That behavior is documented here https://docs.microsoft.com/en-us/dotnet/api/system.diagnostics.datareceivedeventhandler
+            // That behavior is documented here https://learn.microsoft.com/dotnet/api/system.diagnostics.datareceivedeventhandler
 
             p.Start();
             p.BeginOutputReadLine();

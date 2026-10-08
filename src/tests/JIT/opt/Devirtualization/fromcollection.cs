@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using Xunit;
 
 public class Base
 {
@@ -29,12 +30,13 @@ public sealed class Derived : Base
 //  the underlying array. Better to do the former since it doesn't rely on
 //  being able to inline.
 
-public class Test
+public class Test_fromcollection
 {
     static Derived[] arrayOfDerived = new Derived[3];
     static List<Derived> listOfDerived = new List<Derived>();
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         for (int i = 0; i < 3; i++)
         {

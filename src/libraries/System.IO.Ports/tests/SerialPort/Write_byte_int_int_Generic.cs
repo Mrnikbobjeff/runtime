@@ -26,16 +26,16 @@ namespace System.IO.Ports.Tests
         //to the write method and the testcase fails.
         private const double maxPercentageDifference = .15;
 
-        //The byte size used when veryifying exceptions that write will throw
+        //The byte size used when verifying exceptions that write will throw
         private const int BYTE_SIZE_EXCEPTION = 4;
 
-        //The byte size used when veryifying timeout
+        //The byte size used when verifying timeout
         private const int BYTE_SIZE_TIMEOUT = 4;
 
-        //The byte size used when veryifying BytesToWrite
+        //The byte size used when verifying BytesToWrite
         private const int BYTE_SIZE_BYTES_TO_WRITE = 4;
 
-        //The bytes size used when veryifying Handshake
+        //The bytes size used when verifying Handshake
         private const int BYTE_SIZE_HANDSHAKE = 8;
         private const int NUM_TRYS = 5;
 
@@ -51,7 +51,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(Write_byte_int_int_generic), nameof(HasOneSerialPort))]
         public void WriteAfterFailedOpen()
         {
             using (SerialPort com = new SerialPort("BAD_PORT_NAME"))
@@ -66,12 +66,12 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(Write_byte_int_int_generic), nameof(HasOneSerialPort))]
         public void WriteAfterClose()
         {
             using (SerialPort com = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
             {
-                Debug.WriteLine("Verifying write method throws exception after a call to Cloes()");
+                Debug.WriteLine("Verifying write method throws exception after a call to Close()");
                 com.Open();
                 com.Close();
 
@@ -80,7 +80,7 @@ namespace System.IO.Ports.Tests
         }
 
         [KnownFailure]
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(Write_byte_int_int_generic), nameof(HasNullModem))]
         public void Timeout()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -108,7 +108,7 @@ namespace System.IO.Ports.Tests
         }
 
         [Trait(XunitConstants.Category, XunitConstants.IgnoreForCI)]  // Timing-sensitive
-        [ConditionalFact(nameof(HasOneSerialPort), nameof(HasHardwareFlowControl))]
+        [ConditionalFact(typeof(Write_byte_int_int_generic), nameof(HasOneSerialPort), nameof(HasHardwareFlowControl))]
         public void SuccessiveReadTimeout()
         {
             using (SerialPort com = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -134,7 +134,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem), nameof(HasHardwareFlowControl))]
+        [ConditionalFact(typeof(Write_byte_int_int_generic), nameof(HasNullModem), nameof(HasHardwareFlowControl))]
         public void SuccessiveReadTimeoutWithWriteSucceeding()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -170,7 +170,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem), nameof(HasHardwareFlowControl))]
+        [ConditionalFact(typeof(Write_byte_int_int_generic), nameof(HasNullModem), nameof(HasHardwareFlowControl))]
         public void BytesToWrite()
         {
             using (SerialPort com = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -195,7 +195,7 @@ namespace System.IO.Ports.Tests
         }
 
 
-        [ConditionalFact(nameof(HasNullModem), nameof(HasHardwareFlowControl))]
+        [ConditionalFact(typeof(Write_byte_int_int_generic), nameof(HasNullModem), nameof(HasHardwareFlowControl))]
         public void BytesToWriteSuccessive()
         {
             using (SerialPort com = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -226,7 +226,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(Write_byte_int_int_generic), nameof(HasNullModem))]
         public void Handshake_None()
         {
             using (SerialPort com = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -248,20 +248,20 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem), nameof(HasHardwareFlowControl))]
+        [ConditionalFact(typeof(Write_byte_int_int_generic), nameof(HasNullModem), nameof(HasHardwareFlowControl))]
         public void Handshake_RequestToSend()
         {
             Verify_Handshake(Handshake.RequestToSend);
         }
 
         [KnownFailure]
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(Write_byte_int_int_generic), nameof(HasNullModem))]
         public void Handshake_XOnXOff()
         {
             Verify_Handshake(Handshake.XOnXOff);
         }
 
-        [ConditionalFact(nameof(HasNullModem), nameof(HasHardwareFlowControl))]
+        [ConditionalFact(typeof(Write_byte_int_int_generic), nameof(HasNullModem), nameof(HasHardwareFlowControl))]
         public void Handshake_RequestToSendXOnXOff()
         {
             Verify_Handshake(Handshake.RequestToSendXOnXOff);

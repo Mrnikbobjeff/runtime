@@ -13,9 +13,13 @@
 //
 
 using System;
+using Xunit;
+using TestLibrary;
 
-class Test{
-	public static int Main(){
+public class Test_L_1_5_3{
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint(){
 		int mi_RetCode;
 		mi_RetCode = B.Test();
 		

@@ -3,7 +3,7 @@
 
 using Xunit;
 using System.Threading;
-
+using System.Threading.Tasks;
 using TestTimer = System.Timers.Timer;
 
 namespace System.Timers.Tests
@@ -35,7 +35,7 @@ namespace System.Timers.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void TestTimerStartAutoReset()
         {
             using (var timer = new TestTimer(1))
@@ -62,11 +62,45 @@ namespace System.Timers.Tests
                 target = 10;
                 mres.Reset();
                 timer.AutoReset = true;
+                timer.Start();
                 mres.Wait();
 
                 timer.Stop();
                 Assert.InRange(count, target, int.MaxValue);
             }
+        }
+
+        [Fact]
+        public async Task ElapsedEventArgs_MatchesExpectedValues()
+        {
+            using (var timer = new TestTimer(1) { AutoReset = false })
+            {
+                DateTime start = DateTime.Now;
+                var tcs = new TaskCompletionSource<ElapsedEventArgs>(TaskCreationOptions.RunContinuationsAsynchronously);
+                timer.Elapsed += (sender, e) => tcs.SetResult(e);
+                timer.Start();
+
+                ElapsedEventArgs e = await tcs.Task;
+                Assert.False(timer.Enabled);
+
+                timer.Stop();
+                DateTime end = DateTime.Now;
+
+                const int WiggleRoomSeconds = 5;
+                Assert.Equal(DateTimeKind.Local, e.SignalTime.Kind);
+                Assert.InRange(
+                    e.SignalTime.ToUniversalTime(),
+                    start.ToUniversalTime() - TimeSpan.FromSeconds(WiggleRoomSeconds),
+                    end.ToUniversalTime() + TimeSpan.FromSeconds(WiggleRoomSeconds));
+            }
+        }
+
+        [Fact]
+        public void ElapsedEventArgs_Ctor_SignalTime()
+        {
+            DateTime now = DateTime.Now;
+            ElapsedEventArgs args = new ElapsedEventArgs(now);
+            Assert.Equal(now, args.SignalTime);
         }
 
         [Theory]
@@ -79,6 +113,34 @@ namespace System.Timers.Tests
                 Assert.Equal(Math.Ceiling(interval), timer.Interval);
                 timer.Interval = interval;
                 Assert.Equal(interval, timer.Interval);
+            }
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        public void SettingAutoResetOrIntervalOnDisabledOneShotTimerDoesNotRestartIt()
+        {
+            using (var timer = new TestTimer(1))
+            {
+                var mres = new ManualResetEventSlim();
+
+                timer.AutoReset = false;
+                timer.Elapsed += (sender, e) => mres.Set();
+                timer.Start();
+
+                mres.Wait();
+                Assert.False(timer.Enabled);
+
+                // Setting AutoReset should not restart a disabled timer
+                mres.Reset();
+                timer.AutoReset = true;
+                Assert.False(timer.Enabled);
+                Assert.False(mres.Wait(100), "Timer callback should not have fired after setting AutoReset");
+
+                // Setting Interval should not restart a disabled timer
+                mres.Reset();
+                timer.Interval = 1;
+                Assert.False(timer.Enabled);
+                Assert.False(mres.Wait(100), "Timer callback should not have fired after setting Interval");
             }
         }
     }

@@ -3,9 +3,10 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 
-namespace Test
+namespace dev11_145295
 {
     public static class Exceptions
     {
@@ -56,7 +57,7 @@ namespace Test
     }
 
 
-    internal static class App
+    public static class App
     {
         private static int s_numberOfFailures = 0;
 
@@ -106,7 +107,9 @@ namespace Test
         }
 
 
-        private static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             App.DispatchCalloutSequence("TopLevel", ILPart.CallThroughFrameWithMultipleEndfinallyOps_TopLevel);
             App.DispatchCalloutSequence("Nested", ILPart.CallThroughFrameWithMultipleEndfinallyOps_Nested);

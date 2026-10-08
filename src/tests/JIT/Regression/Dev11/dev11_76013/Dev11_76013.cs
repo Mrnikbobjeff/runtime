@@ -3,8 +3,9 @@
 
 using System;
 using System.Net;
+using Xunit;
 
-namespace Test
+namespace dev11_76013
 {
     class MyException : Exception
     {
@@ -16,9 +17,11 @@ namespace Test
         }
     }
 
-    internal class Program
+    public class Program
     {
-        private static int Main(string[] args)
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             bool flag = false;
             try

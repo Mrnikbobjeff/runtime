@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
 using System.Collections;
+using System.Diagnostics;
 
 namespace System.Xml.Xsl.XsltOld
 {
@@ -13,10 +13,7 @@ namespace System.Xml.Xsl.XsltOld
 
         internal WriterOutput(Processor processor, XmlWriter writer)
         {
-            if (writer == null)
-            {
-                throw new ArgumentNullException(nameof(writer));
-            }
+            ArgumentNullException.ThrowIfNull(writer);
 
             _writer = writer;
             _processor = processor;
@@ -75,7 +72,7 @@ namespace System.Xml.Xsl.XsltOld
                 case XmlNodeType.EndEntity:
                     break;
                 default:
-                    Debug.Fail("Invalid NodeType on output: " + mainNode.NodeType);
+                    Debug.Fail($"Invalid NodeType on output: {mainNode.NodeType}");
                     break;
             }
 

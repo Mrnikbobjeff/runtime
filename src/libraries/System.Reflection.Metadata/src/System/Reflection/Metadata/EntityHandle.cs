@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection.Metadata.Ecma335;
 
 namespace System.Reflection.Metadata
@@ -94,9 +95,9 @@ namespace System.Reflection.Metadata
             }
         }
 
-        public override bool Equals(object? obj)
+        public override bool Equals([NotNullWhen(true)] object? obj)
         {
-            return obj is EntityHandle && Equals((EntityHandle)obj);
+            return obj is EntityHandle entityHandle && Equals(entityHandle);
         }
 
         public bool Equals(EntityHandle other)

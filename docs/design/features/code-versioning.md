@@ -158,9 +158,9 @@ Implementation
 
 ### Code Versions ###
 
-The implementation can be located in [codeversion.h](../../../src/coreclr/src/vm/codeversion.h) and [codeversion.cpp](../../../src/coreclr/src/vm/codeversion.cpp)
+The implementation can be located in [codeversion.h](../../../src/coreclr/vm/codeversion.h) and [codeversion.cpp](../../../src/coreclr/vm/codeversion.cpp)
 
-Code versions are embodied by the configuration in NativeCodeVersion structure as well as the configuration in the transitively reachable ILCodeVersion. NativeCodeVersion::GetILCodeVersion() allows trivial access from one part of the configuration to the other. These structures have various accesors to retrieve all the code and configuration data such as:
+Code versions are embodied by the configuration in NativeCodeVersion structure as well as the configuration in the transitively reachable ILCodeVersion. NativeCodeVersion::GetILCodeVersion() allows trivial access from one part of the configuration to the other. These structures have various accessors to retrieve all the code and configuration data such as:
 
 ```
     NativeCodeVersion::GetVersionId()
@@ -171,7 +171,7 @@ Code versions are embodied by the configuration in NativeCodeVersion structure a
 
 ILCodeVersion objects are always partial code versions, containing only the portion of versioning information that doesn't vary by generic instantiation.
 
-The NativeCodeVersion and ILCodeVersion don't directly store any of the configuration data but rather serve as facades that use one of two different storage strategies. For the default version (or in the case of ILCodeVersion, default partial code version), the structures only store sufficient information to identify which version is being refered to. Then they delegate all storage to the pre-existing runtime data structures which already store this data. For non-default versions the structure stores a pointer block of memory that does store the configuration. For example:
+The NativeCodeVersion and ILCodeVersion don't directly store any of the configuration data but rather serve as facades that use one of two different storage strategies. For the default version (or in the case of ILCodeVersion, default partial code version), the structures only store sufficient information to identify which version is being referred to. Then they delegate all storage to the pre-existing runtime data structures which already store this data. For non-default versions the structure stores a pointer block of memory that does store the configuration. For example:
 
 ```
 PCODE NativeCodeVersion::GetNativeCode() const
@@ -286,31 +286,6 @@ Another interesting consideration is that in the future I anticipate having some
 
 Thus if the current implementation doesn't appear ideal partly this may be because I wasn't sufficiently clever, but the other part is that I was optimizing for future conditions.
 
-### Domains ###
-There is one CodeVersionManager per AppDomain, and one for the SharedDomain. Versioning for a given method always looks up the appropriate CodeVersionManager by traversing from MethodDef token -> Module that defines that token -> Domain that loaded that module -> CodeVersionManager. In code this is either:
-
-```
-Module* pModule;
-pModule->GetDomain()->GetCodeVersionManager()
-MethodDesc* pMethod;
-pMethod->GetModule()->GetDomain()->GetCodeVersionManager()
-```
-
-Some shortcut accessors are defined to make these lookups simpler:
-
-```
-pModule->GetCodeVersionManager()
-pMethod->GetCodeVersionManager()
-```
-
-Generics can cause methods in domain-neutral modules to refer to types in domain-specific modules. The rules above dictate that these code versions still reside in the domain-neutral CodeVersionManager. The AppDomain specific CodeVersionManagers will never contain code versions with a domain-neutral type in their instantiation.
-
-CoreCLR is largely moving away from multiple AppDomains but I left the domain distinctions in place for a few reasons:
-
-1. Pragmatically the feature is a partial refactoring of ReJitManager and this is what ReJitManager did. Diverging from ReJitManager's design incurs extra time and risk of new issues.
-2. Maybe someday we will want to migrate similar functionality back to the desktop .NET SKU. Desktop supports multiple AppDomains so per-AppDomain handling would be required in that context.
-
-AppDomain unloading however has not been handled. If CoreCLR supports proper AppDomain unload at some point or the code moves back to desktop runtime we will need to handle this gap.
 
 ### Code activation and publishing ###
 
@@ -327,12 +302,12 @@ to update the active child at either of those levels (ReJIT uses SetActiveILCode
 2. Recalculate the active code version for each entrypoint
 3. Update the published code version for each entrypoint to match the active code version
 
-In order to do step 3 the `CodeVersionManager` relies on one of three different mechanisms, a `FixupPrecode`, a `JumpStamp`, or backpatching entry point slots. In [method.hpp](https://github.com/dotnet/runtime/blob/master/src/coreclr/src/vm/method.hpp) these mechanisms are described in the `MethodDesc::IsVersionableWith*()` functions, and all methods have been classified to use at most one of the techniques, based on the `MethodDesc::IsVersionableWith*()` functions.
+In order to do step 3 the `CodeVersionManager` relies on one of three different mechanisms, a `FixupPrecode`, a `JumpStamp`, or backpatching entry point slots. In [method.hpp](https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/method.hpp) these mechanisms are described in the `MethodDesc::IsVersionableWith*()` functions, and all methods have been classified to use at most one of the techniques, based on the `MethodDesc::IsVersionableWith*()` functions.
 
 ### Thread-safety ###
 CodeVersionManager is designed for use in a free-threaded environment, in many cases by requiring the caller to acquire a lock before calling. This lock can be acquired by constructing an instance of `CodeVersionManager::LockHolder`.
 
-in some scope for the CodeVersionManager being operated on. CodeVersionManagers from different domains should not have their locks taken by the same thread with one exception, it is OK to take the shared domain  manager lock and one AppDomain manager lock in that order. The lock is required to change the shape of the tree or traverse it but not to read/write configuration properties from each node. A few special cases:
+in some scope for the CodeVersionManager being operated on. The lock is required to change the shape of the tree or traverse it but not to read/write configuration properties from each node. A few special cases:
 
 - CodeVersionManager::SetActiveILCodeVersions needs to operate partially inside and partially outside the lock. The caller should not acquire the lock beforehand.
 - NativeCodeVersion::GetILCodeVersion() does not require the lock if the caller first guarantees it is operating on the default code version.
@@ -343,7 +318,7 @@ APIs that require the lock is held/not held should ASSERT the lock state in debu
 
 The example build pipeline in the design section has many stages, but the implemented versioning tree only tracks a few specific chunks of configuration information:
 
-1. Profiler ReJIT can specify an IL body, IL remaping table, and a few jit flags.
+1. Profiler ReJIT can specify an IL body, IL remapping table, and a few jit flags.
 2. The runtime can specify any number of generic instantiations
 3. Tiered compilation can specify an optimization level
 
@@ -363,7 +338,7 @@ The runtime's current classification is:
 Future roadmap possibilities
 ============================
 
-A few (completely uncommited) thoughts on how this area of the code might evolve in the future, in no particular order:
+A few (completely uncommitted) thoughts on how this area of the code might evolve in the future, in no particular order:
 
 - Make the debugger configuration for EnC another explicit build pipeline stage. This seems most interesting to allow diagnostic tools that use profiler instrumentation to coexist with a live debugging session that is rewriting code using EnC.
 - Add code version collection to save memory when certain code versions are no longer being used.

@@ -1,32 +1,35 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+#pragma warning disable CA1852 // DefaultBinder is derived from in some targets
+
 using System.Reflection;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.InteropServices;
 using CultureInfo = System.Globalization.CultureInfo;
 
 namespace System
 {
-#if CORERT
-    public sealed
-#else
-    internal
-#endif
-    partial class DefaultBinder : Binder
+    internal class DefaultBinder : Binder
     {
+        internal static readonly DefaultBinder Instance = new DefaultBinder();
+
         // This method is passed a set of methods and must choose the best
         // fit.  The methods all have the same number of arguments and the object
         // array args.  On exit, this method will choice the best fit method
         // and coerce the args to match that method.  By match, we mean all primitive
-        // arguments are exact matchs and all object arguments are exact or subclasses
+        // arguments are exact matches and all object arguments are exact or subclasses
         // of the target.  If the target OR is an interface, the object must implement
         // that interface.  There are a couple of exceptions
-        // thrown when a method cannot be returned.  If no method matchs the args and
+        // thrown when a method cannot be returned.  If no method matches the args and
         // ArgumentException is thrown.  If multiple methods match the args then
         // an AmbiguousMatchException is thrown.
         //
         // The most specific match will be selected.
         //
+        [UnconditionalSuppressMessage("AotAnalysis", "IL3050:RequiresDynamicCode",
+            Justification = "AOT compiler ensures params arrays are created for reflection-invokable methods")]
         public sealed override MethodBase BindToMethod(
             BindingFlags bindingAttr, MethodBase[] match, ref object?[] args,
             ParameterModifier[]? modifiers, CultureInfo? cultureInfo, string[]? names, out object? state)
@@ -51,7 +54,7 @@ namespace System
 
             for (i = 0; i < candidates.Length; i++)
             {
-                ParameterInfo[] par = candidates[i]!.GetParametersNoCopy();
+                ReadOnlySpan<ParameterInfo> par = candidates[i]!.GetParametersAsSpan();
 
                 // args.Length + 1 takes into account the possibility of a last paramArray that can be omitted
                 paramOrder[i] = new int[(par.Length > args.Length) ? par.Length : args.Length];
@@ -59,13 +62,13 @@ namespace System
                 if (names == null)
                 {
                     // Default mapping
-                    for (j = 0; j < args.Length; j++)
+                    for (j = 0; j < par.Length; j++)
                         paramOrder[i][j] = j;
                 }
                 else
                 {
                     // Named parameters, reorder the mapping.  If CreateParamOrder fails, it means that the method
-                    // doesn't have a name that matchs one of the named parameters so we don't consider it any further.
+                    // doesn't have a name that matches one of the named parameters so we don't consider it any further.
                     if (!CreateParamOrder(paramOrder[i], par, names))
                         candidates[i] = null;
                 }
@@ -103,8 +106,7 @@ namespace System
                 if (candidates[i] == null)
                     continue;
 
-                // Validate the parameters.
-                ParameterInfo[] par = candidates[i]!.GetParametersNoCopy(); // TODO-NULLABLE: Indexer nullability tracked (https://github.com/dotnet/roslyn/issues/34644)
+                ReadOnlySpan<ParameterInfo> par = candidates[i]!.GetParametersAsSpan();
 
 #region Match method by parameter count
                 if (par.Length == 0)
@@ -112,7 +114,7 @@ namespace System
 #region No formal parameters
                     if (args.Length != 0)
                     {
-                        if ((candidates[i]!.CallingConvention & CallingConventions.VarArgs) == 0) // TODO-NULLABLE: Indexer nullability tracked (https://github.com/dotnet/roslyn/issues/34644)
+                        if ((candidates[i]!.CallingConvention & CallingConventions.VarArgs) == 0)
                             continue;
                     }
 
@@ -130,14 +132,14 @@ namespace System
                     // we are in the situation were we may be using default values.
                     for (j = args.Length; j < par.Length - 1; j++)
                     {
-                        if (par[j].DefaultValue == System.DBNull.Value)
+                        if (par[j].DefaultValue == DBNull.Value)
                             break;
                     }
 
                     if (j != par.Length - 1)
                         continue;
 
-                    if (par[j].DefaultValue == System.DBNull.Value)
+                    if (par[j].DefaultValue == DBNull.Value)
                     {
                         if (!par[j].ParameterType.IsArray)
                             continue;
@@ -189,50 +191,61 @@ namespace System
 #region Match method by parameter type
                 for (j = 0; j < argsToCheck; j++)
                 {
-#region Classic argument coersion checks
+#region Classic argument coercion checks
                     // get the formal type
                     pCls = par[j].ParameterType;
 
                     if (pCls.IsByRef)
                         pCls = pCls.GetElementType()!;
 
-                    // the type is the same
-                    if (pCls == argTypes[paramOrder[i][j]])
-                        continue;
-
-                    // a default value is available
-                    if (defaultValueBinding && args[paramOrder[i][j]] == Type.Missing)
-                        continue;
-
-                    // the argument was null, so it matches with everything
-                    if (args[paramOrder[i][j]] == null)
-                        continue;
-
-                    // the type is Object, so it will match everything
-                    if (pCls == typeof(object))
-                        continue;
-
-                    // now do a "classic" type check
-                    if (pCls.IsPrimitive)
+                    int index = paramOrder[i][j];
+                    if (index < args.Length)
                     {
-                        if (argTypes[paramOrder[i][j]] == null || !CanChangePrimitive(args[paramOrder[i][j]]?.GetType(), pCls))
+                        // the type is the same
+                        if (pCls == argTypes[index])
+                            continue;
+
+                        // a default value is available
+                        if (defaultValueBinding && args[index] == Missing.Value)
+                            continue;
+
+                        // the argument was null, so it matches with everything
+                        if (args[index] == null)
+                            continue;
+
+                        // the type is Object, so it will match everything
+                        if (pCls == typeof(object))
+                            continue;
+
+                        // now do a "classic" type check
+                        if (pCls.IsPrimitive)
                         {
-                            break;
+                            if (argTypes[index] == null || !CanChangePrimitive(args[index]!.GetType(), pCls))
+                            {
+                                break;
+                            }
+                        }
+                        else
+                        {
+                            if (argTypes[index] == null)
+                                continue;
+
+                            if (!pCls.IsAssignableFrom(argTypes[index]))
+                            {
+                                if (Marshal.IsBuiltInComSupported && argTypes[index].IsCOMObject)
+                                {
+                                    if (pCls.IsInstanceOfType(args[index]))
+                                        continue;
+                                }
+                                break;
+                            }
                         }
                     }
                     else
                     {
-                        if (argTypes[paramOrder[i][j]] == null)
-                            continue;
-
-                        if (!pCls.IsAssignableFrom(argTypes[paramOrder[i][j]]))
+                        if (defaultValueBinding && par[j].HasDefaultValue)
                         {
-                            if (argTypes[paramOrder[i][j]].IsCOMObject)
-                            {
-                                if (pCls.IsInstanceOfType(args[paramOrder[i][j]]))
-                                    continue;
-                            }
-                            break;
+                            continue;
                         }
                     }
 #endregion
@@ -255,7 +268,7 @@ namespace System
 
                             if (!paramArrayType.IsAssignableFrom(argTypes[j]))
                             {
-                                if (argTypes[j].IsCOMObject)
+                                if (Marshal.IsBuiltInComSupported && argTypes[j].IsCOMObject)
                                 {
                                     if (paramArrayType.IsInstanceOfType(args[j]))
                                         continue;
@@ -295,7 +308,7 @@ namespace System
 
                 // If the parameters and the args are not the same length or there is a paramArray
                 //  then we need to create a argument array.
-                ParameterInfo[] parms = candidates[0]!.GetParametersNoCopy();
+                ReadOnlySpan<ParameterInfo> parms = candidates[0]!.GetParametersAsSpan();
 
                 if (parms.Length == args.Length)
                 {
@@ -313,17 +326,25 @@ namespace System
                 {
                     object?[] objs = new object[parms.Length];
 
-                    for (i = 0; i < args.Length; i++)
-                        objs[i] = args[i];
-
-                    for (; i < parms.Length - 1; i++)
-                        objs[i] = parms[i].DefaultValue;
-
-                    if (paramArrayTypes[0] != null)
-                        objs[i] = Array.CreateInstance(paramArrayTypes[0], 0); // create an empty array for the
-
-                    else
-                        objs[i] = parms[i].DefaultValue;
+                    for (i = 0; i < parms.Length; i++)
+                    {
+                        int k = paramOrder[0][i];
+                        if (k < args.Length)
+                        {
+                            objs[i] = args[k];
+                        }
+                        else
+                        {
+                            if (i == parms.Length - 1 && paramArrayTypes[0] != null)
+                            {
+                                objs[i] = Array.CreateInstance(paramArrayTypes[0], 0); // create an empty array for the
+                            }
+                            else
+                            {
+                                objs[i] = parms[i].DefaultValue;
+                            }
+                        }
+                    }
 
                     args = objs;
                 }
@@ -335,7 +356,7 @@ namespace System
                         int paramArrayPos = parms.Length - 1;
                         Array.Copy(args, objs, paramArrayPos);
                         objs[paramArrayPos] = Array.CreateInstance(paramArrayTypes[0], args.Length - paramArrayPos);
-                        Array.Copy(args, paramArrayPos, (System.Array)objs[paramArrayPos], 0, args.Length - paramArrayPos);
+                        Array.Copy(args, paramArrayPos, (Array)objs[paramArrayPos], 0, args.Length - paramArrayPos);
                         args = objs;
                     }
                 }
@@ -364,8 +385,10 @@ namespace System
 #endregion
             }
 
+            MethodBase bestMatch = candidates[currentMin]!;
+
             if (ambig)
-                throw new AmbiguousMatchException(SR.Arg_AmbiguousMatchException);
+                throw ThrowHelper.GetAmbiguousMatchException(bestMatch);
 
             // Reorder (if needed)
             if (names != null)
@@ -376,7 +399,7 @@ namespace System
 
             // If the parameters and the args are not the same length or there is a paramArray
             //  then we need to create a argument array.
-            ParameterInfo[] parameters = candidates[currentMin]!.GetParametersNoCopy();
+            ReadOnlySpan<ParameterInfo> parameters = bestMatch.GetParametersAsSpan();
             if (parameters.Length == args.Length)
             {
                 if (paramArrayTypes[currentMin] != null)
@@ -412,28 +435,25 @@ namespace System
             }
             else
             {
-                if ((candidates[currentMin]!.CallingConvention & CallingConventions.VarArgs) == 0)
+                if ((bestMatch.CallingConvention & CallingConventions.VarArgs) == 0)
                 {
                     object[] objs = new object[parameters.Length];
                     int paramArrayPos = parameters.Length - 1;
                     Array.Copy(args, objs, paramArrayPos);
                     objs[paramArrayPos] = Array.CreateInstance(paramArrayTypes[currentMin], args.Length - paramArrayPos);
-                    Array.Copy(args, paramArrayPos, (System.Array)objs[paramArrayPos], 0, args.Length - paramArrayPos);
+                    Array.Copy(args, paramArrayPos, (Array)objs[paramArrayPos], 0, args.Length - paramArrayPos);
                     args = objs;
                 }
             }
 
-            return candidates[currentMin]!;
+            return bestMatch;
         }
 
         // Given a set of fields that match the base criteria, select a field.
         // if value is null then we have no way to select a field
         public sealed override FieldInfo BindToField(BindingFlags bindingAttr, FieldInfo[] match, object value, CultureInfo? cultureInfo)
         {
-            if (match == null)
-            {
-                throw new ArgumentNullException(nameof(match));
-            }
+            ArgumentNullException.ThrowIfNull(match);
 
             int i;
             // Find the method that match...
@@ -510,9 +530,10 @@ namespace System
                     }
                 }
             }
+            FieldInfo bestMatch = candidates[currentMin];
             if (ambig)
-                throw new AmbiguousMatchException(SR.Arg_AmbiguousMatchException);
-            return candidates[currentMin];
+                throw ThrowHelper.GetAmbiguousMatchException(bestMatch);
+            return bestMatch;
         }
 
         // Given a set of methods that match the base criteria, select a method based
@@ -527,7 +548,7 @@ namespace System
             for (i = 0; i < types.Length; i++)
             {
                 realTypes[i] = types[i].UnderlyingSystemType;
-                if (!(realTypes[i].IsRuntimeImplemented() || realTypes[i] is SignatureType))
+                if (!(realTypes[i] is RuntimeType || realTypes[i] is SignatureType))
                     throw new ArgumentException(SR.Arg_MustBeType, nameof(types));
             }
             types = realTypes;
@@ -543,7 +564,7 @@ namespace System
             int CurIdx = 0;
             for (i = 0; i < candidates.Length; i++)
             {
-                ParameterInfo[] par = candidates[i].GetParametersNoCopy();
+                ReadOnlySpan<ParameterInfo> par = candidates[i].GetParametersAsSpan();
                 if (par.Length != types.Length)
                     continue;
                 for (j = 0; j < types.Length; j++)
@@ -557,7 +578,7 @@ namespace System
                     Type? type = types[j];
                     if (type is SignatureType signatureType)
                     {
-                        if (!(candidates[i] is MethodInfo methodInfo))
+                        if (candidates[i] is not MethodInfo methodInfo)
                             break;
                         type = signatureType.TryResolveAgainstGenericMethod(methodInfo);
                         if (type == null)
@@ -566,8 +587,8 @@ namespace System
 
                     if (pCls.IsPrimitive)
                     {
-                        if (!type.UnderlyingSystemType.IsRuntimeImplemented() ||
-                            !CanChangePrimitive(type.UnderlyingSystemType, pCls.UnderlyingSystemType))
+                        if (type.UnderlyingSystemType is not RuntimeType rtType ||
+                            !CanChangePrimitive(rtType, pCls.UnderlyingSystemType))
                             break;
                     }
                     else
@@ -604,9 +625,10 @@ namespace System
                     }
                 }
             }
+            MethodBase bestMatch = candidates[currentMin];
             if (ambig)
-                throw new AmbiguousMatchException(SR.Arg_AmbiguousMatchException);
-            return candidates[currentMin];
+                throw ThrowHelper.GetAmbiguousMatchException(bestMatch);
+            return bestMatch;
         }
 
         // Given a set of properties that match the base criteria, select one.
@@ -618,8 +640,7 @@ namespace System
             {
                 foreach (Type index in indexes)
                 {
-                    if (index == null)
-                        throw new ArgumentNullException(nameof(indexes));
+                    ArgumentNullException.ThrowIfNull(index, nameof(indexes));
                 }
             }
 
@@ -653,8 +674,8 @@ namespace System
 
                         if (pCls.IsPrimitive)
                         {
-                            if (!indexes[j].UnderlyingSystemType.IsRuntimeImplemented() ||
-                                !CanChangePrimitive(indexes[j].UnderlyingSystemType, pCls.UnderlyingSystemType))
+                            if (indexes[j].UnderlyingSystemType is not RuntimeType rtType ||
+                                !CanChangePrimitive(rtType, pCls.UnderlyingSystemType))
                                 break;
                         }
                         else
@@ -671,8 +692,8 @@ namespace System
                     {
                         if (candidates[i].PropertyType.IsPrimitive)
                         {
-                            if (!returnType.UnderlyingSystemType.IsRuntimeImplemented() ||
-                                !CanChangePrimitive(returnType.UnderlyingSystemType, candidates[i].PropertyType.UnderlyingSystemType))
+                            if (returnType.UnderlyingSystemType is not RuntimeType rtType ||
+                                !CanChangePrimitive(rtType, candidates[i].PropertyType.UnderlyingSystemType))
                                 continue;
                         }
                         else
@@ -719,10 +740,10 @@ namespace System
                     currentMin = i;
                 }
             }
-
+            PropertyInfo bestMatch = candidates[currentMin];
             if (ambig)
-                throw new AmbiguousMatchException(SR.Arg_AmbiguousMatchException);
-            return candidates[currentMin];
+                throw ThrowHelper.GetAmbiguousMatchException(bestMatch);
+            return bestMatch;
         }
 
         // ChangeType
@@ -769,17 +790,16 @@ namespace System
 
         // Return any exact bindings that may exist. (This method is not defined on the
         //  Binder and is used by RuntimeType.)
-        public static MethodBase? ExactBinding(MethodBase[] match, Type[] types, ParameterModifier[]? modifiers)
+        public static MethodBase? ExactBinding(MethodBase[] match, Type[] types)
         {
-            if (match == null)
-                throw new ArgumentNullException(nameof(match));
+            ArgumentNullException.ThrowIfNull(match);
 
             MethodBase[] aExactMatches = new MethodBase[match.Length];
             int cExactMatches = 0;
 
             for (int i = 0; i < match.Length; i++)
             {
-                ParameterInfo[] par = match[i].GetParametersNoCopy();
+                ReadOnlySpan<ParameterInfo> par = match[i].GetParametersAsSpan();
                 if (par.Length == 0)
                 {
                     continue;
@@ -812,10 +832,9 @@ namespace System
 
         // Return any exact bindings that may exist. (This method is not defined on the
         //  Binder and is used by RuntimeType.)
-        public static PropertyInfo? ExactPropertyBinding(PropertyInfo[] match, Type? returnType, Type[]? types, ParameterModifier[]? modifiers)
+        public static PropertyInfo? ExactPropertyBinding(PropertyInfo[] match, Type? returnType, Type[]? types)
         {
-            if (match == null)
-                throw new ArgumentNullException(nameof(match));
+            ArgumentNullException.ThrowIfNull(match);
 
             PropertyInfo? bestMatch = null;
             int typesLength = (types != null) ? types.Length : 0;
@@ -837,15 +856,15 @@ namespace System
                     continue;
 
                 if (bestMatch != null)
-                    throw new AmbiguousMatchException(SR.Arg_AmbiguousMatchException);
+                    throw ThrowHelper.GetAmbiguousMatchException(bestMatch);
 
                 bestMatch = match[i];
             }
             return bestMatch;
         }
 
-        private static int FindMostSpecific(ParameterInfo[] p1, int[] paramOrder1, Type? paramArrayType1,
-                                            ParameterInfo[] p2, int[] paramOrder2, Type? paramArrayType2,
+        private static int FindMostSpecific(ReadOnlySpan<ParameterInfo> p1, int[] paramOrder1, Type? paramArrayType1,
+                                            ReadOnlySpan<ParameterInfo> p2, int[] paramOrder2, Type? paramArrayType2,
                                             Type[] types, object?[]? args)
         {
             // A method using params is always less specific than one not using params
@@ -859,7 +878,7 @@ namespace System
 
             for (int i = 0; i < types.Length; i++)
             {
-                if (args != null && args[i] == Type.Missing)
+                if (args != null && args[i] == Missing.Value)
                     continue;
 
                 Type c1, c2;
@@ -999,10 +1018,10 @@ namespace System
                                                   Type[] types, object?[]? args)
         {
             // Find the most specific method based on the parameters.
-            int res = FindMostSpecific(m1.GetParametersNoCopy(), paramOrder1, paramArrayType1,
-                                       m2.GetParametersNoCopy(), paramOrder2, paramArrayType2, types, args);
+            int res = FindMostSpecific(m1.GetParametersAsSpan(), paramOrder1, paramArrayType1,
+                                       m2.GetParametersAsSpan(), paramOrder2, paramArrayType2, types, args);
 
-            // If the match was not ambigous then return the result.
+            // If the match was not ambiguous then return the result.
             if (res != 0)
                 return res;
 
@@ -1028,7 +1047,7 @@ namespace System
                 }
             }
 
-            // The match is ambigous.
+            // The match is ambiguous.
             return 0;
         }
 
@@ -1051,7 +1070,7 @@ namespace System
                     return 1;
             }
 
-            // The match is ambigous.
+            // The match is ambiguous.
             return 0;
         }
 
@@ -1073,14 +1092,14 @@ namespace System
                     return 1;
             }
 
-            // The match is ambigous.
+            // The match is ambiguous.
             return 0;
         }
 
         public static bool CompareMethodSig(MethodBase m1, MethodBase m2)
         {
-            ParameterInfo[] params1 = m1.GetParametersNoCopy();
-            ParameterInfo[] params2 = m2.GetParametersNoCopy();
+            ReadOnlySpan<ParameterInfo> params1 = m1.GetParametersAsSpan();
+            ReadOnlySpan<ParameterInfo> params2 = m2.GetParametersAsSpan();
 
             if (params1.Length != params2.Length)
                 return false;
@@ -1124,7 +1143,7 @@ namespace System
                 // This can only happen if at least one is vararg or generic.
                 if (currentHierarchyDepth == deepestHierarchy)
                 {
-                    throw new AmbiguousMatchException(SR.Arg_AmbiguousMatchException);
+                    throw ThrowHelper.GetAmbiguousMatchException(methWithDeepestHierarchy!);
                 }
 
                 // Check to see if this method is on the most derived class.
@@ -1144,10 +1163,19 @@ namespace System
         {
             object?[] varsCopy = new object[vars.Length];
             for (int i = 0; i < vars.Length; i++)
+            {
                 varsCopy[i] = vars[i];
+            }
 
-            for (int i = 0; i < vars.Length; i++)
-                vars[i] = varsCopy[paramOrder[i]];
+            for (int i = 0, j = 0; i < vars.Length; j++)
+            {
+                if (paramOrder[j] < vars.Length)
+                {
+                    vars[i] = varsCopy[paramOrder[j]];
+                    paramOrder[j] = i;
+                    i++;
+                }
+            }
         }
 
         // This method will create the mapping between the Parameters and the underlying
@@ -1155,7 +1183,7 @@ namespace System
         //  as the values and maps to the parameters of the method.  We store the mapping
         //  from the parameters to the names in the paramOrder array.  All parameters that
         //  don't have matching names are then stored in the array in order.
-        private static bool CreateParamOrder(int[] paramOrder, ParameterInfo[] pars, string[] names)
+        private static bool CreateParamOrder(int[] paramOrder, ReadOnlySpan<ParameterInfo> pars, string[] names)
         {
             bool[] used = new bool[pars.Length];
 
@@ -1209,13 +1237,14 @@ namespace System
                 (source == typeof(UIntPtr) && target == typeof(UIntPtr)))
                 return true;
 
-            Primitives widerCodes = s_primitiveConversions[(int)(Type.GetTypeCode(source))];
+            Primitives widerCodes = PrimitiveConversions[(int)(Type.GetTypeCode(source))];
             Primitives targetCode = (Primitives)(1 << (int)(Type.GetTypeCode(target)));
 
             return (widerCodes & targetCode) != 0;
         }
 
-        private static readonly Primitives[] s_primitiveConversions = {
+        private static ReadOnlySpan<Primitives> PrimitiveConversions =>
+        [
             /* Empty    */  0, // not primitive
             /* Object   */  0, // not primitive
             /* DBNull   */  0, // not primitive
@@ -1235,7 +1264,7 @@ namespace System
             /* DateTime */  Primitives.DateTime,
             /* [Unused] */  0,
             /* String   */  Primitives.String,
-        };
+        ];
 
         [Flags]
         private enum Primitives
@@ -1257,7 +1286,7 @@ namespace System
             String = 1 << TypeCode.String,
         }
 
-        internal class BinderState
+        internal sealed class BinderState
         {
             internal readonly int[] _argsMap;
             internal readonly int _originalSize;

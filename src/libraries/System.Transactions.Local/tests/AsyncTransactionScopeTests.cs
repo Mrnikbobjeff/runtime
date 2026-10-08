@@ -399,7 +399,7 @@ namespace System.Transactions.Tests
                                         break;
                                     }
 
-                                // Final test - wrap the DoAsyncTSTaskWorkAsync in syncronous scope
+                                // Final test - wrap the DoAsyncTSTaskWorkAsync in synchronous scope
                                 case 54:
                                     {
                                         string txId1 = null;
@@ -434,10 +434,10 @@ namespace System.Transactions.Tests
             }, variation.ToString()).Dispose();
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(true, false, null)]
         [InlineData(true, true, null)]
-        public void AsyncTSAndDependantClone(bool requiresNew, bool syncronizeScope, string txId)
+        public void AsyncTSAndDependantClone(bool requiresNew, bool synchronizeScope, string? txId)
         {
             string txId1 = null;
             string txId2 = null;
@@ -458,9 +458,9 @@ namespace System.Transactions.Tests
                 {
                     try
                     {
-                        // Since we use BlockCommitUntilComplete dependent transaction to syncronize the root TransactionScope, the ambient Tx may not be available and will be disposed and block on Commit.
-                        // The flag will ensure we explicitly syncronize before disposing the root TransactionScope and the ambient transaction will still be available in the Task.
-                        if (syncronizeScope)
+                        // Since we use BlockCommitUntilComplete dependent transaction to synchronize the root TransactionScope, the ambient Tx may not be available and will be disposed and block on Commit.
+                        // The flag will ensure we explicitly synchronize before disposing the root TransactionScope and the ambient transaction will still be available in the Task.
+                        if (synchronizeScope)
                         {
                             txId2 = AssertAndGetCurrentTransactionId();
                         }
@@ -472,7 +472,7 @@ namespace System.Transactions.Tests
                             scope2.Complete();
                         }
 
-                        if (syncronizeScope)
+                        if (synchronizeScope)
                         {
                             txId4 = AssertAndGetCurrentTransactionId();
                         }
@@ -483,7 +483,7 @@ namespace System.Transactions.Tests
                         dependentTx.Dispose();
                     }
 
-                    if (syncronizeScope)
+                    if (synchronizeScope)
                     {
                         txId5 = AssertAndGetCurrentTransactionId();
                     }
@@ -500,7 +500,7 @@ namespace System.Transactions.Tests
 
                 txId6 = AssertAndGetCurrentTransactionId();
 
-                if (syncronizeScope)
+                if (synchronizeScope)
                 {
                     task1.Wait();
                 }
@@ -513,7 +513,7 @@ namespace System.Transactions.Tests
 
             Assert.Equal(txId1, txId3);
             Assert.Equal(txId3, txId6);
-            if (syncronizeScope)
+            if (synchronizeScope)
             {
                 Assert.Equal(txId1, txId2);
                 Assert.Equal(txId1, txId4);
@@ -524,10 +524,10 @@ namespace System.Transactions.Tests
             AssertTransaction(txId);
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(true, false, null)]
         [InlineData(true, true, null)]
-        public void NestedAsyncTSAndDependantClone(bool parentrequiresNew, bool childRequiresNew, string txId)
+        public void NestedAsyncTSAndDependantClone(bool parentrequiresNew, bool childRequiresNew, string? txId)
         {
             string txId1;
             string txId2;
@@ -1106,7 +1106,7 @@ namespace System.Transactions.Tests
             AssertTransactionNull();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void VerifyBYOTOpenConnSimulationTest()
         {
             // Create threads to do work
@@ -1122,7 +1122,7 @@ namespace System.Transactions.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task VerifyBYOTSyncTSNestedAsync()
         {
             string txId1;
@@ -1149,7 +1149,7 @@ namespace System.Transactions.Tests
             });
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task VerifyBYOTAsyncTSNestedAsync()
         {
             string txId1;
@@ -1173,7 +1173,7 @@ namespace System.Transactions.Tests
             AssertTransactionNull();
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(TransactionScopeAsyncFlowOption.Suppress)]
         [InlineData(TransactionScopeAsyncFlowOption.Enabled)]
         public void DoTxQueueWorkItem(TransactionScopeAsyncFlowOption asyncFlowOption)
@@ -1209,7 +1209,7 @@ namespace System.Transactions.Tests
             AssertTransactionNull();
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(TransactionScopeAsyncFlowOption.Suppress)]
         [InlineData(TransactionScopeAsyncFlowOption.Enabled)]
         public void DoTxNewThread(TransactionScopeAsyncFlowOption asyncFlowOption)
@@ -1255,7 +1255,7 @@ namespace System.Transactions.Tests
                 // At some point we realize that we can't complete our work, so enqueue it to be completed later
                 s_workQueue.Add(Tuple.Create(i, completionSource, Transaction.Current));
 
-                // If we are the first thread kicked off, then we are also resposible to kick of the background thread which will do the work for us
+                // If we are the first thread kicked off, then we are also responsible to kick of the background thread which will do the work for us
                 if (i == 0)
                 {
                     StartWorkProcessingThread();

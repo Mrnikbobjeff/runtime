@@ -2,16 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Diagnostics;
 using System.Collections;
 using System.Collections.Generic;
-using System.Globalization;
+using System.Diagnostics;
 using System.DirectoryServices;
+using System.Globalization;
 using System.Text.RegularExpressions;
 
 namespace System.DirectoryServices.AccountManagement
 {
-    internal class SAMQuerySet : ResultSet
+    internal sealed class SAMQuerySet : ResultSet
     {
         // We will iterate over all principals under ctxBase, returning only those which are in the list of types and which
         // satisfy ALL the matching properties.
@@ -45,7 +45,7 @@ namespace System.DirectoryServices.AccountManagement
 
                 // Since this class is only used internally, none of our code should be even calling this
                 // if MoveNext returned false, or before calling MoveNext.
-                Debug.Assert(_endReached == false && _current != null);
+                Debug.Assert(!_endReached && _current != null);
 
                 return SAMUtils.DirectoryEntryAsPrincipal(_current, _storeCtx);
             }
@@ -164,8 +164,7 @@ namespace System.DirectoryServices.AccountManagement
                 _endReached = false;
                 _current = null;
 
-                if (_enumerator != null)
-                    _enumerator.Reset();
+                _enumerator?.Reset();
 
                 _resultsReturned = 0;
             }
@@ -202,7 +201,7 @@ namespace System.DirectoryServices.AccountManagement
     // The matcher routines for query-by-example support
     //
 
-    internal class QbeMatcher : SAMMatcher
+    internal sealed class QbeMatcher : SAMMatcher
     {
         private readonly QbeFilterDescription _propertiesToMatch;
 
@@ -314,7 +313,7 @@ namespace System.DirectoryServices.AccountManagement
 
         private static readonly Hashtable s_filterPropertiesTable = CreateFilterPropertiesTable();
 
-        private class FilterPropertyTableEntry
+        private sealed class FilterPropertyTableEntry
         {
             internal string winNTPropertyName;
             internal MatcherDelegate matcher;
@@ -339,9 +338,7 @@ namespace System.DirectoryServices.AccountManagement
                 filter.Extra = regex;
             }
 
-            Match match = regex.Match(property);
-
-            return match.Success;
+            return regex.IsMatch(property);
         }
         // returns true if specified WinNT property's value matches filter.Value
         private delegate bool MatcherDelegate(FilterBase filter, string winNTPropertyName, DirectoryEntry de);
@@ -352,7 +349,7 @@ namespace System.DirectoryServices.AccountManagement
 
             if (null == valueToMatch.Value)
             {
-                if ((de.Properties.Contains(winNTPropertyName) == false) ||
+                if (!de.Properties.Contains(winNTPropertyName) ||
                      (de.Properties[winNTPropertyName].Count == 0) ||
                      (de.Properties[winNTPropertyName].Value == null))
                     return true;
@@ -414,7 +411,7 @@ namespace System.DirectoryServices.AccountManagement
 
             if (valueToMatch == null)
             {
-                if ((de.Properties.Contains(winNTPropertyName) == false) ||
+                if (!de.Properties.Contains(winNTPropertyName) ||
                      (de.Properties[winNTPropertyName].Count == 0) ||
                      (((string)de.Properties[winNTPropertyName].Value).Length == 0))
                     return true;
@@ -442,7 +439,7 @@ namespace System.DirectoryServices.AccountManagement
 
             if (null == valueToMatch.Value)
             {
-                if ((de.Properties.Contains(winNTPropertyName) == false) ||
+                if (!de.Properties.Contains(winNTPropertyName) ||
                      (de.Properties[winNTPropertyName].Count == 0) ||
                      (de.Properties[winNTPropertyName].Value == null))
                     result = true;
@@ -572,7 +569,7 @@ namespace System.DirectoryServices.AccountManagement
 
             if (valueToMatch == null)
             {
-                if ((de.Properties.Contains(winNTPropertyName) == false) ||
+                if (!de.Properties.Contains(winNTPropertyName) ||
                      (de.Properties[winNTPropertyName].Count == 0) ||
                      (((string)de.Properties[winNTPropertyName].Value).Length == 0))
                     return true;
@@ -600,7 +597,7 @@ namespace System.DirectoryServices.AccountManagement
 
             if (valueToMatch == null)
             {
-                if ((de.Properties.Contains(winNTPropertyName) == false) ||
+                if (!de.Properties.Contains(winNTPropertyName) ||
                      (de.Properties[winNTPropertyName].Count == 0) ||
                      (de.Properties[winNTPropertyName].Value == null))
                     return true;
@@ -628,7 +625,7 @@ namespace System.DirectoryServices.AccountManagement
 
             if (!valueToCompare.HasValue)
             {
-                if ((de.Properties.Contains(winNTPropertyName) == false) ||
+                if (!de.Properties.Contains(winNTPropertyName) ||
                      (de.Properties[winNTPropertyName].Count == 0) ||
                      (de.Properties[winNTPropertyName].Value == null))
                     return true;
@@ -666,7 +663,7 @@ namespace System.DirectoryServices.AccountManagement
     // The matcher routines for FindBy* support
     //
 
-    internal class FindByDateMatcher : SAMMatcher
+    internal sealed class FindByDateMatcher : SAMMatcher
     {
         internal enum DateProperty
         {
@@ -804,7 +801,7 @@ namespace System.DirectoryServices.AccountManagement
         }
     }
 
-    internal class GroupMemberMatcher : SAMMatcher
+    internal sealed class GroupMemberMatcher : SAMMatcher
     {
         private readonly byte[] _memberSidToMatch;
 
@@ -864,5 +861,3 @@ namespace System.DirectoryServices.AccountManagement
         }
     }
 }
-
-//#endif  // PAPI_REGSAM

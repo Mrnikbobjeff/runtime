@@ -40,7 +40,7 @@ namespace System.Diagnostics
             return new EntriesEnumerator(this);
         }
 
-        internal EventLogEntry GetEntryAtNoThrow(int index)
+        internal EventLogEntry? GetEntryAtNoThrow(int index)
         {
             return _log.GetEntryAtNoThrow(index);
         }
@@ -67,11 +67,11 @@ namespace System.Diagnostics
             Array.Copy(entries, 0, array, index, entries.Length);
         }
 
-        private class EntriesEnumerator : IEnumerator
+        private sealed class EntriesEnumerator : IEnumerator
         {
             private readonly EventLogEntryCollection entries;
             private int num = -1;
-            private EventLogEntry cachedEntry;
+            private EventLogEntry? cachedEntry;
 
             internal EntriesEnumerator(EventLogEntryCollection entries)
             {

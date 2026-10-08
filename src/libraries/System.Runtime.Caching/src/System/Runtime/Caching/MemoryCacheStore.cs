@@ -4,10 +4,11 @@
 using System;
 using System.Collections;
 using System.Collections.Specialized;
-using System.Threading;
 using System.Diagnostics;
-using System.Security;
 using System.Diagnostics.CodeAnalysis;
+using System.Runtime.Versioning;
+using System.Security;
+using System.Threading;
 
 namespace System.Runtime.Caching
 {
@@ -24,9 +25,16 @@ namespace System.Runtime.Caching
         private ManualResetEvent _insertBlock;
         private volatile bool _useInsertBlock;
         private readonly MemoryCache _cache;
-        private readonly PerfCounters _perfCounters;
+        private readonly Counters _perfCounters;
+#if NET
+        [UnsupportedOSPlatformGuard("wasi")]
+        [UnsupportedOSPlatformGuard("browser")]
+        private static bool _countersSupported => !OperatingSystem.IsBrowser() && !OperatingSystem.IsWasi();
+#else
+        private static bool _countersSupported => true;
+#endif
 
-        internal MemoryCacheStore(MemoryCache cache, PerfCounters perfCounters)
+        internal MemoryCacheStore(MemoryCache cache, Counters perfCounters)
         {
             _cache = cache;
             _perfCounters = perfCounters;
@@ -73,10 +81,10 @@ namespace System.Runtime.Caching
             }
 
             entry.CallNotifyOnChanged();
-            if (_perfCounters != null)
+            if (_perfCounters != null && _countersSupported)
             {
-                _perfCounters.Increment(PerfCounterName.Entries);
-                _perfCounters.Increment(PerfCounterName.Turnover);
+                _perfCounters.Increment(CounterName.Entries);
+                _perfCounters.Increment(CounterName.Turnover);
             }
         }
 
@@ -108,10 +116,10 @@ namespace System.Runtime.Caching
                 {
                     entry.Release(_cache, reason);
                 }
-                if (_perfCounters != null)
+                if (_perfCounters != null && _countersSupported)
                 {
-                    _perfCounters.Decrement(PerfCounterName.Entries);
-                    _perfCounters.Increment(PerfCounterName.Turnover);
+                    _perfCounters.Decrement(CounterName.Entries);
+                    _perfCounters.Increment(CounterName.Turnover);
                 }
             }
         }
@@ -136,19 +144,16 @@ namespace System.Runtime.Caching
                 // keep the sentinel from expiring, which in turn would force a removal of this entry from the cache.
                 entry.UpdateSlidingExpForUpdateSentinel();
 
-                if (updatePerfCounters && _perfCounters != null)
+                if (updatePerfCounters && _perfCounters != null && _countersSupported)
                 {
-                    _perfCounters.Increment(PerfCounterName.Hits);
-                    _perfCounters.Increment(PerfCounterName.HitRatio);
-                    _perfCounters.Increment(PerfCounterName.HitRatioBase);
+                    _perfCounters.Increment(CounterName.Hits);
                 }
             }
             else
             {
-                if (updatePerfCounters && _perfCounters != null)
+                if (updatePerfCounters && _perfCounters != null && _countersSupported)
                 {
-                    _perfCounters.Increment(PerfCounterName.Misses);
-                    _perfCounters.Increment(PerfCounterName.HitRatioBase);
+                    _perfCounters.Increment(CounterName.Misses);
                 }
             }
         }
@@ -204,10 +209,7 @@ namespace System.Runtime.Caching
 
             // Call Release after the new entry has been completely added so
             // that the CacheItemRemovedCallback can take a dependency on the newly inserted item.
-            if (toBeReleasedEntry != null)
-            {
-                toBeReleasedEntry.Release(_cache, CacheEntryRemovedReason.Expired);
-            }
+            toBeReleasedEntry?.Release(_cache, CacheEntryRemovedReason.Expired);
             return existingEntry;
         }
 
@@ -274,7 +276,7 @@ namespace System.Runtime.Caching
 
                 // MemoryCacheStatistics has been disposed, and therefore nobody should be using
                 // _insertBlock except for potential threads in WaitInsertBlock (which won't care if we call Close).
-                Debug.Assert(_useInsertBlock == false, "_useInsertBlock == false");
+                Debug.Assert(!_useInsertBlock, "_useInsertBlock == false");
                 _insertBlock.Close();
 
                 // Don't need to call GC.SuppressFinalize(this) for sealed types without finalizers.
@@ -337,10 +339,7 @@ namespace System.Runtime.Caching
                 if (_disposed == 0)
                 {
                     existingEntry = _entries[key] as MemoryCacheEntry;
-                    if (existingEntry != null)
-                    {
-                        existingEntry.State = EntryState.RemovingFromCache;
-                    }
+                    existingEntry?.State = EntryState.RemovingFromCache;
                     entry.State = EntryState.AddingToCache;
                     added = true;
                     _entries[key] = entry;
@@ -363,10 +362,7 @@ namespace System.Runtime.Caching
 
             // Call Release after the new entry has been completely added so
             // that the CacheItemRemovedCallback can take a dependency on the newly inserted item.
-            if (existingEntry != null)
-            {
-                existingEntry.Release(_cache, reason);
-            }
+            existingEntry?.Release(_cache, reason);
         }
 
         internal long TrimInternal(int percent)
@@ -404,10 +400,10 @@ namespace System.Runtime.Caching
                 trimmedOrExpired += trimmed;
             }
 
-            if (trimmed > 0 && _perfCounters != null)
+            if (trimmed > 0 && _perfCounters != null && _countersSupported)
             {
                 // Update values for perfcounters
-                _perfCounters.IncrementBy(PerfCounterName.Trims, trimmed);
+                _perfCounters.IncrementBy(CounterName.Trims, trimmed);
             }
 
 #if DEBUG

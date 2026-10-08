@@ -2,13 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-class foo
+namespace b12399;
+
+using System;
+using Xunit;
+
+public class foo
 {
     static double nan = 0.0 / 0.0;
     static double d = 1.1;
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
 
 #pragma warning disable 1718

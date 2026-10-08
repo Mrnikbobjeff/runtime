@@ -28,7 +28,7 @@ namespace System.ServiceModel.Syndication.Tests
         [Theory]
         [InlineData(null)]
         [MemberData(nameof(Ctor_Items_TestData))]
-        public void Ctor_Items(IEnumerable<SyndicationItem> items)
+        public void Ctor_Items(IEnumerable<SyndicationItem>? items)
         {
             var feed = new SyndicationFeed(items);
             VerifySyndicationFeed(feed, null, null, null, null, default, items);
@@ -209,7 +209,6 @@ namespace System.ServiceModel.Syndication.Tests
         [Fact]
         public void Ctor_NullSource_ThrowsArgumentNullException()
         {
-            var feed = new SyndicationFeed();
             AssertExtensions.Throws<ArgumentNullException>("source", () => new SyndicationFeedSubclass(null, true));
         }
 
@@ -314,7 +313,7 @@ namespace System.ServiceModel.Syndication.Tests
         [InlineData("name", "http://www.w3.org/2000/xmlns/", "value", "version")]
         [InlineData("type", "ns", "value", "version")]
         [InlineData("name", "http://www.w3.org/2001/XMLSchema-instance", "value", "version")]
-        public void TryParseAttribute_Invoke_ReturnsFalse(string name, string ns, string value, string version)
+        public void TryParseAttribute_Invoke_ReturnsFalse(string? name, string? ns, string? value, string? version)
         {
             var feed = new SyndicationFeedSubclass();
             Assert.False(feed.TryParseAttributeEntryPoint(name, ns, value, version));
@@ -329,7 +328,7 @@ namespace System.ServiceModel.Syndication.Tests
 
         [Theory]
         [MemberData(nameof(TryParseElement_TestData))]
-        public void TryParseElement_Invoke_ReturnsFalse(XmlReader reader, string version)
+        public void TryParseElement_Invoke_ReturnsFalse(XmlReader reader, string? version)
         {
             var feed = new SyndicationFeedSubclass();
             Assert.False(feed.TryParseElementEntryPoint(reader, version));
@@ -339,7 +338,7 @@ namespace System.ServiceModel.Syndication.Tests
         [InlineData(null)]
         [InlineData("")]
         [InlineData("version")]
-        public void WriteAttributeExtensions_Invoke_ReturnsExpected(string version)
+        public void WriteAttributeExtensions_Invoke_ReturnsExpected(string? version)
         {
             var feed = new SyndicationFeedSubclass();
             CompareHelper.AssertEqualWriteOutput("", writer => feed.WriteAttributeExtensionsEntryPoint(writer, version));
@@ -361,7 +360,7 @@ namespace System.ServiceModel.Syndication.Tests
         [InlineData(null)]
         [InlineData("")]
         [InlineData("version")]
-        public void WriteElementExtensions_Invoke_ReturnsExpected(string version)
+        public void WriteElementExtensions_Invoke_ReturnsExpected(string? version)
         {
             var feed = new SyndicationFeedSubclass();
             CompareHelper.AssertEqualWriteOutput("", writer => feed.WriteElementExtensionsEntryPoint(writer, version));
@@ -469,8 +468,6 @@ namespace System.ServiceModel.Syndication.Tests
             public SyndicationFeedSubclass(SyndicationFeed source, bool cloneItems) : base(source, cloneItems) { }
 
             public SyndicationCategory CreateCategoryEntryPoint() => CreateCategory();
-
-            public SyndicationItem CreateItemEntryPoint() => CreateItem();
 
             public SyndicationLink CreateLinkEntryPoint() => CreateLink();
 

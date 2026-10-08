@@ -2,16 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 .assembly extern legacy library mscorlib {}
+.assembly extern xunit.core {}
 .assembly extern System.Console
 {
   .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )
   .ver 4:0:0:0
 }
 .assembly byrefsubbyref1 {}
-.class a extends [mscorlib]System.Object
+.class public a extends [mscorlib]System.Object
 {
 .field static class ctest S_1
-.method public static int32 byrefsubbyref(class ctest& V_1, class ctest& V_2)
+.method public static native int byrefsubbyref(class ctest& V_1, class ctest& V_2)
 {
 // op1: byref, op2: byref
 ldarg 0
@@ -19,7 +20,7 @@ ldarg 1
 sub
 ret
 }
-.method public static int32 byrefsubi4(class ctest& V_1, int32 V_2)
+.method public static native int byrefsubi4(class ctest& V_1, int32 V_2)
 {
 // op1: byref, op2: int32
 ldarg 0
@@ -27,7 +28,7 @@ ldarg 1
 sub
 ret
 }
-.method public static int32 i4subbyref(int32, class ctest& V_2)
+.method public static native int i4subbyref(int32, class ctest& V_2)
 {
 // op1: int32, op2: byref
 ldarg 0
@@ -37,11 +38,14 @@ ret
 }
 .method public static int32 main() cil managed
 {
+  .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+      01 00 00 00
+  )
   .entrypoint
   .maxstack  2
   .locals init (class ctest V_1,
            class ctest V_2,
-           int32 V_3)
+           native int V_3)
   IL_0004:  newobj     instance void ctest::.ctor()
   IL_0009:  stloc.0
   IL_000a:  newobj     instance void ctest::.ctor()
@@ -53,7 +57,7 @@ ret
   IL_0010:
 	ldloca V_2
 	ldloca V_1
-	call int32 a::byrefsubbyref(class ctest&, class ctest&)
+	call native int a::byrefsubbyref(class ctest&, class ctest&)
 	dup
 	stloc.2
 	call       void [System.Console]System.Console::WriteLine(int32)
@@ -61,13 +65,13 @@ ret
   // op1: byref, op2: int
 	ldloca V_2
 	ldc.i4 1
-	call int32 a::byrefsubi4(class ctest&, int32)
+	call native int a::byrefsubi4(class ctest&, int32)
 	call       void [System.Console]System.Console::WriteLine(int32)
 
   // op1: int, op2: byref
 	ldc.i4 1
 	ldloca V_1
-	call int32 a::i4subbyref(int32, class ctest&)
+	call native int a::i4subbyref(int32, class ctest&)
 	call       void [System.Console]System.Console::WriteLine(int32)
 
 	// op1: byref, op2: byref
@@ -75,35 +79,35 @@ ret
 	stloc.0
 	ldloca V_1
 	ldsflda class ctest a::S_1
-	call int32 a::byrefsubbyref(class ctest&, class ctest&)
+	call native int a::byrefsubbyref(class ctest&, class ctest&)
 	newobj     instance void ctest::.ctor()
 	stloc.0
 	ldloca V_1
-	call int32 a::byrefsubbyref(class ctest&, class ctest&)
+	call native int a::byrefsubbyref(class ctest&, class ctest&)
 	ldsflda class ctest a::S_1
-	call int32 a::byrefsubbyref(class ctest&, class ctest&)
+	call native int a::byrefsubbyref(class ctest&, class ctest&)
 	newobj     instance void ctest::.ctor()
 	stsfld class ctest a::S_1
 	ldsflda class ctest a::S_1
-	call int32 a::byrefsubbyref(class ctest&, class ctest&)
+	call native int a::byrefsubbyref(class ctest&, class ctest&)
 	ldsflda class ctest a::S_1
-	call int32 a::byrefsubbyref(class ctest&, class ctest&)
+	call native int a::byrefsubbyref(class ctest&, class ctest&)
 	newobj     instance void ctest::.ctor()
 	stloc.0
 	ldloca V_1
-	call int32 a::byrefsubbyref(class ctest&, class ctest&)
+	call native int a::byrefsubbyref(class ctest&, class ctest&)
 	ldsflda class ctest a::S_1
-	call int32 a::byrefsubbyref(class ctest&, class ctest&)
+	call native int a::byrefsubbyref(class ctest&, class ctest&)
 	newobj     instance void ctest::.ctor()
 	stloc.0
 	ldloca V_1
-	call int32 a::byrefsubbyref(class ctest&, class ctest&)
+	call native int a::byrefsubbyref(class ctest&, class ctest&)
 	ldsflda class ctest a::S_1
-	call int32 a::byrefsubbyref(class ctest&, class ctest&)
+	call native int a::byrefsubbyref(class ctest&, class ctest&)
 	newobj     instance void ctest::.ctor()
 	stloc.0
 	ldloca V_1
-	call int32 a::byrefsubbyref(class ctest&, class ctest&)
+	call native int a::byrefsubbyref(class ctest&, class ctest&)
 	call       void [System.Console]System.Console::WriteLine(int32)
 
 ldc.i4 100

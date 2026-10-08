@@ -5,7 +5,7 @@ using System;
 using System.Linq;
 using Xunit;
 
-namespace System.IO.FileSystem.DriveInfoTests
+namespace System.IO.FileSystem.Tests
 {
     public partial class DriveInfoUnixTests
     {
@@ -41,7 +41,7 @@ namespace System.IO.FileSystem.DriveInfoTests
         }
 
         [Fact]
-        [PlatformSpecific(TestPlatforms.AnyUnix & ~TestPlatforms.Browser)]
+        [PlatformSpecific(TestPlatforms.AnyUnix & ~TestPlatforms.Browser)]
         public void PropertiesOfInvalidDrive()
         {
             string invalidDriveName = "NonExistentDriveName";
@@ -59,30 +59,31 @@ namespace System.IO.FileSystem.DriveInfoTests
             Assert.Equal(invalidDriveName, invalidDrive.VolumeLabel);   // VolumeLabel is equivalent to Name on Unix
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsSubsystemForLinux))] // https://github.com/dotnet/runtime/issues/18487
+        [Fact]
         [PlatformSpecific(TestPlatforms.AnyUnix)]
         public void PropertiesOfValidDrive()
         {
-            var root = new DriveInfo("/");
-            var format = root.DriveFormat;
-            Assert.Equal(PlatformDetection.IsBrowser ? DriveType.Unknown : DriveType.Fixed, root.DriveType);
-            Assert.True(root.IsReady);
-            Assert.Equal("/", root.Name);
-            Assert.Equal("/", root.ToString());
-            Assert.Equal("/", root.RootDirectory.FullName);
-            Assert.Equal("/", root.VolumeLabel);
+            var driveName = PlatformDetection.IsAndroid || PlatformDetection.IsLinuxBionic ? "/data" : "/";
+            var driveInfo = new DriveInfo(driveName);
+            var format = driveInfo.DriveFormat;
+            Assert.Equal(PlatformDetection.IsBrowser ? DriveType.Unknown : DriveType.Fixed, driveInfo.DriveType);
+            Assert.True(driveInfo.IsReady);
+            Assert.Equal(driveName, driveInfo.Name);
+            Assert.Equal(driveName, driveInfo.ToString());
+            Assert.Equal(driveName, driveInfo.RootDirectory.FullName);
+            Assert.Equal(driveName, driveInfo.VolumeLabel);
 
             if (PlatformDetection.IsBrowser)
             {
-                Assert.True(root.AvailableFreeSpace == 0);
-                Assert.True(root.TotalFreeSpace == 0);
-                Assert.True(root.TotalSize == 0);
+                Assert.True(driveInfo.AvailableFreeSpace == 0);
+                Assert.True(driveInfo.TotalFreeSpace == 0);
+                Assert.True(driveInfo.TotalSize == 0);
             }
             else
             {
-                Assert.True(root.AvailableFreeSpace > 0);
-                Assert.True(root.TotalFreeSpace > 0);
-                Assert.True(root.TotalSize > 0);
+                Assert.True(driveInfo.AvailableFreeSpace > 0);
+                Assert.True(driveInfo.TotalFreeSpace > 0);
+                Assert.True(driveInfo.TotalSize > 0);
             }
         }
 
@@ -92,6 +93,17 @@ namespace System.IO.FileSystem.DriveInfoTests
         {
             var root = new DriveInfo("/");
             Assert.Throws<PlatformNotSupportedException>(() => root.VolumeLabel = root.Name);
+        }
+
+        [Fact]
+        [PlatformSpecific(TestPlatforms.AnyUnix)]
+        public void CanGetTempPathDriveFormat()
+        {
+            var driveInfo = new DriveInfo(Path.GetTempPath());
+
+            string format = driveInfo.DriveFormat;
+            Assert.NotNull(driveInfo.DriveFormat);
+            Assert.NotEmpty(driveInfo.DriveFormat);
         }
     }
 }

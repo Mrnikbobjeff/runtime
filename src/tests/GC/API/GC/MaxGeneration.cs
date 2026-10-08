@@ -4,9 +4,13 @@
 // Tests GC.MaxGeneration
 
 using System;
+using Xunit;
+using TestLibrary;
 
-public class Test {
-	public static int Main() {
+public class Test_MaxGeneration {
+ [ActiveIssue("needs triage", TestRuntimes.Mono)]
+	[Fact]
+	public static int TestEntryPoint() {
 				
 		for(int i=0;i<1000;i++) {
 		Object[] array = new Object[i];

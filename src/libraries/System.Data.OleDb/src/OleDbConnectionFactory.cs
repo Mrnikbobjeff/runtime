@@ -2,15 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Specialized;
-using System.Data.Common;
 using System.Configuration;
+using System.Data.Common;
 using System.Data.ProviderBase;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Runtime.Versioning;
 
 namespace System.Data.OleDb
 {
+    [RequiresDynamicCode("XML deserialization requires dynamic code")]
     internal sealed class OleDbConnectionFactory : DbConnectionFactory
     {
         private OleDbConnectionFactory() : base() { }
@@ -33,8 +35,7 @@ namespace System.Data.OleDb
 
         protected override DbConnectionInternal CreateConnection(DbConnectionOptions options, DbConnectionPoolKey poolKey, object poolGroupProviderInfo, DbConnectionPool? pool, DbConnection? owningObject)
         {
-            // TODO-NULLABLE: owningObject may actually be null (see DbConnectionPool.CreateObject), in which case this will throw...
-            DbConnectionInternal result = new OleDbConnectionInternal((OleDbConnectionString)options, (OleDbConnection)owningObject!);
+            DbConnectionInternal result = new OleDbConnectionInternal((OleDbConnectionString)options, (OleDbConnection?)owningObject);
             return result;
         }
 
@@ -126,29 +127,18 @@ namespace System.Data.OleDb
 
         internal override void PermissionDemand(DbConnection outerConnection)
         {
-            OleDbConnection? c = (outerConnection as OleDbConnection);
-            if (null != c)
-            {
-                c.PermissionDemand();
-            }
+            (outerConnection as OleDbConnection)?.PermissionDemand();
         }
 
         internal override void SetConnectionPoolGroup(DbConnection outerConnection, DbConnectionPoolGroup poolGroup)
         {
             OleDbConnection? c = (outerConnection as OleDbConnection);
-            if (null != c)
-            {
-                c.PoolGroup = poolGroup;
-            }
+            c?.PoolGroup = poolGroup;
         }
 
         internal override void SetInnerConnectionEvent(DbConnection owningObject, DbConnectionInternal to)
         {
-            OleDbConnection? c = (owningObject as OleDbConnection);
-            if (null != c)
-            {
-                c.SetInnerConnectionEvent(to);
-            }
+            (owningObject as OleDbConnection)?.SetInnerConnectionEvent(to);
         }
 
         internal override bool SetInnerConnectionFrom(DbConnection owningObject, DbConnectionInternal to, DbConnectionInternal from)
@@ -163,11 +153,7 @@ namespace System.Data.OleDb
 
         internal override void SetInnerConnectionTo(DbConnection owningObject, DbConnectionInternal to)
         {
-            OleDbConnection? c = (owningObject as OleDbConnection);
-            if (null != c)
-            {
-                c.SetInnerConnectionTo(to);
-            }
+            (owningObject as OleDbConnection)?.SetInnerConnectionTo(to);
         }
 
     }

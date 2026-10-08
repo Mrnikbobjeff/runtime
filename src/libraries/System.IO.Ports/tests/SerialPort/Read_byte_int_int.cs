@@ -35,19 +35,19 @@ namespace System.IO.Ports.Tests
         private enum ReadDataFromEnum { NonBuffered, Buffered, BufferedAndNonBuffered };
 
         #region Test Cases
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasOneSerialPort))]
         public void Buffer_Null()
         {
             VerifyReadException(null, 0, 1, typeof(ArgumentNullException));
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasOneSerialPort))]
         public void Offset_NEG1()
         {
             VerifyReadException(new byte[defaultByteArraySize], -1, defaultByteCount, typeof(ArgumentOutOfRangeException));
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasOneSerialPort))]
         public void Offset_NEGRND()
         {
             Random rndGen = new Random();
@@ -55,19 +55,19 @@ namespace System.IO.Ports.Tests
             VerifyReadException(new byte[defaultByteArraySize], rndGen.Next(int.MinValue, 0), defaultByteCount, typeof(ArgumentOutOfRangeException));
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasOneSerialPort))]
         public void Offset_MinInt()
         {
             VerifyReadException(new byte[defaultByteArraySize], int.MinValue, defaultByteCount, typeof(ArgumentOutOfRangeException));
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasOneSerialPort))]
         public void Count_NEG1()
         {
             VerifyReadException(new byte[defaultByteArraySize], defaultByteOffset, -1, typeof(ArgumentOutOfRangeException));
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasOneSerialPort))]
         public void Count_NEGRND()
         {
             Random rndGen = new Random();
@@ -75,13 +75,13 @@ namespace System.IO.Ports.Tests
             VerifyReadException(new byte[defaultByteArraySize], defaultByteOffset, rndGen.Next(int.MinValue, 0), typeof(ArgumentOutOfRangeException));
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasOneSerialPort))]
         public void Count_MinInt()
         {
             VerifyReadException(new byte[defaultByteArraySize], defaultByteOffset, int.MinValue, typeof(ArgumentOutOfRangeException));
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void OffsetCount_EQ_Length_Plus_1()
         {
             Random rndGen = new Random();
@@ -93,7 +93,7 @@ namespace System.IO.Ports.Tests
             VerifyReadException(new byte[bufferLength], offset, count, expectedException);
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void OffsetCount_GT_Length()
         {
             Random rndGen = new Random();
@@ -105,7 +105,7 @@ namespace System.IO.Ports.Tests
             VerifyReadException(new byte[bufferLength], offset, count, expectedException);
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void Offset_GT_Length()
         {
             Random rndGen = new Random();
@@ -117,7 +117,7 @@ namespace System.IO.Ports.Tests
             VerifyReadException(new byte[bufferLength], offset, count, expectedException);
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void Count_GT_Length()
         {
             Random rndGen = new Random();
@@ -129,7 +129,7 @@ namespace System.IO.Ports.Tests
             VerifyReadException(new byte[bufferLength], offset, count, expectedException);
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void OffsetCount_EQ_Length()
         {
             Random rndGen = new Random();
@@ -140,7 +140,7 @@ namespace System.IO.Ports.Tests
             VerifyRead(new byte[bufferLength], offset, count);
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void Offset_EQ_Length_Minus_1()
         {
             Random rndGen = new Random();
@@ -151,7 +151,7 @@ namespace System.IO.Ports.Tests
             VerifyRead(new byte[bufferLength], offset, count);
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void Count_EQ_Length()
         {
             Random rndGen = new Random();
@@ -162,7 +162,7 @@ namespace System.IO.Ports.Tests
             VerifyRead(new byte[bufferLength], offset, count);
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void SerialPort_ReadBufferedData()
         {
             int bufferLength = 32 + 8;
@@ -172,7 +172,7 @@ namespace System.IO.Ports.Tests
             VerifyRead(new byte[bufferLength], offset, count, 32, ReadDataFromEnum.Buffered);
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void SerialPort_IterativeReadBufferedData()
         {
             int bufferLength = 8;
@@ -182,7 +182,7 @@ namespace System.IO.Ports.Tests
             VerifyRead(new byte[bufferLength], offset, count, 32, ReadDataFromEnum.Buffered);
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void SerialPort_ReadBufferedAndNonBufferedData()
         {
             int bufferLength = 64 + 8;
@@ -192,7 +192,7 @@ namespace System.IO.Ports.Tests
             VerifyRead(new byte[bufferLength], offset, count, 32, ReadDataFromEnum.BufferedAndNonBuffered);
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void SerialPort_IterativeReadBufferedAndNonBufferedData()
         {
             int bufferLength = 8;
@@ -202,7 +202,7 @@ namespace System.IO.Ports.Tests
             VerifyRead(new byte[bufferLength], offset, count, 32, ReadDataFromEnum.BufferedAndNonBuffered);
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void GreedyRead()
         {
             using (SerialPort com1 = TCSupport.InitFirstSerialPort())
@@ -280,7 +280,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void LargeInputBuffer()
         {
             int bufferLength = largeNumRndBytesToRead;
@@ -290,7 +290,7 @@ namespace System.IO.Ports.Tests
             VerifyRead(new byte[bufferLength], offset, count, largeNumRndBytesToRead);
         }
 
-        [ConditionalFact(nameof(HasLoopbackOrNullModem))]
+        [ConditionalFact(typeof(Read_byte_int_int), nameof(HasLoopbackOrNullModem))]
         public void Read_DataReceivedBeforeTimeout()
         {
             using (SerialPort com1 = TCSupport.InitFirstSerialPort())
@@ -317,7 +317,7 @@ namespace System.IO.Ports.Tests
                 asyncReadTask.Start();
                 asyncRead.ReadStartedEvent.WaitOne();
                 //This only tells us that the thread has started to execute code in the method
-                Thread.Sleep(2000); //We need to wait to guarentee that we are executing code in SerialPort
+                Thread.Sleep(2000); //We need to wait to guarantee that we are executing code in SerialPort
                 com2.Write(byteXmitBuffer, 0, byteXmitBuffer.Length);
 
                 asyncRead.ReadCompletedEvent.WaitOne();
@@ -366,7 +366,7 @@ namespace System.IO.Ports.Tests
             {
                 int bufferLength = null == buffer ? 0 : buffer.Length;
 
-                Debug.WriteLine("Verifying read method throws {0} buffer.Lenght={1}, offset={2}, count={3}", expectedException, bufferLength, offset, count);
+                Debug.WriteLine("Verifying read method throws {0} buffer.Length={1}, offset={2}, count={3}", expectedException, bufferLength, offset, count);
                 com.Open();
 
                 Assert.Throws(expectedException, () => com.Read(buffer, offset, count));
@@ -391,7 +391,7 @@ namespace System.IO.Ports.Tests
                 Random rndGen = new Random();
                 byte[] bytesToWrite = new byte[numberOfBytesToRead];
 
-                //Genrate random bytes
+                // Generate random bytes
                 for (int i = 0; i < bytesToWrite.Length; i++)
                 {
                     byte randByte = (byte)rndGen.Next(0, 256);
@@ -399,7 +399,7 @@ namespace System.IO.Ports.Tests
                     bytesToWrite[i] = randByte;
                 }
 
-                //Genrate some random bytes in the buffer
+                // Generate some random bytes in the buffer
                 for (int i = 0; i < buffer.Length; i++)
                 {
                     byte randByte = (byte)rndGen.Next(0, 256);
@@ -407,7 +407,7 @@ namespace System.IO.Ports.Tests
                     buffer[i] = randByte;
                 }
 
-                Debug.WriteLine("Verifying read method buffer.Lenght={0}, offset={1}, count={2} with {3} random chars",
+                Debug.WriteLine("Verifying read method buffer.Length={0}, offset={1}, count={2} with {3} random chars",
                     buffer.Length, offset, count, bytesToWrite.Length);
 
                 com1.ReadTimeout = 500;

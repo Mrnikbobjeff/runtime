@@ -3,7 +3,7 @@
 
 using System;
 using System.Runtime.InteropServices;
-using TestLibrary;
+using Xunit;
 
 unsafe partial class GenericsNative
 {
@@ -23,9 +23,10 @@ unsafe partial class GenericsNative
     public static extern ReadOnlySpan<float> AddReadOnlySpanFs(in ReadOnlySpan<float> pValues, int count);
 }
 
-unsafe partial class GenericsTest
+public unsafe partial class GenericsTest
 {
-    private static void TestReadOnlySpanF()
+    [Fact]
+    public static void TestReadOnlySpanF()
     {
         Assert.Throws<MarshalDirectiveException>(() => GenericsNative.GetReadOnlySpanF(1.0f));
 

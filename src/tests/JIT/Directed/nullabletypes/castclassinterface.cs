@@ -1,8 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+namespace JitTest_Directed_nullabletypes_castclassinterface;
+
+using JitTest_Directed_nullabletypes_Desktop_StructDefinitions;
+using Assert = JitTest_Directed_nullabletypes_Desktop_StructDefinitions.Assert;
+
 using System.Runtime.InteropServices;
 using System;
+using Xunit;
 
 
 internal class NullableTest1
@@ -779,9 +785,10 @@ internal class NullableTest18
 
 
 
-internal class Test
+public class Test_castclassinterface
 {
-    private static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {
@@ -814,4 +821,3 @@ internal class Test
         return 100;
     }
 }
-

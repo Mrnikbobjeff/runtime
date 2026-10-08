@@ -3,6 +3,8 @@
 
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 public class UserException1 : Exception {
 	int ExceptionId;
@@ -52,12 +54,15 @@ public class UserException4 : UserException3 {
 public class RethrowException {
 	private int ThreadId;
 
-	public RethrowException(int id){
+	public RethrowException() { }
+
+	private RethrowException(int id){
 		ThreadId = id;
 	}
 		
 	
-	public static int Main(String[] args) {
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint() {
 	  String s = "Done";
 	    System.IO.TextWriter t = Console.Out;
 	    Console.SetOut(t);

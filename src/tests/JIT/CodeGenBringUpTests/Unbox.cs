@@ -5,8 +5,9 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-public class BringUpTest
+public class BringUpTest_Unbox
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -17,7 +18,8 @@ public class BringUpTest
         return (int)o;
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int r = 3;
         object o = r;

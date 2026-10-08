@@ -3,6 +3,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using Xunit;
@@ -16,7 +17,12 @@ namespace System.Net.Tests
             yield return new object[] { new WebProxy(), null, false, false, Array.Empty<string>(), null };
 
             yield return new object[] { new WebProxy("http://anything"), new Uri("http://anything"), false, false, Array.Empty<string>(), null };
+            yield return new object[] { new WebProxy("http://anything:42"), new Uri("http://anything:42"), false, false, Array.Empty<string>(), null };
+            yield return new object[] { new WebProxy("anything:42"), new Uri("http://anything:42"), false, false, Array.Empty<string>(), null };
             yield return new object[] { new WebProxy("anything", 42), new Uri("http://anything:42"), false, false, Array.Empty<string>(), null };
+            yield return new object[] { new WebProxy("http://anything", 42), new Uri("http://anything:42"), false, false, Array.Empty<string>(), null };
+            yield return new object[] { new WebProxy("http://anything:123", 42), new Uri("http://anything:42"), false, false, Array.Empty<string>(), null };
+            yield return new object[] { new WebProxy("socks5://anything", 42), new Uri("socks5://anything:42"), false, false, Array.Empty<string>(), null };
             yield return new object[] { new WebProxy(new Uri("http://anything")), new Uri("http://anything"), false, false, Array.Empty<string>(), null };
 
             yield return new object[] { new WebProxy("http://anything", true), new Uri("http://anything"), false, true, Array.Empty<string>(), null };
@@ -39,7 +45,7 @@ namespace System.Net.Tests
             Assert.Equal(useDefaultCredentials, p.UseDefaultCredentials);
             Assert.Equal(bypassLocal, p.BypassProxyOnLocal);
             Assert.Equal(bypassedAddresses, p.BypassList);
-            Assert.Equal(bypassedAddresses, (string[])p.BypassArrayList.ToArray(typeof(string)));
+            Assert.Equal(bypassedAddresses, p.BypassArrayList.Cast<string>().ToArray());
             Assert.Equal(creds, p.Credentials);
         }
 
@@ -55,12 +61,17 @@ namespace System.Net.Tests
             strings = new string[] { "hello", "world" };
             p.BypassList = strings;
             Assert.Equal(strings, p.BypassList);
-            Assert.Equal(strings, (string[])p.BypassArrayList.ToArray(typeof(string)));
+            Assert.Equal(strings, p.BypassArrayList.Cast<string>().ToArray());
 
             strings = new string[] { "hello" };
             p.BypassList = strings;
             Assert.Equal(strings, p.BypassList);
-            Assert.Equal(strings, (string[])p.BypassArrayList.ToArray(typeof(string)));
+            Assert.Equal(strings, p.BypassArrayList.Cast<string>().ToArray());
+
+            strings = null;
+            p.BypassList = strings;
+            Assert.Empty(p.BypassList);
+            Assert.Empty(p.BypassArrayList);
         }
 
         [Fact]
@@ -111,7 +122,6 @@ namespace System.Net.Tests
             var p = new WebProxy();
             AssertExtensions.Throws<ArgumentNullException>("destination", () => p.GetProxy(null));
             AssertExtensions.Throws<ArgumentNullException>("host", () => p.IsBypassed(null));
-            AssertExtensions.Throws<ArgumentNullException>("c", () => p.BypassList = null);
             Assert.ThrowsAny<ArgumentException>(() => p.BypassList = new string[] { "*.com" });
         }
 
@@ -121,6 +131,47 @@ namespace System.Net.Tests
             var p = new WebProxy("http://bing.com");
             p.BypassArrayList.Add("*.com");
             p.IsBypassed(new Uri("http://microsoft.com")); // exception should be silently eaten
+        }
+
+        [Fact]
+        public static void WebProxy_BypassUrl_BypassArrayListChangedDirectly_IsBypassedAsExpected()
+        {
+            var p = new WebProxy("http://microsoft.com", BypassOnLocal: false);
+            Assert.False(p.IsBypassed(new Uri("http://bing.com")));
+
+            p.BypassArrayList.Add("bing");
+            Assert.True(p.IsBypassed(new Uri("http://bing.com")));
+
+            p.BypassArrayList.Remove("bing");
+            Assert.False(p.IsBypassed(new Uri("http://bing.com")));
+
+            p.BypassArrayList.AddRange(new[] { "dot.net" });
+            Assert.True(p.IsBypassed(new Uri("http://dot.net")));
+
+            p.BypassArrayList.InsertRange(0, new[] { "bing" });
+            Assert.True(p.IsBypassed(new Uri("http://bing.com")));
+
+            p.BypassArrayList.SetRange(0, new[] { "example", "microsoft" });
+            Assert.True(p.IsBypassed(new Uri("http://example.com")));
+            Assert.True(p.IsBypassed(new Uri("http://microsoft.com")));
+            Assert.False(p.IsBypassed(new Uri("http://bing.com")));
+            Assert.False(p.IsBypassed(new Uri("http://dot.net")));
+
+            p.BypassArrayList.Clear();
+            Assert.False(p.IsBypassed(new Uri("http://example.com")));
+            Assert.False(p.IsBypassed(new Uri("http://microsoft.com")));
+
+            p.BypassArrayList.Insert(0, "bing");
+            p.BypassArrayList.Insert(1, "example");
+            Assert.True(p.IsBypassed(new Uri("http://bing.com")));
+            Assert.True(p.IsBypassed(new Uri("http://example.com")));
+
+            p.BypassArrayList.RemoveAt(0);
+            Assert.False(p.IsBypassed(new Uri("http://bing.com")));
+            Assert.True(p.IsBypassed(new Uri("http://example.com")));
+
+            p.BypassArrayList.RemoveRange(0, 1);
+            Assert.False(p.IsBypassed(new Uri("http://example.com")));
         }
 
         [Fact]
@@ -142,7 +193,9 @@ namespace System.Net.Tests
             // Local
 
             yield return new object[] { new Uri($"http://nodotinhostname"), true };
-            yield return new object[] { new Uri($"http://{Guid.NewGuid().ToString("N")}"), true };
+            yield return new object[] { new Uri($"http://{Guid.NewGuid():N}"), true };
+            // A non-ASCII hostname without a separator stays local; its IDN form gains no dot.
+            yield return new object[] { new Uri("http://b\u00FCcher"), true };
             foreach (IPAddress address in Dns.GetHostEntryAsync(Dns.GetHostName()).GetAwaiter().GetResult().AddressList)
             {
                 if (address.AddressFamily == AddressFamily.InterNetwork)
@@ -159,7 +212,7 @@ namespace System.Net.Tests
             if (!string.IsNullOrWhiteSpace(domain))
             {
                 Uri uri = null;
-                try { uri = new Uri($"http://{Guid.NewGuid().ToString("N")}.{domain}"); }
+                try { uri = new Uri($"http://{Guid.NewGuid():N}.{domain}"); }
                 catch (UriFormatException) { }
 
                 if (uri != null)
@@ -170,8 +223,14 @@ namespace System.Net.Tests
 
             // Non-local
 
-            yield return new object[] { new Uri($"http://{Guid.NewGuid().ToString("N")}.com"), false };
+            yield return new object[] { new Uri($"http://{Guid.NewGuid():N}.com"), false };
             yield return new object[] { new Uri($"http://{IPAddress.None}"), false };
+
+            // Hosts with non-ASCII dot separators that IDN maps to '.' (ideographic full stop U+3002,
+            // fullwidth full stop U+FF0E, halfwidth ideographic full stop U+FF61) are not local.
+            yield return new object[] { new Uri($"http://{Guid.NewGuid():N}\u3002com"), false };
+            yield return new object[] { new Uri($"http://{Guid.NewGuid():N}\uFF0Ecom"), false };
+            yield return new object[] { new Uri($"http://{Guid.NewGuid():N}\uFF61com"), false };
         }
 
         [ActiveIssue("https://github.com/dotnet/runtime/issues/23428", TestPlatforms.AnyUnix)]
@@ -212,6 +271,122 @@ namespace System.Net.Tests
         public static void WebProxy_BypassOnLocal_ConfiguredToNotBypassLocal()
         {
             Assert.False(new WebProxy("microsoft", BypassOnLocal: false).IsBypassed(new Uri($"http://{IPAddress.Loopback}")));
+        }
+
+        [Theory]
+        [InlineData("http://user:pass@host", "user", "pass")]
+        [InlineData("http://user:pass@host:8080", "user", "pass")]
+        [InlineData("socks5://user:pass@host:1080", "user", "pass")]
+        [InlineData("socks5h://user:pass@host:1080", "user", "pass")]
+        [InlineData("http://user@host", "user", "")]
+        [InlineData("http://user%40name:p%40ss@host", "user@name", "p@ss")]
+        [InlineData("http://user%3Aname:p%3Ass@host", "user:name", "p:ss")]
+        [InlineData("http://user:p%25ss@host", "user", "p%ss")]
+        public static void WebProxy_Ctor_CredentialsExtractedFromStringUri(string address, string expectedUser, string expectedPassword)
+        {
+            var proxy = new WebProxy(address);
+
+            Assert.NotNull(proxy.Credentials);
+            NetworkCredential credential = Assert.IsType<NetworkCredential>(proxy.Credentials);
+            Assert.Equal(expectedUser, credential.UserName);
+            Assert.Equal(expectedPassword, credential.Password);
+        }
+
+        [Theory]
+        [InlineData("http://user:pass@host", "user", "pass")]
+        [InlineData("socks5://user:pass@host:1080", "user", "pass")]
+        [InlineData("http://user@host", "user", "")]
+        public static void WebProxy_Ctor_CredentialsExtractedFromUriObject(string address, string expectedUser, string expectedPassword)
+        {
+            var proxy = new WebProxy(new Uri(address));
+
+            Assert.NotNull(proxy.Credentials);
+            NetworkCredential credential = Assert.IsType<NetworkCredential>(proxy.Credentials);
+            Assert.Equal(expectedUser, credential.UserName);
+            Assert.Equal(expectedPassword, credential.Password);
+        }
+
+        [Theory]
+        [InlineData("http://host")]
+        [InlineData("http://host:8080")]
+        [InlineData("socks5://host:1080")]
+        public static void WebProxy_Ctor_NoCredentialsInUri_CredentialsNull(string address)
+        {
+            var proxy = new WebProxy(address);
+            Assert.Null(proxy.Credentials);
+        }
+
+        [Fact]
+        public static void WebProxy_Ctor_ExplicitCredentialsTakePrecedence()
+        {
+            var explicitCreds = new NetworkCredential("explicit", "creds");
+            var proxy = new WebProxy(new Uri("http://user:pass@host"), false, null, explicitCreds);
+
+            Assert.Same(explicitCreds, proxy.Credentials);
+        }
+
+        [Fact]
+        public static void WebProxy_Ctor_NullUri_CredentialsNull()
+        {
+            var proxy = new WebProxy((Uri?)null);
+            Assert.Null(proxy.Credentials);
+        }
+
+        [Theory]
+        [InlineData("http://user:pass@host", "user", "pass")]
+        [InlineData("socks5://user:pass@host:1080", "user", "pass")]
+        [InlineData("http://user@host", "user", "")]
+        public static void WebProxy_AddressSetter_CredentialsExtractedFromUri(string address, string expectedUser, string expectedPassword)
+        {
+            var proxy = new WebProxy();
+            proxy.Address = new Uri(address);
+
+            Assert.NotNull(proxy.Credentials);
+            NetworkCredential credential = Assert.IsType<NetworkCredential>(proxy.Credentials);
+            Assert.Equal(expectedUser, credential.UserName);
+            Assert.Equal(expectedPassword, credential.Password);
+        }
+
+        [Fact]
+        public static void WebProxy_AddressSetter_NoCredentialsInUri_CredentialsUnchanged()
+        {
+            var proxy = new WebProxy();
+            proxy.Address = new Uri("http://host:8080");
+            Assert.Null(proxy.Credentials);
+        }
+
+        [Fact]
+        public static void WebProxy_AddressSetter_OverridesExistingCredentialsWhenUriHasUserInfo()
+        {
+            var proxy = new WebProxy();
+            proxy.Credentials = new NetworkCredential("old", "creds");
+            proxy.Address = new Uri("http://new:creds@host");
+
+            NetworkCredential credential = Assert.IsType<NetworkCredential>(proxy.Credentials);
+            Assert.Equal("new", credential.UserName);
+            Assert.Equal("creds", credential.Password);
+        }
+
+        [Fact]
+        public static void WebProxy_AddressSetter_PreservesExistingCredentialsWhenUriHasNoUserInfo()
+        {
+            var existingCreds = new NetworkCredential("existing", "creds");
+            var proxy = new WebProxy();
+            proxy.Credentials = existingCreds;
+            proxy.Address = new Uri("http://host:8080");
+
+            Assert.Same(existingCreds, proxy.Credentials);
+        }
+
+        [Fact]
+        public static void WebProxy_AddressSetter_NullClearsAddressButNotCredentials()
+        {
+            var proxy = new WebProxy("http://user:pass@host");
+            Assert.NotNull(proxy.Credentials);
+
+            proxy.Address = null;
+            Assert.Null(proxy.Address);
+            Assert.NotNull(proxy.Credentials);
         }
 
         [Fact]

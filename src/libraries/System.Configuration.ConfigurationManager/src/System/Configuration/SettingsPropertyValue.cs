@@ -75,12 +75,6 @@ namespace System.Configuration
             }
         }
 
-        private bool IsHostedInAspnet()
-        {
-            // See System.Web.Hosting.ApplicationManager::PopulateDomainBindings
-            return AppDomain.CurrentDomain.GetData(".appDomain") != null;
-        }
-
         private object Deserialize()
         {
             object value = null;
@@ -88,40 +82,37 @@ namespace System.Configuration
             // Attempt 1: Try creating from SerializedValue
             if (SerializedValue != null)
             {
+                bool throwBinaryFormatterDeprecationException = false;
                 try
                 {
                     if (SerializedValue is string)
                     {
                         value = GetObjectFromString(Property.PropertyType, Property.SerializeAs, (string)SerializedValue);
                     }
-                    else
+                    else if (SerializedValue is byte[] serializedBytes)
                     {
-                        using (MemoryStream ms = new MemoryStream((byte[])SerializedValue))
+                        if (SettingsProperty.EnableUnsafeBinaryFormatterInPropertyValueSerialization)
                         {
-                            // Issue https://github.com/dotnet/runtime/issues/39295 tracks finding an alternative to BinaryFormatter
-                            value = (new BinaryFormatter()).Deserialize(ms);
+                            using (MemoryStream ms = new MemoryStream(serializedBytes))
+                            {
+#pragma warning disable SYSLIB0011 // BinaryFormatter serialization is obsolete and should not be used.
+                                value = (new BinaryFormatter()).Deserialize(ms);
+#pragma warning restore SYSLIB0011
+                            }
+                        }
+                        else
+                        {
+                            throwBinaryFormatterDeprecationException = true;
                         }
                     }
                 }
-                catch (Exception exception)
+                catch (Exception)
                 {
-                    try
-                    {
-                        if (IsHostedInAspnet())
-                        {
-                            object[] args = new object[] { Property, this, exception };
+                }
 
-                            const string webBaseEventTypeName = "System.Web.Management.WebBaseEvent, System.Web";
-                            Type type = Type.GetType(webBaseEventTypeName, true);
-
-                            type.InvokeMember("RaisePropertyDeserializationWebErrorEvent",
-                                BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.InvokeMethod,
-                                null, null, args, CultureInfo.InvariantCulture);
-                        }
-                    }
-                    catch
-                    {
-                    }
+                if (throwBinaryFormatterDeprecationException)
+                {
+                    throw new NotSupportedException(Obsoletions.BinaryFormatterMessage);
                 }
 
                 if (value != null && !Property.PropertyType.IsAssignableFrom(value.GetType())) // is it the correct type
@@ -192,12 +183,22 @@ namespace System.Configuration
             // Convert based on the serialized type
             switch (serializeAs)
             {
+#pragma warning disable CS0618 // Type or member is obsolete
                 case SettingsSerializeAs.Binary:
-                    byte[] buffer = Convert.FromBase64String(serializedValue);
-                    using (MemoryStream ms = new MemoryStream(buffer))
+#pragma warning restore CS0618 // Type or member is obsolete
+                    if (SettingsProperty.EnableUnsafeBinaryFormatterInPropertyValueSerialization)
                     {
-                        // Issue https://github.com/dotnet/runtime/issues/39295 tracks finding an alternative to BinaryFormatter
-                        return (new BinaryFormatter()).Deserialize(ms);
+                        byte[] buffer = Convert.FromBase64String(serializedValue);
+                        using (MemoryStream ms = new MemoryStream(buffer))
+                        {
+#pragma warning disable SYSLIB0011 // BinaryFormatter serialization is obsolete and should not be used.
+                            return (new BinaryFormatter()).Deserialize(ms);
+#pragma warning restore SYSLIB0011
+                        }
+                    }
+                    else
+                    {
+                        throw new NotSupportedException(Obsoletions.BinaryFormatterMessage);
                     }
                 case SettingsSerializeAs.Xml:
                     StringReader sr = new StringReader(serializedValue);
@@ -218,15 +219,27 @@ namespace System.Configuration
             if (_value == null)
                 return null;
 
+#pragma warning disable CS0618 // Type or member is obsolete
             if (Property.SerializeAs != SettingsSerializeAs.Binary)
-                return ConvertObjectToString(_value, Property.PropertyType, Property.SerializeAs, Property.ThrowOnErrorSerializing);
-
-            using (MemoryStream ms = new MemoryStream())
+#pragma warning restore CS0618 // Type or member is obsolete
             {
-                // Issue https://github.com/dotnet/runtime/issues/39295 tracks finding an alternative to BinaryFormatter
-                BinaryFormatter bf = new BinaryFormatter();
-                bf.Serialize(ms, _value);
-                return ms.ToArray();
+                return ConvertObjectToString(_value, Property.PropertyType, Property.SerializeAs, Property.ThrowOnErrorSerializing);
+            }
+
+            if (SettingsProperty.EnableUnsafeBinaryFormatterInPropertyValueSerialization)
+            {
+                using (MemoryStream ms = new MemoryStream())
+                {
+#pragma warning disable SYSLIB0011 // BinaryFormatter serialization is obsolete and should not be used.
+                    BinaryFormatter bf = new BinaryFormatter();
+                    bf.Serialize(ms, _value);
+#pragma warning restore SYSLIB0011
+                    return ms.ToArray();
+                }
+            }
+            else
+            {
+                throw new NotSupportedException(Obsoletions.BinaryFormatterMessage);
             }
         }
 
@@ -255,7 +268,9 @@ namespace System.Configuration
 
                         xs.Serialize(sw, propertyValue);
                         return sw.ToString();
+#pragma warning disable CS0618 // Type or member is obsolete
                     case SettingsSerializeAs.Binary:
+#pragma warning restore CS0618 // Type or member is obsolete
                         Debug.Fail("Should not have gotten here with Binary formatting");
                         break;
                 }

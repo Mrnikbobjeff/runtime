@@ -15,28 +15,29 @@
 #include "mini.h"
 #include "ee.h"
 
-/* Per-domain information maintained by the JIT */
-typedef struct
-{
+/*
+ * Per-memory manager information maintained by the JIT.
+ */
+typedef struct {
+	MonoMemoryManager *mem_manager;
+
 	/* Maps MonoMethod's to a GSList of GOT slot addresses pointing to its code */
 	GHashTable *jump_target_got_slot_hash;
 	GHashTable *jump_target_hash;
 	/* Maps methods/klasses to the address of the given type of trampoline */
-	GHashTable *class_init_trampoline_hash;
 	GHashTable *jump_trampoline_hash;
 	GHashTable *jit_trampoline_hash;
-	GHashTable *delegate_trampoline_hash;
+	GHashTable *delegate_info_hash;
+	GHashTable *dyn_delegate_info_hash;
 	/* Maps ClassMethodPair -> MonoDelegateTrampInfo */
 	GHashTable *static_rgctx_trampoline_hash;
-	GHashTable *llvm_vcall_trampoline_hash;
 	/* maps MonoMethod -> MonoJitDynamicMethodInfo */
 	GHashTable *dynamic_code_hash;
-	GHashTable *method_code_hash;
 	/* Maps methods to a RuntimeInvokeInfo structure, protected by the associated MonoDomain lock */
 	MonoConcurrentHashTable *runtime_invoke_hash;
 	/* Maps MonoMethod to a GPtrArray containing sequence point locations */
 	/* Protected by the domain lock */
-	GHashTable *seq_points;
+	dn_simdhash_ght_t *seq_points;
 	/* Debugger agent data */
 	gpointer agent_info;
 	/* Maps MonoMethod to an arch-specific structure */
@@ -53,12 +54,75 @@ typedef struct
 	MonoInternalHashTable interp_code_hash;
 	/* Maps MonoMethod -> 	MonoMethodRuntimeGenericContext */
 	GHashTable *mrgctx_hash;
-	GHashTable *method_rgctx_hash;
-	/* Maps gpointer -> InterpMethod */
-	GHashTable *interp_method_pointer_hash;
-} MonoJitDomainInfo;
+	/* Protected by 'jit_code_hash_lock' */
+	MonoInternalHashTable jit_code_hash;
+	mono_mutex_t    jit_code_hash_lock;
 
-#define domain_jit_info(domain) ((MonoJitDomainInfo*)((domain)->runtime_info))
+	/* Array of MonoJitInfo* */
+	GPtrArray *jit_infos;
+} MonoJitMemoryManager;
+
+static inline MonoJitMemoryManager*
+jit_mm_for_mm (MonoMemoryManager *mem_manager)
+{
+	return (MonoJitMemoryManager*)(mem_manager->runtime_info);
+}
+
+static inline MonoJitMemoryManager*
+get_default_jit_mm (void)
+{
+	return jit_mm_for_mm (mono_mem_manager_get_ambient ());
+}
+
+// FIXME: Review uses and change them to a more specific mem manager
+static inline MonoMemoryManager*
+get_default_mem_manager (void)
+{
+	return get_default_jit_mm ()->mem_manager;
+}
+
+static inline MonoJitMemoryManager*
+jit_mm_for_method (MonoMethod *method)
+{
+	return (MonoJitMemoryManager*)m_method_get_mem_manager (method)->runtime_info;
+}
+
+static inline MonoJitMemoryManager*
+jit_mm_for_class (MonoClass *klass)
+{
+	return (MonoJitMemoryManager*)m_class_get_mem_manager (klass)->runtime_info;
+}
+
+static inline void
+jit_mm_lock (MonoJitMemoryManager *jit_mm)
+{
+	mono_mem_manager_lock (jit_mm->mem_manager);
+}
+
+static inline void
+jit_mm_unlock (MonoJitMemoryManager *jit_mm)
+{
+	mono_mem_manager_unlock (jit_mm->mem_manager);
+}
+
+static inline void
+jit_code_hash_lock (MonoJitMemoryManager *jit_mm)
+{
+	mono_locks_os_acquire(&(jit_mm)->jit_code_hash_lock, DomainJitCodeHashLock);
+}
+
+static inline void
+jit_code_hash_unlock (MonoJitMemoryManager *jit_mm)
+{
+	mono_locks_os_release(&(jit_mm)->jit_code_hash_lock, DomainJitCodeHashLock);
+}
+
+/* Per vtable data maintained by the EE */
+typedef struct {
+	/* interp virtual method table */
+	gpointer *interp_vtable;
+	MonoFtnDesc **gsharedvt_vtable;
+} MonoVTableEEData;
 
 /*
  * Stores state need to resume exception handling when using LLVM
@@ -67,10 +131,11 @@ typedef struct {
 	MonoJitInfo *ji;
 	int clause_index;
 	MonoContext ctx, new_ctx;
-	/* FIXME: GC */
-	gpointer        ex_obj;
 	MonoLMF *lmf;
 	int first_filter_idx, filter_idx;
+	/* MonoMethodILState */
+	gpointer il_state;
+	MonoGCHandle ex_gchandle;
 } ResumeState;
 
 typedef void (*MonoAbortFunction)(MonoObject*);
@@ -101,14 +166,14 @@ struct MonoJitTlsData {
 
 	/* context to be used by the guard trampoline when resuming interruption.*/
 	MonoContext handler_block_context;
-	/* 
+	/*
 	 * Stores the state at the exception throw site to be used by mono_stack_walk ()
 	 * when it is called from profiler functions during exception handling.
 	 */
 	MonoContext orig_ex_ctx;
 	gboolean orig_ex_ctx_set;
 
-	/* 
+	/*
 	 * The current exception in flight
 	 */
 	MonoGCHandle thrown_exc;
@@ -143,9 +208,37 @@ struct MonoJitTlsData {
 #endif
 };
 
+typedef struct {
+	MonoMethod *method;
+	/* Either the IL offset of the currently executing code, or -1 */
+	int il_offset;
+	/* For every arg+local, either its address on the stack, or NULL */
+	gpointer data [1];
+} MonoMethodILState;
+
 #define MONO_LMFEXT_DEBUGGER_INVOKE 1
 #define MONO_LMFEXT_INTERP_EXIT 2
 #define MONO_LMFEXT_INTERP_EXIT_WITH_CTX 3
+#define MONO_LMFEXT_JIT_ENTRY 4
+#define MONO_LMFEXT_IL_STATE 5
+
+/*
+ * The MonoLMF structure is arch specific, it includes at least these fields.
+ * LMF means 'last-managed-frame'. Originally, these were allocated
+ * on the stack to mark the last frame before transitioning to
+ * native code, but currently, they are used to mark all kinds of
+ * other transitions as well, see MonoLMFExt.
+ */
+#if 0
+typedef struct {
+	/*
+	 * If the second lowest bit is set to 1, then this is a MonoLMFExt structure, and
+	 * the other fields are not valid.
+	 */
+	gpointer previous_lmf;
+	gpointer lmf_addr;
+} MonoLMF;
+#endif
 
 /*
  * This structure is an extension of MonoLMF and contains extra information.
@@ -155,6 +248,7 @@ typedef struct {
 	int kind;
 	MonoContext ctx; /* valid if kind == DEBUGGER_INVOKE || kind == INTERP_EXIT_WITH_CTX */
 	gpointer interp_exit_data; /* valid if kind == INTERP_EXIT || kind == INTERP_EXIT_WITH_CTX */
+	MonoMethodILState *il_state; /* valid if kind == IL_STATE */
 #if defined (_MSC_VER)
 	gboolean interp_exit_label_set;
 #endif
@@ -175,7 +269,6 @@ typedef struct MonoDebugOptions {
 	gboolean suspend_on_exception;
 	gboolean suspend_on_unhandled;
 	gboolean dyn_runtime_invoke;
-	gboolean gdb;
 	gboolean lldb;
 
 	/*
@@ -256,9 +349,7 @@ typedef struct MonoDebugOptions {
 	 */
 	gboolean top_runtime_invoke_unhandled;
 
-#ifdef ENABLE_NETCORE
 	gboolean enabled;
-#endif
 } MonoDebugOptions;
 
 /*
@@ -385,8 +476,9 @@ extern GHashTable *mono_single_method_hash;
 extern GList* mono_aot_paths;
 extern MonoDebugOptions mini_debug_options;
 extern GSList *mono_interp_only_classes;
-extern char *sdb_options;
 extern MonoMethodDesc *mono_stats_method_desc;
+
+MONO_COMPONENT_API MonoDebugOptions *get_mini_debug_options (void);
 
 /*
 This struct describes what execution engine feature to use.
@@ -420,6 +512,12 @@ jinfo_get_method (MonoJitInfo *ji)
 	return mono_jit_info_get_method (ji);
 }
 
+static inline gpointer
+jinfo_get_ftnptr (MonoJitInfo *ji)
+{
+	return MINI_ADDR_TO_FTNPTR (ji->code_start);
+}
+
 /* main function */
 MONO_API int         mono_main                      (int argc, char* argv[]);
 MONO_API void        mono_set_defaults              (int verbose_level, guint32 opts);
@@ -437,12 +535,9 @@ MonoEECallbacks*       mono_interp_callbacks_pointer;
 
 #define mini_get_interp_callbacks() (mono_interp_callbacks_pointer)
 
-typedef struct _MonoDebuggerCallbacks MonoDebuggerCallbacks;
+MONO_COMPONENT_API const MonoEECallbacks* mini_get_interp_callbacks_api (void);
 
-void                   mini_install_dbg_callbacks (MonoDebuggerCallbacks *cbs);
-MonoDebuggerCallbacks  *mini_get_dbg_callbacks (void);
-
-MonoDomain* mini_init                      (const char *filename, const char *runtime_version);
+MonoDomain* mini_init                      (const char *root_domain_name);
 void        mini_cleanup                   (MonoDomain *domain);
 MONO_API MonoDebugOptions *mini_get_debug_options   (void);
 MONO_API gboolean    mini_parse_debug_option (const char *option);
@@ -451,21 +546,22 @@ MONO_API void
 mono_install_ftnptr_eh_callback (MonoFtnPtrEHCallback callback);
 
 void      mini_jit_init                    (void);
-void      mini_jit_cleanup                 (void);
 void      mono_disable_optimizations       (guint32 opts);
 void      mono_set_optimizations           (guint32 opts);
 void      mono_precompile_assemblies        (void);
 MONO_API int       mono_parse_default_optimizations  (const char* p);
 gboolean          mono_running_on_valgrind (void);
 
-MonoLMF * mono_get_lmf                      (void);
+MONO_COMPONENT_API MonoLMF * mono_get_lmf                      (void);
 void      mono_set_lmf                      (MonoLMF *lmf);
-void      mono_push_lmf                     (MonoLMFExt *ext);
-void      mono_pop_lmf                      (MonoLMF *lmf);
-MONO_API void      mono_jit_set_domain      (MonoDomain *domain);
+MONO_COMPONENT_API void      mono_push_lmf                     (MonoLMFExt *ext);
+MONO_COMPONENT_API void      mono_pop_lmf                      (MonoLMF *lmf);
+
+MONO_API MONO_RT_EXTERNAL_ONLY void
+mono_jit_set_domain      (MonoDomain *domain);
 
 gboolean  mono_method_same_domain           (MonoJitInfo *caller, MonoJitInfo *callee);
-gpointer  mono_create_ftnptr                (MonoDomain *domain, gpointer addr);
+gpointer  mono_create_ftnptr                (gpointer addr);
 MonoMethod* mono_icall_get_wrapper_method    (MonoJitICallInfo* callinfo);
 gconstpointer mono_icall_get_wrapper       (MonoJitICallInfo* callinfo);
 gconstpointer mono_icall_get_wrapper_full  (MonoJitICallInfo* callinfo, gboolean do_compile);
@@ -476,13 +572,15 @@ gint  mono_patch_info_equal (gconstpointer ka, gconstpointer kb);
 MonoJumpInfo *mono_patch_info_list_prepend  (MonoJumpInfo *list, int ip, MonoJumpInfoType type, gconstpointer target);
 MonoJumpInfoToken* mono_jump_info_token_new (MonoMemPool *mp, MonoImage *image, guint32 token);
 MonoJumpInfoToken* mono_jump_info_token_new2 (MonoMemPool *mp, MonoImage *image, guint32 token, MonoGenericContext *context);
-gpointer  mono_resolve_patch_target         (MonoMethod *method, MonoDomain *domain, guint8 *code, MonoJumpInfo *patch_info, gboolean run_cctors, MonoError *error);
-void mini_register_jump_site                (MonoDomain *domain, MonoMethod *method, gpointer ip);
-void mini_patch_jump_sites                  (MonoDomain *domain, MonoMethod *method, gpointer addr);
-void mini_patch_llvm_jit_callees            (MonoDomain *domain, MonoMethod *method, gpointer addr);
-gpointer  mono_jit_search_all_backends_for_jit_info (MonoDomain *domain, MonoMethod *method, MonoJitInfo **ji);
-gpointer  mono_jit_find_compiled_method_with_jit_info (MonoDomain *domain, MonoMethod *method, MonoJitInfo **ji);
-gpointer  mono_jit_find_compiled_method     (MonoDomain *domain, MonoMethod *method);
+MonoGSharedMethodInfo* mini_gshared_method_info_dup (MonoMemoryManager *mem_manager, MonoGSharedMethodInfo *info);
+gpointer  mono_resolve_patch_target         (MonoMethod *method, guint8 *code, MonoJumpInfo *patch_info, gboolean run_cctors, MonoError *error);
+gpointer  mono_resolve_patch_target_ext     (MonoMemoryManager *mem_manager, MonoMethod *method, guint8 *code, MonoJumpInfo *patch_info, gboolean run_cctors, MonoError *error);
+void mini_register_jump_site                (MonoMethod *method, gpointer ip);
+void mini_patch_jump_sites                  (MonoMethod *method, gpointer addr);
+void mini_patch_llvm_jit_callees            (MonoMethod *method, gpointer addr);
+MONO_COMPONENT_API gpointer  mono_jit_search_all_backends_for_jit_info (MonoMethod *method, MonoJitInfo **ji);
+gpointer  mono_jit_find_compiled_method_with_jit_info (MonoMethod *method, MonoJitInfo **ji);
+gpointer  mono_jit_find_compiled_method     (MonoMethod *method);
 gpointer mono_jit_compile_method (MonoMethod *method, MonoError *error);
 gpointer  mono_jit_compile_method_jit_only  (MonoMethod *method, MonoError *error);
 
@@ -494,12 +592,9 @@ const char*mono_ji_type_to_string           (MonoJumpInfoType type);
 void      mono_print_ji                     (const MonoJumpInfo *ji);
 MONO_API void      mono_print_method_from_ip         (void *ip);
 MONO_API char     *mono_pmip                         (void *ip);
+MONO_API char     *mono_pmip_u                       (void *ip);
 MONO_API int mono_ee_api_version (void);
 gboolean  mono_debug_count                  (void);
-
-#ifdef __linux__
-#define XDEBUG_ENABLED 1
-#endif
 
 #ifdef __linux__
 /* maybe enable also for other systems? */
@@ -519,6 +614,11 @@ void mono_enable_jit_dump (void);
 void mono_emit_jit_dump (MonoJitInfo *jinfo, gpointer code);
 void mono_jit_dump_cleanup (void);
 
+gpointer mini_alloc_generic_virtual_trampoline (MonoVTable *vtable, int size);
+MonoException* mini_get_stack_overflow_ex (void);
+MonoJitInfo* mini_alloc_jinfo (MonoJitMemoryManager *jit_mm, int size);
+void* mono_dyn_method_alloc0 (MonoMethod *method, guint size);
+
 /*
  * Per-OS implementation functions.
  */
@@ -532,16 +632,13 @@ void
 mono_runtime_install_custom_handlers_usage (void);
 
 void
-mono_runtime_cleanup_handlers (void);
-
-void
 mono_runtime_setup_stat_profiler (void);
 
 void
-mono_runtime_shutdown_stat_profiler (void);
+mono_runtime_posix_install_handlers (void);
 
 void
-mono_runtime_posix_install_handlers (void);
+mono_runtime_posix_restore_handler (int signo);
 
 void
 mono_gdb_render_native_backtraces (pid_t crashed_pid);
@@ -553,22 +650,25 @@ void
 mono_init_native_crash_info (void);
 
 void
-mono_cleanup_native_crash_info (void);
-
-void
 mono_dump_native_crash_info (const char *signal, MonoContext *mctx, MONO_SIG_HANDLER_INFO_TYPE *info);
 
 void
-mono_post_native_crash_handler (const char *signal, MonoContext *mctx, MONO_SIG_HANDLER_INFO_TYPE *info, gboolean crash_chaining, void *context);
+mono_post_native_crash_handler (const char *signal, MonoContext *mctx, MONO_SIG_HANDLER_INFO_TYPE *info, gboolean crash_chaining);
 
 gboolean
 mono_is_addr_implicit_null_check (void *addr);
+
+gboolean
+mono_jit_call_can_be_supported_by_interp (MonoMethod *method, MonoMethodSignature *sig, gboolean is_llvm_only);
+
+MONO_COMPONENT_API void
+mono_jit_memory_manager_foreach_seq_point (dn_simdhash_ght_t *seq_points, dn_simdhash_ght_foreach_func func, gpointer user_data);
 
 /*
  * Signal handling
  */
 
-#if defined(DISABLE_HW_TRAPS) || defined(MONO_ARCH_DISABLE_HW_TRAPS)
+#if defined(MONO_ARCH_DISABLE_HW_TRAPS)
  // Signal handlers not available
 #define MONO_ARCH_NEED_DIV_CHECK 1
 #endif
@@ -578,6 +678,7 @@ void MONO_SIG_HANDLER_SIGNATURE (mono_crashing_signal_handler) ;
 void MONO_SIG_HANDLER_SIGNATURE (mono_sigsegv_signal_handler);
 void MONO_SIG_HANDLER_SIGNATURE (mono_sigint_signal_handler) ;
 gboolean MONO_SIG_HANDLER_SIGNATURE (mono_chain_signal);
+void mono_chain_signal_to_default_sigsegv_handler (void);
 
 #if defined (HOST_WASM)
 
@@ -616,11 +717,20 @@ void mini_register_sigterm_handler (void);
 	} while (0)
 
 #define MINI_END_CODEGEN(buf,size,type,arg) do { \
+	MONO_DISABLE_WARNING(4127) /* conditional expression is constant */ \
 	mono_codeman_disable_write (); \
 	mono_arch_flush_icache ((buf), (size)); \
 	if ((int)type != -1) \
-		MONO_PROFILER_RAISE (jit_code_buffer, ((buf), (size), (type), (arg))); \
+		MONO_PROFILER_RAISE (jit_code_buffer, ((buf), (size), (MonoProfilerCodeBufferType)(type), (arg))); \
+	MONO_RESTORE_WARNING \
 	} while (0)
 
-#endif /* __MONO_MINI_RUNTIME_H__ */
+typedef void (*MonoRuntimeInitCallback) (void);
 
+MONO_COMPONENT_API void
+mono_set_runtime_init_callback (MonoRuntimeInitCallback callback);
+
+MONO_COMPONENT_API void
+mono_invoke_runtime_init_callback (void);
+
+#endif /* __MONO_MINI_RUNTIME_H__ */

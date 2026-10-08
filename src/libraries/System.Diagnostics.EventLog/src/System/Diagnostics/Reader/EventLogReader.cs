@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.IO;
 using System.Collections.Generic;
+using System.IO;
 using Microsoft.Win32;
 
 namespace System.Diagnostics.Eventing.Reader
@@ -62,12 +62,11 @@ namespace System.Diagnostics.Eventing.Reader
         {
         }
 
-        public EventLogReader(EventLogQuery eventQuery, EventBookmark bookmark)
+        public EventLogReader(EventLogQuery eventQuery, EventBookmark? bookmark)
         {
-            if (eventQuery == null)
-                throw new ArgumentNullException(nameof(eventQuery));
+            ArgumentNullException.ThrowIfNull(eventQuery);
 
-            string logfile = null;
+            string? logfile = null;
             if (eventQuery.ThePathType == PathType.FilePath)
                 logfile = eventQuery.Path;
 
@@ -150,12 +149,12 @@ namespace System.Diagnostics.Eventing.Reader
             return true;
         }
 
-        public EventRecord ReadEvent()
+        public EventRecord? ReadEvent()
         {
             return ReadEvent(TimeSpan.MaxValue);
         }
 
-        public EventRecord ReadEvent(TimeSpan timeout)
+        public EventRecord? ReadEvent(TimeSpan timeout)
         {
             if (_isEof)
                 throw new InvalidOperationException();
@@ -219,7 +218,7 @@ namespace System.Diagnostics.Eventing.Reader
             // fact that we've already read some events in our buffer that the user
             // hasn't seen yet.
             //
-            offset = offset - (_eventCount - _currentIndex);
+            offset -= (_eventCount - _currentIndex);
 
             SeekReset();
 
@@ -233,8 +232,7 @@ namespace System.Diagnostics.Eventing.Reader
 
         public void Seek(EventBookmark bookmark, long offset)
         {
-            if (bookmark == null)
-                throw new ArgumentNullException(nameof(bookmark));
+            ArgumentNullException.ThrowIfNull(bookmark);
 
             SeekReset();
             using (EventLogHandle bookmarkHandle = EventLogRecord.GetBookmarkHandleFromBookmark(bookmark))
@@ -303,21 +301,18 @@ namespace System.Diagnostics.Eventing.Reader
         {
             get
             {
-                List<EventLogStatus> list = null;
-                string[] channelNames = null;
-                int[] errorStatuses = null;
                 EventLogHandle queryHandle = _handle;
 
                 if (queryHandle.IsInvalid)
                     throw new InvalidOperationException();
 
-                channelNames = (string[])NativeWrapper.EvtGetQueryInfo(queryHandle, UnsafeNativeMethods.EvtQueryPropertyId.EvtQueryNames);
-                errorStatuses = (int[])NativeWrapper.EvtGetQueryInfo(queryHandle, UnsafeNativeMethods.EvtQueryPropertyId.EvtQueryStatuses);
+                string?[] channelNames = (string?[])NativeWrapper.EvtGetQueryInfo(queryHandle, UnsafeNativeMethods.EvtQueryPropertyId.EvtQueryNames)!;
+                int[] errorStatuses = (int[])NativeWrapper.EvtGetQueryInfo(queryHandle, UnsafeNativeMethods.EvtQueryPropertyId.EvtQueryStatuses)!;
 
                 if (channelNames.Length != errorStatuses.Length)
                     throw new InvalidOperationException();
 
-                list = new List<EventLogStatus>(channelNames.Length);
+                var list = new List<EventLogStatus>(channelNames.Length);
                 for (int i = 0; i < channelNames.Length; i++)
                 {
                     EventLogStatus cs = new EventLogStatus(channelNames[i], errorStatuses[i]);

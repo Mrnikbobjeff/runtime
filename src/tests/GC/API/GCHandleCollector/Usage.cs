@@ -9,6 +9,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Xunit;
 
 // the class that holds the HandleCollectors
 public class HandleCollectorTest
@@ -214,7 +215,9 @@ public class Usage
     }
 
 
-    public static int Main()
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         if (GC.CollectionCount(0) > 20)
         {

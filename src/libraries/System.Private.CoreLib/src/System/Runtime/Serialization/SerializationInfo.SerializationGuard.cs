@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
 using System.Security;
 using System.Threading;
 
@@ -11,22 +12,15 @@ namespace System.Runtime.Serialization
     {
         internal static AsyncLocal<bool> AsyncDeserializationInProgress { get; } = new AsyncLocal<bool>();
 
-#if !CORECLR
-        // On AoT, assume private members are reflection blocked, so there's no further protection required
-        // for the thread's DeserializationTracker
         [ThreadStatic]
         private static DeserializationTracker? t_deserializationTracker;
 
         private static DeserializationTracker GetThreadDeserializationTracker() =>
             t_deserializationTracker ??= new DeserializationTracker();
-#endif // !CORECLR
 
         // Returns true if deserialization is currently in progress
-        public static bool DeserializationInProgress
+        internal static bool DeserializationInProgress
         {
-#if CORECLR
-            [DynamicSecurityMethod] // Methods containing StackCrawlMark local var must be marked DynamicSecurityMethod
-#endif
             get
             {
                 if (AsyncDeserializationInProgress.Value)
@@ -34,24 +28,9 @@ namespace System.Runtime.Serialization
                     return true;
                 }
 
-#if CORECLR
-                StackCrawlMark stackMark = StackCrawlMark.LookForMe;
-                DeserializationTracker tracker = Thread.GetThreadDeserializationTracker(ref stackMark);
-#else
                 DeserializationTracker tracker = GetThreadDeserializationTracker();
-#endif
                 bool result = tracker.DeserializationInProgress;
                 return result;
-            }
-        }
-
-        // Throws a SerializationException if dangerous deserialization is currently
-        // in progress
-        public static void ThrowIfDeserializationInProgress()
-        {
-            if (DeserializationInProgress)
-            {
-                throw new SerializationException(SR.Serialization_DangerousDeserialization);
             }
         }
 
@@ -61,17 +40,10 @@ namespace System.Runtime.Serialization
         // 0: No value cached
         // 1: The switch is true
         // -1: The switch is false
-        public static void ThrowIfDeserializationInProgress(string switchSuffix, ref int cachedValue)
+        internal static void ThrowIfDeserializationInProgress(string switchSuffix, ref int cachedValue)
         {
             const string SwitchPrefix = "Switch.System.Runtime.Serialization.SerializationGuard.";
-            if (switchSuffix == null)
-            {
-                throw new ArgumentNullException(nameof(switchSuffix));
-            }
-            if (string.IsNullOrWhiteSpace(switchSuffix))
-            {
-                throw new ArgumentException(SR.Argument_EmptyName, nameof(switchSuffix));
-            }
+            Debug.Assert(!string.IsNullOrWhiteSpace(switchSuffix));
 
             if (cachedValue == 0)
             {
@@ -106,19 +78,11 @@ namespace System.Runtime.Serialization
         // In this state, if the SerializationGuard or other related AppContext switches are set,
         // actions likely to be dangerous during deserialization, such as starting a process will be blocked.
         // Returns a DeserializationToken that must be disposed to remove the deserialization state.
-#if CORECLR
-        [DynamicSecurityMethod] // Methods containing StackCrawlMark local var must be marked DynamicSecurityMethod
-#endif
         public static DeserializationToken StartDeserialization()
         {
             if (LocalAppContextSwitches.SerializationGuard)
             {
-#if CORECLR
-                StackCrawlMark stackMark = StackCrawlMark.LookForMe;
-                DeserializationTracker tracker = Thread.GetThreadDeserializationTracker(ref stackMark);
-#else
                 DeserializationTracker tracker = GetThreadDeserializationTracker();
-#endif
                 if (!tracker.DeserializationInProgress)
                 {
                     lock (tracker)

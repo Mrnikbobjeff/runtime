@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
+using TestLibrary;
 
 public struct ValX0 {}
 public struct ValY0 {}
@@ -272,7 +274,7 @@ public class GenJaggedObjectArray : GenSub<object[][]>
 }
 
 
-public class Test
+public class Test_AbstractBase06
 {
 	public static int counter = 0;
 	public static bool result = true;
@@ -287,7 +289,9 @@ public class Test
 	
 	}
 	
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		IGen<int> IGenInt = new GenInt();
 		IGenInt._Init(new int());

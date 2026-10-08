@@ -2,14 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b31903
 {
     using System;
 
-    class AA
+    public class AA
     {
         static double m_dStatic3 = 273.31;
-        static int Main()
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

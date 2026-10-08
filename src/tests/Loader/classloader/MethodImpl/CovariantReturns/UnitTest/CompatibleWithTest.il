@@ -1,48 +1,51 @@
 .assembly extern System.Console { }
+.assembly extern xunit.core {}
 .assembly extern System.Collections { }
-.assembly extern System.Runtime { }
+.assembly extern System.Runtime { .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A ) }
 .assembly extern mscorlib { }
-.assembly UnitTest { }
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
+.assembly 'CompatibleWithTest' { }
 
 .class public auto ansi abstract Base {}
 .class public auto ansi abstract Derived extends Base {}
 
 .class public auto ansi beforefieldinit C1
 {
-    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret } 
+    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
 
-    .method public hidebysig newslot virtual instance int32[] M1() 
+    .method public hidebysig newslot virtual instance int32[] M1()
     {
         ldnull
         ret
     }
 
-    .method public hidebysig newslot virtual instance class [System.Runtime]System.Collections.Generic.IList`1<int32> M2() 
+    .method public hidebysig newslot virtual instance class [System.Runtime]System.Collections.Generic.IList`1<int32> M2()
     {
         ldnull
         ret
     }
 
-    .method public hidebysig newslot virtual instance int32 M3() 
+    .method public hidebysig newslot virtual instance int32 M3()
     {
         ldc.i4.0
         ret
     }
 
-    .method public hidebysig newslot virtual instance valuetype [mscorlib]System.Nullable`1<int32> M4() 
+    .method public hidebysig newslot virtual instance valuetype [mscorlib]System.Nullable`1<int32> M4()
     {
         ldc.i4.0
         newobj instance void valuetype [mscorlib]System.Nullable`1<int32>::.ctor(!0)
         ret
     }
 
-    .method public hidebysig newslot virtual instance class [System.Runtime]System.Collections.Generic.IList`1<class Base> M5() 
+    .method public hidebysig newslot virtual instance class [System.Runtime]System.Collections.Generic.IList`1<class Base> M5()
     {
         ldnull
         ret
     }
 
-    .method public hidebysig newslot virtual instance native int[] M6() 
+    .method public hidebysig newslot virtual instance native int[] M6()
     {
         ldnull
         ret
@@ -114,9 +117,9 @@
 
 .class public auto ansi beforefieldinit C2 extends C1
 {
-    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret } 
+    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
 
-    .method public hidebysig newslot virtual instance class [System.Runtime]System.Collections.Generic.IList`1<int32> M1() 
+    .method public hidebysig newslot virtual instance class [System.Runtime]System.Collections.Generic.IList`1<int32> M1()
     {
         .override method instance int32[] C1::M1();
         ldnull
@@ -124,11 +127,22 @@
     }
 }
 
+.class public auto ansi beforefieldinit D2 extends C2
+{
+    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
+
+    .method public hidebysig newslot virtual instance int32 MD2()
+    {
+        ldc.i4.0
+        ret
+    }
+}
+
 .class public auto ansi beforefieldinit C3 extends C1
 {
-    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret } 
+    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
 
-    .method public hidebysig newslot virtual instance int32[] M2() 
+    .method public hidebysig newslot virtual instance int32[] M2()
     {
         .override method instance class [System.Runtime]System.Collections.Generic.IList`1<int32> C1::M2();
         ldnull
@@ -138,9 +152,9 @@
 
 .class public auto ansi beforefieldinit C4 extends C1
 {
-    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret } 
+    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
 
-    .method public hidebysig virtual instance valuetype [mscorlib]System.Nullable`1<int32> M3() 
+    .method public hidebysig virtual instance valuetype [mscorlib]System.Nullable`1<int32> M3()
     {
         .override method instance int32 C1::M3();
         ldc.i4.0
@@ -151,9 +165,9 @@
 
 .class public auto ansi beforefieldinit C5 extends C1
 {
-    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret } 
+    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
 
-    .method public hidebysig virtual instance int32 M4() 
+    .method public hidebysig virtual instance int32 M4()
     {
         .override method instance valuetype [mscorlib]System.Nullable`1<int32> C1::M4();
         ldc.i4.0
@@ -163,9 +177,9 @@
 
 .class public auto ansi beforefieldinit C6 extends C1
 {
-    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret } 
+    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
 
-    .method public hidebysig virtual instance uint32[] M1() 
+    .method public hidebysig virtual instance uint32[] M1()
     {
         .override method instance int32[] C1::M1();
         ldnull
@@ -175,9 +189,9 @@
 
 .class public auto ansi beforefieldinit C7 extends C1
 {
-    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret } 
+    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
 
-    .method public hidebysig newslot virtual instance uint32[] M2() 
+    .method public hidebysig newslot virtual instance uint32[] M2()
     {
         .override method instance class [System.Runtime]System.Collections.Generic.IList`1<int32> C1::M2();
         ldnull
@@ -187,9 +201,9 @@
 
 .class public auto ansi beforefieldinit C8 extends C1
 {
-    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret } 
+    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
 
-    .method public hidebysig newslot virtual instance class Derived[] M5() 
+    .method public hidebysig newslot virtual instance class Derived[] M5()
     {
         .override method instance class [System.Runtime]System.Collections.Generic.IList`1<class Base> C1::M5();
         ldnull
@@ -199,9 +213,9 @@
 
 .class public auto ansi beforefieldinit C9 extends C1
 {
-    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret } 
+    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
 
-    .method public hidebysig virtual instance uint64[] M6() 
+    .method public hidebysig virtual instance uint64[] M6()
     {
         .override method instance native int[] C1::M6();
         ldnull
@@ -211,9 +225,9 @@
 
 .class public auto ansi beforefieldinit C10 extends C1
 {
-    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret } 
+    .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
 
-    .method public hidebysig virtual instance uint32[] M6() 
+    .method public hidebysig virtual instance uint32[] M6()
     {
         .override method instance native int[] C1::M6();
         ldnull
@@ -471,7 +485,7 @@
 
 .class public auto ansi beforefieldinit Main extends [mscorlib]System.Object
 {
-    .method public static void RunTestC1() noinlining 
+    .method public static void RunTestC1() noinlining
     {
         newobj instance void class C1::.ctor()
         callvirt instance int32[] class C1::M1()
@@ -481,7 +495,7 @@
         ret
     }
 
-    .method public static void RunTestC2() noinlining 
+    .method public static void RunTestC2() noinlining
     {
         newobj instance void class C2::.ctor()
         callvirt instance int32[] class C1::M1()
@@ -491,7 +505,17 @@
         ret
     }
 
-    .method public static void RunTestC3() noinlining 
+    .method public static void RunTestD2() noinlining
+    {
+        newobj instance void class D2::.ctor()
+        callvirt instance int32 class D2::MD2()
+        pop
+        ldstr "Unexpectedly succeeded"
+        call void [System.Console]System.Console::WriteLine(string)
+        ret
+    }
+
+    .method public static void RunTestC3() noinlining
     {
         newobj instance void class C3::.ctor()
         callvirt instance class [System.Runtime]System.Collections.Generic.IList`1<int32> class C1::M2()
@@ -501,7 +525,7 @@
         ret
     }
 
-    .method public static void RunTestC4() noinlining 
+    .method public static void RunTestC4() noinlining
     {
         newobj instance void class C4::.ctor()
         callvirt instance int32 class C1::M3()
@@ -511,7 +535,7 @@
         ret
     }
 
-    .method public static void RunTestC5() noinlining 
+    .method public static void RunTestC5() noinlining
     {
         newobj instance void class C5::.ctor()
         callvirt instance valuetype [mscorlib]System.Nullable`1<int32> C1::M4()
@@ -521,7 +545,7 @@
         ret
     }
 
-    .method public static void RunTestC6() noinlining 
+    .method public static void RunTestC6() noinlining
     {
         newobj instance void class C6::.ctor()
         callvirt instance int32[] class C1::M1()
@@ -531,7 +555,7 @@
         ret
     }
 
-    .method public static void RunTestC7() noinlining 
+    .method public static void RunTestC7() noinlining
     {
         newobj instance void class C7::.ctor()
         callvirt instance class [System.Runtime]System.Collections.Generic.IList`1<int32> class C1::M2()
@@ -541,7 +565,7 @@
         ret
     }
 
-    .method public static void RunTestC8() noinlining 
+    .method public static void RunTestC8() noinlining
     {
         newobj instance void class C8::.ctor()
         callvirt instance class [System.Runtime]System.Collections.Generic.IList`1<class Base> class C1::M5()
@@ -551,7 +575,7 @@
         ret
     }
 
-    .method public static void RunTestC9() noinlining 
+    .method public static void RunTestC9() noinlining
     {
         newobj instance void class C9::.ctor()
         callvirt instance native int[] class C1::M6()
@@ -561,7 +585,7 @@
         ret
     }
 
-    .method public static void RunTestC10() noinlining 
+    .method public static void RunTestC10() noinlining
     {
         newobj instance void class C10::.ctor()
         callvirt instance native int[] class C1::M6()
@@ -761,8 +785,16 @@
         ret
     }
 
-    .method public hidebysig static int32 Main(string[] args) cil managed
+    .method public hidebysig static int32 Main() cil managed noinlining
     {
+        .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+            01 00 00 00
+        )
+        .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, class [mscorlib]System.Type, string[]) = {
+            string('Synthesized PGO may cause the expected TypeLoadExceptions in this test to appear at unexpected places')
+            type([TestLibrary]TestLibrary.PlatformDetection)
+            string[1] ('IsUsingSynthesizedPgoData')
+        }
         .entrypoint
         .locals init ( bool result )
 
@@ -775,36 +807,18 @@
         .try
         {
             call void Main::RunTestC1()
-            leave.s CC2
+            leave.s CC3
         }
         catch [mscorlib]System.TypeLoadException
-        {   
+        {
             ldstr "Caught unexpected TypeLoadException:"
             call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)        
-            ldc.i4.0
-            stloc.0
-            leave.s CC2
-        }  
-
-CC2:
-        ldstr "C2: override int32[] by IList<int32>"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC2()
+            call       void [System.Console]System.Console::WriteLine(object)
             ldc.i4.0
             stloc.0
             leave.s CC3
         }
-        catch [mscorlib]System.TypeLoadException
-        {   
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)        
-            leave.s CC3
-        }  
+
 CC3:
         ldstr "C3: override IList<int32> by int32[]"
         call void [System.Console]System.Console::WriteLine(string)
@@ -812,55 +826,17 @@ CC3:
         .try
         {
             call void Main::RunTestC3()
-            leave.s CC4
+            leave.s CC6
         }
         catch [mscorlib]System.TypeLoadException
-        {   
+        {
             ldstr "Caught unexpected TypeLoadException:"
             call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)        
-            ldc.i4.0
-            stloc.0
-            leave.s CC4
-        }  
-
-CC4:
-        ldstr "C4: override int32 by Nullable`1<int32>"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC4()
-            ldc.i4.0
-            stloc.0
-            leave.s CC5
-        }
-        catch [mscorlib]System.TypeLoadException
-        {   
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)        
-            leave.s CC5
-        }  
-
-CC5:
-        ldstr "C5: override Nullable<int32> by int32"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC5()
+            call       void [System.Console]System.Console::WriteLine(object)
             ldc.i4.0
             stloc.0
             leave.s CC6
         }
-        catch [mscorlib]System.TypeLoadException
-        {   
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)        
-            leave.s CC6
-        }  
 CC6:
         ldstr "C6: override int32[] by uint32[]"
         call void [System.Console]System.Console::WriteLine(string)
@@ -871,14 +847,14 @@ CC6:
             leave.s CC7
         }
         catch [mscorlib]System.TypeLoadException
-        {   
+        {
             ldstr "Caught unexpected TypeLoadException:"
             call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)        
+            call       void [System.Console]System.Console::WriteLine(object)
             ldc.i4.0
             stloc.0
             leave.s CC7
-        }  
+        }
 CC7:
         ldstr "C7: override IList<int32> by uint32[]"
         call void [System.Console]System.Console::WriteLine(string)
@@ -889,14 +865,14 @@ CC7:
             leave.s CC8
         }
         catch [mscorlib]System.TypeLoadException
-        {   
+        {
             ldstr "Caught unexpected TypeLoadException:"
             call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)        
+            call       void [System.Console]System.Console::WriteLine(object)
             ldc.i4.0
             stloc.0
             leave.s CC8
-        }  
+        }
 CC8:
         ldstr "C8: override IList<Base> by Derived[]"
         call void [System.Console]System.Console::WriteLine(string)
@@ -904,123 +880,15 @@ CC8:
         .try
         {
             call void Main::RunTestC8()
-            leave.s CC9
-        }
-        catch [mscorlib]System.TypeLoadException
-        {   
-            ldstr "Caught unexpected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)        
-            ldc.i4.0
-            stloc.0
-            leave.s CC9
-        }  
-CC9:
-        ldstr "C9: override native int[] by uint64[]"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC9()
-            ldc.i4.0
-            stloc.0
-            leave.s CC10
-        }
-        catch [mscorlib]System.TypeLoadException
-        {   
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)        
-            leave.s CC10
-        }  
-CC10:
-        ldstr "C10: override native int[] by uint32[]"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC10()
-            ldc.i4.0
-            stloc.0
-            leave.s CC11
-        }
-        catch [mscorlib]System.TypeLoadException
-        {   
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)        
-            leave.s CC11
-        }
-CC11:
-        ldstr "C11: override Base* by Derived*"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC11()
-            ldc.i4.0
-            stloc.0
-            leave.s CC12
-        }
-        catch [mscorlib]System.TypeLoadException
-        {
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)
-            leave.s CC12
-        }
-CC12:
-        ldstr "C12: override void* by int32*"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC12()
-            ldc.i4.0
-            stloc.0
-            leave.s CC13
-        }
-        catch [mscorlib]System.TypeLoadException
-        {
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)
-            leave.s CC13
-        }
-CC13:
-        ldstr "C13: override int32 *(class Base) by int32 *(class Derived)"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC13()
-            ldc.i4.0
-            stloc.0
-            leave.s CC14
-        }
-        catch [mscorlib]System.TypeLoadException
-        {
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)
-            leave.s CC14
-        }
-CC14:
-        ldstr "C14: override int32 *(class Base) by int32 *(class C1)"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC14()
-            ldc.i4.0
-            stloc.0
             leave.s CC15
         }
         catch [mscorlib]System.TypeLoadException
         {
-            ldstr "Caught expected TypeLoadException:"
+            ldstr "Caught unexpected TypeLoadException:"
             call       void [System.Console]System.Console::WriteLine(string)
             call       void [System.Console]System.Console::WriteLine(object)
+            ldc.i4.0
+            stloc.0
             leave.s CC15
         }
 CC15:
@@ -1084,7 +952,7 @@ CC18:
         .try
         {
             call void Main::RunTestC18()
-            leave.s CC19
+            leave.s CC20
         }
         catch [mscorlib]System.TypeLoadException
         {
@@ -1093,24 +961,6 @@ CC18:
             call       void [System.Console]System.Console::WriteLine(object)
             ldc.i4.0
             stloc.0
-            leave.s CC19
-        }
-CC19:
-        ldstr "C19: override Base& M13() by Derived& M13()"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC19()
-            ldc.i4.0
-            stloc.0
-            leave.s CC20
-        }
-        catch [mscorlib]System.TypeLoadException
-        {
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)
             leave.s CC20
         }
 CC20:
@@ -1138,7 +988,7 @@ CC21:
         .try
         {
             call void Main::RunTestC21()
-            leave.s CC22
+            leave.s DONE
         }
         catch [mscorlib]System.TypeLoadException
         {
@@ -1147,150 +997,6 @@ CC21:
             call       void [System.Console]System.Console::WriteLine(object)
             ldc.i4.0
             stloc.0
-            leave.s CC22
-        }
-CC22:
-        ldstr "C22: override char& M14() by uint8& M14()"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC22()
-            ldc.i4.0
-            stloc.0
-            leave.s CC23
-        }
-        catch [mscorlib]System.TypeLoadException
-        {
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)
-            leave.s CC23
-        }
-CC23:
-        ldstr "C23: override bool* M15() by uint32* M15()"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC23()
-            ldc.i4.0
-            stloc.0
-            leave.s CC24
-        }
-        catch [mscorlib]System.TypeLoadException
-        {
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)
-            leave.s CC24
-        }
-CC24:
-        ldstr "C24: override bool* M15() by bool& M15()"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC24()
-            ldc.i4.0
-            stloc.0
-            leave.s CC25
-        }
-        catch [mscorlib]System.TypeLoadException
-        {
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)
-            leave.s CC25
-        }
-CC25:
-        ldstr "C25: override bool* M15() by int32 *(class Base) M15()"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC25()
-            ldc.i4.0
-            stloc.0
-            leave.s CC26
-        }
-        catch [mscorlib]System.TypeLoadException
-        {
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)
-            leave.s CC26
-        }
-CC26:
-        ldstr "C26: override char& M14() by char* M14()"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC26()
-            ldc.i4.0
-            stloc.0
-            leave.s CC27
-        }
-        catch [mscorlib]System.TypeLoadException
-        {
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)
-            leave.s CC27
-        }
-CC27:
-        ldstr "C27: override char& M14() by int32 *(class Base) M14()"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC27()
-            ldc.i4.0
-            stloc.0
-            leave.s CC28
-        }
-        catch [mscorlib]System.TypeLoadException
-        {
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)
-            leave.s CC28
-        }
-CC28:
-        ldstr "C28: override int32 *(class Base) M9() by int32* M9()"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC28()
-            ldc.i4.0
-            stloc.0
-            leave.s CC29
-        }
-        catch [mscorlib]System.TypeLoadException
-        {
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)
-            leave.s CC29
-        }
-CC29:
-        ldstr "C29: override int32 *(class Base) M9() by int32& M9()"
-        call void [System.Console]System.Console::WriteLine(string)
-
-        .try
-        {
-            call void Main::RunTestC29()
-            ldc.i4.0
-            stloc.0
-            leave.s DONE
-        }
-        catch [mscorlib]System.TypeLoadException
-        {
-            ldstr "Caught expected TypeLoadException:"
-            call       void [System.Console]System.Console::WriteLine(string)
-            call       void [System.Console]System.Console::WriteLine(object)
             leave.s DONE
         }
 DONE:
@@ -1302,7 +1008,7 @@ DONE:
         call       void [System.Console]System.Console::WriteLine(string)
         ldc.i4.s   101
         ret
-        
+
         PASS:
         ldstr      "Test PASSED"
         call       void [System.Console]System.Console::WriteLine(string)

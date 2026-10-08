@@ -14,7 +14,7 @@ namespace System.ComponentModel
         public static readonly System.ComponentModel.BrowsableAttribute Yes;
         public BrowsableAttribute(bool browsable) { }
         public bool Browsable { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }
@@ -38,7 +38,7 @@ namespace System.ComponentModel
         public static System.ComponentModel.CategoryAttribute Layout { get { throw null; } }
         public static System.ComponentModel.CategoryAttribute Mouse { get { throw null; } }
         public static System.ComponentModel.CategoryAttribute WindowStyle { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         protected virtual string? GetLocalizedString(string value) { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
@@ -82,7 +82,7 @@ namespace System.ComponentModel
         public DescriptionAttribute(string description) { }
         public virtual string Description { get { throw null; } }
         protected string DescriptionValue { get { throw null; } set { } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }
@@ -111,7 +111,7 @@ namespace System.ComponentModel
         public DesignerCategoryAttribute(string category) { }
         public string Category { get { throw null; } }
         public override object TypeId { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }
@@ -130,7 +130,7 @@ namespace System.ComponentModel
         public static readonly System.ComponentModel.DesignerSerializationVisibilityAttribute Visible;
         public DesignerSerializationVisibilityAttribute(System.ComponentModel.DesignerSerializationVisibility visibility) { }
         public System.ComponentModel.DesignerSerializationVisibility Visibility { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }
@@ -142,7 +142,7 @@ namespace System.ComponentModel
         public static readonly System.ComponentModel.DesignOnlyAttribute Yes;
         public DesignOnlyAttribute(bool isDesignOnly) { }
         public bool IsDesignOnly { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }
@@ -154,7 +154,7 @@ namespace System.ComponentModel
         public DisplayNameAttribute(string displayName) { }
         public virtual string DisplayName { get { throw null; } }
         protected string DisplayNameValue { get { throw null; } set { } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }
@@ -181,7 +181,7 @@ namespace System.ComponentModel
         public void RemoveHandler(object key, System.Delegate? value) { }
     }
     [System.ComponentModel.DesignerAttribute("System.ComponentModel.Design.ComponentDesigner, System.Design, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a")]
-    [System.ComponentModel.DesignerAttribute("System.Windows.Forms.Design.ComponentDocumentDesigner, System.Design, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a")]
+    [System.ComponentModel.DesignerAttribute("System.Windows.Forms.Design.ComponentDocumentDesigner, System.Design, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a", "System.ComponentModel.Design.IRootDesigner, System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     [System.ComponentModel.TypeConverterAttribute("System.ComponentModel.ComponentConverter, System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public partial interface IComponent : System.IDisposable
     {
@@ -192,6 +192,7 @@ namespace System.ComponentModel
     {
         System.ComponentModel.ComponentCollection Components { get; }
         void Add(System.ComponentModel.IComponent? component);
+        [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("The Type of components in the container cannot be statically discovered to validate the name.")]
         void Add(System.ComponentModel.IComponent? component, string? name);
         void Remove(System.ComponentModel.IComponent? component);
     }
@@ -203,7 +204,7 @@ namespace System.ComponentModel
         public static readonly System.ComponentModel.ImmutableObjectAttribute Yes;
         public ImmutableObjectAttribute(bool immutable) { }
         public bool Immutable { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }
@@ -216,6 +217,8 @@ namespace System.ComponentModel
     public partial class InvalidAsynchronousStateException : System.ArgumentException
     {
         public InvalidAsynchronousStateException() { }
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
         protected InvalidAsynchronousStateException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public InvalidAsynchronousStateException(string? message) { }
         public InvalidAsynchronousStateException(string? message, System.Exception? innerException) { }
@@ -223,6 +226,8 @@ namespace System.ComponentModel
     public partial class InvalidEnumArgumentException : System.ArgumentException
     {
         public InvalidEnumArgumentException() { }
+        [System.ObsoleteAttribute("This API supports obsolete formatter-based serialization. It should not be called or extended by application code.", DiagnosticId = "SYSLIB0051", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
         protected InvalidEnumArgumentException(System.Runtime.Serialization.SerializationInfo info, System.Runtime.Serialization.StreamingContext context) { }
         public InvalidEnumArgumentException(string? message) { }
         public InvalidEnumArgumentException(string? message, System.Exception? innerException) { }
@@ -231,9 +236,9 @@ namespace System.ComponentModel
     public partial interface ISite : System.IServiceProvider
     {
         System.ComponentModel.IComponent Component { get; }
-        System.ComponentModel.IContainer Container { get; }
+        System.ComponentModel.IContainer? Container { get; }
         bool DesignMode { get; }
-        string? Name { get; set; }
+        string? Name { get; [System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode("The Type of components in the container cannot be statically discovered to validate the name.")] set; }
     }
     public partial interface ISupportInitialize
     {
@@ -255,7 +260,7 @@ namespace System.ComponentModel
         public static readonly System.ComponentModel.LocalizableAttribute Yes;
         public LocalizableAttribute(bool isLocalizable) { }
         public bool IsLocalizable { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }
@@ -267,7 +272,7 @@ namespace System.ComponentModel
         public static readonly System.ComponentModel.MergablePropertyAttribute Yes;
         public MergablePropertyAttribute(bool allowMerge) { }
         public bool AllowMerge { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }
@@ -279,7 +284,7 @@ namespace System.ComponentModel
         public static readonly System.ComponentModel.NotifyParentPropertyAttribute Yes;
         public NotifyParentPropertyAttribute(bool notifyParent) { }
         public bool NotifyParent { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }
@@ -290,7 +295,7 @@ namespace System.ComponentModel
         public ParenthesizePropertyNameAttribute() { }
         public ParenthesizePropertyNameAttribute(bool needParenthesis) { }
         public bool NeedParenthesis { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }
@@ -302,7 +307,7 @@ namespace System.ComponentModel
         public static readonly System.ComponentModel.ReadOnlyAttribute Yes;
         public ReadOnlyAttribute(bool isReadOnly) { }
         public bool IsReadOnly { get { throw null; } }
-        public override bool Equals(object? value) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? value) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }
@@ -320,7 +325,7 @@ namespace System.ComponentModel
         public static readonly System.ComponentModel.RefreshPropertiesAttribute Repaint;
         public RefreshPropertiesAttribute(System.ComponentModel.RefreshProperties refresh) { }
         public System.ComponentModel.RefreshProperties RefreshProperties { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override int GetHashCode() { throw null; }
         public override bool IsDefaultAttribute() { throw null; }
     }

@@ -3,6 +3,7 @@
 
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Text;
 
 namespace System.Reflection.Metadata.Ecma335
 {
@@ -50,16 +51,16 @@ namespace System.Reflection.Metadata.Ecma335
         /// It does not enforce all specification requirements on metadata tables.
         /// </param>
         /// <exception cref="ArgumentNullException"><paramref name="tablesAndHeaps"/> is null.</exception>
-        /// <exception cref="ArgumentException"><paramref name="metadataVersion"/> is too long (the number of bytes when UTF8-encoded must be less than 255).</exception>
+        /// <exception cref="ArgumentException"><paramref name="metadataVersion"/> is too long (the number of bytes when UTF-8 encoded must be less than 255).</exception>
         public MetadataRootBuilder(MetadataBuilder tablesAndHeaps, string? metadataVersion = null, bool suppressValidation = false)
         {
-            if (tablesAndHeaps == null)
+            if (tablesAndHeaps is null)
             {
                 Throw.ArgumentNull(nameof(tablesAndHeaps));
             }
 
-            Debug.Assert(BlobUtilities.GetUTF8ByteCount(DefaultMetadataVersionString) == DefaultMetadataVersionString.Length);
-            int metadataVersionByteCount = metadataVersion != null ? BlobUtilities.GetUTF8ByteCount(metadataVersion) : DefaultMetadataVersionString.Length;
+            Debug.Assert(Encoding.UTF8.GetByteCount(DefaultMetadataVersionString) == DefaultMetadataVersionString.Length);
+            int metadataVersionByteCount = metadataVersion != null ? Encoding.UTF8.GetByteCount(metadataVersion) : DefaultMetadataVersionString.Length;
 
             if (metadataVersionByteCount > MetadataSizes.MaxMetadataVersionByteCount)
             {
@@ -96,7 +97,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// </exception>
         public void Serialize(BlobBuilder builder, int methodBodyStreamRva, int mappedFieldDataStreamRva)
         {
-            if (builder == null)
+            if (builder is null)
             {
                 Throw.ArgumentNull(nameof(builder));
             }

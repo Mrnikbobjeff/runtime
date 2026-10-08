@@ -11,9 +11,9 @@ using System.Reflection;
 
 namespace System.Composition.TypedParts
 {
-    internal class TypedPartExportDescriptorProvider : ExportDescriptorProvider
+    internal sealed class TypedPartExportDescriptorProvider : ExportDescriptorProvider
     {
-        private readonly IDictionary<CompositionContract, ICollection<DiscoveredExport>> _discoveredParts = new Dictionary<CompositionContract, ICollection<DiscoveredExport>>();
+        private readonly Dictionary<CompositionContract, ICollection<DiscoveredExport>> _discoveredParts = new Dictionary<CompositionContract, ICollection<DiscoveredExport>>();
 
         public TypedPartExportDescriptorProvider(IEnumerable<Type> types, AttributedModelProvider attributeContext)
         {
@@ -64,7 +64,7 @@ namespace System.Composition.TypedParts
             // Exports with metadata may be matched via metadata constraints.
             // It should be possible to do this more aggressively by changing the way
             // exports are stored.
-            if (!forKey.Any(x => x.Metadata.Any()))
+            if (!forKey.Any(x => x.Metadata.Count > 0))
             {
                 // Allow some garbage to be collected
                 _discoveredParts.Remove(contract);

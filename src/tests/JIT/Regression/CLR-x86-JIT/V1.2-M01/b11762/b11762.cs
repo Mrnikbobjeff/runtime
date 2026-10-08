@@ -2,9 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-class test1
+namespace b11762;
+
+using System;
+using Xunit;
+
+public class test1
 {
 
     public static double f1()
@@ -12,12 +16,14 @@ class test1
         return 1.0;
     }
 
-    public static void foo()
+    internal static void foo()
     {
         Console.Write(".");
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         double c = 100.0;
         double a = f1();

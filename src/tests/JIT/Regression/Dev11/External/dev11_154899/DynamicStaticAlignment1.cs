@@ -6,8 +6,9 @@ using System;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using Xunit;
 
-namespace Test
+namespace dev11_154899
 {
     public class Container<T>
     {
@@ -23,9 +24,11 @@ namespace Test
     }
 
 
-    internal static class App
+    public static class App
     {
-        private static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             var container1 = new Container<string>();
             var container2 = new Container<object>();
@@ -33,7 +36,6 @@ namespace Test
             var container4 = new Container<Stream>();
             var container5 = new Container<BinaryReader>();
             var container6 = new Container<BinaryWriter>();
-            return 100;  //assume if no unhandled exception the test passes
         }
     }
 }

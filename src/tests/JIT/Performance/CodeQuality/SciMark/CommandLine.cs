@@ -3,9 +3,9 @@
 /// <license>
 /// This is a port of the SciMark2a Java Benchmark to C# by
 /// Chris Re (cmr28@cornell.edu) and Werner Vogels (vogels@cs.cornell.edu)
-/// 
+///
 /// For details on the original authors see http://math.nist.gov/scimark2
-/// 
+///
 /// This software is likely to burn your processor, bitflip your memory chips
 /// anihilate your screen and corrupt all your disks, so you it at your
 /// own risk.
@@ -13,6 +13,9 @@
 
 
 using System;
+using System.Runtime.CompilerServices;
+using Xunit;
+using TestLibrary;
 
 namespace SciMark2
 {
@@ -20,16 +23,24 @@ namespace SciMark2
     /// SciMark2: A Java numerical benchmark measuring performance
     /// of computational kernels for FFTs, Monte Carlo simulation,
     /// sparse matrix computations, Jacobi SOR, and dense LU matrix
-    /// factorizations.  
+    /// factorizations.
     /// </summary>
 
     public class CommandLine
     {
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [Fact]
+        public static int TestEntryPoint()
+        {
+            return Test(Array.Empty<string>());
+        }
+
         /// <summary>
         ///  Benchmark 5 kernels with individual Mflops.
         ///  "results[0]" has the average Mflop rate.
         /// </summary>
-        public static int Main(System.String[] args)
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public static int Test(System.String[] args)
         {
 #if DEBUG
             double min_time = Constants.RESOLUTION_TINY;
@@ -76,7 +87,7 @@ namespace SciMark2
             double[] res = new double[6];
             SciMark2.Random R = new SciMark2.Random(Constants.RANDOM_SEED);
 
-            Console.WriteLine("Mininum running time = {0} seconds", min_time);
+            Console.WriteLine("Minimum running time = {0} seconds", min_time);
 
             res[1] = kernel.measureFFT(FFT_size, min_time, R);
 

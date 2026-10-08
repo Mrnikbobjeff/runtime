@@ -2,15 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 .assembly extern mscorlib { }
+.assembly extern xunit.core {}
 .assembly extern System.Console
 {
   .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )
   .ver 4:0:0:0
 }
-.assembly try3
+.assembly ASSEMBLY_NAME
 {
 }
-.module try3.exe
 .class private sealed VT
        extends [mscorlib]System.ValueType
 {
@@ -613,6 +613,9 @@
 
   .method public static int32 Main() il managed
   {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
     .entrypoint
     // Code size       76 (0x4c)
     .maxstack  4

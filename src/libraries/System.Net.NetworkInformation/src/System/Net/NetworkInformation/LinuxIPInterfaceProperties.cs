@@ -3,15 +3,16 @@
 
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.Versioning;
 
 namespace System.Net.NetworkInformation
 {
-    internal class LinuxIPInterfaceProperties : UnixIPInterfaceProperties
+    internal sealed class LinuxIPInterfaceProperties : UnixIPInterfaceProperties
     {
         private readonly LinuxNetworkInterface _linuxNetworkInterface;
         private readonly GatewayIPAddressInformationCollection _gatewayAddresses;
-        private readonly IPAddressCollection _dhcpServerAddresses;
-        private readonly IPAddressCollection _winsServerAddresses;
+        private readonly InternalIPAddressCollection _dhcpServerAddresses;
+        private readonly InternalIPAddressCollection _winsServerAddresses;
         private readonly LinuxIPv4InterfaceProperties _ipv4Properties;
         private readonly LinuxIPv6InterfaceProperties _ipv6Properties;
 
@@ -28,8 +29,10 @@ namespace System.Net.NetworkInformation
             _ipv6Properties = new LinuxIPv6InterfaceProperties(lni);
         }
 
+        [UnsupportedOSPlatform("linux")]
         public override bool IsDynamicDnsEnabled { get { throw new PlatformNotSupportedException(SR.net_InformationUnavailableOnPlatform); } }
 
+        [UnsupportedOSPlatform("linux")]
         public override IPAddressInformationCollection AnycastAddresses { get { throw new PlatformNotSupportedException(SR.net_InformationUnavailableOnPlatform); } }
 
         public override GatewayIPAddressInformationCollection GatewayAddresses { get { return _gatewayAddresses; } }
@@ -67,14 +70,18 @@ namespace System.Net.NetworkInformation
             return new GatewayIPAddressInformationCollection(collection);
         }
 
-        private IPAddressCollection GetDhcpServerAddresses()
+        private InternalIPAddressCollection GetDhcpServerAddresses()
         {
-            List<IPAddress> internalCollection
-                = StringParsingHelpers.ParseDhcpServerAddressesFromLeasesFile(NetworkFiles.DHClientLeasesFile, _linuxNetworkInterface.Name);
+            List<IPAddress> internalCollection = new List<IPAddress>();
+
+            StringParsingHelpers.ParseDhcpServerAddressesFromLeasesFile(internalCollection, NetworkFiles.DHClientLeasesFile, _linuxNetworkInterface.Name);
+            StringParsingHelpers.ParseDhcpServerAddressesFromLeasesFile(internalCollection, string.Format(NetworkFiles.DHClientInterfaceLeasesFile, _linuxNetworkInterface.Name), _linuxNetworkInterface.Name);
+            StringParsingHelpers.ParseDhcpServerAddressesFromLeasesFile(internalCollection, string.Format(NetworkFiles.DHClientSecondaryInterfaceLeasesFile, _linuxNetworkInterface.Name), _linuxNetworkInterface.Name);
+
             return new InternalIPAddressCollection(internalCollection);
         }
 
-        private IPAddressCollection GetWinsServerAddresses()
+        private static InternalIPAddressCollection GetWinsServerAddresses()
         {
             List<IPAddress> internalCollection
                 = StringParsingHelpers.ParseWinsServerAddressesFromSmbConfFile(NetworkFiles.SmbConfFile);

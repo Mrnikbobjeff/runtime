@@ -2,9 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-class Test
+namespace Dev11_646049;
+
+using System;
+using Xunit;
+
+public class Test
 {
     /// <summary>
     /// Another 64 bit optimization issue where we dont do the coversion correctly. The following output is seen when this program fails
@@ -12,7 +16,9 @@ class Test
     /// </summary>
     /// <param name="args"></param>
     /// <returns></returns>
-    static int Main(string[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         double expected = -4.54403989493052E+18;
         double value = -66876.654654;

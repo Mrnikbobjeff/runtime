@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace System.ComponentModel
 {
     /// <summary>
@@ -27,7 +29,9 @@ namespace System.ComponentModel
         /// </summary>
         public EditorAttribute(string typeName, string? baseTypeName)
         {
-            EditorTypeName = typeName ?? throw new ArgumentNullException(nameof(typeName));
+            ArgumentNullException.ThrowIfNull(typeName);
+
+            EditorTypeName = typeName;
             EditorBaseTypeName = baseTypeName;
         }
 
@@ -36,14 +40,8 @@ namespace System.ComponentModel
         /// </summary>
         public EditorAttribute(string typeName, Type baseType)
         {
-            if (typeName == null)
-            {
-                throw new ArgumentNullException(nameof(typeName));
-            }
-            if (baseType == null)
-            {
-                throw new ArgumentNullException(nameof(baseType));
-            }
+            ArgumentNullException.ThrowIfNull(typeName);
+            ArgumentNullException.ThrowIfNull(baseType);
 
             EditorTypeName = typeName;
             EditorBaseTypeName = baseType.AssemblyQualifiedName;
@@ -54,14 +52,8 @@ namespace System.ComponentModel
         /// </summary>
         public EditorAttribute(Type type, Type baseType)
         {
-            if (type == null)
-            {
-                throw new ArgumentNullException(nameof(type));
-            }
-            if (baseType == null)
-            {
-                throw new ArgumentNullException(nameof(baseType));
-            }
+            ArgumentNullException.ThrowIfNull(type);
+            ArgumentNullException.ThrowIfNull(baseType);
 
             EditorTypeName = type.AssemblyQualifiedName!;
             EditorBaseTypeName = baseType.AssemblyQualifiedName;

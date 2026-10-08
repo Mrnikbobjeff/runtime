@@ -3,8 +3,10 @@
 
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Text;
 using System.Threading;
@@ -13,14 +15,10 @@ namespace System.Resources
 {
     public partial class ResourceReader
     {
+        private const string BinaryFormatterTypeName = "System.Runtime.Serialization.Formatters.Binary.BinaryFormatter, System.Runtime.Serialization.Formatters";
+
         private readonly bool _permitDeserialization;  // can deserialize BinaryFormatted resources
         private object? _binaryFormatter; // binary formatter instance to use for deserializing
-
-        // statics used to dynamically call into BinaryFormatter
-        // When successfully located s_binaryFormatterType will point to the BinaryFormatter type
-        // and s_deserializeMethod will point to an unbound delegate to the deserialize method.
-        private static Type? s_binaryFormatterType;
-        private static Func<object?, Stream, object>? s_deserializeMethod;
 
         // This is the constructor the RuntimeResourceSet calls,
         // passing in the stream to read from and the RuntimeResourceSet's
@@ -44,69 +42,76 @@ namespace System.Resources
 
         private object DeserializeObject(int typeIndex)
         {
+            if (!AllowCustomResourceTypes)
+            {
+                throw new NotSupportedException(SR.ResourceManager_ReflectionNotAllowed);
+            }
+
             if (!_permitDeserialization)
             {
                 throw new NotSupportedException(SR.NotSupported_ResourceObjectSerialization);
             }
 
-            if (_binaryFormatter == null)
+            if (!EnableUnsafeBinaryFormatterSerialization)
             {
-                if (!InitializeBinaryFormatter())
-                {
-                    // The linker trimmed away the BinaryFormatter implementation and we can't call into it.
-                    // We'll throw an exception with the same text that BinaryFormatter would have thrown
-                    // had we been able to call into it. Keep this resource string in sync with the same
-                    // resource from the Formatters assembly.
-                    throw new NotSupportedException(SR.BinaryFormatter_SerializationDisallowed);
-                }
+                throw new NotSupportedException(SR.BinaryFormatter_SerializationDisallowed);
             }
+
+            if (_binaryFormatter is null)
+            {
+                InitializeBinaryFormatter();
+            }
+
+            Debug.Assert(_binaryFormatter is not null, "BinaryFormatter should be initialized or we should have thrown an exception!");
 
             Type type = FindType(typeIndex);
 
-            object graph = s_deserializeMethod!(_binaryFormatter, _store.BaseStream);
+            object graph = DeserializeLocal(_store.BaseStream);
 
             // guard against corrupted resources
             if (graph.GetType() != type)
                 throw new BadImageFormatException(SR.Format(SR.BadImageFormat_ResType_SerBlobMismatch, type.FullName, graph.GetType().FullName));
 
             return graph;
-        }
 
-        // Issue https://github.com/dotnet/runtime/issues/39290 tracks finding an alternative to BinaryFormatter
-        private bool InitializeBinaryFormatter()
-        {
-            // If BinaryFormatter support is disabled for the app, the linker will replace this entire
-            // method body with "return false;", skipping all reflection code below.
-
-            LazyInitializer.EnsureInitialized(ref s_binaryFormatterType, static () =>
-                Type.GetType("System.Runtime.Serialization.Formatters.Binary.BinaryFormatter, System.Runtime.Serialization.Formatters, Version=0.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a",
-                throwOnError: true)!);
-
-            LazyInitializer.EnsureInitialized(ref s_deserializeMethod, static () =>
+            [UnconditionalSuppressMessage("AotAnalysis", "IL3050:RequiresDynamicCode",
+                Justification = "InitializeBinaryFormatter will get trimmed out when AllowCustomResourceTypes is set to false. " +
+                "When set to true, we will already throw a warning for this feature switch, so we suppress this one in order for" +
+                "the user to only get one error.")]
+            void InitializeBinaryFormatter()
             {
-                MethodInfo binaryFormatterDeserialize = s_binaryFormatterType!.GetMethod("Deserialize", new Type[] { typeof(Stream) })!;
+                _binaryFormatter = CreateBinaryFormatter();
+            }
 
-                // create an unbound delegate that can accept a BinaryFormatter instance as object
-                return (Func<object?, Stream, object>)typeof(ResourceReader)
-                        .GetMethod(nameof(CreateUntypedDelegate), BindingFlags.NonPublic | BindingFlags.Static)!
-                        .MakeGenericMethod(s_binaryFormatterType)
-                        .Invoke(null, new object[] { binaryFormatterDeserialize })!;
-            });
-
-            _binaryFormatter = Activator.CreateInstance(s_binaryFormatterType!)!;
-
-            return true; // initialization successful
+            [UnconditionalSuppressMessage("AotAnalysis", "IL3050:RequiresDynamicCode",
+                Justification = "InitializeBinaryFormatter will get trimmed out when AllowCustomResourceTypes is set to false. " +
+                "When set to true, we will already throw a warning for this feature switch, so we suppress this one in order for" +
+                "the user to only get one error.")]
+            [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2121:RequiresUnreferencedCode",
+                Justification = "InitializeBinaryFormatter will get trimmed out when AllowCustomResourceTypes is set to false. " +
+                "When set to true, we will already throw a warning for this feature switch, so we suppress this one in order for" +
+                "the user to only get one error.")]
+            [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
+                Justification = "InitializeBinaryFormatter will get trimmed out when AllowCustomResourceTypes is set to false. " +
+                "When set to true, we will already throw a warning for this feature switch, so we suppress this one in order for" +
+                "the user to only get one error.")]
+            object DeserializeLocal(Stream stream) => Deserialize(_binaryFormatter, stream);
         }
 
-        // generic method that we specialize at runtime once we've loaded the BinaryFormatter type
-        // permits creating an unbound delegate so that we can avoid reflection after the initial
-        // lightup code completes.
-        private static Func<object, Stream, object> CreateUntypedDelegate<TInstance>(MethodInfo method)
-        {
-            Func<TInstance, Stream, object> typedDelegate = (Func<TInstance, Stream, object>)Delegate.CreateDelegate(typeof(Func<TInstance, Stream, object>), null, method);
+        [FeatureSwitchDefinition("System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization")]
+        private static bool EnableUnsafeBinaryFormatterSerialization { get; } = AppContext.TryGetSwitch("System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization", out bool value)
+            ? value
+            : false;
 
-            return (obj, stream) => typedDelegate((TInstance)obj, stream);
-        }
+        [RequiresUnreferencedCode("BinaryFormatter serialization is not trim compatible because the type of objects being processed cannot be statically discovered.")]
+        [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "Deserialize")]
+        private static extern object Deserialize(
+            [UnsafeAccessorType(BinaryFormatterTypeName)] object formatter,
+            Stream serializationStream);
+
+        [UnsafeAccessor(UnsafeAccessorKind.Constructor)]
+        [return: UnsafeAccessorType(BinaryFormatterTypeName)]
+        private static extern object CreateBinaryFormatter();
 
         private static bool ValidateReaderType(string readerType)
         {
@@ -115,8 +120,8 @@ namespace System.Resources
 
         public void GetResourceData(string resourceName, out string resourceType, out byte[] resourceData)
         {
-            if (resourceName == null)
-                throw new ArgumentNullException(nameof(resourceName));
+            ArgumentNullException.ThrowIfNull(resourceName);
+
             if (_resCache == null)
                 throw new InvalidOperationException(SR.ResourceReaderIsClosed);
 

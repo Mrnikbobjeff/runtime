@@ -1,12 +1,13 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <CLRTestKind>BuildAndRun</CLRTestKind>
+    <!-- Needed for Content, Environment.Exit, GC.WaitForPendingFinalizers -->
+    <RequiresProcessIsolation>true</RequiresProcessIsolation>
+
+    <!-- Test needs explicit Main as it uses command-line parameters -->
+    <ReferenceXUnitWrapperGenerator>false</ReferenceXUnitWrapperGenerator>
     <CLRTestExecutionArguments>-unittest</CLRTestExecutionArguments>
-    <GenerateRunScript>false</GenerateRunScript>
+
     <IsLongRunningGCTest>true</IsLongRunningGCTest>
-    <CLRTestPriority>0</CLRTestPriority>
-    <DefineConstants>$(DefineConstants);PROJECTK_BUILD</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="DetourHelpers.cs" />
@@ -16,6 +17,9 @@
     <Compile Include="ReliabilityTest.cs" />
     <Compile Include="ReliabilityTestSet.cs" />
     <Compile Include="RFLogging.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(TestLibraryProjectPath)" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="..\testmix_gc.config">

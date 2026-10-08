@@ -2,14 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b32345
 {
     using System;
-    class BB
+    public class BB
     {
         public static uint m_uStatic3 = 205u;
 
-        public static void Static1()
+        internal static void Static1()
         {
             try
             {
@@ -25,7 +26,9 @@ namespace Test
                 }
             }
         }
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

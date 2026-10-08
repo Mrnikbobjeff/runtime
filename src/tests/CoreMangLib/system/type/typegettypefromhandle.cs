@@ -4,12 +4,15 @@ using System;
 using System.Globalization;
 using System.Reflection;
 using System.Collections;
+using Xunit;
 /// <summary>
 ///GetTypeCode
 /// </summary>
 public class TypeGetTypeFromHandle
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         TypeGetTypeFromHandle TypeGetTypeFromHandle = new TypeGetTypeFromHandle();
 
@@ -47,9 +50,9 @@ public class TypeGetTypeFromHandle
         try
         {
            
-            TestClass myClass = new TestClass();
+            TypeGetTypeFromHandleTestClass myClass = new TypeGetTypeFromHandleTestClass();
             Type myClassType = Type.GetTypeFromHandle(myClass.GetType().TypeHandle);
-            if(!myClassType.Equals(typeof(TestClass)))
+            if(!myClassType.Equals(typeof(TypeGetTypeFromHandleTestClass)))
             {
                 TestLibrary.TestFramework.LogError("001", "GetTypeFromHandle error");
                 retVal = false;
@@ -123,14 +126,14 @@ public class BaseClass
 
     }
 }
-public class TestClass : BaseClass
+public class TypeGetTypeFromHandleTestClass : BaseClass
 {
-     public TestClass(string param, string s)
+     public TypeGetTypeFromHandleTestClass(string param, string s)
         : base(param, s,1)
     {
 
     }
-    public  TestClass()
+    public  TypeGetTypeFromHandleTestClass()
         : base("", "", 1)
     {
 

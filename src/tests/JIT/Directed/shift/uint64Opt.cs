@@ -3,9 +3,10 @@
 //
 
 using System;
+using Xunit;
 
 // Test long and ulong shifts by 0, 32 and 64 constants that can be optimized.
-namespace ShiftTest
+namespace JitTest_Directed_shift_uint64Opt
 {
 
     public class ulong64Test
@@ -150,9 +151,11 @@ namespace ShiftTest
         }
     }
 
-    class Test
+    public class Test
     {
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             bool passed = true;
             ulong ulongArg = 0x3F134;

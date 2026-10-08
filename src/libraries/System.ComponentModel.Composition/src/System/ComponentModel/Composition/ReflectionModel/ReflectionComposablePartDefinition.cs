@@ -11,22 +11,20 @@ using Microsoft.Internal.Collections;
 
 namespace System.ComponentModel.Composition.ReflectionModel
 {
-    internal class ReflectionComposablePartDefinition : ComposablePartDefinition, ICompositionElement
+    internal sealed class ReflectionComposablePartDefinition : ComposablePartDefinition, ICompositionElement
     {
         private readonly IReflectionPartCreationInfo _creationInfo;
 
-        private volatile ImportDefinition[]? _imports;
-        private volatile ExportDefinition[]? _exports;
-        private volatile IDictionary<string, object?>? _metadata;
-        private volatile ConstructorInfo? _constructor;
+        private ImportDefinition[]? _imports;
+        private ExportDefinition[]? _exports;
+        private IDictionary<string, object?>? _metadata;
+        private ConstructorInfo? _constructor;
         private readonly object _lock = new object();
 
         public ReflectionComposablePartDefinition(IReflectionPartCreationInfo creationInfo)
         {
-            if (creationInfo == null)
-            {
-                throw new ArgumentNullException(nameof(creationInfo));
-            }
+            ArgumentNullException.ThrowIfNull(creationInfo);
+
             _creationInfo = creationInfo;
         }
 
@@ -47,10 +45,7 @@ namespace System.ComponentModel.Composition.ReflectionModel
                 ConstructorInfo? constructor = _creationInfo.GetConstructor();
                 lock (_lock)
                 {
-                    if (_constructor == null)
-                    {
-                        _constructor = constructor;
-                    }
+                    _constructor ??= constructor;
                 }
             }
 
@@ -66,10 +61,7 @@ namespace System.ComponentModel.Composition.ReflectionModel
                     ExportDefinition[] exports = _creationInfo.GetExports().ToArray();
                     lock (_lock)
                     {
-                        if (_exports == null)
-                        {
-                            _exports = exports;
-                        }
+                        _exports ??= exports;
                     }
                 }
                 return _exports;
@@ -93,10 +85,7 @@ namespace System.ComponentModel.Composition.ReflectionModel
                     ImportDefinition[] imports = _creationInfo.GetImports().ToArray();
                     lock (_lock)
                     {
-                        if (_imports == null)
-                        {
-                            _imports = imports;
-                        }
+                        _imports ??= imports;
                     }
                 }
                 return _imports;
@@ -112,10 +101,7 @@ namespace System.ComponentModel.Composition.ReflectionModel
                     IDictionary<string, object?> metadata = _creationInfo.GetMetadata().AsReadOnly();
                     lock (_lock)
                     {
-                        if (_metadata == null)
-                        {
-                            _metadata = metadata;
-                        }
+                        _metadata ??= metadata;
                     }
                 }
                 return _metadata;
@@ -199,14 +185,7 @@ namespace System.ComponentModel.Composition.ReflectionModel
                                 }
                                 else
                                 {
-                                    if (candidates.Contains(candidatePart))
-                                    {
-                                        alreadyProcessed = true;
-                                    }
-                                    else
-                                    {
-                                        candidates.Add(candidatePart);
-                                    }
+                                    alreadyProcessed |= !candidates.Add(candidatePart);
                                 }
                                 if (!alreadyProcessed)
                                 {

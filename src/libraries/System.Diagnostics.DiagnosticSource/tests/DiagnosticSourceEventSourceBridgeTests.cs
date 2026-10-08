@@ -3,6 +3,8 @@
 
 using System.Collections.Generic;
 using System.Diagnostics.Tracing;
+using System.Globalization;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using Microsoft.DotNet.RemoteExecutor;
@@ -13,9 +15,14 @@ namespace System.Diagnostics.Tests
     //Complex types are not supported on EventSource for .NET 4.5
     public class DiagnosticSourceEventSourceBridgeTests
     {
+        // Use a longer timeout than the RemoteExecutor default because some of these tests
+        // can be slow to run on resource constrained CI machines.
+        // Ensure RemoteExecutor.IsSupported, otherwise remote execution can throw PlatformNotSupportedException.
+        private static readonly RemoteInvokeOptions? s_remoteInvokeOptions = RemoteExecutor.IsSupported ? new RemoteInvokeOptions { TimeOut = 180_000 } : null;
+
         // To avoid interactions between tests when they are run in parallel, we run all these tests in their
-        // own sub-process using RemoteExecutor.Invoke()  However this makes it very inconvinient to debug the test.
-        // By seting this #if to true you stub out RemoteInvoke and the code will run in-proc which is useful
+        // own sub-process using RemoteExecutor.Invoke()  However this makes it very inconvenient to debug the test.
+        // By setting this #if to true you stub out RemoteInvoke and the code will run in-proc which is useful
         // in debugging.
 #if false
         class NullDispose : IDisposable
@@ -30,6 +37,362 @@ namespace System.Diagnostics.Tests
             return new NullDispose();
         }
 #endif
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TestEnableAllActivitySourcesAllEvents()
+        {
+            RemoteExecutor.Invoke(() =>
+            {
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+                ActivitySource[] sources = new ActivitySource[10];
+                for (int i = 0; i < 10; i++)
+                {
+                    sources[i] = new ActivitySource($"Source{i}");
+                }
+
+                int eventsCount = 0;
+                Assert.Equal(eventsCount, eventSourceListener.EventCount);
+                eventSourceListener.Enable("  [AS]*  \r\n"); // All Sources + All Events
+
+                Activity[] activities = new Activity[10];
+
+                for (int i = 0; i < 10; i++)
+                {
+                    activities[i] = sources[i].StartActivity($"activity{i}");
+                    Assert.NotNull(activities[i]);
+                    Assert.Equal(++eventsCount, eventSourceListener.EventCount);
+                    ValidateActivityEvents(eventSourceListener, "ActivityStart", sources[i].Name, activities[i].OperationName);
+                    Assert.True(activities[i].IsAllDataRequested);
+                    Assert.Equal(ActivityTraceFlags.Recorded | ActivityTraceFlags.RandomTraceId, activities[i].ActivityTraceFlags);
+                }
+
+                for (int i = 0; i < 10; i++)
+                {
+                    activities[i].Dispose();
+                    Assert.Equal(++eventsCount, eventSourceListener.EventCount);
+                    ValidateActivityEvents(eventSourceListener, "ActivityStop", sources[i].Name, activities[i].OperationName);
+                    sources[i].Dispose();
+                }
+
+            }, s_remoteInvokeOptions).Dispose();
+        }
+
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [InlineData("Start")]
+        [InlineData("Stop")]
+        [InlineData("start")]
+        [InlineData("stop")]
+        public void TestEnableAllActivitySourcesWithOneEvent(string eventName)
+        {
+            RemoteExecutor.Invoke((eventname) =>
+            {
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+                ActivitySource[] sources = new ActivitySource[10];
+                for (int i = 0; i < 10; i++)
+                {
+                    sources[i] = new ActivitySource($"Source{i}");
+                }
+
+                int eventsCount = 0;
+                Assert.Equal(eventsCount, eventSourceListener.EventCount);
+                eventSourceListener.Enable($"  [AS]* / {eventname}  \r\n"); // All Sources + one Event
+
+                Activity[] activities = new Activity[10];
+
+                for (int i = 0; i < 10; i++)
+                {
+                    activities[i] = sources[i].StartActivity($"activity{i}");
+                    Assert.NotNull(activities[i]);
+
+                    if (eventname.Equals("Start", StringComparison.OrdinalIgnoreCase))
+                    {
+                        eventsCount++;
+                        ValidateActivityEvents(eventSourceListener, "ActivityStart", sources[i].Name, activities[i].OperationName);
+                    }
+                    Assert.Equal(eventsCount, eventSourceListener.EventCount);
+                    Assert.True(activities[i].IsAllDataRequested);
+                    Assert.Equal(ActivityTraceFlags.Recorded | ActivityTraceFlags.RandomTraceId, activities[i].ActivityTraceFlags);
+                }
+
+                for (int i = 0; i < 10; i++)
+                {
+                    activities[i].Dispose();
+
+                    if (eventname.Equals("Stop", StringComparison.OrdinalIgnoreCase))
+                    {
+                        eventsCount++;
+                        ValidateActivityEvents(eventSourceListener, "ActivityStop", sources[i].Name, activities[i].OperationName);
+                    }
+
+                    Assert.Equal(eventsCount, eventSourceListener.EventCount);
+                    sources[i].Dispose();
+                }
+            }, eventName, s_remoteInvokeOptions).Dispose();
+        }
+
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [InlineData("Propagate", false, ActivityTraceFlags.RandomTraceId)]
+        [InlineData("PROPAGATE", false, ActivityTraceFlags.RandomTraceId)]
+        [InlineData("Record", true, ActivityTraceFlags.RandomTraceId)]
+        [InlineData("recorD", true, ActivityTraceFlags.RandomTraceId)]
+        [InlineData("", true, ActivityTraceFlags.Recorded | ActivityTraceFlags.RandomTraceId)]
+        public void TestEnableAllActivitySourcesWithSpecificSamplingResult(string samplingResult, bool alldataRequested, ActivityTraceFlags activityTraceFlags)
+        {
+            RemoteExecutor.Invoke((result, dataRequested, traceFlags) =>
+            {
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+                using ActivitySource source = new ActivitySource("SamplingSource");
+
+                Assert.Equal(0, eventSourceListener.EventCount);
+                eventSourceListener.Enable($"  [AS]* /- {result}  \r\n"); // All Sources + one Event
+
+
+                Activity activity = source.StartActivity($"samplingActivity");
+                Assert.NotNull(activity);
+                Assert.Equal(1, eventSourceListener.EventCount);
+                ValidateActivityEvents(eventSourceListener, "ActivityStart", source.Name, activity.OperationName);
+
+                Assert.Equal(bool.Parse(dataRequested), activity.IsAllDataRequested);
+                Assert.Equal(traceFlags, activity.ActivityTraceFlags.ToString());
+
+                activity.Dispose();
+
+                Assert.Equal(2, eventSourceListener.EventCount);
+                ValidateActivityEvents(eventSourceListener, "ActivityStop", source.Name, activity.OperationName);
+            }, samplingResult, alldataRequested.ToString(), activityTraceFlags.ToString(), s_remoteInvokeOptions).Dispose();
+        }
+
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [InlineData("", "", true)]
+        [InlineData("Start", "", true)]
+        [InlineData("stop", "", true)]
+        [InlineData("", "Propagate", false)]
+        [InlineData("", "Record", true)]
+        [InlineData("Start", "Propagate", false)]
+        [InlineData("Stop", "Record", true)]
+        public void TestDefaultActivitySource(string eventName, string samplingResult, bool allDataRequested)
+        {
+            RemoteExecutor.Invoke((eventName, samplingResult, allDataRequested) =>
+            {
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+                Activity a = new Activity(""); // we need this to ensure DiagnosticSourceEventSource.Logger creation.
+
+                Assert.Equal(0, eventSourceListener.EventCount);
+                eventSourceListener.Enable($"  [AS]/{eventName}-{samplingResult}\r\n");
+                Assert.Equal("", a.Source.Name);
+
+                a = a.Source.StartActivity("newOne");
+
+                Assert.NotNull(a);
+                Assert.Equal(bool.Parse(allDataRequested), a.IsAllDataRequested);
+
+                // Activities created via ActivitySource with the default random trace ID generator will have RandomTraceId set.
+                Assert.Equal(samplingResult.Length == 0 ? ActivityTraceFlags.Recorded | ActivityTraceFlags.RandomTraceId : ActivityTraceFlags.RandomTraceId, a.ActivityTraceFlags);
+
+                a.Dispose();
+
+                int eCount = eventName.Length == 0 ? 2 : 1;
+                Assert.Equal(eCount, eventSourceListener.EventCount);
+
+                // None Default Source
+                ActivitySource source = new ActivitySource("NoneDefault"); // not the default ActivitySource
+                Activity activity = source.StartActivity($"ActivityFromNoneDefault"); // Shouldn't fire any event
+                Assert.Equal(eCount, eventSourceListener.EventCount);
+                Assert.Null(activity);
+            }, eventName, samplingResult, allDataRequested.ToString(), s_remoteInvokeOptions).Dispose();
+        }
+
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [InlineData("[AS]*\r\n [AS]Specific/-Propagate\r\n", false, true)]
+        [InlineData("[AS]AnotherSource/-Propagate\r\n [AS]Specific/-Record\r\n [AS]*\r\n", true, true)]
+        [InlineData("[AS]*/-Propagate\r\n [AS]Specific/-Record\r\n", true, false)]
+        [InlineData("[AS]*/-Propagate\r\n", false, false)]
+        [InlineData("[AS]*/-Record\r\n", true, true)]
+        [InlineData("[AS]Specific/-Propagate\r\n [AS]NoneSpecific/-Record\r\n", false, true)]
+        [InlineData("[AS]Specific/-Record\r\n [AS]NoneSpecific/-Propagate\r\n", true, false)]
+        [InlineData("[AS]Specific\r\n [AS]NoneSpecific\r\n", true, true)]
+        public void TestMultipleSpecs(string spec, bool isAllDataRequestedFromSpecific, bool isAllDataRequestedFromNoneSpecific)
+        {
+            RemoteExecutor.Invoke((specString, specificAllData, noneSpecificAllData) =>
+            {
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+                using ActivitySource aSource1 = new ActivitySource("Specific");
+                eventSourceListener.Enable(specString);
+
+                Assert.Equal(0, eventSourceListener.EventCount);
+
+                Activity a1 = aSource1.StartActivity("a1");
+                Assert.NotNull(a1);
+                Assert.Equal(1, eventSourceListener.EventCount);
+                Assert.Equal(bool.Parse(specificAllData), a1.IsAllDataRequested);
+                a1.Dispose();
+                Assert.Equal(2, eventSourceListener.EventCount);
+
+                using ActivitySource aSource2 = new ActivitySource("NoneSpecific");
+                Activity a2 = aSource2.StartActivity("a2");
+                Assert.NotNull(a2);
+                Assert.Equal(3, eventSourceListener.EventCount);
+                Assert.Equal(bool.Parse(noneSpecificAllData), a2.IsAllDataRequested);
+                a2.Dispose();
+                Assert.Equal(4, eventSourceListener.EventCount);
+
+            }, spec, isAllDataRequestedFromSpecific.ToString(), isAllDataRequestedFromNoneSpecific.ToString(), s_remoteInvokeOptions).Dispose();
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TestTransformSpecs()
+        {
+            RemoteExecutor.Invoke(() =>
+            {
+                using (TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener())
+                {
+                    using ActivitySource aSource1 = new ActivitySource("TransSpecsSource");
+                    eventSourceListener.Enable("[AS]*");
+
+                    Activity a = aSource1.StartActivity("TransSpecs");
+                    ValidateActivityEvents(eventSourceListener, "ActivityStart", "TransSpecsSource", "TransSpecs");
+
+                    var list1 = eventSourceListener.LastEvent.Arguments;
+                    Assert.Equal(a.OperationName, list1["OperationName"]);
+
+                    a.Dispose();
+                    ValidateActivityEvents(eventSourceListener, "ActivityStop", "TransSpecsSource", "TransSpecs");
+
+                    var list2 = eventSourceListener.LastEvent.Arguments;
+                    Assert.Equal(a.OperationName, list2["OperationName"]);
+
+                    Assert.Equal(list1.Count, list2.Count);
+                    foreach (string key in list1.Keys)
+                    {
+                        Assert.NotNull(list2[key]);
+                    }
+
+                    // Suppress all
+                    eventSourceListener.Enable("[AS]*:-");
+                    a = aSource1.StartActivity("TransSpecs");
+                    Assert.Equal(0, eventSourceListener.LastEvent.Arguments.Count);
+                    a.Stop();
+                    Assert.Equal(0, eventSourceListener.LastEvent.Arguments.Count);
+
+                    // Suppress all except ActivitySource name
+                    eventSourceListener.Enable("[AS]*:-ActivitySourceName=Source.Name");
+                    a = aSource1.StartActivity("TransSpecs");
+                    Assert.Equal(1, eventSourceListener.LastEvent.Arguments.Count);
+                    Assert.Equal(aSource1.Name, eventSourceListener.LastEvent.Arguments["ActivitySourceName"]);
+
+                    a.Stop();
+                    Assert.Equal(1, eventSourceListener.LastEvent.Arguments.Count);
+                    Assert.Equal(aSource1.Name, eventSourceListener.LastEvent.Arguments["ActivitySourceName"]);
+
+                    // Collect TraceId, SpanId, and ParentSpanId only
+                    eventSourceListener.Enable("[AS]*:-TraceId;SpanId;ParentSpanId");
+                    a = aSource1.StartActivity("ActivityData");
+                    Assert.Equal(3, eventSourceListener.LastEvent.Arguments.Count);
+
+                    Assert.Equal(a.SpanId.ToString(), eventSourceListener.LastEvent.Arguments["SpanId"]);
+                    Assert.Equal(a.TraceId.ToString(), eventSourceListener.LastEvent.Arguments["TraceId"]);
+                    Assert.Equal(a.ParentSpanId.ToString(), eventSourceListener.LastEvent.Arguments["ParentSpanId"]);
+
+                    a.Stop();
+                    Assert.Equal(3, eventSourceListener.LastEvent.Arguments.Count);
+                    Assert.Equal(a.SpanId.ToString(), eventSourceListener.LastEvent.Arguments["SpanId"]);
+                    Assert.Equal(a.TraceId.ToString(), eventSourceListener.LastEvent.Arguments["TraceId"]);
+                    Assert.Equal(a.ParentSpanId.ToString(), eventSourceListener.LastEvent.Arguments["ParentSpanId"]);
+                }
+
+            }, s_remoteInvokeOptions).Dispose();
+        }
+
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TestFilteringWithActivityName()
+        {
+            RemoteExecutor.Invoke(() =>
+            {
+                using (TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener())
+                {
+                    using ActivitySource aSource1 = new ActivitySource("Source1");
+                    using ActivitySource aSource2 = new ActivitySource("MySource");
+
+                    //
+                    // test with specific ActivitySource and ActivityName
+                    //
+
+                    eventSourceListener.Enable("[AS]MySource+MyActivity");
+                    Assert.Equal(0, eventSourceListener.EventCount);
+
+                    Activity a = aSource1.StartActivity("MyActivity"); // Not from MySource
+                    Assert.Null(a);
+                    Assert.Equal(0, eventSourceListener.EventCount);
+
+                    a = aSource2.StartActivity("NotMyActivity"); // from MySource but NoMyActivity
+                    Assert.Null(a);
+                    Assert.Equal(0, eventSourceListener.EventCount);
+
+                    a = aSource2.StartActivity("MyActivity"); // from MySource and MyActivity
+                    Assert.NotNull(a);
+                    Assert.Equal(1, eventSourceListener.EventCount);
+                    Assert.Equal(a.OperationName, eventSourceListener.LastEvent.Arguments["OperationName"]);
+
+                    a.Stop();
+                    Assert.Equal(2, eventSourceListener.EventCount);
+                    Assert.Equal(a.OperationName, eventSourceListener.LastEvent.Arguments["OperationName"]);
+
+                    //
+                    // test with full query
+                    //
+                    eventSourceListener.Enable("[AS]MySource+MyActivity/Start-Propagate");
+                    a = aSource2.StartActivity("MyActivity"); // from MySource and MyActivity
+                    Assert.NotNull(a);
+                    Assert.Equal(3, eventSourceListener.EventCount);
+                    Assert.Equal(a.OperationName, eventSourceListener.LastEvent.Arguments["OperationName"]);
+                    Assert.False(a.IsAllDataRequested);
+
+                    a.Stop(); // shouldn't fire
+                    Assert.Equal(3, eventSourceListener.EventCount);
+
+                    //
+                    // test with default Source
+                    //
+                    eventSourceListener.Enable("[AS]+MyActivity");
+                    a = new Activity("MyActivity");
+                    a.Start();
+                    Assert.Equal(4, eventSourceListener.EventCount);
+                    Assert.Equal(a.OperationName, eventSourceListener.LastEvent.Arguments["OperationName"]);
+                    Assert.True(a.IsAllDataRequested);
+
+                    a.Stop();
+                    Assert.Equal(5, eventSourceListener.EventCount);
+                    Assert.Equal(a.OperationName, eventSourceListener.LastEvent.Arguments["OperationName"]);
+
+                    a = new Activity("NotMyActivity");
+                    a.Start(); // nothing fire
+                    Assert.Equal(5, eventSourceListener.EventCount);
+
+                    //
+                    // Test with Empty ActivityName
+                    //
+                    eventSourceListener.Enable("[AS]+");
+                    a = new Activity("");
+                    a.Start();
+                    Assert.Equal(6, eventSourceListener.EventCount);
+                    a.Stop();
+                    Assert.Equal(7, eventSourceListener.EventCount);
+
+                    a = aSource2.StartActivity("");
+                    Assert.Null(a);
+                }
+
+            }, s_remoteInvokeOptions).Dispose();
+        }
+
+        internal void ValidateActivityEvents(TestDiagnosticSourceEventListener eventSourceListener, string eventName, string sourceName, string activityName)
+        {
+            Assert.Equal(eventName, eventSourceListener.LastEvent.EventSourceEventName);
+            Assert.Equal(sourceName, eventSourceListener.LastEvent.SourceName);
+            Assert.Equal(activityName, eventSourceListener.LastEvent.EventName);
+        }
+
         /// <summary>
         /// Tests the basic functionality of turning on specific EventSources and specifying
         /// the events you want.
@@ -98,7 +461,7 @@ namespace System.Diagnostics.Tests
                     }
                     Assert.Equal(0, eventSourceListener.EventCount);        // No Event should be fired.
 
-                    // Disable all the listener and insure that no more events come through.
+                    // Disable all the listener and ensure that no more events come through.
                     eventSourceListener.Disable();
 
                     diagnosticSourceListener.Write("TestEvent1", null);
@@ -112,7 +475,74 @@ namespace System.Diagnostics.Tests
                 {
                     Assert.True(!listen.Name.StartsWith("BuildTestSource"));
                 }));
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
+        }
+
+        /// <summary>
+        /// Tests that DiagnosticSourceEventSource can read property values from base classes
+        /// </summary>
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TestBaseClassProperties()
+        {
+            RemoteExecutor.Invoke(() =>
+            {
+                using (var eventSourceListener = new TestDiagnosticSourceEventListener())
+                using (var diagnosticSourceListener = new DiagnosticListener("TestBaseClassProperties"))
+                {
+                    Assert.Equal(0, eventSourceListener.EventCount);
+                    eventSourceListener.Enable(
+                        "  TestBaseClassProperties/TestEvent1:Point_X=Point.X;Point_Y=Point.Y;Url_2=Url2\r\n");
+
+                    /***************************************************************************************/
+                    // Emit an event that matches the first pattern.
+                    MyClass val = new MyDerivedClass() { Url = "MyUrl", Point = new MyPoint() { X = 3, Y = 5 }, Url2 = "Second url", AnotherString = "another" };
+                    if (diagnosticSourceListener.IsEnabled("TestEvent1"))
+                        diagnosticSourceListener.Write("TestEvent1", val);
+
+                    Assert.Equal(1, eventSourceListener.EventCount); // Exactly one more event has been emitted.
+                    Assert.Equal("TestBaseClassProperties", eventSourceListener.LastEvent.SourceName);
+                    Assert.Equal("TestEvent1", eventSourceListener.LastEvent.EventName);
+                    Assert.Equal(7, eventSourceListener.LastEvent.Arguments.Count);
+                    Assert.Equal("another", eventSourceListener.LastEvent.Arguments["AnotherString"]);
+                    Assert.Equal("3", eventSourceListener.LastEvent.Arguments["Point_X"]);
+                    Assert.Equal("5", eventSourceListener.LastEvent.Arguments["Point_Y"]);
+                    Assert.Equal("Second url", eventSourceListener.LastEvent.Arguments["Url_2"]);
+                    eventSourceListener.ResetEventCountAndLastEvent();
+                }
+            }, s_remoteInvokeOptions).Dispose();
+        }
+
+        /// <summary>
+        /// Tests that DiagnosticSourceEventSource can read property values from base classes
+        /// </summary>
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TestBaseClassDuplicateProperties()
+        {
+            RemoteExecutor.Invoke(() =>
+            {
+                using (var eventSourceListener = new TestDiagnosticSourceEventListener())
+                using (var diagnosticSourceListener = new DiagnosticListener("TestBaseClassProperties"))
+                {
+                    Assert.Equal(0, eventSourceListener.EventCount);
+                    eventSourceListener.Enable(
+                        "  TestBaseClassProperties/TestEvent1:Point_X=Point.X;Point_Y=Point.Y;Url=Url\r\n");
+
+                    /***************************************************************************************/
+                    // Emit an event that matches the first pattern.
+                    MyClass val = new MyOtherDerivedClass() { Url = "MyUrl", Point = new MyDerivedPoint() { X = 3, Y = 5 } };
+                    if (diagnosticSourceListener.IsEnabled("TestEvent1"))
+                        diagnosticSourceListener.Write("TestEvent1", val);
+
+                    Assert.Equal(1, eventSourceListener.EventCount); // Exactly one more event has been emitted.
+                    Assert.Equal("TestBaseClassProperties", eventSourceListener.LastEvent.SourceName);
+                    Assert.Equal("TestEvent1", eventSourceListener.LastEvent.EventName);
+                    Assert.Equal(4, eventSourceListener.LastEvent.Arguments.Count);
+                    Assert.Equal("3", eventSourceListener.LastEvent.Arguments["Point_X"]);
+                    Assert.Equal("5", eventSourceListener.LastEvent.Arguments["Point_Y"]);
+                    Assert.Equal("MyUrl", eventSourceListener.LastEvent.Arguments["Url"]);
+                    eventSourceListener.ResetEventCountAndLastEvent();
+                }
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         /// <summary>
@@ -171,7 +601,7 @@ namespace System.Diagnostics.Tests
                 {
                     Assert.True(!listen.Name.StartsWith("BuildTestSource"));
                 }));
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         /// <summary>
@@ -235,7 +665,7 @@ namespace System.Diagnostics.Tests
                     Assert.Equal("122", eventSourceListener.LastEvent.Arguments["prop222"]);
                     eventSourceListener.ResetEventCountAndLastEvent();
                 }
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         /// <summary>
@@ -320,7 +750,39 @@ namespace System.Diagnostics.Tests
                     }
                     Assert.Equal(0, eventSourceListener.EventCount);        // No Event should be fired.
                 }
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
+        }
+
+        public class PropertyThrow
+        {
+            public string property1 => "P1";
+            public string property2 => throw new Exception("Always throw!");
+            public string property3 => "P3";
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TestWithPropertyThrowing()
+        {
+            RemoteExecutor.Invoke(() =>
+            {
+                using (var eventSourceListener = new TestDiagnosticSourceEventListener())
+                using (var diagnosticSourceListener = new DiagnosticListener("TestThrows"))
+                {
+                    eventSourceListener.Enable("TestThrows/TestEvent1");
+
+                    if (diagnosticSourceListener.IsEnabled("TestEvent1"))
+                        diagnosticSourceListener.Write("TestEvent1", new PropertyThrow());
+
+                    Assert.Equal(1, eventSourceListener.EventCount); // Exactly one more event has been emitted.
+                    Assert.Equal("TestThrows", eventSourceListener.LastEvent.SourceName);
+                    Assert.Equal("TestEvent1", eventSourceListener.LastEvent.EventName);
+                    Assert.Equal(3, eventSourceListener.LastEvent.Arguments.Count);
+                    Assert.Equal("P1", eventSourceListener.LastEvent.Arguments["property1"]);
+                    Assert.Equal("P3", eventSourceListener.LastEvent.Arguments["property3"]);
+                    Assert.Equal("", eventSourceListener.LastEvent.Arguments["property2"]);
+                    eventSourceListener.ResetEventCountAndLastEvent();
+                }
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         /// <summary>
@@ -402,7 +864,7 @@ namespace System.Diagnostics.Tests
                     Assert.Equal("8", eventSourceListener.LastEvent.Arguments["cls_Point_X"]);
                     eventSourceListener.ResetEventCountAndLastEvent();
                 }
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         /// <summary>
@@ -436,7 +898,7 @@ namespace System.Diagnostics.Tests
                     Assert.Equal("MyUrl", eventSourceListener.LastEvent.Arguments["Url"]);
                     eventSourceListener.ResetEventCountAndLastEvent();
                 }
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         /// <summary>
@@ -470,7 +932,7 @@ namespace System.Diagnostics.Tests
                     Assert.Equal("4", eventSourceListener.LastEvent.Arguments["propInt"]);
                     eventSourceListener.ResetEventCountAndLastEvent();
                 }
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         // Tests that messages about DiagnosticSourceEventSource make it out.
@@ -501,7 +963,43 @@ namespace System.Diagnostics.Tests
                     Assert.Equal(0, eventSourceListener.EventCount);
                     Assert.True(3 <= messages.Count);
                 }
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
+        }
+
+        // Tests that version event from DiagnosticSourceEventSource is fired.
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TestVersion()
+        {
+            RemoteExecutor.Invoke(static () =>
+            {
+                Activity a = new Activity("test"); // we need this to ensure DiagnosticSourceEventSource.Logger creation.
+
+                using (var eventSourceListener = new TestDiagnosticSourceEventListener())
+                {
+                    Assert.Equal(0, eventSourceListener.EventCount);
+
+                    Version? version = null;
+
+                    eventSourceListener.OtherEventWritten += delegate (EventWrittenEventArgs evnt)
+                    {
+                        if (evnt.EventName == "Version")
+                        {
+                            version = new(
+                                (int)evnt.Payload[0],
+                                (int)evnt.Payload[1],
+                                (int)evnt.Payload[2]);
+                        }
+                    };
+
+                    eventSourceListener.Enable("");
+                    Assert.Equal(0, eventSourceListener.EventCount);
+
+                    Assert.NotNull(version);
+                    Assert.Equal(
+                        new Version(typeof(Activity).Assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version ?? "0.0.0").ToString(3),
+                        version.ToString());
+                }
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         /// <summary>
@@ -574,7 +1072,7 @@ namespace System.Diagnostics.Tests
                     Assert.Equal("stop", eventSourceListener.LastEvent.Arguments["propStr"]);
                     eventSourceListener.ResetEventCountAndLastEvent();
                 }
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         /// <summary>
@@ -698,7 +1196,7 @@ namespace System.Diagnostics.Tests
                     Assert.Equal("200", eventSourceListener.LastEvent.Arguments["StatusCode"]);
                     eventSourceListener.ResetEventCountAndLastEvent();
                 }
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         [OuterLoop("Runs for several seconds")]
@@ -731,7 +1229,7 @@ namespace System.Diagnostics.Tests
                     }
                     ce.Wait();
                 }
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
@@ -768,7 +1266,7 @@ namespace System.Diagnostics.Tests
                     Assert.Equal("2", eventListener.LastEvent.Arguments["OtherNumber"]);
                     Assert.Equal("2", eventListener.LastEvent.Arguments["Count"]);
                 }
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
@@ -808,7 +1306,7 @@ namespace System.Diagnostics.Tests
                     diagnosticListener.StartActivity(activity1, new { DummyProp = "val" });
                     Assert.Equal(1, eventListener.EventCount);
                     AssertActivityMatchesEvent(activity1, eventListener.LastEvent, isStart: true);
-                    
+
                     Activity activity2 = new Activity("TestActivity2");
                     diagnosticListener.StartActivity(activity2, new { DummyProp = "val" });
                     Assert.Equal(2, eventListener.EventCount);
@@ -823,7 +1321,7 @@ namespace System.Diagnostics.Tests
                     AssertActivityMatchesEvent(activity1, eventListener.LastEvent, isStart: false);
 
                 }
-            }).Dispose();
+            }, s_remoteInvokeOptions).Dispose();
         }
 
         private void AssertActivityMatchesEvent(Activity a, DiagnosticSourceEvent e, bool isStart)
@@ -852,7 +1350,7 @@ namespace System.Diagnostics.Tests
                 Assert.Equal(a.TraceId.ToString(), e.Arguments["ActivityTraceId"]);
                 Assert.Equal(a.SpanId.ToString(), e.Arguments["ActivitySpanId"]);
                 Assert.Equal(a.TraceStateString, e.Arguments["ActivityTraceStateString"]);
-                if(a.ParentSpanId != default)
+                if (a.ParentSpanId != default)
                 {
                     Assert.Equal(a.ParentSpanId.ToString(), e.Arguments["ActivityParentSpanId"]);
                 }
@@ -892,6 +1390,292 @@ namespace System.Diagnostics.Tests
                 Assert.Equal(1, eventListener.EventCount);
             }
         }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TestRuleWithWildcardSourceAndActivityNameIsIgnored()
+        {
+            RemoteExecutor.Invoke(() =>
+            {
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+
+                Activity a = new Activity(""); // we need this to ensure DiagnosticSourceEventSource.Logger creation.
+                Assert.Equal("", a.Source.Name);
+
+                eventSourceListener.Enable("[AS]*+TestName"); // Rule with wildcard source and activity name is ignored
+
+                Assert.NotNull(eventSourceListener.LastOtherEvent);
+                Assert.Equal("Message", eventSourceListener.LastOtherEvent.EventName);
+                Assert.Equal("DiagnosticSource: Ignoring filterAndPayloadSpec '[AS]*+TestName' because activity name cannot be specified for wildcard activity sources", eventSourceListener.LastOtherEvent.Payload[0] as string);
+
+                using var root = a.Source.StartActivity("TestName");
+
+                Assert.Null(root);
+            }, s_remoteInvokeOptions).Dispose();
+        }
+
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [InlineData("[AS]*/Stop\r\n [AS]*/Start", "DiagnosticSource: Ignoring wildcard activity source filterAndPayloadSpec rule because a previous rule was defined")]
+        [InlineData("[AS]TestSource/Stop\r\n [AS]TestSource/Start", "DiagnosticSource: Ignoring filterAndPayloadSpec rule for '[AS]TestSource' because a previous rule was defined")]
+        [InlineData("[AS]TestSource+TestActivity/Stop\r\n [AS]TestSource+TestActivity/Start", "DiagnosticSource: Ignoring filterAndPayloadSpec rule for '[AS]TestSource+TestActivity' because a previous rule was defined")]
+        public void TestMultipleRulesOnlyFirstTaken(string spec, string errorMessage)
+        {
+            RemoteExecutor.Invoke((string spec, string errorMessage) =>
+            {
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+
+                Activity a = new Activity(""); // we need this to ensure DiagnosticSourceEventSource.Logger creation.
+                Assert.Equal("", a.Source.Name);
+
+                eventSourceListener.Enable(spec); // Rule with wildcard source and activity name is ignored
+
+                Assert.NotNull(eventSourceListener.LastOtherEvent);
+                Assert.Equal("Message", eventSourceListener.LastOtherEvent.EventName);
+                Assert.Equal(errorMessage, eventSourceListener.LastOtherEvent.Payload[0] as string);
+
+                using var source = new ActivitySource("TestSource");
+
+                using var root = source.StartActivity("TestActivity");
+
+                Assert.NotNull(root);
+
+                Assert.Equal(0, eventSourceListener.EventCount);
+
+                root.Stop();
+
+                Assert.Equal(1, eventSourceListener.EventCount);
+            }, spec, errorMessage, s_remoteInvokeOptions).Dispose();
+        }
+
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [InlineData(1)]
+        [InlineData(5)]
+        [InlineData(50)]
+        [InlineData(100)]
+        public void TestRateLimitingSampler(int maxOperationPerSecond)
+        {
+            RemoteExecutor.Invoke((maxOpPerSecond) =>
+            {
+                // Test RateLimitingSampler behavior
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+                Activity a = new Activity(""); // we need this to ensure DiagnosticSourceEventSource.Logger creation.
+                Assert.Equal("", a.Source.Name);
+
+                Assert.Equal(0, eventSourceListener.EventCount);
+
+                Stopwatch sw = new Stopwatch();
+                sw.Start();
+
+                eventSourceListener.Enable($"[AS]*/-ParentRateLimitingSampler({maxOpPerSecond})");
+
+                while (sw.ElapsedMilliseconds < 3000)  // run for 3 seconds
+                {
+                    // ensure we are creating a root activity
+                    Activity.Current = null;
+                    using var nextRoot = a.Source.StartActivity("NextRoot");
+                }
+
+                int maxOps = int.Parse(maxOpPerSecond, CultureInfo.InvariantCulture);
+                // maxOperationPerSecond sampling allowed per second
+                // 2 events for every sampling (activity start and stop)
+                // 3 seconds of sampling
+                // tolerance of extra sample can be done if the second turn after the loop check sw.ElapsedMilliseconds. 2 extra events (start and stop).
+                Assert.True(maxOps * 2 * 3 + 2 >= eventSourceListener.EventCount, $"{eventSourceListener.EventCount} events were recorded, while maxOpPerSecond is {maxOpPerSecond}");
+
+                Thread.Sleep(1000); // ensure new allowance for root creation
+                Activity.Current = null;
+                using var root = a.Source.StartActivity("root");
+                Assert.NotNull(root);
+                Assert.True(root.Recorded);
+
+                using var child = a.Source.StartActivity("child");
+                Assert.NotNull(child); // Child should be created as the parent is recorded.
+            },  maxOperationPerSecond.ToString(CultureInfo.InvariantCulture), s_remoteInvokeOptions).Dispose();
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TestParentRatioSampler()
+        {
+            RemoteExecutor.Invoke(() =>
+            {
+                // Test ParentRatioSampler behavior with 0% ratio
+
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+                Activity a = new Activity(""); // we need this to ensure DiagnosticSourceEventSource.Logger creation.
+
+                Assert.Equal(0, eventSourceListener.EventCount);
+                eventSourceListener.Enable("[AS]*/-ParentRatioSampler(0.0)");
+                Assert.Equal("", a.Source.Name);
+
+                using var root = a.Source.StartActivity("root");
+
+                // Note: Because this is a root it gets created even though it was not sampled...
+                Assert.NotNull(root);
+                // ...but it is not marked as recorded.
+                Assert.False(root.Recorded);
+
+                using var child = a.Source.StartActivity("child");
+
+                Assert.Null(child);
+            }, s_remoteInvokeOptions).Dispose();
+
+            RemoteExecutor.Invoke(() =>
+            {
+                // Test ParentRatioSampler behavior with 100% ratio
+
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+                Activity a = new Activity(""); // we need this to ensure DiagnosticSourceEventSource.Logger creation.
+
+                Assert.Equal(0, eventSourceListener.EventCount);
+                eventSourceListener.Enable("[AS]*/-ParentRatioSampler(1.0)");
+                Assert.Equal("", a.Source.Name);
+
+                using var root = a.Source.StartActivity("root");
+
+                Assert.NotNull(root);
+                Assert.True(root.Recorded);
+
+                using var child = a.Source.StartActivity("child");
+
+                Assert.NotNull(child);
+                Assert.True(child.Recorded);
+
+            }, s_remoteInvokeOptions).Dispose();
+
+            RemoteExecutor.Invoke(() =>
+            {
+                // This traceId will not be sampled by the ParentRatioSampler because the first 8 bytes as long
+                // is not less than probability * Long.MAX_VALUE;
+                var notSampledtraceId =
+                    ActivityTraceId.CreateFromBytes(
+                        new byte[]
+                        {
+                          0x8F,
+                          0xFF,
+                          0xFF,
+                          0xFF,
+                          0xFF,
+                          0xFF,
+                          0xFF,
+                          0xFF,
+                          0,
+                          0,
+                          0,
+                          0,
+                          0,
+                          0,
+                          0,
+                          0,
+                        });
+
+                Assert.Equal(
+                    ActivitySamplingResult.None,
+                    DsesSamplerBuilder.ParentRatioSampler(
+                        (long)(0.0001D * long.MaxValue),
+                        parentContext: default,
+                        notSampledtraceId));
+            }, s_remoteInvokeOptions).Dispose();
+
+            RemoteExecutor.Invoke(() =>
+            {
+                // This traceId will be sampled by the ParentRatioSampler because the first 8 bytes as long
+                // is less than probability * Long.MAX_VALUE;
+                var sampledtraceId =
+                    ActivityTraceId.CreateFromBytes(
+                        new byte[]
+                        {
+                          0x00,
+                          0x00,
+                          0xFF,
+                          0xFF,
+                          0xFF,
+                          0xFF,
+                          0xFF,
+                          0xFF,
+                          0,
+                          0,
+                          0,
+                          0,
+                          0,
+                          0,
+                          0,
+                          0,
+                        });
+
+                Assert.Equal(
+                    ActivitySamplingResult.AllDataAndRecorded,
+                    DsesSamplerBuilder.ParentRatioSampler(
+                        (long)(0.0001D * long.MaxValue),
+                        parentContext: default,
+                        sampledtraceId));
+            }, s_remoteInvokeOptions).Dispose();
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void TestSamplingPrecedence()
+        {
+            RemoteExecutor.Invoke(() =>
+            {
+                // Match on source + name wins
+
+                using ActivitySource source = new("TestActivitySource");
+
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+
+                eventSourceListener.Enable(
+@"[AS]TestActivitySource+TestActivity/-ParentRatioSampler(0.0)
+[AS]TestActivitySource/-
+[AS]*/-
+");
+
+                using (Activity? a = source.StartActivity("TestActivity"))
+                {
+                    Assert.NotNull(a);
+                    Assert.False(a.Recorded);
+                }
+            }, s_remoteInvokeOptions).Dispose();
+
+            RemoteExecutor.Invoke(() =>
+            {
+                // Match on source wins
+
+                using ActivitySource source = new("TestActivitySource");
+
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+
+                eventSourceListener.Enable(
+@"[AS]TestActivitySource+TestActivity/-
+[AS]TestActivitySource/-ParentRatioSampler(0.0)
+[AS]*/-
+");
+
+                using (Activity? a = source.StartActivity("OtherActivity"))
+                {
+                    Assert.NotNull(a);
+                    Assert.False(a.Recorded);
+                }
+            }, s_remoteInvokeOptions).Dispose();
+
+            RemoteExecutor.Invoke(() =>
+            {
+                // Wildcard match wins
+
+                using ActivitySource source = new("OtherActivitySource");
+
+                using TestDiagnosticSourceEventListener eventSourceListener = new TestDiagnosticSourceEventListener();
+
+                eventSourceListener.Enable(
+@"[AS]TestActivitySource+TestActivity/-
+[AS]TestActivitySource/-
+[AS]*/-ParentRatioSampler(0.0)
+");
+
+                using (Activity? a = source.StartActivity("OtherActivity"))
+                {
+                    Assert.NotNull(a);
+                    Assert.False(a.Recorded);
+                }
+            }, s_remoteInvokeOptions).Dispose();
+        }
     }
 
     /****************************************************************************/
@@ -906,6 +1690,17 @@ namespace System.Diagnostics.Tests
         public MyPoint Point { get; set; }
     }
 
+    internal class MyDerivedClass : MyClass
+    {
+        public string Url2 { get; set; }
+        public string AnotherString { get; set; }
+    }
+
+    internal class MyOtherDerivedClass : MyClass
+    {
+        public new MyDerivedPoint Point { get; set; }
+    }
+
     /// <summary>
     /// classes for test data.
     /// </summary>
@@ -914,6 +1709,9 @@ namespace System.Diagnostics.Tests
         public int X { get; set; }
         public int Y { get; set; }
     }
+
+    internal class MyDerivedPoint : MyPoint
+    { }
 
     /// <summary>
     /// classes for test data
@@ -941,6 +1739,7 @@ namespace System.Diagnostics.Tests
         public TestDiagnosticSourceEventListener()
         {
             EventWritten += UpdateLastEvent;
+            OtherEventWritten += UpdateLastOtherEvent;
         }
 
         public int EventCount;
@@ -949,6 +1748,8 @@ namespace System.Diagnostics.Tests
         // Here just for debugging.  Lets you see the last 3 events that were sent.
         public DiagnosticSourceEvent SecondLast;
         public DiagnosticSourceEvent ThirdLast;
+
+        public EventWrittenEventArgs LastOtherEvent;
 
         /// <summary>
         /// Sets the EventCount to 0 and LastEvents to null
@@ -978,6 +1779,11 @@ namespace System.Diagnostics.Tests
             EventCount++;
             LastEvent = anEvent;
         }
+
+        private void UpdateLastOtherEvent(EventWrittenEventArgs anEvent)
+        {
+            LastOtherEvent = anEvent;
+        }
         #endregion
     }
 
@@ -991,7 +1797,7 @@ namespace System.Diagnostics.Tests
         public Dictionary<string, string> Arguments;
 
         // Not typically important.
-        public string EventSourceEventName;    // This is the name of the EventSourceEvent that carried the data.   Only important for activities.
+        public string EventSourceEventName;    // This is the name of the EventSourceEvent that carried the data. Only important for activities.
 
         public override string ToString()
         {
@@ -1069,7 +1875,7 @@ namespace System.Diagnostics.Tests
                 if (eventData.Payload.Count == 3 && (eventData.EventName == "Event" || eventData.EventName.Contains("Activity")))
                 {
                     Debug.Assert(eventData.PayloadNames[0] == "SourceName");
-                    Debug.Assert(eventData.PayloadNames[1] == "EventName");
+                    Debug.Assert(eventData.PayloadNames[1] == "EventName" || eventData.PayloadNames[1] == "ActivityName");
                     Debug.Assert(eventData.PayloadNames[2] == "Arguments");
 
                     var anEvent = new DiagnosticSourceEvent();

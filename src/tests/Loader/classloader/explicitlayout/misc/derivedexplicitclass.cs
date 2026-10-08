@@ -3,6 +3,8 @@
 
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
+using TestLibrary;
 
 [StructLayout(LayoutKind.Explicit)]
 // non-generic base class
@@ -18,9 +20,11 @@ public class Sub : Base
   [FieldOffset(8)]public object Fld1;
 }
 
-public class Test
+public class Test_derivedexplicitclass
 {
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		try
 		{

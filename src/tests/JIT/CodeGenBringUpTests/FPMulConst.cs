@@ -5,7 +5,8 @@
 
 using System;
 using System.Runtime.CompilerServices;
-public class BringUpTest
+using Xunit;
+public class BringUpTest_FPMulConst
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -13,7 +14,8 @@ public class BringUpTest
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
     public static float FPMulConst(float r) { return 3.14f *r*r; }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         float y = FPMulConst(10f);
         Console.WriteLine(y);

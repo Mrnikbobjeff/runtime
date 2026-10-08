@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
+using TestLibrary;
 
 public interface IGenX<T> 
 {
@@ -25,7 +27,7 @@ class Gen<T,U> : IGenX<T>, IGenY<U>
   	}
 }
 
-public class Test
+public class Test_MultipleInterface13
 {
 	public static int counter = 0;
 	public static bool result = true;
@@ -40,7 +42,9 @@ public class Test
 	
 	}
 	
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 
 		Gen<int,int> GenIntInt = new Gen<int,int>();

@@ -2,12 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
 using System.Threading;
+using Xunit;
 
 public class InterlockedExchange6
 {
     private const int c_NUM_LOOPS = 100;
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         InterlockedExchange6 test = new InterlockedExchange6();
 

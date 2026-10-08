@@ -2,7 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Generics_Conversions_Reference_GenToNonGen03;
+
 using System;
+using Xunit;
 
 public struct ValX0 { }
 public struct ValY0 { }
@@ -80,7 +83,7 @@ public class Converter<T>
     }
 }
 
-public class Test
+public class Test_GenToNonGen03
 {
     public static int counter = 0;
     public static bool result = true;
@@ -95,7 +98,9 @@ public class Test
 
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         Eval(new Converter<int>().ToGenBaseOfT(new Gen<int>(), false, typeof(Gen<int>)));
 

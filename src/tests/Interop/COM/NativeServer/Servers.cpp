@@ -3,6 +3,7 @@
 
 #include "stdafx.h"
 #include "Servers.h"
+#include <thread>
 
 namespace
 {
@@ -124,7 +125,7 @@ namespace
             return HRESULT_FROM_WIN32(::GetLastError());
         }
 
-        ::GetModuleFileNameW(mod, fullPath, ARRAYSIZE(fullPath));
+        ::GetModuleFileNameW(mod, fullPath, ARRAY_SIZE(fullPath));
 
         // The default value for the key is the path to the DLL
         res = ::RegSetValueExW(
@@ -132,7 +133,7 @@ namespace
             nullptr,
             0,
             REG_SZ,
-            reinterpret_cast<const BYTE*>(fullPath),
+            reinterpret_cast<const uint8_t*>(fullPath),
             static_cast<DWORD>(::TP_slen(fullPath) + 1) * sizeof(fullPath[0]));
         if (res != ERROR_SUCCESS)
             return __HRESULT_FROM_WIN32(res);
@@ -145,7 +146,7 @@ namespace
                 L"ThreadingModel",
                 0,
                 REG_SZ,
-                reinterpret_cast<const BYTE*>(threadingModel),
+                reinterpret_cast<const uint8_t*>(threadingModel),
                 static_cast<DWORD>(::TP_slen(threadingModel) + 1) * sizeof(threadingModel[0]));
             if (res != ERROR_SUCCESS)
                 return __HRESULT_FROM_WIN32(res);
@@ -155,6 +156,20 @@ namespace
     }
 }
 
+extern "C" HRESULT STDMETHODCALLTYPE InvokeCallbackOnNativeThread(void (STDMETHODCALLTYPE* callback)())
+{
+    if (callback == nullptr)
+        return E_POINTER;
+
+    std::thread worker([callback]()
+    {
+        callback();
+    });
+
+    worker.join();
+    return S_OK;
+}
+
 STDAPI DllRegisterServer(void)
 {
     HRESULT hr;
@@ -162,11 +177,15 @@ STDAPI DllRegisterServer(void)
     RETURN_IF_FAILED(RegisterClsid(__uuidof(NumericTesting), L"Both"));
     RETURN_IF_FAILED(RegisterClsid(__uuidof(ArrayTesting), L"Both"));
     RETURN_IF_FAILED(RegisterClsid(__uuidof(StringTesting), L"Both"));
+    RETURN_IF_FAILED(RegisterClsid(__uuidof(MiscTypesTesting), L"Both"));
     RETURN_IF_FAILED(RegisterClsid(__uuidof(ErrorMarshalTesting), L"Both"));
     RETURN_IF_FAILED(RegisterClsid(__uuidof(DispatchTesting), L"Both"));
     RETURN_IF_FAILED(RegisterClsid(__uuidof(EventTesting), L"Both"));
+    RETURN_IF_FAILED(RegisterClsid(__uuidof(DispatchCoerceTesting), L"Both"));
     RETURN_IF_FAILED(RegisterClsid(__uuidof(AggregationTesting), L"Both"));
     RETURN_IF_FAILED(RegisterClsid(__uuidof(ColorTesting), L"Both"));
+    RETURN_IF_FAILED(RegisterClsid(__uuidof(InspectableTesting), L"Both"));
+    RETURN_IF_FAILED(RegisterClsid(__uuidof(TrackMyLifetimeTesting), L"Both"));
 
     return S_OK;
 }
@@ -178,11 +197,15 @@ STDAPI DllUnregisterServer(void)
     RETURN_IF_FAILED(RemoveClsid(__uuidof(NumericTesting)));
     RETURN_IF_FAILED(RemoveClsid(__uuidof(ArrayTesting)));
     RETURN_IF_FAILED(RemoveClsid(__uuidof(StringTesting)));
+    RETURN_IF_FAILED(RemoveClsid(__uuidof(MiscTypesTesting)));
     RETURN_IF_FAILED(RemoveClsid(__uuidof(ErrorMarshalTesting)));
     RETURN_IF_FAILED(RemoveClsid(__uuidof(DispatchTesting)));
     RETURN_IF_FAILED(RemoveClsid(__uuidof(EventTesting)));
+    RETURN_IF_FAILED(RemoveClsid(__uuidof(DispatchCoerceTesting)));
     RETURN_IF_FAILED(RemoveClsid(__uuidof(AggregationTesting)));
     RETURN_IF_FAILED(RemoveClsid(__uuidof(ColorTesting)));
+    RETURN_IF_FAILED(RemoveClsid(__uuidof(InspectableTesting)));
+    RETURN_IF_FAILED(RemoveClsid(__uuidof(TrackMyLifetimeTesting)));
 
     return S_OK;
 }
@@ -198,6 +221,9 @@ STDAPI DllGetClassObject(_In_ REFCLSID rclsid, _In_ REFIID riid, _Out_ LPVOID FA
     if (rclsid == __uuidof(StringTesting))
         return ClassFactoryBasic<StringTesting>::Create(riid, ppv);
 
+    if (rclsid == __uuidof(MiscTypesTesting))
+        return ClassFactoryBasic<MiscTypesTesting>::Create(riid, ppv);
+
     if (rclsid == __uuidof(ErrorMarshalTesting))
         return ClassFactoryBasic<ErrorMarshalTesting>::Create(riid, ppv);
 
@@ -207,6 +233,9 @@ STDAPI DllGetClassObject(_In_ REFCLSID rclsid, _In_ REFIID riid, _Out_ LPVOID FA
     if (rclsid == __uuidof(EventTesting))
         return ClassFactoryBasic<EventTesting>::Create(riid, ppv);
 
+    if (rclsid == __uuidof(DispatchCoerceTesting))
+        return ClassFactoryBasic<DispatchCoerceTesting>::Create(riid, ppv);
+
     if (rclsid == __uuidof(AggregationTesting))
         return ClassFactoryAggregate<AggregationTesting>::Create(riid, ppv);
 
@@ -215,6 +244,12 @@ STDAPI DllGetClassObject(_In_ REFCLSID rclsid, _In_ REFIID riid, _Out_ LPVOID FA
 
     if (rclsid == __uuidof(LicenseTesting))
         return ClassFactoryLicense<LicenseTesting>::Create(riid, ppv);
+
+    if (rclsid == __uuidof(InspectableTesting))
+        return ClassFactoryBasic<InspectableTesting>::Create(riid, ppv);
+
+    if (rclsid == __uuidof(TrackMyLifetimeTesting))
+        return ClassFactoryBasic<TrackMyLifetimeTesting>::Create(riid, ppv);
 
     return CLASS_E_CLASSNOTAVAILABLE;
 }

@@ -1,15 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
-
 namespace System.Reflection.Metadata
 {
     /// <summary>
     /// Lexical scope within which a group of imports are available. Stored in debug metadata.
     /// </summary>
     /// <remarks>
-    /// See https://github.com/dotnet/runtime/blob/master/src/libraries/System.Reflection.Metadata/specs/PortablePdb-Metadata.md#importscope-table-0x35
+    /// See https://github.com/dotnet/runtime/blob/main/src/libraries/System.Reflection.Metadata/specs/PortablePdb-Metadata.md#importscope-table-0x35
     /// </remarks>
     public readonly struct ImportScope
     {
@@ -20,9 +18,6 @@ namespace System.Reflection.Metadata
 
         internal ImportScope(MetadataReader reader, ImportScopeHandle handle)
         {
-            Debug.Assert(reader != null);
-            Debug.Assert(!handle.IsNil);
-
             _reader = reader;
             _rowId = handle.RowId;
         }

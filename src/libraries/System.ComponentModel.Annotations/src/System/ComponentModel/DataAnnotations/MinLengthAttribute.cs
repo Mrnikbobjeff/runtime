@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
 namespace System.ComponentModel.DataAnnotations
@@ -19,6 +20,7 @@ namespace System.ComponentModel.DataAnnotations
         ///     The minimum allowable length of collection/string data.
         ///     Value must be greater than or equal to zero.
         /// </param>
+        [RequiresUnreferencedCode(CountPropertyHelper.RequiresUnreferencedCodeMessage)]
         public MinLengthAttribute(int length)
             : base(SR.MinLengthAttribute_ValidationError)
         {
@@ -43,6 +45,7 @@ namespace System.ComponentModel.DataAnnotations
         ///     <c>false</c>
         /// </returns>
         /// <exception cref="InvalidOperationException">Length is less than zero.</exception>
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode", Justification = "The ctor is marked with RequiresUnreferencedCode.")]
         public override bool IsValid(object? value)
         {
             // Check the lengths for legality
@@ -54,15 +57,12 @@ namespace System.ComponentModel.DataAnnotations
             {
                 return true;
             }
+
             if (value is string str)
             {
                 length = str.Length;
             }
-            else if (CountPropertyHelper.TryGetCount(value, out var count))
-            {
-                length = count;
-            }
-            else
+            else if (!CountPropertyHelper.TryGetCount(value, out length))
             {
                 throw new InvalidCastException(SR.Format(SR.LengthAttribute_InvalidValueType, value.GetType()));
             }
@@ -76,8 +76,16 @@ namespace System.ComponentModel.DataAnnotations
         /// <param name="name">The name to include in the formatted string.</param>
         /// <returns>A localized string to describe the minimum acceptable length.</returns>
         public override string FormatErrorMessage(string name) =>
-            // An error occurred, so we know the value is less than the minimum
-            string.Format(CultureInfo.CurrentCulture, ErrorMessageString, name, Length);
+            FormatMessage(ErrorMessageString, name);
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// <c>{0}</c> is replaced with <paramref name="name" /> and <c>{1}</c> is replaced with <see cref="Length" />.
+        /// </remarks>
+        public override string FormatMessage([StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, string name)
+        {
+            return string.Format(CultureInfo.CurrentCulture, format, name, Length);
+        }
 
         /// <summary>
         ///     Checks that Length has a legal value.

@@ -2,13 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b25647
 {
     using System;
 
-    class AA
+    public class AA
     {
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             bool[] loc1 = new bool[7];
             loc1[2] = false;
@@ -26,7 +29,6 @@ namespace DefaultNamespace
                     }
                 }
             }
-            return 100;
         }
     }
 }

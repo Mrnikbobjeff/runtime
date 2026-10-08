@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 
 namespace System.Collections.Immutable
 {
@@ -18,7 +19,7 @@ namespace System.Collections.Immutable
         /// </summary>
         /// <remarks>
         /// <para>
-        /// While <see cref="ImmutableSortedSet{T}.Union"/> and other bulk change methods
+        /// While <see cref="M:ImmutableSortedSet{T}.Union"/> and other bulk change methods
         /// already provide fast bulk change operations on the collection, this class allows
         /// multiple combinations of changes to be made to a set with equal efficiency.
         /// </para>
@@ -28,7 +29,7 @@ namespace System.Collections.Immutable
         /// </remarks>
         [DebuggerDisplay("Count = {Count}")]
         [DebuggerTypeProxy(typeof(ImmutableSortedSetBuilderDebuggerProxy<>))]
-        public sealed class Builder : ISortKeyCollection<T>, IReadOnlyCollection<T>, ISet<T>, ICollection
+        public sealed class Builder : IReadOnlyCollection<T>, ISet<T>, ICollection
         {
             /// <summary>
             /// The root of the binary tree that stores the collection.  Contents are typically not entirely frozen.
@@ -50,11 +51,6 @@ namespace System.Collections.Immutable
             /// A number that increments every time the builder changes its contents.
             /// </summary>
             private int _version;
-
-            /// <summary>
-            /// The object callers may use to synchronize access to this collection.
-            /// </summary>
-            private object? _syncRoot;
 
             /// <summary>
             /// Initializes a new instance of the <see cref="Builder"/> class.
@@ -100,14 +96,9 @@ namespace System.Collections.Immutable
             /// </remarks>
             public T this[int index]
             {
-#if !NETSTANDARD1_0
                 get { return _root.ItemRef(index); }
-#else
-                get { return _root[index]; }
-#endif
             }
 
-#if !NETSTANDARD1_0
             /// <summary>
             /// Gets a read-only reference to the element of the set at the given index.
             /// </summary>
@@ -117,7 +108,6 @@ namespace System.Collections.Immutable
             {
                 return ref _root.ItemRef(index);
             }
-#endif
 
             /// <summary>
             /// Gets the maximum value in the collection, as defined by the comparer.
@@ -158,7 +148,7 @@ namespace System.Collections.Immutable
 
                     if (value != _comparer)
                     {
-                        var newRoot = Node.EmptyNode;
+                        ImmutableSortedSet<T>.Node newRoot = Node.EmptyNode;
                         foreach (T item in this)
                         {
                             bool mutated;
@@ -232,8 +222,7 @@ namespace System.Collections.Immutable
 
                 foreach (T item in other)
                 {
-                    bool mutated;
-                    this.Root = this.Root.Remove(item, _comparer, out mutated);
+                    this.Root = this.Root.Remove(item, _comparer, out _);
                 }
             }
 
@@ -245,7 +234,7 @@ namespace System.Collections.Immutable
             {
                 Requires.NotNull(other, nameof(other));
 
-                var result = ImmutableSortedSet<T>.Node.EmptyNode;
+                ImmutableSortedSet<T>.Node result = ImmutableSortedSet<T>.Node.EmptyNode;
                 foreach (T item in other)
                 {
                     if (this.Contains(item))
@@ -337,8 +326,7 @@ namespace System.Collections.Immutable
 
                 foreach (T item in other)
                 {
-                    bool mutated;
-                    this.Root = this.Root.Add(item, _comparer, out mutated);
+                    this.Root = this.Root.Add(item, _comparer, out _);
                 }
             }
 
@@ -420,6 +408,25 @@ namespace System.Collections.Immutable
             #endregion
 
             /// <summary>
+            /// Searches for the first index within this set that the specified value is contained.
+            /// </summary>
+            /// <param name="item">The value to locate within the set.</param>
+            /// <returns>
+            /// The index of the specified <paramref name="item"/> in the sorted set,
+            /// if <paramref name="item"/> is found.  If <paramref name="item"/> is not
+            /// found and <paramref name="item"/> is less than one or more elements in this set,
+            /// a negative number which is the bitwise complement of the index of the first
+            /// element that is larger than value. If <paramref name="item"/> is not found
+            /// and <paramref name="item"/> is greater than any of the elements in the set,
+            /// a negative number which is the bitwise complement of (the index of the last
+            /// element plus 1).
+            /// </returns>
+            public int IndexOf(T item)
+            {
+                return this.Root.IndexOf(item, _comparer);
+            }
+
+            /// <summary>
             /// Returns an <see cref="IEnumerable{T}"/> that iterates over this
             /// collection in reverse order.
             /// </summary>
@@ -445,12 +452,7 @@ namespace System.Collections.Immutable
                 // Creating an instance of ImmutableSortedSet<T> with our root node automatically freezes our tree,
                 // ensuring that the returned instance is immutable.  Any further mutations made to this builder
                 // will clone (and unfreeze) the spine of modified nodes until the next time this method is invoked.
-                if (_immutable == null)
-                {
-                    _immutable = ImmutableSortedSet<T>.Wrap(this.Root, _comparer);
-                }
-
-                return _immutable;
+                return _immutable ??= ImmutableSortedSet<T>.Wrap(this.Root, _comparer);
             }
 
             /// <summary>
@@ -499,18 +501,8 @@ namespace System.Collections.Immutable
             /// </summary>
             /// <returns>An object that can be used to synchronize access to the <see cref="ICollection"/>.</returns>
             [DebuggerBrowsable(DebuggerBrowsableState.Never)]
-            object ICollection.SyncRoot
-            {
-                get
-                {
-                    if (_syncRoot == null)
-                    {
-                        Threading.Interlocked.CompareExchange<object?>(ref _syncRoot, new object(), null);
-                    }
-
-                    return _syncRoot;
-                }
-            }
+            object ICollection.SyncRoot =>
+                 field ?? Interlocked.CompareExchange(ref field, new object(), null) ?? field;
             #endregion
         }
     }

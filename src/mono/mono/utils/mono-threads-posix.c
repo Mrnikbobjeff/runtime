@@ -30,13 +30,11 @@
 #include <mono/utils/mono-threads-debug.h>
 #include <mono/utils/mono-errno.h>
 
-#include <errno.h>
-
-#if !defined(ENABLE_NETCORE) && defined(HOST_ANDROID) && !defined(TARGET_ARM64) && !defined(TARGET_AMD64)
-// tkill was deprecated and removed in the recent versions of Android NDK
-#define USE_TKILL_ON_ANDROID 1
-extern int tkill (pid_t tid, int signal);
+#if defined (HAVE_PTHREAD_SETNAME_NP) || defined(__HAIKU__)
+#include <minipal/thread.h>
 #endif
+
+#include <errno.h>
 
 #if defined(_POSIX_VERSION) && !defined (HOST_WASM)
 
@@ -74,10 +72,10 @@ mono_thread_platform_create_thread (MonoThreadStart thread_fn, gpointer thread_d
 		if (RUNNING_ON_VALGRIND)
 			set_stack_size = 1 << 20;
 		else
-			set_stack_size = (SIZEOF_VOID_P / 4) * 1024 * 1024;
-#else
-		set_stack_size = (SIZEOF_VOID_P / 4) * 1024 * 1024;
 #endif
+		{
+			set_stack_size = MONO_DEFAULT_STACKSIZE;
+		}
 	}
 
 #ifdef PTHREAD_STACK_MIN
@@ -177,18 +175,7 @@ mono_threads_pthread_kill (MonoThreadInfo *info, int signum)
 redo:
 #endif
 
-#ifdef USE_TKILL_ON_ANDROID
-	{
-		int old_errno = errno;
-
-		result = tkill (info->native_handle, signum);
-
-		if (result < 0) {
-			result = errno;
-			mono_set_errno (old_errno);
-		}
-	}
-#elif defined (HAVE_PTHREAD_KILL)
+#if defined (HAVE_PTHREAD_KILL)
 	result = pthread_kill (mono_thread_info_get_tid (info), signum);
 #else
 	result = -1;
@@ -272,60 +259,16 @@ mono_native_thread_get_name (MonoNativeThreadId tid, char *name_out, size_t max_
 void
 mono_native_thread_set_name (MonoNativeThreadId tid, const char *name)
 {
-#ifdef __MACH__
-	/*
-	 * We can't set the thread name for other threads, but we can at least make
-	 * it work for threads that try to change their own name.
-	 */
-	if (tid != mono_native_thread_id_get ())
-		return;
-
-	if (!name) {
-		pthread_setname_np ("");
-	} else {
-		char n [63];
-
-		strncpy (n, name, sizeof (n) - 1);
-		n [sizeof (n) - 1] = '\0';
-		pthread_setname_np (n);
-	}
-#elif defined (__HAIKU__)
-	thread_id haiku_tid;
-	haiku_tid = get_pthread_thread_id (tid);
-	if (!name) {
-		rename_thread (haiku_tid, "");
-	} else {
-		rename_thread (haiku_tid, name);
-	}
-#elif defined (__NetBSD__)
-	if (!name) {
-		pthread_setname_np (tid, "%s", (void*)"");
-	} else {
-		char n [PTHREAD_MAX_NAMELEN_NP];
-
-		strncpy (n, name, sizeof (n) - 1);
-		n [sizeof (n) - 1] = '\0';
-		pthread_setname_np (tid, "%s", (void*)n);
-	}
-#elif defined (HAVE_PTHREAD_SETNAME_NP)
-#if defined (__linux__)
-	/* Ignore requests to set the main thread name because it causes the
-	 * value returned by Process.ProcessName to change.
-	 */
+#if defined (HAVE_PTHREAD_SETNAME_NP) || defined(__HAIKU__)
+	// Ignore requests to set the main thread name because
+	// it causes the value returned by Process.ProcessName to change.
 	MonoNativeThreadId main_thread_tid;
 	if (mono_native_thread_id_main_thread_known (&main_thread_tid) &&
 	    mono_native_thread_id_equals (tid, main_thread_tid))
 		return;
-#endif
-	if (!name) {
-		pthread_setname_np (tid, "");
-	} else {
-		char n [16];
 
-		strncpy (n, name, sizeof (n) - 1);
-		n [sizeof (n) - 1] = '\0';
-		pthread_setname_np (tid, n);
-	}
+	int setNameResult = minipal_set_thread_name(tid, name);
+	g_assert(setNameResult == 0);
 #endif
 }
 
@@ -346,8 +289,8 @@ mono_memory_barrier_process_wide (void)
 	g_assert (status == 0);
 
 	if (memory_barrier_process_wide_helper_page == NULL) {
-		status = posix_memalign (&memory_barrier_process_wide_helper_page, mono_pagesize (), mono_pagesize ());
-		g_assert (status == 0);
+		memory_barrier_process_wide_helper_page = mono_valloc (NULL, mono_pagesize (), MONO_MMAP_NONE, MONO_MEM_ACCOUNT_OTHER);
+		g_assert (memory_barrier_process_wide_helper_page != NULL);
 	}
 
 	// Changing a helper memory page protection from read / write to no access
@@ -365,16 +308,6 @@ mono_memory_barrier_process_wide (void)
 
 	status = pthread_mutex_unlock (&memory_barrier_process_wide_mutex);
 	g_assert (status == 0);
-}
-
-gint32
-mono_native_thread_processor_id_get (void)
-{
-#ifdef HAVE_SCHED_GETCPU
-	return sched_getcpu ();
-#else
-	return -1;
-#endif
 }
 
 #endif /* defined(_POSIX_VERSION) */

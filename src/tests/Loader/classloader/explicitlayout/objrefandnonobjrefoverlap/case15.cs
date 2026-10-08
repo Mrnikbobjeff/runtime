@@ -8,6 +8,8 @@
 
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
+using TestLibrary;
 
 public class Foo{
     public int i=42;
@@ -40,7 +42,9 @@ public class Test{
         return;
     }
 
-  public static int Main(string[] args){
+  [ActiveIssue("expected failure: overlapped structs fail at AOT compile time, not runtime", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoFULLAOT))]
+  [Fact]
+  public static int TestEntryPoint(){
       bool caught=false;
       try{
           Go();

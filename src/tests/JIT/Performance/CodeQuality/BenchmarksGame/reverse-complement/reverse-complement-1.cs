@@ -7,6 +7,7 @@
 // Best-scoring single-threaded C# .NET Core version as of 2017-09-01
 
 /* The Computer Language Benchmarks Game
+using TestLibrary;
    http://benchmarksgame.alioth.debian.org/
 
    contributed by Robert F. Tobler to process large blocks of byte arrays
@@ -16,14 +17,11 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Security.Cryptography;
-using Microsoft.Xunit.Performance;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
 
 namespace BenchmarksGame
 {
-    public static class ReverseComplement_1
+    public class ReverseComplement_1
     {
         struct Block
         {
@@ -48,7 +46,9 @@ namespace BenchmarksGame
         const byte Gt = (byte)'>';
         const byte Lf = (byte)'\n';
 
-        static int Main(string[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             var helpers = new TestHarnessHelpers(bigInput: false);
             var outBytes = new byte[helpers.FileLength];
@@ -63,24 +63,6 @@ namespace BenchmarksGame
                 return -1;
             }
             return 100;
-        }
-
-        [Benchmark(InnerIterationCount = 1500)]
-        public static void RunBench()
-        {
-            var helpers = new TestHarnessHelpers(bigInput: true);
-            var outBytes = new byte[helpers.FileLength];
-
-            Benchmark.Iterate(() =>
-            {
-                using (var inputStream = helpers.GetInputStream())
-                using (var outputStream = new MemoryStream(outBytes))
-                {
-                    Bench(inputStream, outputStream);
-                }
-            });
-
-            Assert.True(MatchesChecksum(outBytes, helpers.CheckSum));
         }
 
         static bool MatchesChecksum(byte[] bytes, string checksum)
@@ -124,13 +106,13 @@ namespace BenchmarksGame
                                 end = b.IndexOf(Gt, start.InBlock(b) ? start.Pos : 0);
                                 if (end.Pos < 0) break;
                             }
-                            w.Reverse(start.Pos, end.Pos, seq);
+                            Reverse(w, start.Pos, end.Pos, seq);
                             if (seq.Count > 1) seq.RemoveRange(0, seq.Count - 1);
                             line = end; end = Index.None; start = Index.None;
                         }
                     }
                     if (start.Pos >= 0 && end.Pos < 0)
-                        w.Reverse(start.Pos, seq[seq.Count - 1].Length, seq);
+                        Reverse(w, start.Pos, seq[seq.Count - 1].Length, seq);
                 }
             }
         }
@@ -151,7 +133,7 @@ namespace BenchmarksGame
         const int BufSize = LineLen * 269;
         static byte[] buf = new byte[BufSize];
 
-        static void Reverse(this Stream w, int si, int ei, List<byte[]> bl)
+        static void Reverse(Stream w, int si, int ei, List<byte[]> bl)
         {
             int bi = 0, line = LineLen - 1;
             for (int ri = bl.Count - 1; ri >= 0; ri--)

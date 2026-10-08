@@ -5,11 +5,21 @@ using System;
 using System.Linq;
 using System.Text;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 
-using TestLibrary;
+using Xunit;
 using TypeEquivalenceTypes;
+using TestLibrary;
 
+[TypeIdentifier("MyScope", "MyTypeId")]
+public struct EquivalentValueType
+{
+    public int A;
+}
+
+[ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsTypeEquivalenceSupported))]
 public class Simple
 {
     private class EmptyType2 : IEmptyType
@@ -23,7 +33,8 @@ public class Simple
         }
     }
 
-    private static void InterfaceTypesFromDifferentAssembliesAreEquivalent()
+    [Fact]
+    public static void InterfaceTypesFromDifferentAssembliesAreEquivalent()
     {
         Console.WriteLine($"{nameof(InterfaceTypesFromDifferentAssembliesAreEquivalent)}");
         var inAsm = EmptyType.Create();
@@ -33,13 +44,14 @@ public class Simple
 
         void AreNotSameObject(IEmptyType a, IEmptyType b)
         {
-            Assert.AreNotEqual(a, b);
+            Assert.NotEqual(a, b);
         }
     }
 
-    private static void ValidateTypeInstanceEquality()
+    [Fact]
+    public static void TypeInstanceEquality()
     {
-        Console.WriteLine($"{nameof(ValidateTypeInstanceEquality)}");
+        Console.WriteLine($"{nameof(TypeInstanceEquality)}");
         var inAsm = EmptyType.Create();
         var otherAsm = EmptyType2.Create();
 
@@ -47,22 +59,22 @@ public class Simple
         Type otherAsmInterfaceType = otherAsm.GetType().GetInterface(nameof(IEmptyType));
 
         // Sanity checks
-        Assert.IsTrue(inAsmInterfaceType == inAsmInterfaceType);
-        Assert.IsTrue(inAsmInterfaceType.IsEquivalentTo(inAsmInterfaceType));
-        Assert.IsFalse(inAsmInterfaceType.IsEquivalentTo(inAsm.GetType()));
-        Assert.IsTrue(otherAsmInterfaceType == otherAsmInterfaceType);
-        Assert.IsTrue(otherAsmInterfaceType.IsEquivalentTo(otherAsmInterfaceType));
-        Assert.IsFalse(otherAsmInterfaceType.IsEquivalentTo(otherAsm.GetType()));
+        Assert.True(inAsmInterfaceType == inAsmInterfaceType);
+        Assert.True(inAsmInterfaceType.IsEquivalentTo(inAsmInterfaceType));
+        Assert.False(inAsmInterfaceType.IsEquivalentTo(inAsm.GetType()));
+        Assert.True(otherAsmInterfaceType == otherAsmInterfaceType);
+        Assert.True(otherAsmInterfaceType.IsEquivalentTo(otherAsmInterfaceType));
+        Assert.False(otherAsmInterfaceType.IsEquivalentTo(otherAsm.GetType()));
 
         // The intrinsic equality operations should fail
-        Assert.IsFalse(inAsmInterfaceType == otherAsmInterfaceType);
-        Assert.IsFalse(inAsmInterfaceType.Equals(otherAsmInterfaceType));
-        Assert.IsFalse(otherAsmInterfaceType == inAsmInterfaceType);
-        Assert.IsFalse(otherAsmInterfaceType.Equals(inAsmInterfaceType));
+        Assert.False(inAsmInterfaceType == otherAsmInterfaceType);
+        Assert.False(inAsmInterfaceType.Equals(otherAsmInterfaceType));
+        Assert.False(otherAsmInterfaceType == inAsmInterfaceType);
+        Assert.False(otherAsmInterfaceType.Equals(inAsmInterfaceType));
 
         // Determination of equal types requires API call
-        Assert.IsTrue(inAsmInterfaceType.IsEquivalentTo(otherAsmInterfaceType));
-        Assert.IsTrue(otherAsmInterfaceType.IsEquivalentTo(inAsmInterfaceType));
+        Assert.True(inAsmInterfaceType.IsEquivalentTo(otherAsmInterfaceType));
+        Assert.True(otherAsmInterfaceType.IsEquivalentTo(inAsmInterfaceType));
     }
 
     private class MethodTestDerived : MethodTestBase
@@ -103,7 +115,8 @@ public class Simple
         }
     }
 
-    private static void InterfaceTypesMethodOperations()
+    [Fact]
+    public static void InterfaceTypesMethodOperations()
     {
         Console.WriteLine($"{nameof(InterfaceTypesMethodOperations)}");
 
@@ -120,8 +133,8 @@ public class Simple
             int expectedBaseValue = input * baseScale;
             int expectedDerivedValue = expectedBaseValue * derivedScale;
 
-            Assert.AreEqual(expectedBaseValue, baseInterface.ScaleInt(input));
-            Assert.AreEqual(expectedDerivedValue, derivedBase.ScaleInt(input));
+            Assert.Equal(expectedBaseValue, baseInterface.ScaleInt(input));
+            Assert.Equal(expectedDerivedValue, derivedBase.ScaleInt(input));
         }
 
         {
@@ -129,53 +142,56 @@ public class Simple
             string expectedBaseValue = string.Concat(Enumerable.Repeat(input, baseScale));
             string expectedDerivedValue = string.Concat(Enumerable.Repeat(expectedBaseValue, derivedScale));
 
-            Assert.AreEqual(expectedBaseValue, baseInterface.ScaleString(input));
-            Assert.AreEqual(expectedDerivedValue, derivedBase.ScaleString(input));
+            Assert.Equal(expectedBaseValue, baseInterface.ScaleString(input));
+            Assert.Equal(expectedDerivedValue, derivedBase.ScaleString(input));
         }
     }
 
-    private static void CallSparseInterface()
+    [Fact]
+    public static void CallSparseInterface()
     {
         Console.WriteLine($"{nameof(CallSparseInterface)}");
 
         int sparseTypeMethodCount = typeof(ISparseType).GetMethods(BindingFlags.Public | BindingFlags.Instance).Length;
-        Assert.AreEqual(2, sparseTypeMethodCount, "Should have limited method metadata");
+        Assert.Equal(2, sparseTypeMethodCount);
 
         var sparseType = (ISparseType)SparseTest.Create();
-        Assert.AreEqual(20, SparseTest.GetSparseInterfaceMethodCount(), "Should have all method metadata");
+        Assert.Equal(20, SparseTest.GetSparseInterfaceMethodCount());
 
         int input = 63;
-        Assert.AreEqual(input * 7, sparseType.MultiplyBy7(input));
-        Assert.AreEqual(input * 18, sparseType.MultiplyBy18(input));
+        Assert.Equal(input * 7, sparseType.MultiplyBy7(input));
+        Assert.Equal(input * 18, sparseType.MultiplyBy18(input));
     }
 
-    private static void TestArrayEquivalence()
+    [Fact]
+    public static void ArrayEquivalence()
     {
-        Console.WriteLine($"{nameof(TestArrayEquivalence)}");
+        Console.WriteLine($"{nameof(ArrayEquivalence)}");
         var inAsm = EmptyType.Create();
         var otherAsm = EmptyType2.Create();
 
         Type inAsmInterfaceType = inAsm.GetType().GetInterface(nameof(IEmptyType));
         Type otherAsmInterfaceType = otherAsm.GetType().GetInterface(nameof(IEmptyType));
 
-        Assert.IsTrue(inAsmInterfaceType.MakeArrayType().IsEquivalentTo(otherAsmInterfaceType.MakeArrayType()));
-        Assert.IsTrue(inAsmInterfaceType.MakeArrayType(1).IsEquivalentTo(otherAsmInterfaceType.MakeArrayType(1)));
-        Assert.IsTrue(inAsmInterfaceType.MakeArrayType(2).IsEquivalentTo(otherAsmInterfaceType.MakeArrayType(2)));
+        Assert.True(inAsmInterfaceType.MakeArrayType().IsEquivalentTo(otherAsmInterfaceType.MakeArrayType()));
+        Assert.True(inAsmInterfaceType.MakeArrayType(1).IsEquivalentTo(otherAsmInterfaceType.MakeArrayType(1)));
+        Assert.True(inAsmInterfaceType.MakeArrayType(2).IsEquivalentTo(otherAsmInterfaceType.MakeArrayType(2)));
 
-        Assert.IsFalse(inAsmInterfaceType.MakeArrayType().IsEquivalentTo(otherAsmInterfaceType.MakeArrayType(1)));
-        Assert.IsFalse(inAsmInterfaceType.MakeArrayType(1).IsEquivalentTo(otherAsmInterfaceType.MakeArrayType(2)));
+        Assert.False(inAsmInterfaceType.MakeArrayType().IsEquivalentTo(otherAsmInterfaceType.MakeArrayType(1)));
+        Assert.False(inAsmInterfaceType.MakeArrayType(1).IsEquivalentTo(otherAsmInterfaceType.MakeArrayType(2)));
     }
 
-    private static void TestByRefEquivalence()
+    [Fact]
+    public static void ByRefEquivalence()
     {
-        Console.WriteLine($"{nameof(TestByRefEquivalence)}");
+        Console.WriteLine($"{nameof(ByRefEquivalence)}");
         var inAsm = EmptyType.Create();
         var otherAsm = EmptyType2.Create();
 
         Type inAsmInterfaceType = inAsm.GetType().GetInterface(nameof(IEmptyType));
         Type otherAsmInterfaceType = otherAsm.GetType().GetInterface(nameof(IEmptyType));
 
-        Assert.IsTrue(inAsmInterfaceType.MakeByRefType().IsEquivalentTo(otherAsmInterfaceType.MakeByRefType()));
+        Assert.True(inAsmInterfaceType.MakeByRefType().IsEquivalentTo(otherAsmInterfaceType.MakeByRefType()));
     }
 
     interface IGeneric<in T>
@@ -190,53 +206,122 @@ public class Simple
         }
     }
 
-    private static void TestGenericClassNonEquivalence()
+    [Fact]
+    public static void GenericClassNonEquivalence()
     {
-        Console.WriteLine($"{nameof(TestGenericClassNonEquivalence)}");
+        Console.WriteLine($"{nameof(GenericClassNonEquivalence)}");
         var inAsm = EmptyType.Create();
         var otherAsm = EmptyType2.Create();
 
         Type inAsmInterfaceType = inAsm.GetType().GetInterface(nameof(IEmptyType));
         Type otherAsmInterfaceType = otherAsm.GetType().GetInterface(nameof(IEmptyType));
 
-        Assert.IsFalse(typeof(Generic<>).MakeGenericType(inAsmInterfaceType).IsEquivalentTo(typeof(Generic<>).MakeGenericType(otherAsmInterfaceType)));
+        Assert.False(typeof(Generic<>).MakeGenericType(inAsmInterfaceType).IsEquivalentTo(typeof(Generic<>).MakeGenericType(otherAsmInterfaceType)));
     }
 
-    private static void TestGenericInterfaceEquivalence()
+    [Fact]
+    public static void GenericInterfaceEquivalence()
     {
-        Console.WriteLine($"{nameof(TestGenericInterfaceEquivalence)}");
+        Console.WriteLine($"{nameof(GenericInterfaceEquivalence)}");
         var inAsm = EmptyType.Create();
         var otherAsm = EmptyType2.Create();
 
         Type inAsmInterfaceType = inAsm.GetType().GetInterface(nameof(IEmptyType));
         Type otherAsmInterfaceType = otherAsm.GetType().GetInterface(nameof(IEmptyType));
 
-        Assert.IsTrue(typeof(IGeneric<>).MakeGenericType(inAsmInterfaceType).IsEquivalentTo(typeof(IGeneric<>).MakeGenericType(otherAsmInterfaceType)));
+        Assert.True(typeof(IGeneric<>).MakeGenericType(inAsmInterfaceType).IsEquivalentTo(typeof(IGeneric<>).MakeGenericType(otherAsmInterfaceType)));
     }
 
-    public static int Main(string[] noArgs)
+    [Fact]
+    public static unsafe void TypeEquivalenceWithTypePunning()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return 100;
-        }
-        try
-        {
-            InterfaceTypesFromDifferentAssembliesAreEquivalent();
-            ValidateTypeInstanceEquality();
-            InterfaceTypesMethodOperations();
-            CallSparseInterface();
-            TestByRefEquivalence();
-            TestArrayEquivalence();
-            TestGenericClassNonEquivalence();
-            TestGenericInterfaceEquivalence();
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine($"Test Failure: {e}");
-            return 101;
-        }
+        Console.WriteLine($"{nameof(TypeEquivalenceWithTypePunning)}");
 
-        return 100;
+        {
+            Console.WriteLine($"-- GetFunctionPointer()");
+            IntPtr fptr = typeof(CreateFunctionPointer).GetMethod("For_1").MethodHandle.GetFunctionPointer();
+            Assert.NotEqual(IntPtr.Zero, fptr);
+            var s = new OnlyLoadOnce_1()
+            {
+                Field = 0x11
+            };
+            int res = ((delegate* <OnlyLoadOnce_1, int>)fptr)(s);
+            Assert.Equal(s.Field, res);
+        }
+        {
+            Console.WriteLine($"-- Ldftn");
+            IntPtr fptr = CreateFunctionPointer.For_2_Ldftn();
+            Assert.NotEqual(IntPtr.Zero, fptr);
+            var s = new OnlyLoadOnce_2()
+            {
+                Field = 0x22
+            };
+            int res = ((delegate* <OnlyLoadOnce_2, int>)fptr)(s);
+            Assert.Equal(s.Field, res);
+        }
+        {
+            Console.WriteLine($"-- Ldvirtftn");
+            IntPtr fptr = CreateFunctionPointer.For_3_Ldvirtftn(out object inst);
+            Assert.NotEqual(IntPtr.Zero, fptr);
+            var s = new OnlyLoadOnce_3()
+            {
+                Field = 0x33
+            };
+            int res = ((delegate* <object, OnlyLoadOnce_3, int>)fptr)(inst, s);
+            Assert.Equal(s.Field, res);
+        }
+    }
+
+    [Fact]
+    [MethodImpl (MethodImplOptions.NoInlining)]
+    public static void LoadValueTypesWithMethod()
+    {
+        Console.WriteLine($"{nameof(LoadValueTypesWithMethod)}");
+        Console.WriteLine($"-- {typeof(ValueTypeWithStaticMethod).Name}");
+        Assert.Throws<TypeLoadException>(() => LoadInvalidType());
+    }
+
+    [MethodImpl (MethodImplOptions.NoInlining)]
+    private static void LoadInvalidType()
+    {
+        Console.WriteLine($"-- {typeof(ValueTypeWithInstanceMethod).Name}");
+    }
+
+    [Fact]
+    public static void CastsOptimizations()
+    {
+        string otherTypeName = $"{typeof(EquivalentValueType).FullName},{typeof(EmptyType).Assembly.GetName().Name}";
+        Type otherEquivalentValueType = Type.GetType(otherTypeName);
+
+        // ensure that an instance of otherEquivalentValueType can cast to EquivalentValueType
+        object otherEquivalentValueTypeInstance = Activator.CreateInstance(otherEquivalentValueType);
+        Assert.True(otherEquivalentValueTypeInstance is EquivalentValueType);
+        EquivalentValueType inst = (EquivalentValueType)otherEquivalentValueTypeInstance;
+    }
+
+    [Fact]
+    public static void ExactTypeOptimizations()
+    {
+        TestsExactTypeOptimizationsHelper.s_arrayInstance = new TestValueType[1];
+        Thread.Yield();
+        Assert.True(typeof(TestValueType[]) == TestsExactTypeOptimizationsHelper.s_arrayInstance.GetType());
+    }
+
+    [Fact]
+    public static void MethodCallSignature()
+    {
+        Console.WriteLine($"{nameof(MethodCallSignature)}");
+
+        Console.WriteLine($"-- {nameof(MethodCall.InterfaceAfterGeneric)}");
+        MethodCall.InterfaceAfterGeneric((IEmptyType)EmptyType2.Create());
+
+        Console.WriteLine($"-- {nameof(MethodCall.ValueTypeAfterGeneric)}");
+        MethodCall.ValueTypeAfterGeneric(new TestValueType());
+
+        Console.WriteLine($"-- {nameof(MethodCall.InterfaceBeforeGeneric)}");
+        MethodCall.InterfaceBeforeGeneric((IEmptyType)EmptyType2.Create(), null);
+
+        Console.WriteLine($"-- {nameof(MethodCall.ValueTypeBeforeGeneric)}");
+        MethodCall.ValueTypeBeforeGeneric(new TestValueType(), null);
     }
 }

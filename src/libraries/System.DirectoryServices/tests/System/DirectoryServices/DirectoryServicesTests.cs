@@ -1,10 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Runtime.InteropServices;
-using System.Collections.Generic;
 using System.Collections;
+using System.Collections.Generic;
+using System.Reflection;
+using System.Runtime.InteropServices;
 using Xunit;
+using Xunit.Sdk;
 
 namespace System.DirectoryServices.Tests
 {
@@ -13,7 +15,16 @@ namespace System.DirectoryServices.Tests
         internal static bool IsLdapConfigurationExist => LdapConfiguration.Configuration != null;
         internal static bool IsActiveDirectoryServer => IsLdapConfigurationExist && LdapConfiguration.Configuration.IsActiveDirectoryServer;
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [Fact]
+        public void TestGetAllTypes()
+        {
+#pragma warning disable IL2026 // Test validates Assembly.GetTypes in an untrimmed test build.
+            Type[] allTypes = typeof(DirectoryEntry).Assembly.GetTypes();
+#pragma warning restore IL2026
+            Assert.Contains(typeof(DirectoryEntry), allTypes);
+        }
+
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestOU() // adding and removing organization unit
         {
             using (DirectoryEntry de = CreateRootEntry())
@@ -36,7 +47,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestOrganizationalRole() // adding and removing users to/from the ou
         {
             using (DirectoryEntry de = CreateRootEntry())
@@ -75,7 +86,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestPropertyCaching()
         {
             using (DirectoryEntry de = CreateRootEntry())
@@ -125,7 +136,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestMoveTo()
         {
             using (DirectoryEntry de = CreateRootEntry())
@@ -166,7 +177,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestCopyTo()
         {
             using (DirectoryEntry de = CreateRootEntry())
@@ -196,7 +207,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestRename()
         {
             using (DirectoryEntry de = CreateRootEntry())
@@ -228,7 +239,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestParent()
         {
             using (DirectoryEntry de = CreateRootEntry())
@@ -257,7 +268,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestDeleteTree()
         {
             using (DirectoryEntry de = CreateRootEntry())
@@ -303,7 +314,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestInvalidServerPath()
         {
             using (DirectoryEntry de = new DirectoryEntry("SomeWrongPath"))
@@ -317,7 +328,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestMissingUserAndPasswordInfo()
         {
             using (DirectoryEntry de = new DirectoryEntry(LdapConfiguration.Configuration.LdapPath))
@@ -331,7 +342,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestInvalidUserAndPassword()
         {
             using (DirectoryEntry de = new DirectoryEntry(LdapConfiguration.Configuration.LdapPath, "wrongUser", "wrongPassword"))
@@ -359,7 +370,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestInvalidSearchFilter()
         {
             using (DirectoryEntry de = new DirectoryEntry(
@@ -376,7 +387,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestUnAllowedProperty()
         {
             using (DirectoryEntry de = CreateRootEntry())
@@ -401,7 +412,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestSearch()
         {
             using (DirectoryEntry de = CreateRootEntry())
@@ -483,7 +494,7 @@ namespace System.DirectoryServices.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsLdapConfigurationExist))]
+        [ConditionalFact(typeof(DirectoryServicesTests), nameof(IsLdapConfigurationExist))]
         public void TestAttributesWithDifferentTypes()
         {
             // Windows server looks not supporting extensibleObject.
@@ -534,12 +545,12 @@ namespace System.DirectoryServices.Tests
         private void CheckSpecificException(Action blockToExecute)
         {
             Exception exception = Record.Exception(blockToExecute);
-            Assert.NotNull(exception);
+            Assert.True(exception != null, "No exception was thrown");
 
-            if (IsActiveDirectoryServer)
-                Assert.IsType<DirectoryServicesCOMException>(exception);
-            else
-                Assert.IsType<COMException>(exception);
+            Type expected = IsActiveDirectoryServer ? typeof(DirectoryServicesCOMException) : typeof(COMException);
+
+            if (exception.GetType() != expected)
+                throw new XunitException(String.Format("Expected exception type '{0}' got '{1}' with message '{2}'", expected, exception.GetType(), exception.Message));
         }
 
         private DirectoryEntry CreateOU(DirectoryEntry de, string ou, string description)

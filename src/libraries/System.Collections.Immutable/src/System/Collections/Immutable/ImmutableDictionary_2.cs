@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Linq;
+using System.Runtime.CompilerServices;
 
 namespace System.Collections.Immutable
 {
@@ -15,7 +16,8 @@ namespace System.Collections.Immutable
     /// <typeparam name="TValue">The type of the value.</typeparam>
     [DebuggerDisplay("Count = {Count}")]
     [DebuggerTypeProxy(typeof(ImmutableDictionaryDebuggerProxy<,>))]
-    public sealed partial class ImmutableDictionary<TKey, TValue> : IImmutableDictionary<TKey, TValue>, IImmutableDictionaryInternal<TKey, TValue>, IHashKeyCollection<TKey>, IDictionary<TKey, TValue>, IDictionary where TKey: notnull
+    [CollectionBuilder(typeof(ImmutableDictionary), nameof(ImmutableDictionary.CreateRangeWithOverwrite))]
+    public sealed partial class ImmutableDictionary<TKey, TValue> : IImmutableDictionary<TKey, TValue>, IImmutableDictionaryInternal<TKey, TValue>, IDictionary<TKey, TValue>, IDictionary where TKey : notnull
     {
         /// <summary>
         /// An empty immutable dictionary with default equality comparers.
@@ -167,9 +169,9 @@ namespace System.Collections.Immutable
         {
             get
             {
-                foreach (var bucket in _root)
+                foreach (KeyValuePair<int, ImmutableDictionary<TKey, TValue>.HashBucket> bucket in _root)
                 {
-                    foreach (var item in bucket.Value)
+                    foreach (KeyValuePair<TKey, TValue> item in bucket.Value)
                     {
                         yield return item.Key;
                     }
@@ -184,9 +186,9 @@ namespace System.Collections.Immutable
         {
             get
             {
-                foreach (var bucket in _root)
+                foreach (KeyValuePair<int, ImmutableDictionary<TKey, TValue>.HashBucket> bucket in _root)
                 {
-                    foreach (var item in bucket.Value)
+                    foreach (KeyValuePair<TKey, TValue> item in bucket.Value)
                     {
                         yield return item.Value;
                     }
@@ -246,12 +248,12 @@ namespace System.Collections.Immutable
                 Requires.NotNullAllowStructs(key, nameof(key));
 
                 TValue value;
-                if (this.TryGetValue(key, out value!))
+                if (!this.TryGetValue(key, out value!))
                 {
-                    return value;
+                    ThrowHelper.ThrowKeyNotFoundException(key);
                 }
 
-                throw new KeyNotFoundException(SR.Format(SR.Arg_KeyNotFoundWithKey, key.ToString()));
+                return value;
             }
         }
 
@@ -299,7 +301,7 @@ namespace System.Collections.Immutable
         {
             Requires.NotNullAllowStructs(key, nameof(key));
 
-            var result = Add(key, value, KeyCollisionBehavior.ThrowIfValueDifferent, this.Origin);
+            ImmutableDictionary<TKey, TValue>.MutationResult result = Add(key, value, KeyCollisionBehavior.ThrowIfValueDifferent, this.Origin);
             return result.Finalize(this);
         }
 
@@ -313,6 +315,11 @@ namespace System.Collections.Immutable
             return this.AddRange(pairs, false);
         }
 
+        internal ImmutableDictionary<TKey, TValue> AddRange(ReadOnlySpan<KeyValuePair<TKey, TValue>> pairs, KeyCollisionBehavior collisionBehavior = KeyCollisionBehavior.ThrowIfValueDifferent)
+        {
+            return AddRange(pairs, this.Origin, collisionBehavior).Finalize(this);
+        }
+
         /// <summary>
         /// See the <see cref="IImmutableDictionary{TKey, TValue}"/> interface.
         /// </summary>
@@ -320,7 +327,7 @@ namespace System.Collections.Immutable
         {
             Requires.NotNullAllowStructs(key, nameof(key));
 
-            var result = Add(key, value, KeyCollisionBehavior.SetValue, this.Origin);
+            ImmutableDictionary<TKey, TValue>.MutationResult result = Add(key, value, KeyCollisionBehavior.SetValue, this.Origin);
             return result.Finalize(this);
         }
 
@@ -333,7 +340,7 @@ namespace System.Collections.Immutable
         {
             Requires.NotNull(items, nameof(items));
 
-            var result = AddRange(items, this.Origin, KeyCollisionBehavior.SetValue);
+            ImmutableDictionary<TKey, TValue>.MutationResult result = AddRange(items, this.Origin, KeyCollisionBehavior.SetValue);
             return result.Finalize(this);
         }
 
@@ -344,7 +351,7 @@ namespace System.Collections.Immutable
         {
             Requires.NotNullAllowStructs(key, nameof(key));
 
-            var result = Remove(key, this.Origin);
+            ImmutableDictionary<TKey, TValue>.MutationResult result = Remove(key, this.Origin);
             return result.Finalize(this);
         }
 
@@ -356,15 +363,15 @@ namespace System.Collections.Immutable
             Requires.NotNull(keys, nameof(keys));
 
             int count = _count;
-            var root = _root;
-            foreach (var key in keys)
+            SortedInt32KeyNode<ImmutableDictionary<TKey, TValue>.HashBucket> root = _root;
+            foreach (TKey key in keys)
             {
                 int hashCode = this.KeyComparer.GetHashCode(key);
                 HashBucket bucket;
                 if (root.TryGetValue(hashCode, out bucket))
                 {
                     OperationResult result;
-                    var newBucket = bucket.Remove(key, _comparers.KeyOnlyComparer, out result);
+                    ImmutableDictionary<TKey, TValue>.HashBucket newBucket = bucket.Remove(key, _comparers.KeyOnlyComparer, out result);
                     root = UpdateRoot(root, hashCode, newBucket, _comparers.HashBucketEqualityComparer);
                     if (result == OperationResult.SizeChanged)
                     {
@@ -424,15 +431,8 @@ namespace System.Collections.Immutable
         /// </summary>
         public ImmutableDictionary<TKey, TValue> WithComparers(IEqualityComparer<TKey>? keyComparer, IEqualityComparer<TValue>? valueComparer)
         {
-            if (keyComparer == null)
-            {
-                keyComparer = EqualityComparer<TKey>.Default;
-            }
-
-            if (valueComparer == null)
-            {
-                valueComparer = EqualityComparer<TValue>.Default;
-            }
+            keyComparer ??= EqualityComparer<TKey>.Default;
+            valueComparer ??= EqualityComparer<TValue>.Default;
 
             if (this.KeyComparer == keyComparer)
             {
@@ -445,13 +445,13 @@ namespace System.Collections.Immutable
                     // When the key comparer is the same but the value comparer is different, we don't need a whole new tree
                     // because the structure of the tree does not depend on the value comparer.
                     // We just need a new root node to store the new value comparer.
-                    var comparers = _comparers.WithValueComparer(valueComparer);
+                    ImmutableDictionary<TKey, TValue>.Comparers comparers = _comparers.WithValueComparer(valueComparer);
                     return new ImmutableDictionary<TKey, TValue>(_root, comparers, _count);
                 }
             }
             else
             {
-                var comparers = Comparers.Get(keyComparer, valueComparer);
+                Comparers comparers = Comparers.Get(keyComparer, valueComparer);
                 var set = new ImmutableDictionary<TKey, TValue>(comparers);
                 set = set.AddRange(this, avoidToHashMap: true);
                 return set;
@@ -619,7 +619,7 @@ namespace System.Collections.Immutable
             Requires.Range(arrayIndex >= 0, nameof(arrayIndex));
             Requires.Range(array.Length >= arrayIndex + this.Count, nameof(arrayIndex));
 
-            foreach (var item in this)
+            foreach (KeyValuePair<TKey, TValue> item in this)
             {
                 array[arrayIndex++] = item;
             }
@@ -759,7 +759,7 @@ namespace System.Collections.Immutable
             Requires.Range(arrayIndex >= 0, nameof(arrayIndex));
             Requires.Range(array.Length >= arrayIndex + this.Count, nameof(arrayIndex));
 
-            foreach (var item in this)
+            foreach (KeyValuePair<TKey, TValue> item in this)
             {
                 array.SetValue(new DictionaryEntry(item.Key, item.Value), arrayIndex++);
             }
@@ -876,8 +876,7 @@ namespace System.Collections.Immutable
             HashBucket bucket;
             if (origin.Root.TryGetValue(hashCode, out bucket))
             {
-                TValue value;
-                return bucket.TryGetValue(key, origin.Comparers, out value!);
+                return bucket.TryGetValue(key, origin.Comparers, out _);
             }
 
             return false;
@@ -942,13 +941,13 @@ namespace System.Collections.Immutable
             OperationResult result;
             int hashCode = origin.KeyComparer.GetHashCode(key);
             HashBucket bucket = origin.Root.GetValueOrDefault(hashCode);
-            var newBucket = bucket.Add(key, value, origin.KeyOnlyComparer, origin.ValueComparer, behavior, out result);
+            ImmutableDictionary<TKey, TValue>.HashBucket newBucket = bucket.Add(key, value, origin.KeyOnlyComparer, origin.ValueComparer, behavior, out result);
             if (result == OperationResult.NoChangeRequired)
             {
                 return new MutationResult(origin);
             }
 
-            var newRoot = UpdateRoot(origin.Root, hashCode, newBucket, origin.HashBucketComparer);
+            SortedInt32KeyNode<ImmutableDictionary<TKey, TValue>.HashBucket> newRoot = UpdateRoot(origin.Root, hashCode, newBucket, origin.HashBucketComparer);
             return new MutationResult(newRoot, result == OperationResult.SizeChanged ? +1 : 0);
         }
 
@@ -960,13 +959,38 @@ namespace System.Collections.Immutable
             Requires.NotNull(items, nameof(items));
 
             int countAdjustment = 0;
-            var newRoot = origin.Root;
-            foreach (var pair in items)
+            SortedInt32KeyNode<ImmutableDictionary<TKey, TValue>.HashBucket> newRoot = origin.Root;
+            foreach (KeyValuePair<TKey, TValue> pair in items)
             {
+                Requires.NotNullAllowStructs(pair.Key, nameof(pair.Key));
                 int hashCode = origin.KeyComparer.GetHashCode(pair.Key);
                 HashBucket bucket = newRoot.GetValueOrDefault(hashCode);
                 OperationResult result;
-                var newBucket = bucket.Add(pair.Key, pair.Value, origin.KeyOnlyComparer, origin.ValueComparer, collisionBehavior, out result);
+                ImmutableDictionary<TKey, TValue>.HashBucket newBucket = bucket.Add(pair.Key, pair.Value, origin.KeyOnlyComparer, origin.ValueComparer, collisionBehavior, out result);
+                newRoot = UpdateRoot(newRoot, hashCode, newBucket, origin.HashBucketComparer);
+                if (result == OperationResult.SizeChanged)
+                {
+                    countAdjustment++;
+                }
+            }
+
+            return new MutationResult(newRoot, countAdjustment);
+        }
+
+        /// <summary>
+        /// Performs the operation on a given data structure.
+        /// </summary>
+        private static MutationResult AddRange(ReadOnlySpan<KeyValuePair<TKey, TValue>> items, MutationInput origin, KeyCollisionBehavior collisionBehavior = KeyCollisionBehavior.ThrowIfValueDifferent)
+        {
+            int countAdjustment = 0;
+            SortedInt32KeyNode<ImmutableDictionary<TKey, TValue>.HashBucket> newRoot = origin.Root;
+            foreach (KeyValuePair<TKey, TValue> pair in items)
+            {
+                Requires.NotNullAllowStructs(pair.Key, nameof(pair.Key));
+                int hashCode = origin.KeyComparer.GetHashCode(pair.Key);
+                HashBucket bucket = newRoot.GetValueOrDefault(hashCode);
+                OperationResult result;
+                ImmutableDictionary<TKey, TValue>.HashBucket newBucket = bucket.Add(pair.Key, pair.Value, origin.KeyOnlyComparer, origin.ValueComparer, collisionBehavior, out result);
                 newRoot = UpdateRoot(newRoot, hashCode, newBucket, origin.HashBucketComparer);
                 if (result == OperationResult.SizeChanged)
                 {
@@ -987,7 +1011,7 @@ namespace System.Collections.Immutable
             if (origin.Root.TryGetValue(hashCode, out bucket))
             {
                 OperationResult result;
-                var newRoot = UpdateRoot(origin.Root, hashCode, bucket.Remove(key, origin.KeyOnlyComparer, out result), origin.HashBucketComparer);
+                SortedInt32KeyNode<ImmutableDictionary<TKey, TValue>.HashBucket> newRoot = UpdateRoot(origin.Root, hashCode, bucket.Remove(key, origin.KeyOnlyComparer, out result), origin.HashBucketComparer);
                 return new MutationResult(newRoot, result == OperationResult.SizeChanged ? -1 : 0);
             }
 
@@ -999,15 +1023,13 @@ namespace System.Collections.Immutable
         /// </summary>
         private static SortedInt32KeyNode<HashBucket> UpdateRoot(SortedInt32KeyNode<HashBucket> root, int hashCode, HashBucket newBucket, IEqualityComparer<HashBucket> hashBucketComparer)
         {
-            bool mutated;
             if (newBucket.IsEmpty)
             {
-                return root.Remove(hashCode, out mutated);
+                return root.Remove(hashCode, out _);
             }
             else
             {
-                bool replacedExistingValue;
-                return root.SetItem(hashCode, newBucket, hashBucketComparer, out replacedExistingValue, out mutated);
+                return root.SetItem(hashCode, newBucket, hashBucketComparer, out _, out _);
             }
         }
 
@@ -1071,7 +1093,7 @@ namespace System.Collections.Immutable
                 }
             }
 
-            var result = AddRange(pairs, this.Origin);
+            ImmutableDictionary<TKey, TValue>.MutationResult result = AddRange(pairs, this.Origin);
             return result.Finalize(this);
         }
     }

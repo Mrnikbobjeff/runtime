@@ -1,7 +1,18 @@
 <linker>
+  <!-- Type Map attributes will be preserved by NativeAOT or the trimmer when necessary. -->
+  <assembly fullname="*">
+    <type fullname="System.Runtime.InteropServices.TypeMapAttribute`1">
+      <attribute internal="RemoveAttributeInstances" />
+    </type>
+    <type fullname="System.Runtime.InteropServices.TypeMapAssociationAttribute`1">
+      <attribute internal="RemoveAttributeInstances" />
+    </type>
+    <type fullname="System.Runtime.InteropServices.TypeMapAssemblyTargetAttribute`1">
+      <attribute internal="RemoveAttributeInstances" />
+    </type>
+  </assembly>
   <!-- The following attributes are only necessary when debugging is supported -->
   <assembly fullname="System.Private.CoreLib" feature="System.Diagnostics.Debugger.IsSupported" featurevalue="false">
-    <!-- Debugger specific attributes -->
     <type fullname="System.Diagnostics.DebuggableAttribute">
       <attribute internal="RemoveAttributeInstances" />
     </type>
@@ -31,6 +42,12 @@
     </type>
   </assembly>
 
+  <assembly fullname="System.Private.CoreLib" feature="System.Reflection.Metadata.MetadataUpdater.IsSupported" featurevalue="false">
+    <type fullname="System.Reflection.Metadata.MetadataUpdateHandlerAttribute">
+      <attribute internal="RemoveAttributeInstances" />
+    </type>
+  </assembly>
+
   <assembly fullname="System.Private.CoreLib" feature="System.Diagnostics.Tracing.EventSource.IsSupported" featurevalue="false">
     <type fullname="System.Diagnostics.Tracing.EventSourceAttribute">
       <attribute internal="RemoveAttributeInstances" />
@@ -51,4 +68,33 @@
       <attribute internal="RemoveAttributeInstances" />
     </type>
   </assembly>
+
+  <!-- The following attributes are only necessary when COM is supported -->
+  <assembly fullname="System.Private.CoreLib" feature="System.Runtime.InteropServices.BuiltInComInterop.IsSupported" featurevalue="false">
+    <type fullname="System.Runtime.InteropServices.ClassInterfaceAttribute">
+      <attribute internal="RemoveAttributeInstances" />
+    </type>
+    <type fullname="System.Runtime.InteropServices.ComDefaultInterfaceAttribute">
+      <attribute internal="RemoveAttributeInstances" />
+    </type>
+    <type fullname="System.Runtime.InteropServices.ComEventInterfaceAttribute">
+      <attribute internal="RemoveAttributeInstances" />
+    </type>
+    <type fullname="System.Runtime.InteropServices.ComSourceInterfacesAttribute">
+      <attribute internal="RemoveAttributeInstances" />
+    </type>
+    <type fullname="System.Runtime.InteropServices.ComVisibleAttribute">
+      <attribute internal="RemoveAttributeInstances" />
+    </type>
+    <type fullname="System.Runtime.InteropServices.DispIdAttribute">
+      <attribute internal="RemoveAttributeInstances" />
+    </type>
+    <type fullname="System.Runtime.InteropServices.InterfaceTypeAttribute">
+      <attribute internal="RemoveAttributeInstances" />
+    </type>
+    <type fullname="System.Runtime.InteropServices.ProgIdAttribute">
+      <attribute internal="RemoveAttributeInstances" />
+    </type>
+  </assembly>
+
 </linker>

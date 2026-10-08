@@ -30,8 +30,8 @@ namespace System.Configuration
         /// </summary>
         public object GetValue(string key, Type type)
         {
-            if (key == null) throw new ArgumentNullException(nameof(key));
-            if (type == null) throw new ArgumentNullException(nameof(type));
+            ArgumentNullException.ThrowIfNull(key);
+            ArgumentNullException.ThrowIfNull(type);
 
             string val = _map[key];
 
@@ -74,7 +74,7 @@ namespace System.Configuration
             }
         }
 
-        private int GetNoneNesting(string val)
+        private static int GetNoneNesting(string val)
         {
             int count = 0;
             int len = val.Length;
@@ -84,7 +84,7 @@ namespace System.Configuration
                 {
                     count++;
                 }
-                if (count > 0 && string.Compare(NullString, 0, val, count, len - 2 * count, StringComparison.Ordinal) != 0)
+                if (count > 0 && !val.AsSpan(count, len - 2 * count).Equals(NullString, StringComparison.Ordinal))
                 {
                     // the stuff between the parens is not "None"
                     count = 0;

@@ -7,17 +7,17 @@ using System.Threading.Tasks;
 
 namespace System.Net.Http
 {
-    internal partial class HttpConnection
+    internal sealed partial class HttpConnection
     {
         internal abstract class HttpContentReadStream : HttpContentStream
         {
-            private int _disposed; // 0==no, 1==yes
+            private bool _disposed;
 
             public HttpContentReadStream(HttpConnection connection) : base(connection)
             {
             }
 
-            public sealed override bool CanRead => true;
+            public sealed override bool CanRead => !_disposed;
             public sealed override bool CanWrite => false;
 
             public sealed override void Write(ReadOnlySpan<byte> buffer) => throw new NotSupportedException(SR.net_http_content_readonly_stream);
@@ -26,7 +26,18 @@ namespace System.Net.Http
 
             public virtual bool NeedsDrain => false;
 
-            protected bool IsDisposed => _disposed == 1;
+            protected bool IsDisposed => _disposed;
+
+            protected bool CanReadFromConnection
+            {
+                get
+                {
+                    // _connection == null typically means that we have finished reading the response.
+                    // Cancellation may lead to a state where a disposed _connection is not null.
+                    HttpConnection? connection = _connection;
+                    return connection != null && !connection._disposed;
+                }
+            }
 
             public virtual ValueTask<bool> DrainAsync(int maxDrainBytes)
             {
@@ -41,7 +52,7 @@ namespace System.Net.Http
                 // response stream and response content) will kick off multiple concurrent draining
                 // operations. Also don't delegate to the base if Dispose has already been called,
                 // as doing so will end up disposing of the connection before we're done draining.
-                if (Interlocked.Exchange(ref _disposed, 1) != 0)
+                if (Interlocked.Exchange(ref _disposed, true))
                 {
                     return;
                 }
@@ -70,7 +81,7 @@ namespace System.Net.Http
                     {
                         connection.Trace(drained ?
                             "Connection drain succeeded" :
-                            $"Connection drain failed because MaxResponseDrainSize of {connection._pool.Settings._maxResponseDrainSize} bytes was exceeded");
+                            $"Connection drain failed when MaxResponseDrainSize={connection._pool.Settings._maxResponseDrainSize} bytes or MaxResponseDrainTime=={connection._pool.Settings._maxResponseDrainTime} exceeded");
                     }
                 }
                 catch (Exception e)

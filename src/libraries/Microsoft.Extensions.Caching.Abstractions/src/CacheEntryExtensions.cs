@@ -2,10 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.Extensions.Primitives;
 
 namespace Microsoft.Extensions.Caching.Memory
 {
+    /// <summary>
+    /// Provides extensions methods for <see cref="ICacheEntry"/> operations.
+    /// </summary>
     public static class CacheEntryExtensions
     {
         /// <summary>
@@ -23,7 +27,7 @@ namespace Microsoft.Extensions.Caching.Memory
         }
 
         /// <summary>
-        /// Expire the cache entry if the given <see cref="IChangeToken"/> expires.
+        /// Expires the cache entry if the given <see cref="IChangeToken"/> expires.
         /// </summary>
         /// <param name="entry">The <see cref="ICacheEntry"/>.</param>
         /// <param name="expirationToken">The <see cref="IChangeToken"/> that causes the cache entry to expire.</param>
@@ -32,10 +36,7 @@ namespace Microsoft.Extensions.Caching.Memory
             this ICacheEntry entry,
             IChangeToken expirationToken)
         {
-            if (expirationToken == null)
-            {
-                throw new ArgumentNullException(nameof(expirationToken));
-            }
+            ArgumentNullException.ThrowIfNull(expirationToken);
 
             entry.ExpirationTokens.Add(expirationToken);
             return entry;
@@ -70,8 +71,8 @@ namespace Microsoft.Extensions.Caching.Memory
         }
 
         /// <summary>
-        /// Sets how long the cache entry can be inactive (e.g. not accessed) before it will be removed.
-        /// This will not extend the entry lifetime beyond the absolute expiration (if set).
+        /// Sets how long the cache entry can be inactive (for example, not accessed) before it will be removed.
+        /// This method does not extend the entry lifetime beyond the absolute expiration (if set).
         /// </summary>
         /// <param name="entry">The <see cref="ICacheEntry"/>.</param>
         /// <param name="offset">A <see cref="TimeSpan"/> representing a sliding expiration.</param>
@@ -85,25 +86,16 @@ namespace Microsoft.Extensions.Caching.Memory
         }
 
         /// <summary>
-        /// The given callback will be fired after the cache entry is evicted from the cache.
+        /// Fires the given callback after the cache entry is evicted from the cache.
         /// </summary>
         /// <param name="entry">The <see cref="ICacheEntry"/>.</param>
         /// <param name="callback">The callback to run after the entry is evicted.</param>
         /// <returns>The <see cref="ICacheEntry"/> for chaining.</returns>
-        public static ICacheEntry RegisterPostEvictionCallback(
-            this ICacheEntry entry,
-            PostEvictionDelegate callback)
-        {
-            if (callback == null)
-            {
-                throw new ArgumentNullException(nameof(callback));
-            }
-
-            return entry.RegisterPostEvictionCallback(callback, state: null);
-        }
+        public static ICacheEntry RegisterPostEvictionCallback(this ICacheEntry entry, PostEvictionDelegate callback)
+            => RegisterPostEvictionCallback(entry, callback, state: null);
 
         /// <summary>
-        /// The given callback will be fired after the cache entry is evicted from the cache.
+        /// Fires the given callback after the cache entry is evicted from the cache.
         /// </summary>
         /// <param name="entry">The <see cref="ICacheEntry"/>.</param>
         /// <param name="callback">The callback to run after the entry is evicted.</param>
@@ -112,12 +104,9 @@ namespace Microsoft.Extensions.Caching.Memory
         public static ICacheEntry RegisterPostEvictionCallback(
             this ICacheEntry entry,
             PostEvictionDelegate callback,
-            object state)
+            object? state)
         {
-            if (callback == null)
-            {
-                throw new ArgumentNullException(nameof(callback));
-            }
+            ArgumentNullException.ThrowIfNull(callback);
 
             entry.PostEvictionCallbacks.Add(new PostEvictionCallbackRegistration()
             {
@@ -135,7 +124,7 @@ namespace Microsoft.Extensions.Caching.Memory
         /// <returns>The <see cref="ICacheEntry"/> for chaining.</returns>
         public static ICacheEntry SetValue(
             this ICacheEntry entry,
-            object value)
+            object? value)
         {
             entry.Value = value;
             return entry;
@@ -147,6 +136,11 @@ namespace Microsoft.Extensions.Caching.Memory
         /// <param name="entry">The <see cref="ICacheEntry"/>.</param>
         /// <param name="size">The size to set on the <paramref name="entry"/>.</param>
         /// <returns>The <see cref="ICacheEntry"/> for chaining.</returns>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="size"/> is negative.</exception>
+        /// <exception cref="InvalidOperationException">
+        /// The <paramref name="entry"/> has already been disposed and its implementation does not allow the
+        /// size to change afterwards.
+        /// </exception>
         public static ICacheEntry SetSize(
             this ICacheEntry entry,
             long size)
@@ -166,30 +160,51 @@ namespace Microsoft.Extensions.Caching.Memory
         /// <param name="entry">The <see cref="ICacheEntry"/>.</param>
         /// <param name="options">Set the values of these options on the <paramref name="entry"/>.</param>
         /// <returns>The <see cref="ICacheEntry"/> for chaining.</returns>
+        /// <exception cref="InvalidOperationException">
+        /// The <paramref name="entry"/> has already been disposed and its implementation does not allow
+        /// <see cref="ICacheEntry.Size"/> to change afterwards.
+        /// </exception>
         public static ICacheEntry SetOptions(this ICacheEntry entry, MemoryCacheEntryOptions options)
         {
-            if (options == null)
-            {
-                throw new ArgumentNullException(nameof(options));
-            }
+            ArgumentNullException.ThrowIfNull(options);
 
+            // Apply Size first because some implementations reject it after disposal. If that happens,
+            // none of the other options should have been changed.
+            entry.Size = options.Size;
             entry.AbsoluteExpiration = options.AbsoluteExpiration;
             entry.AbsoluteExpirationRelativeToNow = options.AbsoluteExpirationRelativeToNow;
             entry.SlidingExpiration = options.SlidingExpiration;
             entry.Priority = options.Priority;
-            entry.Size = options.Size;
 
-            foreach (IChangeToken expirationToken in options.ExpirationTokens)
+            if (options.ExpirationTokensDirect is { } expirationTokens)
             {
-                entry.AddExpirationToken(expirationToken);
+                foreach (IChangeToken expirationToken in expirationTokens)
+                {
+                    entry.AddExpirationToken(expirationToken);
+                }
             }
 
-            foreach (PostEvictionCallbackRegistration postEvictionCallback in options.PostEvictionCallbacks)
+            if (options.PostEvictionCallbacksDirect is { } postEvictionCallbacks)
             {
-                entry.RegisterPostEvictionCallback(postEvictionCallback.EvictionCallback, postEvictionCallback.State);
+                for (int i = 0; i < postEvictionCallbacks.Count; i++)
+                {
+                    PostEvictionCallbackRegistration postEvictionCallback = postEvictionCallbacks[i];
+                    if (postEvictionCallback.EvictionCallback is null)
+                        ThrowNullCallback(i, nameof(options));
+
+                    entry.PostEvictionCallbacks.Add(postEvictionCallback);
+                }
             }
 
             return entry;
+        }
+
+        [DoesNotReturn]
+        private static void ThrowNullCallback(int index, string paramName)
+        {
+            string message =
+                $"MemoryCacheEntryOptions.PostEvictionCallbacks contains a PostEvictionCallbackRegistration with a null EvictionCallback at index {index}.";
+            throw new ArgumentException(message, paramName);
         }
     }
 }

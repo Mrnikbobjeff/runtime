@@ -2,11 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+using TestLibrary;
+namespace b37598
 {
     using System;
 
-    class AA
+    public class AA
     {
         static uint Method1(__arglist) { return 0; }
 
@@ -15,12 +17,12 @@ namespace Test
             Method1(__arglist(Method1(__arglist())));
         }
 
-        static int Main()
+	    [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsVarArgSupported))]
+        public static void TestEntryPoint()
         {
             uint u = 0;
             bool[] ab = null;
             Static1(ref u, ref ab, ab);
-            return 100;
         }
     }
 }

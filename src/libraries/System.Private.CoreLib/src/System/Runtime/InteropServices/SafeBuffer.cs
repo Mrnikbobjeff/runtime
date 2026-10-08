@@ -4,7 +4,7 @@
 /*============================================================
 **
 ** Purpose: Unsafe code that uses pointers should use
-** SafePointer to fix subtle lifetime problems with the
+** SafeBuffer to fix subtle lifetime problems with the
 ** underlying resource.
 **
 ===========================================================*/
@@ -65,7 +65,6 @@
 // assignments in a static class constructor are under a lock implicitly.
 
 using System.Runtime.CompilerServices;
-using Internal.Runtime.CompilerServices;
 using Microsoft.Win32.SafeHandles;
 
 namespace System.Runtime.InteropServices
@@ -153,7 +152,9 @@ namespace System.Runtime.InteropServices
             if (_numBytes == Uninitialized)
                 throw NotInitialized();
 
+#pragma warning disable IDE0059 // https://github.com/dotnet/roslyn/issues/42761
             pointer = null;
+#pragma warning restore IDE0059
 
             bool junk = false;
             DangerousAddRef(ref junk);
@@ -186,57 +187,66 @@ namespace System.Runtime.InteropServices
             byte* ptr = (byte*)handle + byteOffset;
             SpaceCheck(ptr, sizeofT);
 
-            // return *(T*) (_ptr + byteOffset);
-            T value = default;
             bool mustCallRelease = false;
             try
             {
                 DangerousAddRef(ref mustCallRelease);
 
-                fixed (byte* pStructure = &Unsafe.As<T, byte>(ref value))
-                    Buffer.Memmove(pStructure, ptr, sizeofT);
+                return Unsafe.ReadUnaligned<T>(ptr);
             }
             finally
             {
                 if (mustCallRelease)
                     DangerousRelease();
             }
-            return value;
         }
 
+        /// <summary>
+        /// Reads the specified number of value types from memory starting at the offset, and writes them into an array starting at the index.</summary>
+        /// <typeparam name="T">The value type to read.</typeparam>
+        /// <param name="byteOffset">The location from which to start reading.</param>
+        /// <param name="array">The output array to write to.</param>
+        /// <param name="index">The location in the output array to begin writing to.</param>
+        /// <param name="count">The number of value types to read from the input array and to write to the output array.</param>
         [CLSCompliant(false)]
         public void ReadArray<T>(ulong byteOffset, T[] array, int index, int count)
             where T : struct
         {
-            if (array == null)
-                throw new ArgumentNullException(nameof(array), SR.ArgumentNull_Buffer);
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentNullException.ThrowIfNull(array);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
             if (array.Length - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
 
+            ReadSpan(byteOffset, new Span<T>(array, index, count));
+        }
+
+        /// <summary>
+        /// Reads value types from memory starting at the offset, and writes them into a span. The number of value types that will be read is determined by the length of the span.</summary>
+        /// <typeparam name="T">The value type to read.</typeparam>
+        /// <param name="byteOffset">The location from which to start reading.</param>
+        /// <param name="buffer">The output span to write to.</param>
+        [CLSCompliant(false)]
+        public void ReadSpan<T>(ulong byteOffset, Span<T> buffer)
+            where T : struct
+        {
             if (_numBytes == Uninitialized)
                 throw NotInitialized();
 
-            uint sizeofT = SizeOf<T>();
             uint alignedSizeofT = AlignedSizeOf<T>();
             byte* ptr = (byte*)handle + byteOffset;
-            SpaceCheck(ptr, checked((nuint)(alignedSizeofT * count)));
+            SpaceCheck(ptr, checked((nuint)(alignedSizeofT * buffer.Length)));
 
             bool mustCallRelease = false;
             try
             {
                 DangerousAddRef(ref mustCallRelease);
 
-                if (count > 0)
+                ref T structure = ref MemoryMarshal.GetReference(buffer);
+                for (int i = 0; i < buffer.Length; i++)
                 {
-                    fixed (byte* pStructure = &Unsafe.As<T, byte>(ref array[index]))
-                    {
-                        for (int i = 0; i < count; i++)
-                            Buffer.Memmove(pStructure + sizeofT * i, ptr + alignedSizeofT * i, sizeofT);
-                    }
+                    Unsafe.Add(ref structure, (nint)(uint)i) = Unsafe.ReadUnaligned<T>(ptr + alignedSizeofT * (uint)i);
                 }
             }
             finally
@@ -264,14 +274,12 @@ namespace System.Runtime.InteropServices
             byte* ptr = (byte*)handle + byteOffset;
             SpaceCheck(ptr, sizeofT);
 
-            // *((T*) (_ptr + byteOffset)) = value;
             bool mustCallRelease = false;
             try
             {
                 DangerousAddRef(ref mustCallRelease);
 
-                fixed (byte* pStructure = &Unsafe.As<T, byte>(ref value))
-                    Buffer.Memmove(ptr, pStructure, sizeofT);
+                Unsafe.WriteUnaligned(ptr, value);
             }
             finally
             {
@@ -280,41 +288,54 @@ namespace System.Runtime.InteropServices
             }
         }
 
+        /// <summary>
+        /// Writes the specified number of value types to a memory location by reading bytes starting from the specified location in the input array.
+        /// </summary>
+        /// <typeparam name="T">The value type to write.</typeparam>
+        /// <param name="byteOffset">The location in memory to write to.</param>
+        /// <param name="array">The input array.</param>
+        /// <param name="index">The offset in the array to start reading from.</param>
+        /// <param name="count">The number of value types to write.</param>
         [CLSCompliant(false)]
         public void WriteArray<T>(ulong byteOffset, T[] array, int index, int count)
             where T : struct
         {
-            if (array == null)
-                throw new ArgumentNullException(nameof(array), SR.ArgumentNull_Buffer);
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
-            if (count < 0)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentNullException.ThrowIfNull(array);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
             if (array.Length - index < count)
                 throw new ArgumentException(SR.Argument_InvalidOffLen);
 
+            WriteSpan(byteOffset, new ReadOnlySpan<T>(array, index, count));
+        }
+
+        /// <summary>
+        /// Writes the value types from a read-only span to a memory location.
+        /// </summary>
+        /// <typeparam name="T">The value type to write.</typeparam>
+        /// <param name="byteOffset">The location in memory to write to.</param>
+        /// <param name="data">The input span.</param>
+        [CLSCompliant(false)]
+        public void WriteSpan<T>(ulong byteOffset, ReadOnlySpan<T> data)
+            where T : struct
+        {
             if (_numBytes == Uninitialized)
                 throw NotInitialized();
 
-            uint sizeofT = SizeOf<T>();
             uint alignedSizeofT = AlignedSizeOf<T>();
             byte* ptr = (byte*)handle + byteOffset;
-            SpaceCheck(ptr, checked((nuint)(alignedSizeofT * count)));
+            SpaceCheck(ptr, checked((nuint)(alignedSizeofT * data.Length)));
 
             bool mustCallRelease = false;
             try
             {
                 DangerousAddRef(ref mustCallRelease);
 
-                if (count > 0)
+                ref T structure = ref MemoryMarshal.GetReference(data);
+                for (int i = 0; i < data.Length; i++)
                 {
-                    {
-                        fixed (byte* pStructure = &Unsafe.As<T, byte>(ref array[index]))
-                        {
-                            for (int i = 0; i < count; i++)
-                                Buffer.Memmove(ptr + alignedSizeofT * i, pStructure + sizeofT * i, sizeofT);
-                        }
-                    }
+                    Unsafe.WriteUnaligned(ptr + alignedSizeofT * (uint)i, Unsafe.Add(ref structure, (nint)(uint)i));
                 }
             }
             finally
@@ -365,6 +386,7 @@ namespace System.Runtime.InteropServices
         /// value that sizeof(T) returns! Since the primary use case is to parse memory mapped files, we cannot change this algorithm as this defines a de-facto serialization format.
         /// Throws if T contains GC references.
         /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static uint AlignedSizeOf<T>() where T : struct
         {
             uint size = SizeOf<T>();
@@ -379,12 +401,13 @@ namespace System.Runtime.InteropServices
         /// <summary>
         /// Returns same value as sizeof(T) but throws if T contains GC references.
         /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         internal static uint SizeOf<T>() where T : struct
         {
             if (RuntimeHelpers.IsReferenceOrContainsReferences<T>())
-                throw new ArgumentException(SR.Argument_NeedStructWithNoRefs);
+                ThrowHelper.ThrowArgument_TypeContainsReferences(typeof(T));
 
-            return (uint)Unsafe.SizeOf<T>();
+            return (uint)sizeof(T);
         }
     }
 }

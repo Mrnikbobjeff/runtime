@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b13647
 {
     //@BEGINRENAME; Verify this renames
     //@ENDRENAME; Verify this renames
@@ -10,11 +11,11 @@ namespace DefaultNamespace
 
     public class Bug
     {
-        public static int Main(String[] args)
+        [Fact]
+        public static void TestEntryPoint()
         {
             //Console.WriteLine (DateTime.GetNow().ToString());
             Console.WriteLine(DateTime.Now.ToString());
-            return 100;
         }
     }
 

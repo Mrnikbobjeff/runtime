@@ -4,12 +4,15 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
-using TestLibrary;
+using Xunit;
 
 namespace SafeHandleTests
 {
     public class ReliableUnmarshalTest
     {
+        [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/91388", typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.PlatformDoesNotSupportNativeTestAssets))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/48084", TestRuntimes.Mono)]
         public static void RunTest()
         {
             // Test that our SafeHandle-derived object has its underlying handle set after a P/Invoke
@@ -19,7 +22,7 @@ namespace SafeHandleTests
 
             Assert.Throws<InvalidOperationException>(() => SafeHandleNative.GetHandleAndCookie(out _, value, out h));
 
-            Assert.AreEqual(value, h.DangerousGetHandle());
+            Assert.Equal(value, h.DangerousGetHandle());
 
             // Try again, this time triggering unmarshal failure with an array.
             value = (IntPtr)456;
@@ -27,7 +30,7 @@ namespace SafeHandleTests
 
             Assert.Throws<OverflowException>(() => SafeHandleNative.GetHandleAndArray(out _, out _, value, out h));
 
-            Assert.AreEqual(value, h.DangerousGetHandle());
+            Assert.Equal(value, h.DangerousGetHandle());
         }
     }
 }

@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Xunit;
-using Xunit.Abstractions;
 using System.IO;
 using System.Xml.Schema;
+using Xunit;
+using Xunit.Abstractions;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlSchemaTests
 {
     //[TestCase(Name = "TC_SchemaSet_Imports", Desc = "")]
     public class TC_SchemaSet_Imports : TC_SchemaSetBase
@@ -27,7 +27,7 @@ namespace System.Xml.Tests
         //[Variation(Desc = "v1.1 - Import: A with NS imports B with no NS", Priority = 0, Params = new object[] { "import_v1_a.xsd", "include_v1_b.xsd", 2, null })]
         [InlineData("import_v1_a.xsd", "include_v1_b.xsd", 2, null)]
         [Theory]
-        public void v1(object param0, object param1, object param2, object param3)
+        public void v1(object param0, object param1, object param2, object? param3)
         {
             XmlSchemaSet sc = new XmlSchemaSet();
             sc.XmlResolver = new XmlUrlResolver();
@@ -45,7 +45,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals(param1.ToString()) && imp.Schema.TargetNamespace == (string)param3)
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -54,7 +54,7 @@ namespace System.Xml.Tests
         //[Variation(Desc = "v2.1 - Import: Add B(ns-b) , then A(ns-a) which improts B (ns-b)", Priority = 1, Params = new object[] { "import_v2_a.xsd", "import_v2_b.xsd", 2, null, "ns-b" })]
         [InlineData("import_v2_a.xsd", "import_v2_b.xsd", 2, null, "ns-b")]
         [Theory]
-        public void v3(object param0, object param1, object param2, object param3, object param4)
+        public void v3(object param0, object param1, object param2, object? param3, object? param4)
         {
             XmlSchemaSet sc = new XmlSchemaSet();
             sc.XmlResolver = new XmlUrlResolver();
@@ -77,7 +77,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals(param1.ToString()) && imp.Schema.TargetNamespace == (string)param4)
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -107,7 +107,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals("import_v4_b.xsd") && imp.Schema.TargetNamespace == null)
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -135,7 +135,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals("import_v4_b.xsd") && imp.Schema.TargetNamespace == null)
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -162,7 +162,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals("import_v2_b.xsd") && imp.Schema.TargetNamespace.Equals("ns-b"))
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -191,14 +191,14 @@ namespace System.Xml.Tests
             foreach (XmlSchemaImport imp in parent.Includes)
                 if (imp.SchemaLocation.Equals("import_v9_b.xsd") && imp.Schema.TargetNamespace.Equals("ns-b"))
                     found = true;
-            if (!found) Assert.True(false);
+            if (!found) Assert.Fail();
 
             // check that schema C in sch_b.Includes and its NS correct.
             foreach (XmlSchemaImport imp in sch_B.Includes)
                 if (imp.SchemaLocation.Equals("import_v9_c.xsd") && imp.Schema.TargetNamespace.Equals("ns-c"))
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -228,14 +228,14 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals("import_v10_b.xsd") && imp.Schema.TargetNamespace == null)
                     found = true;
 
-            if (!found) Assert.True(false);
+            if (!found) Assert.Fail();
 
             // check that schema C in sch_b.Includes and its NS correct.
             foreach (XmlSchemaImport imp in sch_B.Includes)
                 if (imp.SchemaLocation.Equals("import_v10_c.xsd") && imp.Schema.TargetNamespace.Equals("ns-c"))
                     found = true;
 
-            if (!found) Assert.True(false);
+            if (!found) Assert.Fail();
 
             // try adding no ns schema with an ns
             sc.Add("ns-b", Path.Combine(TestData._Root, "import_v10_b.xsd"));
@@ -527,7 +527,7 @@ namespace System.Xml.Tests
         //[Variation(Desc = "v101.1 - Improt: A with NS imports B with no NS", Priority = 0, Params = new object[] { "import_v1_a.xsd", "include_v1_b.xsd", 2, null })]
         [InlineData("import_v1_a.xsd", "include_v1_b.xsd", 2, null)]
         [Theory]
-        public void v101(object param0, object param1, object param2, object param3)
+        public void v101(object param0, object param1, object param2, object? param3)
         {
             XmlSchemaSet sc = new XmlSchemaSet();
             sc.XmlResolver = new XmlUrlResolver();
@@ -549,7 +549,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals(param1.ToString()) && imp.Schema.TargetNamespace == (string)param3)
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -557,7 +557,7 @@ namespace System.Xml.Tests
         //[Variation(Desc = "v102.1 - Import: Add B(ns-b) , then A(ns-a) which improts B (ns-b)", Priority = 1, Params = new object[] { "import_v2_a.xsd", "import_v2_b.xsd", 2, null, "ns-b" })]
         [InlineData("import_v2_a.xsd", "import_v2_b.xsd", 2, null, "ns-b")]
         [Theory]
-        public void v102(object param0, object param1, object param2, object param3, object param4)
+        public void v102(object param0, object param1, object param2, object? param3, object param4)
         {
             XmlSchemaSet sc = new XmlSchemaSet();
             sc.XmlResolver = new XmlUrlResolver();
@@ -591,7 +591,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals(param1.ToString()) && imp.Schema.TargetNamespace == (string)param4)
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "v102.2 - Import: Add B(no ns) with ns-b , then A(ns-a) which imports B (no ns)", Priority = 1, Params = new object[] { "import_v5_a.xsd", "import_v4_b.xsd", 3, "ns-b", null })]
@@ -617,7 +617,7 @@ namespace System.Xml.Tests
             try
             {
                 XmlSchema parent = sc.Add(null, Path.Combine(TestData._Root, param0.ToString()));
-                Assert.True(false);
+                Assert.Fail();
             }
             catch (XmlSchemaException) { }
 
@@ -672,7 +672,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals("import_v4_b.xsd") && imp.Schema.TargetNamespace == null)
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -711,7 +711,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals("import_v4_b.xsd") && imp.Schema.TargetNamespace == null)
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -750,7 +750,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals("import_v2_b.xsd") && imp.Schema.TargetNamespace.Equals("ns-b"))
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -790,13 +790,13 @@ namespace System.Xml.Tests
             foreach (XmlSchemaImport imp in parent.Includes)
                 if (imp.SchemaLocation.Equals("import_v9_b.xsd") && imp.Schema.TargetNamespace.Equals("ns-b"))
                     found = true;
-            if (!found) Assert.True(false);
+            if (!found) Assert.Fail();
             // check that schema C in sch_b.Includes and its NS correct.
             foreach (XmlSchemaImport imp in sch_B.Includes)
                 if (imp.SchemaLocation.Equals("import_v9_c.xsd") && imp.Schema.TargetNamespace.Equals("ns-c"))
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -837,14 +837,14 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals("import_v10_b.xsd") && imp.Schema.TargetNamespace == null)
                     found = true;
 
-            if (!found) Assert.True(false);
+            if (!found) Assert.Fail();
 
             // check that schema C in sch_b.Includes and its NS correct.
             foreach (XmlSchemaImport imp in sch_B.Includes)
                 if (imp.SchemaLocation.Equals("import_v10_c.xsd") && imp.Schema.TargetNamespace.Equals("ns-c"))
                     found = true;
 
-            if (!found) Assert.True(false);
+            if (!found) Assert.Fail();
 
             // try adding no ns schema with an ns
             sch_B = sc.Add("ns-b", Path.Combine(TestData._Root, "import_v10_b.xsd"));
@@ -1225,7 +1225,7 @@ namespace System.Xml.Tests
         //[Variation(Desc = "v201.1 - Improt: A with NS imports B with no NS", Priority = 0, Params = new object[] { "import_v1_a.xsd", "include_v1_b.xsd", 2, null })]
         [InlineData("import_v1_a.xsd", "include_v1_b.xsd", 2, null)]
         [Theory]
-        public void v201(object param0, object param1, object param2, object param3)
+        public void v201(object param0, object param1, object param2, object? param3)
         {
             XmlSchemaSet sc = new XmlSchemaSet();
             sc.XmlResolver = new XmlUrlResolver();
@@ -1245,7 +1245,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals(param1.ToString()) && imp.Schema.TargetNamespace == (string)param3)
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -1253,7 +1253,7 @@ namespace System.Xml.Tests
         //[Variation(Desc = "v202.1 - Import: Add B(ns-b) , then A(ns-a) which improts B (ns-b)", Priority = 1, Params = new object[] { "import_v2_a.xsd", "import_v2_b.xsd", 2, null, "ns-b" })]
         [InlineData("import_v2_a.xsd", "import_v2_b.xsd", 2, null, "ns-b")]
         [Theory]
-        public void v202(object param0, object param1, object param2, object param3, object param4)
+        public void v202(object param0, object param1, object param2, object? param3, object param4)
         {
             XmlSchemaSet sc = new XmlSchemaSet();
             sc.XmlResolver = new XmlUrlResolver();
@@ -1287,7 +1287,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals(param1.ToString()) && imp.Schema.TargetNamespace == (string)param4)
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "v202.2 - Import: Add B(no ns) with ns-b , then A(ns-a) which imports B (no ns)", Priority = 1, Params = new object[] { "import_v5_a.xsd", "import_v4_b.xsd", 3, "ns-b", null })]
@@ -1312,7 +1312,7 @@ namespace System.Xml.Tests
             try
             {
                 XmlSchema parent = sc.Add(null, Path.Combine(TestData._Root, param0.ToString()));
-                Assert.True(false);
+                Assert.Fail();
             }
             catch (XmlSchemaException) { }
             CError.Compare(sc.Count, 1, "Add2Count");
@@ -1321,7 +1321,7 @@ namespace System.Xml.Tests
             try
             {
                 sc.Compile();
-                Assert.True(false);
+                Assert.Fail();
             }
             catch (XmlSchemaException) { }
             CError.Compare(sc.Count, 1, "CompileCount");
@@ -1371,7 +1371,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals("import_v4_b.xsd") && imp.Schema.TargetNamespace == null)
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -1410,7 +1410,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals("import_v4_b.xsd") && imp.Schema.TargetNamespace == null)
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -1449,7 +1449,7 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals("import_v2_b.xsd") && imp.Schema.TargetNamespace.Equals("ns-b"))
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -1489,14 +1489,14 @@ namespace System.Xml.Tests
             foreach (XmlSchemaImport imp in parent.Includes)
                 if (imp.SchemaLocation.Equals("import_v9_b.xsd") && imp.Schema.TargetNamespace.Equals("ns-b"))
                     found = true;
-            if (!found) Assert.True(false);
+            if (!found) Assert.Fail();
 
             // check that schema C in sch_b.Includes and its NS correct.
             foreach (XmlSchemaImport imp in sch_B.Includes)
                 if (imp.SchemaLocation.Equals("import_v9_c.xsd") && imp.Schema.TargetNamespace.Equals("ns-c"))
                     return;
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //-----------------------------------------------------------------------------------
@@ -1537,14 +1537,14 @@ namespace System.Xml.Tests
                 if (imp.SchemaLocation.Equals("import_v10_b.xsd") && imp.Schema.TargetNamespace == null)
                     found = true;
 
-            if (!found) Assert.True(false);
+            if (!found) Assert.Fail();
 
             // check that schema C in sch_b.Includes and its NS correct.
             foreach (XmlSchemaImport imp in sch_B.Includes)
                 if (imp.SchemaLocation.Equals("import_v10_c.xsd") && imp.Schema.TargetNamespace.Equals("ns-c"))
                     found = true;
 
-            if (!found) Assert.True(false);
+            if (!found) Assert.Fail();
 
             // try adding no ns schema with an ns
             sch_B = sc.Add("ns-b", Path.Combine(TestData._Root, "import_v10_b.xsd"));

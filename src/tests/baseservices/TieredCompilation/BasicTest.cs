@@ -4,17 +4,21 @@
 using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 public static class BasicTest
 {
-    private static int Main()
+    [ActiveIssue("No crossgen folder under Core_Root", typeof(Utilities), nameof(Utilities.IsNativeAot))]
+    [ActiveIssue("missing assembly", TestPlatforms.Windows, runtimes: TestRuntimes.Mono)]
+    [ActiveIssue("No crossgen folder under Core_Root", TestPlatforms.Android)]
+    [ActiveIssue("missing assembly", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [Fact]
+    public static void TestEntryPoint()
     {
-        const int Pass = 100;
-
-        PromoteToTier1(Foo);
+        PromoteToTier1(Foo, () => FooWithLoop(2));
         Foo();
-
-        return Pass;
+        FooWithLoop(2);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -28,21 +32,38 @@ public static class BasicTest
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void PromoteToTier1(Action action)
+    private static int FooWithLoop(int n)
     {
-        // Call the method once to register a call for call counting
-        action();
+        int sum = 0;
+        for (int i = 0; i < n; ++i)
+        {
+            sum += i;
+        }
+        return sum;
+    }
 
-        // Allow time for call counting to begin
-        Thread.Sleep(500);
-
-        // Call the method enough times to trigger tier 1 promotion
-        for (int i = 0; i < 100; i++)
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void PromoteToTier1(params Action[] actions)
+    {
+        // Call the methods once to register a call each for call counting
+        foreach (Action action in actions)
         {
             action();
         }
 
-        // Allow time for the method to be jitted at tier 1
+        // Allow time for call counting to begin
+        Thread.Sleep(500);
+
+        // Call the methods enough times to trigger tier 1 promotion
+        for (int i = 0; i < 100; ++i)
+        {
+            foreach (Action action in actions)
+            {
+                action();
+            }
+        }
+
+        // Allow time for the methods to be jitted at tier 1
         Thread.Sleep(500);
     }
 }

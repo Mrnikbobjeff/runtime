@@ -125,6 +125,12 @@ mword sgen_los_memory_usage = 0;
 /* Total memory used by the LOS allocator */
 mword sgen_los_memory_usage_total = 0;
 
+#ifdef HOST_WASM
+const gboolean sgen_los_enable_sections_allocator = 0;
+#else
+const gboolean sgen_los_enable_sections_allocator = 1;
+#endif
+
 static LOSSection *los_sections = NULL;
 static LOSFreeChunks *los_fast_free_lists [LOS_NUM_FAST_SIZES]; /* 0 is for larger sizes */
 static mword los_num_objects = 0;
@@ -155,6 +161,9 @@ los_consistency_check (void)
 	LOSObject *obj;
 	int i;
 	mword memory_usage = 0;
+
+	if (!sgen_los_enable_sections_allocator)
+		return;
 
 	FOREACH_LOS_OBJECT_NO_LOCK (obj) {
 		mword obj_size = sgen_los_object_size (obj);
@@ -275,7 +284,7 @@ static LOSObject*
 get_los_section_memory (size_t size)
 {
 	LOSSection *section;
-	LOSFreeChunks *free_chunks;
+	LOSFreeChunks *free_chunks = NULL;
 	size_t num_chunks;
 	size_t obj_size = size;
 
@@ -334,7 +343,12 @@ get_los_section_memory (size_t size)
 	section->next = los_sections;
 	los_sections = section;
 
+#ifdef HOST_WASM
+	// on WASM there is no mmap and alignment has large overhead
+	sgen_los_memory_usage_total += LOS_SECTION_SIZE + LOS_SECTION_SIZE;
+#else
 	sgen_los_memory_usage_total += LOS_SECTION_SIZE;
+#endif
 	++los_num_sections;
 
 	goto retry;
@@ -393,6 +407,11 @@ sgen_los_free_object (LOSObject *obj)
 		size += sizeof (LOSObject);
 		size = SGEN_ALIGN_UP_TO (size, pagesize);
 		sgen_free_os_memory ((gpointer)SGEN_ALIGN_DOWN_TO ((mword)obj, pagesize), size, SGEN_ALLOC_HEAP, MONO_MEM_ACCOUNT_SGEN_LOS);
+		sgen_los_memory_usage_total -= size;
+		sgen_memgov_release_space (size, SPACE_LOS);
+	} else if (!sgen_los_enable_sections_allocator) {
+		size += sizeof (LOSObject);
+		sgen_free_os_memory (obj, size, SGEN_ALLOC_HEAP, MONO_MEM_ACCOUNT_SGEN_LOS);
 		sgen_los_memory_usage_total -= size;
 		sgen_memgov_release_space (size, SPACE_LOS);
 	} else {
@@ -455,6 +474,27 @@ sgen_los_alloc_large_inner (GCVTable vtable, size_t size)
 				sgen_los_memory_usage_total += alloc_size;
 				obj = randomize_los_object_start (obj, obj_size, alloc_size, pagesize);
 			}
+		}
+	} else if (!sgen_los_enable_sections_allocator) {
+		size_t alloc_size = size + sizeof (LOSObject);
+#ifndef SGEN_HAVE_OVERLAPPING_CARDS
+		// While other objects can't be allocated after the los object (in a memory sharing a card with the los object),
+		// we could still have wbarrier roots allocated there, since they don't have alignment requirement. This means that
+		// clearing a card from this object would prevent scanning of refs in the wbarrier roots.
+		alloc_size = SGEN_ALIGN_UP_TO (alloc_size, CARD_SIZE_IN_BYTES);
+#endif
+		if (sgen_memgov_try_alloc_space (alloc_size, SPACE_LOS)) {
+#ifndef SGEN_HAVE_OVERLAPPING_CARDS
+			// If we don't use the shadow card table, having a card map to 2 different los objects is invalid
+			// because once we scan the first object we could clear the card, leading to failure to detect refs
+			// in the second object. We prevent this by aligning the los object to the card size.
+			int alignment = CARD_SIZE_IN_BYTES;
+#else
+			int alignment = SGEN_ALLOC_ALIGN;
+#endif
+			obj = (LOSObject *)sgen_alloc_os_memory_aligned (alloc_size, alignment, (SgenAllocFlags)(SGEN_ALLOC_HEAP | SGEN_ALLOC_ACTIVATE), NULL, MONO_MEM_ACCOUNT_SGEN_LOS);
+			if (obj)
+				sgen_los_memory_usage_total += alloc_size;
 		}
 	} else {
 		obj = get_los_section_memory (size + sizeof (LOSObject));
@@ -542,7 +582,12 @@ sgen_los_sweep (void)
 			sgen_memgov_release_space (LOS_SECTION_SIZE, SPACE_LOS);
 			section = next;
 			--los_num_sections;
+#ifdef HOST_WASM
+			// on WASM there is no mmap and alignment has large overhead
+			sgen_los_memory_usage_total -= LOS_SECTION_SIZE + LOS_SECTION_SIZE;
+#else
 			sgen_los_memory_usage_total -= LOS_SECTION_SIZE;
+#endif
 			continue;
 		}
 
@@ -679,6 +724,33 @@ sgen_los_iterate_live_block_ranges (sgen_cardtable_block_callback callback)
 	} END_FOREACH_LOS_OBJECT_HAS_REFERENCES_NO_LOCK;
 }
 
+static void
+get_los_object_range_for_job (int job_index, int job_split_count, int *start, int *end)
+{
+	int object_count = sgen_los_object_array_list.next_slot / job_split_count;
+
+	*start = object_count * job_index;
+	if (job_index == job_split_count - 1)
+		*end = sgen_los_object_array_list.next_slot;
+	else
+		*end = object_count * (job_index + 1);
+}
+
+void
+sgen_los_iterate_live_block_range_jobs (sgen_cardtable_block_callback callback, int job_index, int job_split_count)
+{
+	LOSObject *obj;
+	gboolean has_references;
+	int first_object, last_object, index;
+
+	get_los_object_range_for_job (job_index, job_split_count, &first_object, &last_object);
+
+	FOREACH_LOS_OBJECT_RANGE_HAS_REFERENCES_NO_LOCK (obj, first_object, last_object, index, has_references) {
+		if (has_references)
+			callback ((mword)obj->data, sgen_los_object_size (obj));
+	} END_FOREACH_LOS_OBJECT_RANGE_HAS_REFERENCES_NO_LOCK;
+}
+
 static guint8*
 get_cardtable_mod_union_for_object (LOSObject *obj)
 {
@@ -703,15 +775,10 @@ sgen_los_scan_card_table (CardTableScanType scan_type, ScanCopyContext ctx, int 
 	LOSObject *obj;
 	gboolean has_references;
 	int first_object, last_object, index;
-	int object_count = sgen_los_object_array_list.next_slot / job_split_count;
 
 	sgen_binary_protocol_los_card_table_scan_start (sgen_timestamp (), scan_type & CARDTABLE_SCAN_MOD_UNION);
 
-	first_object = object_count * job_index;
-	if (job_index == job_split_count - 1)
-		last_object = sgen_los_object_array_list.next_slot;
-	else
-		last_object = object_count * (job_index + 1);
+	get_los_object_range_for_job (job_index, job_split_count, &first_object, &last_object);
 
 	FOREACH_LOS_OBJECT_RANGE_HAS_REFERENCES_NO_LOCK (obj, first_object, last_object, index, has_references) {
 		mword num_cards = 0;
@@ -760,7 +827,6 @@ sgen_los_count_cards (long long *num_total_cards, long long *num_marked_cards)
 	long long marked_cards = 0;
 
 	FOREACH_LOS_OBJECT_HAS_REFERENCES_NO_LOCK (obj, has_references) {
-		int i;
 		guint8 *cards = sgen_card_table_get_card_scan_address ((mword) obj->data);
 		guint8 *cards_end = sgen_card_table_get_card_scan_address ((mword) obj->data + sgen_los_object_size (obj) - 1);
 		mword num_cards = (cards_end - cards) + 1;
@@ -769,7 +835,7 @@ sgen_los_count_cards (long long *num_total_cards, long long *num_marked_cards)
 			continue;
 
 		total_cards += num_cards;
-		for (i = 0; i < num_cards; ++i) {
+		for (mword i = 0; i < num_cards; ++i) {
 			if (cards [i])
 				++marked_cards;
 		}

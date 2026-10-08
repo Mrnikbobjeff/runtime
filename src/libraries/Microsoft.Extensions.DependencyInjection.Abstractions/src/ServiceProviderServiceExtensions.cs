@@ -20,10 +20,7 @@ namespace Microsoft.Extensions.DependencyInjection
         /// <returns>A service object of type <typeparamref name="T"/> or null if there is no such service.</returns>
         public static T? GetService<T>(this IServiceProvider provider)
         {
-            if (provider == null)
-            {
-                throw new ArgumentNullException(nameof(provider));
-            }
+            ArgumentNullException.ThrowIfNull(provider);
 
             return (T?)provider.GetService(typeof(T));
         }
@@ -37,18 +34,10 @@ namespace Microsoft.Extensions.DependencyInjection
         /// <exception cref="System.InvalidOperationException">There is no service of type <paramref name="serviceType"/>.</exception>
         public static object GetRequiredService(this IServiceProvider provider, Type serviceType)
         {
-            if (provider == null)
-            {
-                throw new ArgumentNullException(nameof(provider));
-            }
+            ArgumentNullException.ThrowIfNull(provider);
+            ArgumentNullException.ThrowIfNull(serviceType);
 
-            if (serviceType == null)
-            {
-                throw new ArgumentNullException(nameof(serviceType));
-            }
-
-            var requiredServiceSupportingProvider = provider as ISupportRequiredService;
-            if (requiredServiceSupportingProvider != null)
+            if (provider is ISupportRequiredService requiredServiceSupportingProvider)
             {
                 return requiredServiceSupportingProvider.GetRequiredService(serviceType);
             }
@@ -71,10 +60,7 @@ namespace Microsoft.Extensions.DependencyInjection
         /// <exception cref="System.InvalidOperationException">There is no service of type <typeparamref name="T"/>.</exception>
         public static T GetRequiredService<T>(this IServiceProvider provider) where T : notnull
         {
-            if (provider == null)
-            {
-                throw new ArgumentNullException(nameof(provider));
-            }
+            ArgumentNullException.ThrowIfNull(provider);
 
             return (T)provider.GetRequiredService(typeof(T));
         }
@@ -87,10 +73,7 @@ namespace Microsoft.Extensions.DependencyInjection
         /// <returns>An enumeration of services of type <typeparamref name="T"/>.</returns>
         public static IEnumerable<T> GetServices<T>(this IServiceProvider provider)
         {
-            if (provider == null)
-            {
-                throw new ArgumentNullException(nameof(provider));
-            }
+            ArgumentNullException.ThrowIfNull(provider);
 
             return provider.GetRequiredService<IEnumerable<T>>();
         }
@@ -101,17 +84,11 @@ namespace Microsoft.Extensions.DependencyInjection
         /// <param name="provider">The <see cref="IServiceProvider"/> to retrieve the services from.</param>
         /// <param name="serviceType">An object that specifies the type of service object to get.</param>
         /// <returns>An enumeration of services of type <paramref name="serviceType"/>.</returns>
+        [RequiresDynamicCode("The native code for an IEnumerable<serviceType> might not be available at runtime.")]
         public static IEnumerable<object?> GetServices(this IServiceProvider provider, Type serviceType)
         {
-            if (provider == null)
-            {
-                throw new ArgumentNullException(nameof(provider));
-            }
-
-            if (serviceType == null)
-            {
-                throw new ArgumentNullException(nameof(serviceType));
-            }
+            ArgumentNullException.ThrowIfNull(provider);
+            ArgumentNullException.ThrowIfNull(serviceType);
 
             Type? genericEnumerable = typeof(IEnumerable<>).MakeGenericType(serviceType);
             return (IEnumerable<object>)provider.GetRequiredService(genericEnumerable);
@@ -125,6 +102,26 @@ namespace Microsoft.Extensions.DependencyInjection
         public static IServiceScope CreateScope(this IServiceProvider provider)
         {
             return provider.GetRequiredService<IServiceScopeFactory>().CreateScope();
+        }
+
+        /// <summary>
+        /// Creates a new <see cref="AsyncServiceScope"/> that can be used to resolve scoped services.
+        /// </summary>
+        /// <param name="provider">The <see cref="IServiceProvider"/> to create the scope from.</param>
+        /// <returns>An <see cref="AsyncServiceScope"/> that can be used to resolve scoped services.</returns>
+        public static AsyncServiceScope CreateAsyncScope(this IServiceProvider provider)
+        {
+            return new AsyncServiceScope(provider.CreateScope());
+        }
+
+        /// <summary>
+        /// Creates a new <see cref="AsyncServiceScope"/> that can be used to resolve scoped services.
+        /// </summary>
+        /// <param name="serviceScopeFactory">The <see cref="IServiceScopeFactory"/> to create the scope from.</param>
+        /// <returns>An <see cref="AsyncServiceScope"/> that can be used to resolve scoped services.</returns>
+        public static AsyncServiceScope CreateAsyncScope(this IServiceScopeFactory serviceScopeFactory)
+        {
+            return new AsyncServiceScope(serviceScopeFactory.CreateScope());
         }
     }
 }

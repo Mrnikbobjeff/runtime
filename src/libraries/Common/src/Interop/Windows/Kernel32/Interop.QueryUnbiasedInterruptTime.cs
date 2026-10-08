@@ -7,7 +7,17 @@ internal static partial class Interop
 {
     internal static partial class Kernel32
     {
-        [DllImport(Libraries.Kernel32)]
-        internal static extern bool QueryUnbiasedInterruptTime(out ulong UnbiasedTime);
+        // The actual native signature is:
+        //      BOOL WINAPI QueryUnbiasedInterruptTime(
+        //          _Out_ PULONGLONG UnbiasedTime
+        //      );
+        //
+        // We take a ulong* (rather than a out ulong) to avoid the pinning overhead.
+        // We don't set last error since we don't need the extended error info.
+
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [LibraryImport(Libraries.Kernel32)]
+        [SuppressGCTransition]
+        internal static unsafe partial BOOL QueryUnbiasedInterruptTime(ulong* unbiasedTime);
     }
 }

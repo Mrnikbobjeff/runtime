@@ -1,38 +1,36 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Xml.Serialization;
+using System.Diagnostics.CodeAnalysis;
 using System.Xml;
 using System.Xml.Schema;
-using System.Diagnostics.CodeAnalysis;
+using System.Xml.Serialization;
 
 namespace System.ServiceModel.Syndication
 {
     [XmlRoot(ElementName = App10Constants.Categories, Namespace = App10Constants.Namespace)]
     public class AtomPub10CategoriesDocumentFormatter : CategoriesDocumentFormatter, IXmlSerializable
     {
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
         private readonly Type _inlineDocumentType;
         private readonly int _maxExtensionSize;
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
         private readonly Type _referencedDocumentType;
 
         public AtomPub10CategoriesDocumentFormatter() : this(typeof(InlineCategoriesDocument), typeof(ReferencedCategoriesDocument))
         {
         }
 
-        public AtomPub10CategoriesDocumentFormatter(Type inlineDocumentType, Type referencedDocumentType) : base()
+        public AtomPub10CategoriesDocumentFormatter(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type inlineDocumentType,
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type referencedDocumentType) : base()
         {
-            if (inlineDocumentType == null)
-            {
-                throw new ArgumentNullException(nameof(inlineDocumentType));
-            }
+            ArgumentNullException.ThrowIfNull(inlineDocumentType);
             if (!typeof(InlineCategoriesDocument).IsAssignableFrom(inlineDocumentType))
             {
                 throw new ArgumentException(SR.Format(SR.InvalidObjectTypePassed, nameof(inlineDocumentType), nameof(InlineCategoriesDocument)), nameof(inlineDocumentType));
             }
-            if (referencedDocumentType == null)
-            {
-                throw new ArgumentNullException(nameof(referencedDocumentType));
-            }
+            ArgumentNullException.ThrowIfNull(referencedDocumentType);
             if (!typeof(ReferencedCategoriesDocument).IsAssignableFrom(referencedDocumentType))
             {
                 throw new ArgumentException(SR.Format(SR.InvalidObjectTypePassed, nameof(referencedDocumentType), nameof(ReferencedCategoriesDocument)), nameof(referencedDocumentType));
@@ -62,10 +60,7 @@ namespace System.ServiceModel.Syndication
 
         public override bool CanRead(XmlReader reader)
         {
-            if (reader == null)
-            {
-                throw new ArgumentNullException(nameof(reader));
-            }
+            ArgumentNullException.ThrowIfNull(reader);
 
             return reader.IsStartElement(App10Constants.Categories, App10Constants.Namespace);
         }
@@ -74,20 +69,15 @@ namespace System.ServiceModel.Syndication
 
         void IXmlSerializable.ReadXml(XmlReader reader)
         {
-            if (reader == null)
-            {
-                throw new ArgumentNullException(nameof(reader));
-            }
+            ArgumentNullException.ThrowIfNull(reader);
 
             ReadDocument(reader);
         }
 
         void IXmlSerializable.WriteXml(XmlWriter writer)
         {
-            if (writer == null)
-            {
-                throw new ArgumentNullException(nameof(writer));
-            }
+            ArgumentNullException.ThrowIfNull(writer);
+
             if (Document == null)
             {
                 throw new InvalidOperationException(SR.DocumentFormatterDoesNotHaveDocument);
@@ -98,10 +88,8 @@ namespace System.ServiceModel.Syndication
 
         public override void ReadFrom(XmlReader reader)
         {
-            if (reader == null)
-            {
-                throw new ArgumentNullException(nameof(reader));
-            }
+            ArgumentNullException.ThrowIfNull(reader);
+
             if (!CanRead(reader))
             {
                 throw new XmlException(SR.Format(SR.UnknownDocumentXml, reader.LocalName, reader.NamespaceURI));
@@ -112,10 +100,8 @@ namespace System.ServiceModel.Syndication
 
         public override void WriteTo(XmlWriter writer)
         {
-            if (writer == null)
-            {
-                throw new ArgumentNullException(nameof(writer));
-            }
+            ArgumentNullException.ThrowIfNull(writer);
+
             if (Document == null)
             {
                 throw new InvalidOperationException(SR.DocumentFormatterDoesNotHaveDocument);
@@ -156,8 +142,8 @@ namespace System.ServiceModel.Syndication
             {
                 SyndicationFeedFormatter.MoveToStartElement(reader);
                 SetDocument(AtomPub10ServiceDocumentFormatter.ReadCategories(reader, null,
-                    () => CreateInlineCategoriesDocument(),
-                    () => CreateReferencedCategoriesDocument(),
+                    CreateInlineCategoriesDocument,
+                    CreateReferencedCategoriesDocument,
                     Version,
                     _maxExtensionSize));
             }

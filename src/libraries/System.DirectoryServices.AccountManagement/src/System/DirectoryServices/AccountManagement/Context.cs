@@ -2,18 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Globalization;
-using System.Runtime.InteropServices;
 using System.ComponentModel;
 using System.Configuration;
-using System.DirectoryServices.Protocols;
+using System.Diagnostics;
 using System.DirectoryServices;
+using System.DirectoryServices.Protocols;
+using System.Globalization;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
-using System.Collections;
 
 namespace System.DirectoryServices.AccountManagement
 {
@@ -44,7 +44,7 @@ namespace System.DirectoryServices.AccountManagement
         public const string LDAP_CAP_ACTIVE_DIRECTORY_V61_OID = "1.2.840.113556.1.4.1935";
     }
 
-    internal sealed class CredentialValidator
+    internal sealed class CredentialValidator : IDisposable
     {
         private enum AuthMethod
         {
@@ -85,10 +85,7 @@ namespace System.DirectoryServices.AccountManagement
 
         private bool BindSam(string target, string userName, string password)
         {
-            StringBuilder adsPath = new StringBuilder();
-            adsPath.Append("WinNT://");
-            adsPath.Append(_serverName);
-            adsPath.Append(",computer");
+            string adsPath = $"WinNT://{_serverName},computer";
             Guid g = new Guid("fd8256d0-fd15-11ce-abc4-02608c9e7553"); // IID_IUnknown
             object value = null;
             // always attempt secure auth..
@@ -103,14 +100,13 @@ namespace System.DirectoryServices.AccountManagement
                 // if they just passed user then append the machine name here.
                 if (null != userName)
                 {
-                    int index = userName.IndexOf('\\');
-                    if (index == -1)
+                    if (!userName.Contains('\\'))
                     {
                         userName = _serverName + "\\" + userName;
                     }
                 }
 
-                int hr = UnsafeNativeMethods.ADsOpenObject(adsPath.ToString(), userName, password, (int)authenticationType, ref g, out value);
+                int hr = UnsafeNativeMethods.ADsOpenObject(adsPath, userName, password, (int)authenticationType, ref g, out value);
 
                 if (hr != 0)
                 {
@@ -264,6 +260,10 @@ namespace System.DirectoryServices.AccountManagement
                             // we don't return false here even if we failed with ERROR_LOGON_FAILURE. We must check Negotiate
                             // because there might be cases in which SSL fails and Negotiate succeeds
                         }
+                        catch (DirectoryOperationException)
+                        {
+                            // see LdapException
+                        }
 
                         BindLdap(networkCredential, defaultContextOptionsNegotiate);
                         _lastBindMethod = AuthMethod.Negotiate;
@@ -335,6 +335,14 @@ namespace System.DirectoryServices.AccountManagement
             else
             {
                 return (BindSam(_serverName, userName, password));
+            }
+        }
+
+        public void Dispose()
+        {
+            foreach (LdapConnection connection in _connCache.Values)
+            {
+                connection.Dispose();
             }
         }
     }
@@ -486,7 +494,7 @@ namespace System.DirectoryServices.AccountManagement
                 Initialize();
 
                 // Unless we're not initialized, connectedServer should not be null
-                Debug.Assert(_connectedServer != null || _initialized == false);
+                Debug.Assert(_connectedServer != null || !_initialized);
 
                 // connectedServer should never be an empty string
                 Debug.Assert(_connectedServer == null || _connectedServer.Length != 0);
@@ -616,10 +624,7 @@ namespace System.DirectoryServices.AccountManagement
 
             try
             {
-                string hostname = _name;
-
-                if (hostname == null)
-                    hostname = Utils.GetComputerFlatName();
+                string hostname = _name ?? Utils.GetComputerFlatName();
 
                 GlobalDebug.WriteLineIf(GlobalDebug.Info, "PrincipalContext", "DoMachineInit: hostname is " + hostname);
 
@@ -652,8 +657,7 @@ namespace System.DirectoryServices.AccountManagement
                                                    " and message " + e.Message);
 
                 // Cleanup the DE on failure
-                if (de != null)
-                    de.Dispose();
+                de?.Dispose();
 
                 throw;
             }
@@ -759,8 +763,7 @@ namespace System.DirectoryServices.AccountManagement
             finally
             {
                 // Cleanup the DE on failure
-                if (de != null)
-                    de.Dispose();
+                de?.Dispose();
             }
         }
 
@@ -816,8 +819,7 @@ namespace System.DirectoryServices.AccountManagement
             finally
             {
                 // Don't allow the DE to leak
-                if (deRootDse != null)
-                    deRootDse.Dispose();
+                deRootDse?.Dispose();
             }
 
             try
@@ -881,7 +883,7 @@ namespace System.DirectoryServices.AccountManagement
                 // The Users container will also be used as the default for Groups.
                 // The reason there are different contexts for groups, users and computers is so that
                 // when a principal is created it will go into the appropriate default container.  This is so users don't
-                // be default create principals in the root of their directory.  When a search happens the base context is used so that
+                // by default create principals in the root of their directory.  When a search happens the base context is used so that
                 // the whole directory will be covered.
                 //
                 deUserGroupOrg = new DirectoryEntry(adsPathUserGroupOrg, _username, _password, authTypes);
@@ -913,23 +915,12 @@ namespace System.DirectoryServices.AccountManagement
 
                 // Cleanup on failure.  Once a DE has been successfully handed off to a ADStoreCtx,
                 // that ADStoreCtx will handle Dispose()'ing it
-                if (deUserGroupOrg != null)
-                    deUserGroupOrg.Dispose();
-
-                if (deComputer != null)
-                    deComputer.Dispose();
-
-                if (deBase != null)
-                    deBase.Dispose();
-
-                if (storeCtxUserGroupOrg != null)
-                    storeCtxUserGroupOrg.Dispose();
-
-                if (storeCtxComputer != null)
-                    storeCtxComputer.Dispose();
-
-                if (storeCtxBase != null)
-                    storeCtxBase.Dispose();
+                deUserGroupOrg?.Dispose();
+                deComputer?.Dispose();
+                deBase?.Dispose();
+                storeCtxUserGroupOrg?.Dispose();
+                storeCtxComputer?.Dispose();
+                storeCtxBase?.Dispose();
 
                 throw;
             }
@@ -998,17 +989,12 @@ namespace System.DirectoryServices.AccountManagement
                 // This is okay, since StoreCtxs allow multiple Dispose() calls, and ignore
                 // all but the first call.
 
-                if (_userCtx != null)
-                    _userCtx.Dispose();
+                _userCtx?.Dispose();
+                _groupCtx?.Dispose();
+                _computerCtx?.Dispose();
+                _queryCtx?.Dispose();
 
-                if (_groupCtx != null)
-                    _groupCtx.Dispose();
-
-                if (_computerCtx != null)
-                    _computerCtx.Dispose();
-
-                if (_queryCtx != null)
-                    _queryCtx.Dispose();
+                _credValidate.Dispose();
 
                 _disposed = true;
                 GC.SuppressFinalize(this);
@@ -1103,7 +1089,7 @@ namespace System.DirectoryServices.AccountManagement
 
                 ldapConnection.AutoBind = false;
                 // If SSL was enabled on the initial connection then turn it on for the search.
-                // This is requried bc the appended port number will be SSL and we don't know what port LDAP is running on.
+                // This is required bc the appended port number will be SSL and we don't know what port LDAP is running on.
                 ldapConnection.SessionOptions.SecureSocketLayer = useSSL;
 
                 string baseDN = null; // specify base as null for RootDSE search
@@ -1143,7 +1129,7 @@ namespace System.DirectoryServices.AccountManagement
                     }
                 }
 
-                // If we can't determine the OS vesion so we must fall back to lowest level of functionality
+                // If we can't determine the OS version so we must fall back to lowest level of functionality
                 if (searchResponse.Entries[0].Attributes.Contains("domainControllerFunctionality"))
                 {
                     properties.OsVersion = (DomainControllerMode)Convert.ToInt32(searchResponse.Entries[0].Attributes["domainControllerFunctionality"][0], CultureInfo.InvariantCulture);
@@ -1173,10 +1159,7 @@ namespace System.DirectoryServices.AccountManagement
             }
             finally
             {
-                if (ldapConnection != null)
-                {
-                    ldapConnection.Dispose();
-                }
+                ldapConnection?.Dispose();
             }
         }
 

@@ -2,10 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.IO;
-using System.Xml;
 using System.Diagnostics;
+using System.IO;
 using System.Text;
+using System.Xml;
 
 namespace System.IO.Packaging
 {
@@ -33,7 +33,7 @@ namespace System.IO.Packaging
             //If the first node is XmlDeclaration we check to see if the encoding attribute is present
             if (reader.Read() && reader.NodeType == XmlNodeType.XmlDeclaration && reader.Depth == 0)
             {
-                string encoding = reader.GetAttribute(EncodingAttribute);
+                string? encoding = reader.GetAttribute(EncodingAttribute);
 
                 if (!string.IsNullOrEmpty(encoding))
                 {

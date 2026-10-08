@@ -3,6 +3,7 @@
 
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Text;
 
 namespace System.Collections.Generic
@@ -11,43 +12,19 @@ namespace System.Collections.Generic
     public static class KeyValuePair
     {
         // Creates a new KeyValuePair<TKey, TValue> from the given values.
-        public static KeyValuePair<TKey, TValue> Create<TKey, TValue>(TKey key, TValue value)
-        {
-            return new KeyValuePair<TKey, TValue>(key, value);
-        }
+        public static KeyValuePair<TKey, TValue> Create<TKey, TValue>(TKey key, TValue value) =>
+            new KeyValuePair<TKey, TValue>(key, value);
 
-        /// <summary>
-        /// Used by KeyValuePair.ToString to reduce generic code
-        /// </summary>
-        internal static string PairToString(object? key, object? value)
-        {
-            var s = new ValueStringBuilder(stackalloc char[64]);
-
-            s.Append('[');
-
-            if (key != null)
-            {
-                s.Append(key.ToString());
-            }
-
-            s.Append(", ");
-
-            if (value != null)
-            {
-                s.Append(value.ToString());
-            }
-
-            s.Append(']');
-
-            return s.ToString();
-        }
+        /// <summary>Used by KeyValuePair.ToString to reduce generic code</summary>
+        internal static string PairToString(object? key, object? value) =>
+            string.Create(null, stackalloc char[256], $"[{key}, {value}]");
     }
 
     // A KeyValuePair holds a key and a value from a dictionary.
     // It is used by the IEnumerable<T> implementation for both IDictionary<TKey, TValue>
     // and IReadOnlyDictionary<TKey, TValue>.
     [Serializable]
-    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
+    [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public readonly struct KeyValuePair<TKey, TValue>
     {
         [DebuggerBrowsable(DebuggerBrowsableState.Never)]

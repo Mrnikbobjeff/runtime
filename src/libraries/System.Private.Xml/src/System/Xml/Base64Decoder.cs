@@ -1,12 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.Diagnostics;
 
 namespace System.Xml
 {
-    internal class Base64Decoder : IncrementalReadDecoder
+    internal sealed class Base64Decoder : IncrementalReadDecoder
     {
         //
         // Fields
@@ -18,11 +17,6 @@ namespace System.Xml
 
         private int _bits;
         private int _bitsFilled;
-
-        private const string CharsBase64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        private static readonly byte[] s_mapBase64 = ConstructMapBase64();
-        private const int MaxValidChar = (int)'z';
-        private const byte Invalid = unchecked((byte)-1);
 
         //
         // IncrementalReadDecoder interface
@@ -43,73 +37,39 @@ namespace System.Xml
             }
         }
 
-        internal override unsafe int Decode(char[] chars, int startPos, int len)
+        internal override int Decode(char[] chars, int startPos, int len)
         {
-            if (chars == null)
-            {
-                throw new ArgumentNullException(nameof(chars));
-            }
-            if (len < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(len));
-            }
-            if (startPos < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startPos));
-            }
-            if (chars.Length - startPos < len)
-            {
-                throw new ArgumentOutOfRangeException(nameof(len));
-            }
+            ArgumentNullException.ThrowIfNull(chars);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(len);
+            ArgumentOutOfRangeException.ThrowIfNegative(startPos);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(len, chars.Length - startPos);
 
             if (len == 0)
             {
                 return 0;
             }
-            int bytesDecoded, charsDecoded;
-            fixed (char* pChars = &chars[startPos])
-            {
-                fixed (byte* pBytes = &_buffer![_curIndex])
-                {
-                    Decode(pChars, pChars + len, pBytes, pBytes + (_endIndex - _curIndex), out charsDecoded, out bytesDecoded);
-                }
-            }
+
+            Decode(chars.AsSpan(startPos, len), _buffer.AsSpan(_curIndex, _endIndex - _curIndex), out int charsDecoded, out int bytesDecoded);
+
             _curIndex += bytesDecoded;
             return charsDecoded;
         }
 
-        internal override unsafe int Decode(string str, int startPos, int len)
+        internal override int Decode(string str, int startPos, int len)
         {
-            if (str == null)
-            {
-                throw new ArgumentNullException(nameof(str));
-            }
-            if (len < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(len));
-            }
-            if (startPos < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(startPos));
-            }
-            if (str.Length - startPos < len)
-            {
-                throw new ArgumentOutOfRangeException(nameof(len));
-            }
+            ArgumentNullException.ThrowIfNull(str);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(len);
+            ArgumentOutOfRangeException.ThrowIfNegative(startPos);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(len, str.Length - startPos);
 
             if (len == 0)
             {
                 return 0;
             }
 
-            int bytesDecoded, charsDecoded;
-            fixed (char* pChars = str)
-            {
-                fixed (byte* pBytes = &_buffer![_curIndex])
-                {
-                    Decode(pChars + startPos, pChars + startPos + len, pBytes, pBytes + (_endIndex - _curIndex), out charsDecoded, out bytesDecoded);
-                }
-            }
+            Decode(str.AsSpan(startPos, len), _buffer.AsSpan(_curIndex, _endIndex - _curIndex), out int charsDecoded, out int bytesDecoded);
 
             _curIndex += bytesDecoded;
             return charsDecoded;
@@ -138,55 +98,53 @@ namespace System.Xml
         //
         // Private methods
         //
-        private static byte[] ConstructMapBase64()
-        {
-            byte[] mapBase64 = new byte[MaxValidChar + 1];
-            for (int i = 0; i < mapBase64.Length; i++)
-            {
-                mapBase64[i] = Invalid;
-            }
-            for (int i = 0; i < CharsBase64.Length; i++)
-            {
-                mapBase64[(int)CharsBase64[i]] = (byte)i;
-            }
-            return mapBase64;
-        }
 
-        private unsafe void Decode(char* pChars, char* pCharsEndPos,
-                             byte* pBytes, byte* pBytesEndPos,
-                             out int charsDecoded, out int bytesDecoded)
+        private void Decode(ReadOnlySpan<char> chars, Span<byte> bytes, out int charsDecoded, out int bytesDecoded)
         {
-#if DEBUG
-            Debug.Assert(pCharsEndPos - pChars >= 0);
-            Debug.Assert(pBytesEndPos - pBytes >= 0);
-#endif
-
             // walk hex digits pairing them up and shoving the value of each pair into a byte
-            byte* pByte = pBytes;
-            char* pChar = pChars;
+            int iByte = 0;
+            int iChar = 0;
             int b = _bits;
             int bFilled = _bitsFilled;
-            XmlCharType xmlCharType = XmlCharType.Instance;
-            while (pChar < pCharsEndPos && pByte < pBytesEndPos)
+
+            const byte Invalid = 255;
+            ReadOnlySpan<byte> mapBase64 = // 123
+            [
+                255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+                255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255,
+                255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 255, 62,  255, 255, 255, 63,
+                52,  53,  54,  55,  56,  57,  58,  59,  60,  61,  255, 255, 255, 255, 255, 255,
+                255, 0,   1,   2,   3,   4,   5,   6,   7,   8,   9,   10,  11,  12,  13,  14,
+                15,  16,  17,  18,  19,  20,  21,  22,  23,  24,  25,  255, 255, 255, 255, 255,
+                255, 26,  27,  28,  29,  30,  31,  32,  33,  34,  35,  36,  37,  38,  39,  40,
+                41,  42,  43,  44,  45,  46,  47,  48,  49,  50,  51,
+            ];
+
+            while ((uint)iChar < (uint)chars.Length)
             {
-                char ch = *pChar;
+                if ((uint)iByte >= (uint)bytes.Length)
+                {
+                    break; // ran out of space in the destination buffer
+                }
+
+                char ch = chars[iChar];
                 // end?
                 if (ch == '=')
                 {
                     break;
                 }
-                pChar++;
+                iChar++;
 
                 // ignore whitespace
-                if (xmlCharType.IsWhiteSpace(ch))
+                if (XmlCharType.IsWhiteSpace(ch))
                 {
                     continue;
                 }
 
                 int digit;
-                if (ch > 122 || (digit = s_mapBase64[ch]) == Invalid)
+                if (ch >= mapBase64.Length || (digit = mapBase64[ch]) == Invalid)
                 {
-                    throw new XmlException(SR.Xml_InvalidBase64Value, new string(pChars, 0, (int)(pCharsEndPos - pChars)));
+                    throw new XmlException(SR.Xml_InvalidBase64Value, ch.ToString());
                 }
 
                 b = (b << 6) | digit;
@@ -195,35 +153,33 @@ namespace System.Xml
                 if (bFilled >= 8)
                 {
                     // get top eight valid bits
-                    *pByte++ = (byte)((b >> (bFilled - 8)) & 0xFF);
+                    bytes[iByte++] = (byte)((b >> (bFilled - 8)) & 0xFF);
                     bFilled -= 8;
 
-                    if (pByte == pBytesEndPos)
+                    if (iByte == bytes.Length)
                     {
                         goto Return;
                     }
                 }
             }
 
-            if (pChar < pCharsEndPos && *pChar == '=')
+            if ((uint)iChar < (uint)chars.Length && chars[iChar] == '=')
             {
                 bFilled = 0;
                 // ignore padding chars
                 do
                 {
-                    pChar++;
-                } while (pChar < pCharsEndPos && *pChar == '=');
+                    iChar++;
+                } while ((uint)iChar < (uint)chars.Length && chars[iChar] == '=');
 
                 // ignore whitespace after the padding chars
-                if (pChar < pCharsEndPos)
+                while ((uint)iChar < (uint)chars.Length)
                 {
-                    do
+                    char ch = chars[iChar++];
+                    if (!XmlCharType.IsWhiteSpace(ch))
                     {
-                        if (!(xmlCharType.IsWhiteSpace(*pChar++)))
-                        {
-                            throw new XmlException(SR.Xml_InvalidBase64Value, new string(pChars, 0, (int)(pCharsEndPos - pChars)));
-                        }
-                    } while (pChar < pCharsEndPos);
+                        throw new XmlException(SR.Xml_InvalidBase64Value, ch.ToString());
+                    }
                 }
             }
 
@@ -231,8 +187,8 @@ namespace System.Xml
             _bits = b;
             _bitsFilled = bFilled;
 
-            bytesDecoded = (int)(pByte - pBytes);
-            charsDecoded = (int)(pChar - pChars);
+            bytesDecoded = iByte;
+            charsDecoded = iChar;
         }
     }
 }

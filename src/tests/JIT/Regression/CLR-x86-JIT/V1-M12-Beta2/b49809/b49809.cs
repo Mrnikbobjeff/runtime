@@ -2,11 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b49809
 {
     using System;
 
-    struct AA
+    public struct AA
     {
         int[] m_an;
 
@@ -26,7 +27,8 @@ namespace Test
             return param1[0].m_an;
         }
 
-        static int Main()
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

@@ -7,15 +7,19 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics.X86;
 using System.Runtime.Intrinsics;
+using Xunit;
+using TestLibrary;
 
-namespace IntelHardwareIntrinsicTest
+namespace IntelHardwareIntrinsicTest.SSE2.X64
 {
-    class Program
+    public class Program
     {
         const int Pass = 100;
         const int Fail = 0;
 
-        static unsafe int Main(string[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/90427", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoLLVMFULLAOT))]
+        [Fact]
+        public static unsafe void StoreNonTemporal()
         {
             int testResult = Pass;
 
@@ -112,7 +116,7 @@ namespace IntelHardwareIntrinsicTest
                 }
             }
 
-            return testResult;
+            Assert.Equal(Pass, testResult);
         }
     }
 }

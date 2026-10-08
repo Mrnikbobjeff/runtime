@@ -4,22 +4,20 @@
 using System.Collections;
 using System.Collections.Specialized;
 
-#if !FEATURE_SERIALIZATION
+#if CODEDOM
 namespace System.CodeDom
 #else
 namespace System.Runtime.Serialization
 #endif
 {
-#if !FEATURE_SERIALIZATION
+#if CODEDOM
     public class CodeObject
 #else
     internal class CodeObject
 #endif
     {
-        private IDictionary? _userData;
-
         public CodeObject() { }
 
-        public IDictionary UserData => _userData ?? (_userData = new ListDictionary());
+        public IDictionary UserData => field ??= new ListDictionary();
     }
 }

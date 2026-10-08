@@ -4,9 +4,10 @@
 // Test that inliner can now inline g1 and g2
 
 .assembly extern legacy library mscorlib {}
+.assembly extern xunit.core {}
 
-.assembly legacy library calli_inline {}
-.class private auto ansi beforefieldinit calli_test
+.assembly legacy library 'calli' {}
+.class public auto ansi beforefieldinit calli_test
        extends [mscorlib]System.Object
 {
   .field private static int32 a
@@ -35,6 +36,9 @@
   }
   .method public hidebysig static int32 Main() cil managed
   {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
     .entrypoint
     .maxstack  2
     call int32 calli_test::g1()

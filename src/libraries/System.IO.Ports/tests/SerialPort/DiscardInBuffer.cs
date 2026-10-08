@@ -15,12 +15,12 @@ namespace System.IO.Ports.Tests
         //The string used with Write(str) to fill the input buffer
         private const string DEFAULT_STRING = "Hello World";
 
-        //The buffer lenght used whe filling the ouput buffer
+        //The buffer length used whe filling the output buffer
         private const int DEFAULT_BUFFER_LENGTH = 8;
 
         #region Test Cases
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardInBuffer), nameof(HasNullModem))]
         public void InBufferFilled_Discard_Once()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -36,7 +36,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardInBuffer), nameof(HasNullModem))]
         public void InBufferFilled_Discard_Multiple()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -54,7 +54,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardInBuffer), nameof(HasNullModem))]
         public void InBufferFilled_Discard_Cycle()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -77,7 +77,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(DiscardInBuffer), nameof(HasNullModem))]
         public void InAndOutBufferFilled_Discard()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))

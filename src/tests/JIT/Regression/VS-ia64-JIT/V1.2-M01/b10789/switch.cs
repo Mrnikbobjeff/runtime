@@ -2,12 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-class foo
+namespace b10789;
+
+using System;
+using Xunit;
+
+public class foo
 {
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int i = 3;
 

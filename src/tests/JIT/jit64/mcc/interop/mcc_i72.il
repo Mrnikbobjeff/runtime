@@ -3,15 +3,14 @@
 
 
 .assembly extern System.Runtime.Extensions { auto }
+.assembly extern xunit.core {}
 .assembly extern mscorlib { auto }
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
 
-.assembly MCCTest {}
-.module mcc_i72.exe
-
-
-.namespace MCCTest
+.namespace mcc_i72
 {
-  .class MyClass
+  .class public MyClass
   {
     .method assembly static pinvokeimpl("native_i7c" as "#1" cdecl)
         vararg valuetype MCCTest.VType7 Sum(float64, int32, int64, float32, int16, float64) cil managed preservesig {
@@ -81,7 +80,7 @@
       ldloc.s    v11
       ldloc.s    v12
       tail.
-      call   vararg valuetype MCCTest.VType7 MCCTest.MyClass::Sum(float64, int32, int64, float32, int16, float64, ...,
+      call   vararg valuetype MCCTest.VType7 mcc_i72.MyClass::Sum(float64, int32, int64, float32, int16, float64, ...,
                                                                 valuetype MCCTest.VType7,
                                                                 valuetype MCCTest.VType7,
                                                                 valuetype MCCTest.VType7,
@@ -105,21 +104,31 @@
       ret
     } // end of method MyClass::.ctor
 
-    .method private static int32 Main(string[] args)
+    .method public static int32 Main()
     {
-      .entrypoint
+      .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ConditionalFactAttribute::.ctor(class [mscorlib]System.Type, string[]) = {
+            type([TestLibrary]TestLibrary.PlatformDetection)
+            string[1] ('IsVarArgSupported')
+        }
+      .maxstack  1
+      call       int32 mcc_i72.MyClass::Test()
+      ret
+    }
+
+    .method public static int32 Test()
+    {
       .maxstack  64
       .locals init	(
-        [0] class MCCTest.MyClass me,
+        [0] class mcc_i72.MyClass me,
         [1] valuetype MCCTest.VType7 res,
         [2] int32 rc
       )
 
-      newobj     instance void MCCTest.MyClass::.ctor()
+      newobj     instance void mcc_i72.MyClass::.ctor()
       stloc.s    me
 
       ldloc.s    me
-      call   instance valuetype MCCTest.VType7 MCCTest.MyClass::GetSum()
+      call   instance valuetype MCCTest.VType7 mcc_i72.MyClass::GetSum()
       stloc.s    res
 
       // Check Result
@@ -130,8 +139,11 @@
 
       ldloc.s    rc
       ret
-    } // end of method MyClass::Main
+    } // end of method MyClass::Test
 
   } // end of class MyClass
 
-} // end of namespace MCCTest
+} // end of namespace mcc_i72
+
+
+

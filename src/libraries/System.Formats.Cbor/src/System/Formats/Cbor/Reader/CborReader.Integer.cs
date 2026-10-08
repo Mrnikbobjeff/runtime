@@ -9,21 +9,15 @@ namespace System.Formats.Cbor
     {
         // Implements major type 0,1 decoding per https://tools.ietf.org/html/rfc7049#section-2.1
 
-        /// <summary>
-        ///   Reads the next data item as a signed integer (major types 0,1)
-        /// </summary>
+        /// <summary>Reads the next data item as a signed integer (major types 0,1)</summary>
         /// <returns>The decoded integer value.</returns>
-        /// <exception cref="InvalidOperationException">
-        ///   the next data item does not have the correct major type.
-        /// </exception>
-        /// <exception cref="OverflowException">
-        ///   the encoded integer is out of range for <see cref="int"/>.
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
+        /// <exception cref="InvalidOperationException">The next data item does not have the correct major type.</exception>
+        /// <exception cref="OverflowException">The encoded integer is out of range for <see cref="int" />.</exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
         public int ReadInt32()
         {
             int value = checked((int)PeekSignedInteger(out int bytesRead));
@@ -32,21 +26,15 @@ namespace System.Formats.Cbor
             return value;
         }
 
-        /// <summary>
-        ///   Reads the next data item as an unsigned integer (major type 0).
-        /// </summary>
+        /// <summary>Reads the next data item as an unsigned integer (major type 0).</summary>
         /// <returns>The decoded integer value.</returns>
-        /// <exception cref="InvalidOperationException">
-        ///   the next data item does not have the correct major type.
-        /// </exception>
-        /// <exception cref="OverflowException">
-        ///   the encoded integer is out of range for <see cref="uint"/>.
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
+        /// <exception cref="InvalidOperationException">The next data item does not have the correct major type.</exception>
+        /// <exception cref="OverflowException">The encoded integer is out of range for <see cref="uint" />.</exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
         [CLSCompliant(false)]
         public uint ReadUInt32()
         {
@@ -56,21 +44,15 @@ namespace System.Formats.Cbor
             return value;
         }
 
-        /// <summary>
-        ///   Reads the next data item as a signed integer (major types 0,1)
-        /// </summary>
+        /// <summary>Reads the next data item as a signed integer (major types 0,1)</summary>
         /// <returns>The decoded integer value.</returns>
-        /// <exception cref="InvalidOperationException">
-        ///   the next data item does not have the correct major type.
-        /// </exception>
-        /// <exception cref="OverflowException">
-        ///   the encoded integer is out of range for <see cref="long"/>.
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
+        /// <exception cref="InvalidOperationException">The next data item does not have the correct major type.</exception>
+        /// <exception cref="OverflowException">The encoded integer is out of range for <see cref="long" />.</exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
         public long ReadInt64()
         {
             long value = PeekSignedInteger(out int bytesRead);
@@ -79,21 +61,15 @@ namespace System.Formats.Cbor
             return value;
         }
 
-        /// <summary>
-        ///   Reads the next data item as an unsigned integer (major type 0).
-        /// </summary>
+        /// <summary>Reads the next data item as an unsigned integer (major type 0).</summary>
         /// <returns>The decoded integer value.</returns>
-        /// <exception cref="InvalidOperationException">
-        ///   the next data item does not have the correct major type.
-        /// </exception>
-        /// <exception cref="OverflowException">
-        ///   the encoded integer is out of range for <see cref="ulong"/>.
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
+        /// <exception cref="InvalidOperationException">The next data item does not have the correct major type.</exception>
+        /// <exception cref="OverflowException">The encoded integer is out of range for <see cref="ulong" />.</exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
         [CLSCompliant(false)]
         public ulong ReadUInt64()
         {
@@ -103,26 +79,17 @@ namespace System.Formats.Cbor
             return value;
         }
 
-        /// <summary>
-        ///   Reads the next data item as a CBOR negative integer representation (major type 1).
-        /// </summary>
-        /// <returns>
-        ///   An unsigned integer denoting -1 minus the integer.
-        /// </returns>
-        /// <exception cref="InvalidOperationException">
-        ///   the next data item does not have the correct major type.
-        /// </exception>
-        /// <exception cref="OverflowException">
-        ///   the encoded integer is out of range for <see cref="uint"/>
-        /// </exception>
-        /// <exception cref="CborContentException">
-        ///   the next value has an invalid CBOR encoding. -or-
-        ///   there was an unexpected end of CBOR encoding data. -or-
-        ///   the next value uses a CBOR encoding that is not valid under the current conformance mode.
-        /// </exception>
+        /// <summary>Reads the next data item as a CBOR negative integer representation (major type 1).</summary>
+        /// <returns>An unsigned integer denoting -1 minus the integer.</returns>
+        /// <exception cref="InvalidOperationException">The next data item does not have the correct major type.</exception>
+        /// <exception cref="CborContentException"><para>The next value has an invalid CBOR encoding.</para>
+        /// <para>-or-</para>
+        /// <para>There was an unexpected end of CBOR encoding data.</para>
+        /// <para>-or-</para>
+        /// <para>The next value uses a CBOR encoding that is not valid under the current conformance mode.</para></exception>
         /// <remarks>
-        ///   This method supports decoding integers between -18446744073709551616 and -1.
-        ///   Useful for handling values that do not fit in the <see cref="long"/> type.
+        /// This method supports decoding integers between -18446744073709551616 and -1.
+        /// Useful for handling values that do not fit in the <see cref="long" /> type.
         /// </remarks>
         [CLSCompliant(false)]
         public ulong ReadCborNegativeIntegerRepresentation()
@@ -179,6 +146,27 @@ namespace System.Formats.Cbor
 
             // conservative check: ensure the buffer has the minimum required length for declared definite length.
             if (length > (ulong)(data.Length - bytesRead))
+            {
+                throw new CborContentException(SR.Cbor_Reader_DefiniteLengthExceedsBufferSize);
+            }
+
+            return (int)length;
+        }
+
+        // Peek definite length for an array or map data item. Unlike strings, the contents of
+        // collections are separate data items, so when the current data is not the final block
+        // the declared length may exceed the buffer: the contents can be supplied by later
+        // SlideData calls. The length must still be representable in a single buffer.
+        private int DecodeCollectionLength(CborInitialByte header, ReadOnlySpan<byte> data, out int bytesRead)
+        {
+            if (_isFinalBlock)
+            {
+                return DecodeDefiniteLength(header, data, out bytesRead);
+            }
+
+            ulong length = DecodeUnsignedInteger(header, data, out bytesRead);
+
+            if (length > int.MaxValue)
             {
                 throw new CborContentException(SR.Cbor_Reader_DefiniteLengthExceedsBufferSize);
             }

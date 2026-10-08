@@ -4,12 +4,12 @@
 using System.Data.Common;
 using System.Data.ProviderBase;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Threading;
+using SysTx = System.Transactions;
 
 namespace System.Data.OleDb
 {
-    using SysTx = Transactions;
-
     public sealed partial class OleDbConnection : DbConnection
     {
         private static readonly DbConnectionFactory _connectionFactory = OleDbConnectionFactory.SingletonInstance;
@@ -44,8 +44,9 @@ namespace System.Data.OleDb
             }
         }
 
-        internal DbConnectionFactory ConnectionFactory
+        private static DbConnectionFactory ConnectionFactory
         {
+            [RequiresDynamicCode(OleDbConnection.TrimWarning)]
             get
             {
                 return _connectionFactory;
@@ -57,7 +58,7 @@ namespace System.Data.OleDb
             get
             {
                 System.Data.ProviderBase.DbConnectionPoolGroup? poolGroup = PoolGroup;
-                return ((null != poolGroup) ? poolGroup.ConnectionOptions : null);
+                return poolGroup?.ConnectionOptions;
             }
         }
 
@@ -144,10 +145,8 @@ namespace System.Data.OleDb
 
         protected override DbCommand CreateDbCommand()
         {
-            DbCommand? command = null;
-
             DbProviderFactory providerFactory = ConnectionFactory.ProviderFactory;
-            command = providerFactory.CreateCommand()!;
+            DbCommand? command = providerFactory.CreateCommand()!;
             command.Connection = this;
             return command;
         }
@@ -252,7 +251,7 @@ namespace System.Data.OleDb
             Debug.Assert(DbConnectionClosedConnecting.SingletonInstance == _innerConnection, "not connecting");
 
             System.Data.ProviderBase.DbConnectionPoolGroup? poolGroup = PoolGroup;
-            DbConnectionOptions? connectionOptions = ((null != poolGroup) ? poolGroup.ConnectionOptions : null);
+            DbConnectionOptions? connectionOptions = poolGroup?.ConnectionOptions;
             if ((null == connectionOptions) || connectionOptions.IsEmpty)
             {
                 throw ADP.NoConnectionString();
@@ -297,7 +296,7 @@ namespace System.Data.OleDb
             }
             else
             {
-                Debug.Assert(false, "unexpected state switch");
+                Debug.Fail("unexpected state switch");
                 if (originalState != currentState)
                 {
                     OnStateChange(new StateChangeEventArgs(originalState, currentState));

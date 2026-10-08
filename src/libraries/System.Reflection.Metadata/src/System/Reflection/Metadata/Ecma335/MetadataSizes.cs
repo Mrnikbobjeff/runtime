@@ -3,6 +3,7 @@
 
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Numerics;
 using System.Reflection.Internal;
 
 namespace System.Reflection.Metadata.Ecma335
@@ -18,6 +19,22 @@ namespace System.Reflection.Metadata.Ecma335
         internal const int MaxMetadataVersionByteCount = 0xff - 1;
 
         internal readonly int MetadataVersionPaddedLength;
+
+        internal const ulong SortedTypeSystemTables =
+            1UL << (int)TableIndex.InterfaceImpl |
+            1UL << (int)TableIndex.Constant |
+            1UL << (int)TableIndex.CustomAttribute |
+            1UL << (int)TableIndex.FieldMarshal |
+            1UL << (int)TableIndex.DeclSecurity |
+            1UL << (int)TableIndex.ClassLayout |
+            1UL << (int)TableIndex.FieldLayout |
+            1UL << (int)TableIndex.MethodSemantics |
+            1UL << (int)TableIndex.MethodImpl |
+            1UL << (int)TableIndex.ImplMap |
+            1UL << (int)TableIndex.FieldRva |
+            1UL << (int)TableIndex.NestedClass |
+            1UL << (int)TableIndex.GenericParam |
+            1UL << (int)TableIndex.GenericParamConstraint;
 
         internal const ulong SortedDebugTables =
             1UL << (int)TableIndex.LocalScope |
@@ -344,14 +361,14 @@ namespace System.Reflection.Metadata.Ecma335
                 const int StandalonePdbStreamHeaderSize = 16;
 
                 Debug.Assert(RegularStreamHeaderSizes ==
-                    GetMetadataStreamHeaderSize("#~") +
-                    GetMetadataStreamHeaderSize("#Strings") +
-                    GetMetadataStreamHeaderSize("#US") +
-                    GetMetadataStreamHeaderSize("#GUID") +
-                    GetMetadataStreamHeaderSize("#Blob"));
+                    GetMetadataStreamHeaderSize("#~"u8) +
+                    GetMetadataStreamHeaderSize("#Strings"u8) +
+                    GetMetadataStreamHeaderSize("#US"u8) +
+                    GetMetadataStreamHeaderSize("#GUID"u8) +
+                    GetMetadataStreamHeaderSize("#Blob"u8));
 
-                Debug.Assert(EncDeltaMarkerStreamHeaderSize == GetMetadataStreamHeaderSize("#JTD"));
-                Debug.Assert(StandalonePdbStreamHeaderSize == GetMetadataStreamHeaderSize("#Pdb"));
+                Debug.Assert(EncDeltaMarkerStreamHeaderSize == GetMetadataStreamHeaderSize("#JTD"u8));
+                Debug.Assert(StandalonePdbStreamHeaderSize == GetMetadataStreamHeaderSize("#Pdb"u8));
 
                 return
                     sizeof(uint) +                 // signature
@@ -368,7 +385,7 @@ namespace System.Reflection.Metadata.Ecma335
             }
         }
 
-        internal static int GetMetadataStreamHeaderSize(string streamName)
+        internal static int GetMetadataStreamHeaderSize(ReadOnlySpan<byte> streamName)
         {
             return
                 sizeof(int) + // offset
@@ -424,7 +441,7 @@ namespace System.Reflection.Metadata.Ecma335
                 PdbIdSize +                                                         // PDB ID
                 sizeof(int) +                                                       // EntryPoint
                 sizeof(long) +                                                      // ReferencedTypeSystemTables
-                BitArithmetic.CountBits(ExternalTablesMask) * sizeof(int); // External row counts
+                BitOperations.PopCount(ExternalTablesMask) * sizeof(int); // External row counts
 
             Debug.Assert(result % StreamAlignment == 0);
             return result;

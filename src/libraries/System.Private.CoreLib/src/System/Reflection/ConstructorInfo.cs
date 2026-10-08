@@ -13,6 +13,9 @@ namespace System.Reflection
 
         public override MemberTypes MemberType => MemberTypes.Constructor;
 
+        // Constructors are never generic methods, so the generic method arguments are always empty.
+        public override Type[] GetGenericArguments() => [];
+
         [DebuggerHidden]
         [DebuggerStepThrough]
         public object Invoke(object?[]? parameters) => Invoke(BindingFlags.Default, binder: null, parameters: parameters, culture: null);
@@ -28,17 +31,16 @@ namespace System.Reflection
             // so it can become a simple test
             if (right is null)
             {
-                // return true/false not the test result https://github.com/dotnet/runtime/issues/4207
-                return (left is null) ? true : false;
+                return left is null;
             }
 
             // Try fast reference equality and opposite null check prior to calling the slower virtual Equals
-            if ((object?)left == (object)right)
+            if (ReferenceEquals(left, right))
             {
                 return true;
             }
 
-            return (left is null) ? false : left.Equals(right);
+            return left is not null && left.Equals(right);
         }
 
         public static bool operator !=(ConstructorInfo? left, ConstructorInfo? right) => !(left == right);

@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+using Xunit;
 //permutations for  (((class_s.a+class_s.b)+class_s.c)+class_s.d)
 //(((class_s.a+class_s.b)+class_s.c)+class_s.d)
 //(class_s.d+((class_s.a+class_s.b)+class_s.c))
@@ -32,7 +33,8 @@ namespace CseTest
     using System;
     public class Test_Main
     {
-        static int Main()
+        [Fact]
+        public static int TestEntryPoint()
         {
             int ret = 100;
             class_s s = new class_s();
@@ -70,15 +72,15 @@ namespace CseTest
                             break;
 
                         case 2:
-                            v2 = (class_s.d + ((class_s.a + class_s.b) + class_s.c)) + System.Int32.MaxValue; ;
+                            v2 = (class_s.d + ((class_s.a + class_s.b) + class_s.c)) + System.Int32.MaxValue;
                             break;
 
                         case 3:
-                            v3 = ((class_s.a + class_s.b) + class_s.c) + System.Int32.MaxValue; ;
+                            v3 = ((class_s.a + class_s.b) + class_s.c) + System.Int32.MaxValue;
                             break;
 
                         case 4:
-                            v4 = (class_s.c + (class_s.a + class_s.b)) + System.Int32.MaxValue; ;
+                            v4 = (class_s.c + (class_s.a + class_s.b)) + System.Int32.MaxValue;
                             break;
 
                         case 5:
@@ -86,15 +88,15 @@ namespace CseTest
                             break;
 
                         case 6:
-                            v6 = (class_s.b + class_s.a) + System.Int32.MaxValue; ;
+                            v6 = (class_s.b + class_s.a) + System.Int32.MaxValue;
                             break;
 
                         case 7:
-                            v7 = (class_s.a + class_s.b) + System.Int32.MaxValue; ;
+                            v7 = (class_s.a + class_s.b) + System.Int32.MaxValue;
                             break;
 
                         case 8:
-                            v8 = (class_s.b + class_s.a) + System.Int32.MaxValue; ;
+                            v8 = (class_s.b + class_s.a) + System.Int32.MaxValue;
                             break;
 
                         case 9:

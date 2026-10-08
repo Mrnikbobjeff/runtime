@@ -1,15 +1,16 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <CLRTestExecutionArguments />
-    <GCStressIncompatible>true</GCStressIncompatible>
+    <!-- Needed for IsLongRunningGCTest -->
+    <RequiresProcessIsolation>true</RequiresProcessIsolation>
     <IsLongRunningGCTest>true</IsLongRunningGCTest>
   </PropertyGroup>
   <PropertyGroup>
-    <!-- Set to 'Full' if the Debug? column is marked in the spreadsheet. Leave blank otherwise. -->
     <DebugType>PdbOnly</DebugType>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="NoGC.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(TestLibraryProjectPath)" />
   </ItemGroup>
 </Project>

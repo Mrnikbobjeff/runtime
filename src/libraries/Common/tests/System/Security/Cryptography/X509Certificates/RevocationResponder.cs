@@ -7,6 +7,7 @@ using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Web;
+using Xunit;
 
 namespace System.Security.Cryptography.X509Certificates.Tests.Common
 {
@@ -14,6 +15,9 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
     {
         private static readonly bool s_traceEnabled =
             Environment.GetEnvironmentVariable("TRACE_REVOCATION_RESPONSE") != null;
+
+        private static readonly byte[] s_invalidResponse =
+            "<html><marquee>The server is down for maintenence.</marquee></html>"u8.ToArray();
 
         private readonly HttpListener _listener;
 
@@ -28,7 +32,8 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
 
         public string UriPrefix { get; }
 
-        public bool RespondEmpty { get; set; }
+        public RespondKind RespondKind { get; set; }
+        public AiaResponseKind AiaResponseKind { get; set; }
 
         public TimeSpan ResponseDelay { get; set; }
         public DelayedActionsFlag DelayedActions { get; set; }
@@ -48,17 +53,23 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
         {
             if (authority.AiaHttpUri != null && authority.AiaHttpUri.StartsWith(UriPrefix))
             {
-                _aiaPaths.Add(authority.AiaHttpUri.Substring(UriPrefix.Length - 1), authority);
+                string path = authority.AiaHttpUri.Substring(UriPrefix.Length - 1);
+                Trace($"Adding AIA path : {path}");
+                _aiaPaths.Add(path, authority);
             }
 
             if (authority.CdpUri != null && authority.CdpUri.StartsWith(UriPrefix))
             {
-                _crlPaths.Add(authority.CdpUri.Substring(UriPrefix.Length - 1), authority);
+                string path = authority.CdpUri.Substring(UriPrefix.Length - 1);
+                Trace($"Adding CRL path : {path}");
+                _crlPaths.Add(path, authority);
             }
 
             if (authority.OcspUri != null && authority.OcspUri.StartsWith(UriPrefix))
             {
-                _ocspAuthorities.Add((authority.OcspUri.Substring(UriPrefix.Length - 1), authority));
+                string path = authority.OcspUri.Substring(UriPrefix.Length - 1);
+                Trace($"Adding OCSP path : {path}");
+                _ocspAuthorities.Add((path, authority));
             }
         }
 
@@ -90,7 +101,10 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
 
             if (context != null)
             {
-                HandleRequest(context);
+                ThreadPool.QueueUserWorkItem(
+                    state => HandleRequest(state),
+                    context,
+                    true);
             }
         }
 
@@ -108,7 +122,10 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
 
             if (context != null)
             {
-                HandleRequest(context);
+                ThreadPool.QueueUserWorkItem(
+                    state => HandleRequest(state),
+                    context,
+                    true);
             }
         }
 
@@ -169,13 +186,18 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
                     Thread.Sleep(ResponseDelay);
                 }
 
-                byte[] certData = RespondEmpty ? Array.Empty<byte>() : authority.GetCertData();
+                byte[] certData = RespondKind switch
+                {
+                    RespondKind.Empty => Array.Empty<byte>(),
+                    RespondKind.Invalid => s_invalidResponse,
+                    _ => GetCertDataForAiaResponseKind(AiaResponseKind, authority),
+                };
 
                 responded = true;
                 context.Response.StatusCode = 200;
-                context.Response.ContentType = "application/pkix-cert";
+                context.Response.ContentType = AiaResponseKindToContentType(AiaResponseKind);
                 context.Response.Close(certData, willBlock: true);
-                Trace($"Responded with {certData.Length}-byte certificate from {authority.SubjectName}.");
+                Trace($"Responded with {certData.Length}-byte {AiaResponseKind} from {authority.SubjectName}.");
                 return;
             }
 
@@ -187,7 +209,12 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
                     Thread.Sleep(ResponseDelay);
                 }
 
-                byte[] crl = RespondEmpty ? Array.Empty<byte>() : authority.GetCrl();
+                byte[] crl = RespondKind switch
+                {
+                    RespondKind.Empty => Array.Empty<byte>(),
+                    RespondKind.Invalid => s_invalidResponse,
+                    _ => authority.GetCrl(),
+                };
 
                 responded = true;
                 context.Response.StatusCode = 200;
@@ -205,26 +232,29 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
 
                 if (url.StartsWith(prefix))
                 {
-                    if (context.Request.HttpMethod == "GET")
+                    byte[] reqBytes;
+                    if (TryGetOcspRequestBytes(context.Request, prefix, out reqBytes))
                     {
                         ReadOnlyMemory<byte> certId;
                         ReadOnlyMemory<byte> nonce;
-
                         try
                         {
-                            string base64 = HttpUtility.UrlDecode(url.Substring(prefix.Length + 1));
-                            byte[] reqBytes = Convert.FromBase64String(base64);
                             DecodeOcspRequest(reqBytes, out certId, out nonce);
                         }
-                        catch (Exception)
+                        catch (Exception e)
                         {
-                            Trace($"OcspRequest Decode failed ({url})");
+                            Trace($"OcspRequest Decode failed ({url}) - {e}");
                             context.Response.StatusCode = 400;
                             context.Response.Close();
                             return;
                         }
 
-                        byte[] ocspResponse = RespondEmpty ? Array.Empty<byte>() : authority.BuildOcspResponse(certId, nonce);
+                        byte[] ocspResponse = RespondKind switch
+                        {
+                            RespondKind.Empty => Array.Empty<byte>(),
+                            RespondKind.Invalid => s_invalidResponse,
+                            _ => authority.BuildOcspResponse(certId, nonce),
+                        };
 
                         if (DelayedActions.HasFlag(DelayedActionsFlag.Ocsp))
                         {
@@ -283,6 +313,71 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
                 {
                 }
             }
+        }
+
+        private static string AiaResponseKindToContentType(AiaResponseKind kind)
+        {
+            if (kind == AiaResponseKind.Cert)
+            {
+                return "application/pkix-cert";
+            }
+            else if (kind == AiaResponseKind.Pkcs12)
+            {
+                return "application/x-pkcs12";
+            }
+            else
+            {
+                Assert.Fail($"Unknown value AiaResponseKind.`{kind}`.");
+                return null;
+            }
+        }
+
+        private static byte[] GetCertDataForAiaResponseKind(AiaResponseKind kind, CertificateAuthority authority)
+        {
+            if (kind == AiaResponseKind.Cert)
+            {
+                return authority.GetCertData();
+            }
+            else if (kind == AiaResponseKind.Pkcs12)
+            {
+                using X509Certificate2 cert = X509CertificateLoader.LoadCertificate(authority.GetCertData());
+                return cert.Export(X509ContentType.Pkcs12);
+            }
+            else
+            {
+                Assert.Fail($"Unknown value AiaResponseKind.`{kind}`.");
+                return null;
+            }
+        }
+
+        private static bool TryGetOcspRequestBytes(HttpListenerRequest request, string prefix, out byte[] requestBytes)
+        {
+            requestBytes = null;
+            try
+            {
+                if (request.HttpMethod == "GET")
+                {
+                    string base64 = HttpUtility.UrlDecode(request.RawUrl.Substring(prefix.Length + 1));
+                    requestBytes = Convert.FromBase64String(base64);
+                    return true;
+                }
+                else if (request.HttpMethod == "POST" && request.ContentType == "application/ocsp-request")
+                {
+                    using (System.IO.Stream stream = request.InputStream)
+                    {
+                        requestBytes = new byte[request.ContentLength64];
+                        int read = stream.Read(requestBytes, 0, requestBytes.Length);
+                        System.Diagnostics.Debug.Assert(read == requestBytes.Length);
+                        return true;
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                Trace($"Failed to get OCSP request bytes ({request.RawUrl}) - {e}");
+            }
+
+            return false;
         }
 
         private static void DecodeOcspRequest(
@@ -366,6 +461,8 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
             }
         }
 
+        internal void Stop() => _listener.Stop();
+
         private static void Trace(string trace)
         {
             if (s_traceEnabled)
@@ -373,14 +470,27 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
                 Console.WriteLine(trace);
             }
         }
+    }
 
-        internal enum DelayedActionsFlag : byte
-        {
-            None = 0,
-            Ocsp = 0b1,
-            Crl = 0b10,
-            Aia = 0b100,
-            All = 0b11111111
-        }
+    public enum DelayedActionsFlag : byte
+    {
+        None = 0,
+        Ocsp = 0b1,
+        Crl = 0b10,
+        Aia = 0b100,
+        All = 0b11111111
+    }
+
+    public enum AiaResponseKind
+    {
+        Cert = 0,
+        Pkcs12 = 1,
+    }
+
+    public enum RespondKind
+    {
+        Normal = 0,
+        Empty = 1,
+        Invalid = 2,
     }
 }

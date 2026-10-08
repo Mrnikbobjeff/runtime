@@ -3,7 +3,8 @@ Framework Design Guidelines - Digest
 
 This page is a distillation and a simplification of the most basic
 guidelines described in detail in a book titled
-[Framework Design Guidelines][FDG] by Krzysztof Cwalina and Brad Abrams.
+[Framework Design Guidelines][FDG] by Krzysztof Cwalina, Jeremy Barton and Brad
+Abrams.
 
 Framework Design Guidelines were created in the early days of .NET Framework
 development. They started as a small set of naming and design conventions but
@@ -12,7 +13,7 @@ considered the canonical way to design frameworks at Microsoft. They carry the
 experience and cumulative wisdom of thousands of developer hours over several
 versions of the .NET Framework.
 
-[FDG]: http://amazon.com/dp/0321545613
+[FDG]: https://amazon.com/dp/0135896460
 
 # General Design Principles
 
@@ -106,7 +107,7 @@ characters.
 &#10003; **DO** name types and properties with nouns or noun phrases.
 
 &#10003; **DO** name methods and events with verbs or verb phrases. Always give
-events names that have a concept of before and after using the present particle
+events names that have a concept of before and after using the present participle
 and simple past tense. For example, an event that is raised before a `Form`
 closes should be named `Closing`. An event raised after a `Form` is closed
 should be named `Closed`.
@@ -307,5 +308,5 @@ conformance to the [Framework Design Guidelines][FDG] (also see [MSDN](https://m
 
 ## Presentations
 
-* [Overview of the Framework Design Guidelines](https://docs.microsoft.com/en-us/archive/blogs/kcwalina/online-lecture-on-api-design)
-* [TechEd 2007 Presentation about framework engineering](https://docs.microsoft.com/en-us/archive/blogs/kcwalina/video-recording-of-framework-engineering-architecting-designing-and-developing-reusable-libraries)
+* [Overview of the Framework Design Guidelines](https://learn.microsoft.com/archive/blogs/kcwalina/online-lecture-on-api-design)
+* [TechEd 2007 Presentation about framework engineering](https://learn.microsoft.com/archive/blogs/kcwalina/video-recording-of-framework-engineering-architecting-designing-and-developing-reusable-libraries)

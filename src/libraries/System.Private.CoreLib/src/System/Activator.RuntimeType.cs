@@ -2,10 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
 using System.Globalization;
+using System.Reflection;
+using System.Runtime.CompilerServices;
 using System.Runtime.Loader;
 using System.Runtime.Remoting;
+using System.Security;
 using System.Threading;
 
 namespace System
@@ -16,12 +18,11 @@ namespace System
         // Note: CreateInstance returns null for Nullable<T>, e.g. CreateInstance(typeof(int?)) returns null.
         //
 
-        public static object? CreateInstance(Type type, BindingFlags bindingAttr, Binder? binder, object?[]? args, CultureInfo? culture, object?[]? activationAttributes)
+        public static object? CreateInstance([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.NonPublicConstructors | DynamicallyAccessedMemberTypes.PublicConstructors)] Type type, BindingFlags bindingAttr, Binder? binder, object?[]? args, CultureInfo? culture, object?[]? activationAttributes)
         {
-            if (type is null)
-                throw new ArgumentNullException(nameof(type));
+            ArgumentNullException.ThrowIfNull(type);
 
-            if (type is System.Reflection.Emit.TypeBuilder)
+            if (type is Reflection.Emit.TypeBuilder)
                 throw new NotSupportedException(SR.NotSupported_CreateInstanceWithTypeBuilder);
 
             // If they didn't specify a lookup, then we will provide the default lookup.
@@ -32,13 +33,14 @@ namespace System
             if (activationAttributes?.Length > 0)
                 throw new PlatformNotSupportedException(SR.NotSupported_ActivAttr);
 
-            if (type.UnderlyingSystemType is RuntimeType rt)
-                return rt.CreateInstanceImpl(bindingAttr, binder, args, culture);
+            if (type.UnderlyingSystemType is not RuntimeType rt)
+                throw new ArgumentException(SR.Arg_MustBeType, nameof(type));
 
-            throw new ArgumentException(SR.Arg_MustBeType, nameof(type));
+            return rt.CreateInstanceImpl(bindingAttr, binder, args, culture);
         }
 
-        [System.Security.DynamicSecurityMethod]
+        [DynamicSecurityMethod]
+        [RequiresUnreferencedCode("Type and its constructor could be removed")]
         public static ObjectHandle? CreateInstance(string assemblyName, string typeName)
         {
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
@@ -53,7 +55,8 @@ namespace System
                                           ref stackMark);
         }
 
-        [System.Security.DynamicSecurityMethod]
+        [DynamicSecurityMethod]
+        [RequiresUnreferencedCode("Type and its constructor could be removed")]
         public static ObjectHandle? CreateInstance(string assemblyName, string typeName, bool ignoreCase, BindingFlags bindingAttr, Binder? binder, object?[]? args, CultureInfo? culture, object?[]? activationAttributes)
         {
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
@@ -68,7 +71,8 @@ namespace System
                                           ref stackMark);
         }
 
-        [System.Security.DynamicSecurityMethod]
+        [DynamicSecurityMethod]
+        [RequiresUnreferencedCode("Type and its constructor could be removed")]
         public static ObjectHandle? CreateInstance(string assemblyName, string typeName, object?[]? activationAttributes)
         {
             StackCrawlMark stackMark = StackCrawlMark.LookForMyCaller;
@@ -88,18 +92,15 @@ namespace System
 
         internal static object? CreateInstance(Type type, bool nonPublic, bool wrapExceptions)
         {
-            if (type is null)
-                throw new ArgumentNullException(nameof(type));
+            ArgumentNullException.ThrowIfNull(type);
 
-            if (type.UnderlyingSystemType is RuntimeType rt)
-                return rt.CreateInstanceDefaultCtor(publicOnly: !nonPublic, skipCheckThis: false, fillCache: true, wrapExceptions: wrapExceptions);
+            if (type.UnderlyingSystemType is not RuntimeType rt)
+                throw new ArgumentException(SR.Arg_MustBeType, nameof(type));
 
-            throw new ArgumentException(SR.Arg_MustBeType, nameof(type));
+            return rt.CreateInstanceDefaultCtor(publicOnly: !nonPublic, wrapExceptions: wrapExceptions);
         }
 
         [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
-            Justification = "Implementation detail of Activator that linker intrinsically recognizes")]
-        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2057:UnrecognizedReflectionPattern",
             Justification = "Implementation detail of Activator that linker intrinsically recognizes")]
         [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2072:UnrecognizedReflectionPattern",
             Justification = "Implementation detail of Activator that linker intrinsically recognizes")]
@@ -113,8 +114,7 @@ namespace System
                                                            object?[]? activationAttributes,
                                                            ref StackCrawlMark stackMark)
         {
-            Type? type = null;
-            Assembly? assembly = null;
+            RuntimeAssembly assembly;
             if (assemblyString == null)
             {
                 assembly = Assembly.GetExecutingAssembly(ref stackMark);
@@ -122,33 +122,41 @@ namespace System
             else
             {
                 AssemblyName assemblyName = new AssemblyName(assemblyString);
-
-                if (assemblyName.ContentType == AssemblyContentType.WindowsRuntime)
-                {
-                    // WinRT type - we have to use Type.GetType
-                    type = Type.GetType(typeName + ", " + assemblyString, throwOnError: true, ignoreCase);
-                }
-                else
-                {
-                    // Classic managed type
-                    assembly = RuntimeAssembly.InternalLoad(assemblyName, ref stackMark, AssemblyLoadContext.CurrentContextualReflectionContext);
-                }
+                assembly = RuntimeAssembly.InternalLoad(assemblyName, ref stackMark, AssemblyLoadContext.CurrentContextualReflectionContext);
             }
 
-            if (type == null)
-            {
-                type = assembly!.GetType(typeName, throwOnError: true, ignoreCase);
-            }
+            // Issues IL2026 warning.
+            Type? type = assembly.GetType(typeName, throwOnError: true, ignoreCase);
 
+            // Issues IL2072 warning.
             object? o = CreateInstance(type!, bindingAttr, binder, args, culture, activationAttributes);
 
             return o != null ? new ObjectHandle(o) : null;
         }
 
-        [System.Runtime.CompilerServices.Intrinsic]
-        public static T CreateInstance<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]T>()
+        [Intrinsic]
+        public static T CreateInstance<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] T>()
+            where T : allows ref struct
         {
-            return (T)((RuntimeType)typeof(T)).CreateInstanceDefaultCtor(publicOnly: true, skipCheckThis: true, fillCache: true, wrapExceptions: true)!;
+            var rtType = (RuntimeType)typeof(T);
+            if (!rtType.IsValueType)
+            {
+                object o = rtType.CreateInstanceOfT()!;
+
+                // Casting the above object to T is technically invalid because
+                // T can be ByRefLike (that is, ref struct). Roslyn blocks the
+                // cast in this function with a "CS0030: Cannot convert type 'object' to 'T'",
+                // which is correct. However, since we are doing the IsValueType
+                // check above, we know this code path will only be taken with
+                // reference types and therefore the below Unsafe.As<> is safe.
+                return Unsafe.As<object, T>(ref o);
+            }
+            else
+            {
+                T t = default!;
+                rtType.CallDefaultStructConstructor(ref Unsafe.As<T, byte>(ref t));
+                return t;
+            }
         }
 
         private static T CreateDefaultInstance<T>() where T : struct => default;

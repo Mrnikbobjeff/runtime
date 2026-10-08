@@ -1,16 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-namespace DefaultNamespace
+using Xunit;
+namespace b14066
 {
     public class Prob
     {
-        public static int Main(System.String[] Args)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             System.Console.WriteLine(System.Math.Exp(System.Double.PositiveInfinity));
             System.Console.WriteLine(System.Math.Exp(System.Double.NegativeInfinity));
-
-            return 100;
         }
     }
 }

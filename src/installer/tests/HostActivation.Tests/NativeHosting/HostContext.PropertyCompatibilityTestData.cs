@@ -4,7 +4,7 @@
 using System;
 using System.Collections.Generic;
 using Xunit;
-using Xunit.Abstractions;
+using Xunit.Sdk;
 
 namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.NativeHosting
 {
@@ -131,7 +131,8 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.NativeHosting
                         hasSecondProperty ? SharedTestState.ConfigMultiPropertyValue : null);
                     break;
                 case Scenario.Mixed:
-                case Scenario.NonContextMixed:
+                case Scenario.NonContextMixedAppHost:
+                case Scenario.NonContextMixedDotnet:
                     properties = GetPropertiesTestData(
                         SharedTestState.AppPropertyName,
                         SharedTestState.AppPropertyValue,

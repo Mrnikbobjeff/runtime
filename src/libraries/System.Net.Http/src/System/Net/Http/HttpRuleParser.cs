@@ -1,15 +1,29 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers;
 using System.Diagnostics;
-using System.Globalization;
 using System.Text;
 
 namespace System.Net.Http
 {
     internal static class HttpRuleParser
     {
-        private static readonly bool[] s_tokenChars = CreateTokenChars();
+        // token = 1*<any CHAR except CTLs or separators>
+        // CTL = <any US-ASCII control character (octets 0 - 31) and DEL (127)>
+        private static readonly SearchValues<char> s_tokenChars =
+            SearchValues.Create("!#$%&'*+-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz|~");
+
+        private static readonly SearchValues<byte> s_tokenBytes =
+            SearchValues.Create("!#$%&'*+-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz|~"u8);
+
+        private static readonly SearchValues<char> s_hostDelimiterChars =
+            SearchValues.Create("/ \t\r,");
+
+        // Characters such as '?' or '#' are interpreted as an end of the host part of the URI, so they will not be validated in the same way.
+        private static readonly SearchValues<char> s_disallowedHostChars =
+            SearchValues.Create("/\\?#@");
+
         private const int MaxNestedCount = 5;
 
         internal const char CR = (char)13;
@@ -19,98 +33,22 @@ namespace System.Net.Http
 
         internal static Encoding DefaultHttpEncoding => Encoding.Latin1;
 
-        private static bool[] CreateTokenChars()
-        {
-            // token = 1*<any CHAR except CTLs or separators>
-            // CTL = <any US-ASCII control character (octets 0 - 31) and DEL (127)>
-
-            var tokenChars = new bool[128]; // All elements default to "false".
-
-            for (int i = 33; i < 127; i++) // Skip Space (32) & DEL (127).
-            {
-                tokenChars[i] = true;
-            }
-
-            // Remove separators: these are not valid token characters.
-            tokenChars[(byte)'('] = false;
-            tokenChars[(byte)')'] = false;
-            tokenChars[(byte)'<'] = false;
-            tokenChars[(byte)'>'] = false;
-            tokenChars[(byte)'@'] = false;
-            tokenChars[(byte)','] = false;
-            tokenChars[(byte)';'] = false;
-            tokenChars[(byte)':'] = false;
-            tokenChars[(byte)'\\'] = false;
-            tokenChars[(byte)'"'] = false;
-            tokenChars[(byte)'/'] = false;
-            tokenChars[(byte)'['] = false;
-            tokenChars[(byte)']'] = false;
-            tokenChars[(byte)'?'] = false;
-            tokenChars[(byte)'='] = false;
-            tokenChars[(byte)'{'] = false;
-            tokenChars[(byte)'}'] = false;
-
-            return tokenChars;
-        }
-
-        internal static bool IsTokenChar(char character)
-        {
-            // Must be between 'space' (32) and 'DEL' (127).
-            if (character > 127)
-            {
-                return false;
-            }
-
-            return s_tokenChars[character];
-        }
-
         internal static int GetTokenLength(string input, int startIndex)
         {
-            Debug.Assert(input != null);
+            Debug.Assert(input is not null);
 
-            if (startIndex >= input.Length)
-            {
-                return 0;
-            }
+            ReadOnlySpan<char> slice = input.AsSpan(startIndex);
 
-            int current = startIndex;
+            int index = slice.IndexOfAnyExcept(s_tokenChars);
 
-            while (current < input.Length)
-            {
-                if (!IsTokenChar(input[current]))
-                {
-                    return current - startIndex;
-                }
-                current++;
-            }
-            return input.Length - startIndex;
+            return index < 0 ? slice.Length : index;
         }
 
-        internal static bool IsToken(string input)
-        {
-            for (int i = 0; i < input.Length; i++)
-            {
-                if (!IsTokenChar(input[i]))
-                {
-                    return false;
-                }
-            }
+        internal static bool IsToken(ReadOnlySpan<char> input) =>
+            !input.ContainsAnyExcept(s_tokenChars);
 
-            return true;
-        }
-
-        internal static bool IsToken(ReadOnlySpan<byte> input)
-        {
-            for (int i = 0; i < input.Length; i++)
-            {
-                if (!IsTokenChar((char)input[i]))
-                {
-                    return false;
-                }
-            }
-
-            return true;
-        }
+        internal static bool IsToken(ReadOnlySpan<byte> input) =>
+            !input.ContainsAnyExcept(s_tokenBytes);
 
         internal static string GetTokenString(ReadOnlySpan<byte> input)
         {
@@ -141,20 +79,6 @@ namespace System.Net.Http
                     continue;
                 }
 
-                if (c == '\r')
-                {
-                    // If we have a #13 char, it must be followed by #10 and then at least one SP or HT.
-                    if ((current + 2 < input.Length) && (input[current + 1] == '\n'))
-                    {
-                        char spaceOrTab = input[current + 2];
-                        if ((spaceOrTab == ' ') || (spaceOrTab == '\t'))
-                        {
-                            current += 3;
-                            continue;
-                        }
-                    }
-                }
-
                 return current - startIndex;
             }
 
@@ -162,43 +86,10 @@ namespace System.Net.Http
             return input.Length - startIndex;
         }
 
-        internal static bool ContainsInvalidNewLine(string value)
-        {
-            return ContainsInvalidNewLine(value, 0);
-        }
-
-        internal static bool ContainsInvalidNewLine(string value, int startIndex)
-        {
-            // Search for newlines followed by non-whitespace: This is not allowed in any header (be it a known or
-            // custom header). E.g. "value\r\nbadformat: header" is invalid. However "value\r\n goodformat: header"
-            // is valid: newlines followed by whitespace are allowed in header values.
-            int current = startIndex;
-            while (current < value.Length)
-            {
-                if (value[current] == '\r')
-                {
-                    int char10Index = current + 1;
-                    if ((char10Index < value.Length) && (value[char10Index] == '\n'))
-                    {
-                        current = char10Index + 1;
-
-                        if (current == value.Length)
-                        {
-                            return true; // We have a string terminating with \r\n. This is invalid.
-                        }
-
-                        char c = value[current];
-                        if ((c != ' ') && (c != '\t'))
-                        {
-                            return true;
-                        }
-                    }
-                }
-                current++;
-            }
-
-            return false;
-        }
+        // See https://www.rfc-editor.org/rfc/rfc9110.html#section-5.5-5:
+        // "Field values containing CR, LF, or NUL characters are invalid and dangerous"
+        internal static bool ContainsNewLineOrNull(string value, int startIndex = 0) =>
+            value.AsSpan(startIndex).ContainsAny('\r', '\n', '\0');
 
         internal static int GetNumberLength(string input, int startIndex, bool allowDecimal)
         {
@@ -225,7 +116,7 @@ namespace System.Net.Http
             while (current < input.Length)
             {
                 c = input[current];
-                if ((c >= '0') && (c <= '9'))
+                if (char.IsAsciiDigit(c))
                 {
                     current++;
                 }
@@ -244,54 +135,43 @@ namespace System.Net.Http
             return current - startIndex;
         }
 
-        internal static int GetHostLength(string input, int startIndex, bool allowToken, out string? host)
+        internal static int GetHostLength(string input, int startIndex, bool allowToken)
         {
             Debug.Assert(input != null);
             Debug.Assert(startIndex >= 0);
 
-            host = null;
             if (startIndex >= input.Length)
             {
                 return 0;
             }
 
+            ReadOnlySpan<char> slice = input.AsSpan(startIndex);
+
             // A 'host' is either a token (if 'allowToken' == true) or a valid host name as defined by the URI RFC.
             // So we first iterate through the string and search for path delimiters and whitespace. When found, stop
             // and try to use the substring as token or URI host name. If it works, we have a host name, otherwise not.
-            int current = startIndex;
-            bool isToken = true;
-            while (current < input.Length)
+            int index = slice.IndexOfAny(s_hostDelimiterChars);
+            if (index >= 0)
             {
-                char c = input[current];
-                if (c == '/')
+                if (index == 0)
+                {
+                    return 0;
+                }
+
+                if (slice[index] == '/')
                 {
                     return 0; // Host header must not contain paths.
                 }
 
-                if ((c == ' ') || (c == '\t') || (c == '\r') || (c == ','))
-                {
-                    break; // We hit a delimiter (',' or whitespace). Stop here.
-                }
-
-                isToken = isToken && IsTokenChar(c);
-
-                current++;
+                slice = slice.Slice(0, index);
             }
 
-            int length = current - startIndex;
-            if (length == 0)
+            if ((allowToken && IsToken(slice)) || IsValidHostName(slice))
             {
-                return 0;
+                return slice.Length;
             }
 
-            string result = input.Substring(startIndex, length);
-            if ((!allowToken || !isToken) && !IsValidHostName(result))
-            {
-                return 0;
-            }
-
-            host = result;
-            return length;
+            return 0;
         }
 
         internal static HttpParseResult GetCommentLength(string input, int startIndex, out int length)
@@ -319,8 +199,8 @@ namespace System.Net.Http
             }
 
             // Quoted-char has 2 characters. Check whether there are 2 chars left ('\' + char)
-            // If so, check whether the character is in the range 0-127. If not, it's an invalid value.
-            if ((startIndex + 2 > input.Length) || (input[startIndex + 1] > 127))
+            // If so, check whether the character is in the range 0-127 and not a new line. Otherwise, it's an invalid value.
+            if ((startIndex + 2 > input.Length) || (input[startIndex + 1] is > (char)127 or '\r' or '\n' or '\0'))
             {
                 return HttpParseResult.InvalidFormat;
             }
@@ -331,7 +211,7 @@ namespace System.Net.Http
         }
 
         // TEXT = <any OCTET except CTLs, but including LWS>
-        // LWS = [CRLF] 1*( SP | HT )
+        // LWS = SP | HT
         // CTL = <any US-ASCII control character (octets 0 - 31) and DEL (127)>
         //
         // Since we don't really care about the content of a quoted string or comment, we're more tolerant and
@@ -359,19 +239,26 @@ namespace System.Net.Http
             {
                 // Only check whether we have a quoted char, if we have at least 3 characters left to read (i.e.
                 // quoted char + closing char). Otherwise the closing char may be considered part of the quoted char.
-                int quotedPairLength = 0;
+                int quotedPairLength;
                 if ((current + 2 < input.Length) &&
                     (GetQuotedPairLength(input, current, out quotedPairLength) == HttpParseResult.Parsed))
                 {
                     // We ignore invalid quoted-pairs. Invalid quoted-pairs may mean that it looked like a quoted pair,
                     // but we actually have a quoted-string: e.g. "\\u00FC" ('\' followed by a char >127 - quoted-pair only
                     // allows ASCII chars after '\'; qdtext allows both '\' and >127 chars).
-                    current = current + quotedPairLength;
+                    current += quotedPairLength;
                     continue;
                 }
 
+                char c = input[current];
+
+                if (c == '\r' || c == '\n' || c == '\0')
+                {
+                    return HttpParseResult.InvalidFormat;
+                }
+
                 // If we support nested expressions and we find an open-char, then parse the nested expressions.
-                if (supportsNesting && (input[current] == openChar))
+                if (supportsNesting && (c == openChar))
                 {
                     // Check if we exceeded the number of nested calls.
                     if (nestedCount > MaxNestedCount)
@@ -379,7 +266,7 @@ namespace System.Net.Http
                         return HttpParseResult.InvalidFormat;
                     }
 
-                    int nestedLength = 0;
+                    int nestedLength;
                     HttpParseResult nestedResult = GetExpressionLength(input, current, openChar, closeChar,
                         supportsNesting, nestedCount + 1, out nestedLength);
 
@@ -420,10 +307,21 @@ namespace System.Net.Http
             return HttpParseResult.InvalidFormat;
         }
 
-        private static bool IsValidHostName(string host)
+        private static bool IsValidHostName(ReadOnlySpan<char> host)
         {
-            // Also add user info (u@) to make sure 'host' doesn't include user info.
-            return Uri.TryCreate("http://u@" + host + "/", UriKind.Absolute, out Uri? hostUri);
+            if (host.ContainsAny(s_disallowedHostChars))
+            {
+                return false;
+            }
+
+            // Using a trailing slash as Uri ignores trailing whitespace otherwise.
+            if (!Uri.TryCreate($"http://{host}/", UriKind.Absolute, out _))
+            {
+                return false;
+            }
+
+            Debug.Assert(!ContainsNewLineOrNull(host.ToString()));
+            return true;
         }
     }
 }

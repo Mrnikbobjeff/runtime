@@ -1,37 +1,26 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*============================================================
-**
-**
-**
-**
-**
-** Purpose: Searches for resources in Assembly manifest, used
-** for assembly-based resource lookup.
-**
-**
-===========================================================*/
-
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
-using System.Text;
-using System.Diagnostics;
 
 namespace System.Resources
 {
-    //
+    /// <summary>
+    /// Searches for resources in  the assembly manifest, used for assembly-based resource lookup.
+    /// </summary>
     // Note: this type is integral to the construction of exception objects,
-    // and sometimes this has to be done in low memory situtations (OOM) or
+    // and sometimes this has to be done in low memory situations (OOM) or
     // to create TypeInitializationExceptions due to failure of a static class
     // constructor. This type needs to be extremely careful and assume that
     // any type it references may have previously failed to construct, so statics
     // belonging to that type may not be initialized. FrameworkEventSource.Log
     // is one such example.
-    //
-    internal partial class ManifestBasedResourceGroveler : IResourceGroveler
+    internal sealed partial class ManifestBasedResourceGroveler : IResourceGroveler
     {
         private readonly ResourceManager.ResourceManagerMediator _mediator;
 
@@ -139,7 +128,7 @@ namespace System.Resources
             Debug.Assert(a != null, "assembly != null");
 
             NeutralResourcesLanguageAttribute? attr = a.GetCustomAttribute<NeutralResourcesLanguageAttribute>();
-            if (attr == null)
+            if (attr == null || (GlobalizationMode.Invariant && GlobalizationMode.PredefinedCulturesOnly))
             {
                 fallbackLocation = UltimateResourceFallbackLocation.MainAssembly;
                 return CultureInfo.InvariantCulture;
@@ -162,7 +151,7 @@ namespace System.Resources
                 // fires, please fix the build process for the BCL directory.
                 if (a == typeof(object).Assembly)
                 {
-                    Debug.Fail(System.CoreLib.Name + "'s NeutralResourcesLanguageAttribute is a malformed culture name! name: \"" + attr.CultureName + "\"  Exception: " + e);
+                    Debug.Fail(CoreLib.Name + "'s NeutralResourcesLanguageAttribute is a malformed culture name! name: \"" + attr.CultureName + "\"  Exception: " + e);
                     return CultureInfo.InvariantCulture;
                 }
 
@@ -191,7 +180,7 @@ namespace System.Resources
                 if (bytes == ResourceManager.MagicNumber)
                 {
                     int resMgrHeaderVersion = br.ReadInt32();
-                    string? readerTypeName = null, resSetTypeName = null;
+                    string? readerTypeName, resSetTypeName;
                     if (resMgrHeaderVersion == ResourceManager.HeaderVersionNumber)
                     {
                         br.ReadInt32();  // We don't want the number of bytes to skip.
@@ -231,45 +220,18 @@ namespace System.Resources
                     }
                     else
                     {
-                        IResourceReader reader;
-
-                        // Permit deserialization as long as the default ResourceReader is used
-                        if (ResourceManager.IsDefaultType(readerTypeName, ResourceManager.ResReaderTypeName))
+                        if (ResourceReader.AllowCustomResourceTypes)
                         {
-                            reader = new ResourceReader(
-                                store,
-                                new Dictionary<string, ResourceLocator>(FastResourceComparer.Default),
-                                permitDeserialization: true);
+                            Debug.Assert(readerTypeName != null, "Reader Type name should be set");
+                            Debug.Assert(resSetTypeName != null, "ResourceSet Type name should be set");
+#pragma warning disable IL2026 // suppressed in ILLink.Suppressions.LibraryBuild.xml
+                            return InternalGetResourceSetFromSerializedData(store, readerTypeName, resSetTypeName, _mediator);
+#pragma warning restore IL2026
                         }
                         else
                         {
-                            Type readerType = Type.GetType(readerTypeName, throwOnError: true)!;
-                            object[] args = new object[1];
-                            args[0] = store;
-                            reader = (IResourceReader)Activator.CreateInstance(readerType, args)!;
+                            throw new NotSupportedException(SR.ResourceManager_ReflectionNotAllowed);
                         }
-
-                        object[] resourceSetArgs = new object[1];
-                        resourceSetArgs[0] = reader;
-
-                        Type resSetType;
-                        if (_mediator.UserResourceSet == null)
-                        {
-                            Debug.Assert(resSetTypeName != null, "We should have a ResourceSet type name from the custom resource file here.");
-                            resSetType = Type.GetType(resSetTypeName, true, false)!;
-                        }
-                        else
-                        {
-                            resSetType = _mediator.UserResourceSet;
-                        }
-
-                        ResourceSet rs = (ResourceSet)Activator.CreateInstance(resSetType,
-                                                                                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.CreateInstance,
-                                                                                null,
-                                                                                resourceSetArgs,
-                                                                                null,
-                                                                                null)!;
-                        return rs;
                     }
                 }
                 else
@@ -284,9 +246,7 @@ namespace System.Resources
             }
             else
             {
-                object[] args = new object[2];
-                args[0] = store;
-                args[1] = assembly;
+                object[] args = [store, assembly];
                 try
                 {
                     // Add in a check for a constructor taking in an assembly first.
@@ -307,12 +267,55 @@ namespace System.Resources
             }
         }
 
-        private Stream? GetManifestResourceStream(Assembly satellite, string fileName)
+        private static Assembly? InternalGetSatelliteAssembly(Assembly mainAssembly, CultureInfo culture, Version? version)
+        {
+            return RuntimeAssembly.InternalGetSatelliteAssembly(mainAssembly, culture, version, throwOnFileNotFound: false);
+        }
+
+        [RequiresUnreferencedCode("The CustomResourceTypesSupport feature switch has been enabled for this app which is being trimmed. " +
+            "Custom readers as well as custom objects on the resources file are not observable by the trimmer and so required assemblies, types and members may be removed.")]
+        private static ResourceSet InternalGetResourceSetFromSerializedData(Stream store, string readerTypeName, string? resSetTypeName, ResourceManager.ResourceManagerMediator mediator)
+        {
+            IResourceReader reader;
+
+            // Permit deserialization as long as the default ResourceReader is used
+            if (ResourceManager.IsDefaultType(readerTypeName, ResourceManager.ResReaderTypeName))
+            {
+                reader = new ResourceReader(
+                    store,
+                    new Dictionary<string, ResourceLocator>(FastResourceComparer.Default),
+                    permitDeserialization: true);
+            }
+            else
+            {
+                Type readerType = Type.GetType(readerTypeName, throwOnError: true)!;
+                object[] args = [store];
+                reader = (IResourceReader)Activator.CreateInstance(readerType, args)!;
+            }
+
+            object[] resourceSetArgs = [reader];
+            Type? resSetType = mediator.UserResourceSet;
+            if (resSetType == null)
+            {
+                Debug.Assert(resSetTypeName != null, "We should have a ResourceSet type name from the custom resource file here.");
+                resSetType = Type.GetType(resSetTypeName, true, false)!;
+            }
+
+            ResourceSet rs = (ResourceSet)Activator.CreateInstance(resSetType,
+                                                                    BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.CreateInstance,
+                                                                    null,
+                                                                    resourceSetArgs,
+                                                                    null,
+                                                                    null)!;
+            return rs;
+        }
+
+        private static Stream? GetManifestResourceStream(Assembly satellite, string fileName)
         {
             Debug.Assert(satellite != null, "satellite shouldn't be null; check caller");
             Debug.Assert(fileName != null, "fileName shouldn't be null; check caller");
 
-            return satellite.GetManifestResourceStream(_mediator.LocationInfo!, fileName) ??
+            return satellite.GetManifestResourceStream(fileName) ??
                 CaseInsensitiveManifestResourceStreamLookup(satellite, fileName);
         }
 
@@ -320,22 +323,15 @@ namespace System.Resources
         // case-insensitive lookup rules.  Yes, this is slow.  The metadata
         // dev lead refuses to make all assembly manifest resource lookups case-insensitive,
         // even optionally case-insensitive.
-        private Stream? CaseInsensitiveManifestResourceStreamLookup(Assembly satellite, string name)
+        private static Stream? CaseInsensitiveManifestResourceStreamLookup(Assembly satellite, string name)
         {
             Debug.Assert(satellite != null, "satellite shouldn't be null; check caller");
             Debug.Assert(name != null, "name shouldn't be null; check caller");
 
-            string? nameSpace = _mediator.LocationInfo?.Namespace;
-
-            char c = Type.Delimiter;
-            string resourceName = nameSpace != null && name != null ?
-                string.Concat(nameSpace, new ReadOnlySpan<char>(ref c, 1), name) :
-                string.Concat(nameSpace, name);
-
             string? canonicalName = null;
             foreach (string existingName in satellite.GetManifestResourceNames())
             {
-                if (string.Equals(existingName, resourceName, StringComparison.InvariantCultureIgnoreCase))
+                if (string.Equals(existingName, name, StringComparison.InvariantCultureIgnoreCase))
                 {
                     if (canonicalName == null)
                     {
@@ -343,7 +339,7 @@ namespace System.Resources
                     }
                     else
                     {
-                        throw new MissingManifestResourceException(SR.Format(SR.MissingManifestResource_MultipleBlobs, resourceName, satellite.ToString()));
+                        throw new MissingManifestResourceException(SR.Format(SR.MissingManifestResource_MultipleBlobs, name, satellite.ToString()));
                     }
                 }
             }
@@ -421,23 +417,12 @@ namespace System.Resources
         private void HandleSatelliteMissing()
         {
             Debug.Assert(_mediator.MainAssembly != null);
-            string satAssemName = _mediator.MainAssembly.GetName().Name + ".resources.dll";
-            if (_mediator.SatelliteContractVersion != null)
-            {
-                satAssemName += ", Version=" + _mediator.SatelliteContractVersion.ToString();
-            }
-
-            byte[]? token = _mediator.MainAssembly.GetName().GetPublicKeyToken();
-            if (token != null)
-            {
-                int iLen = token.Length;
-                StringBuilder publicKeyTok = new StringBuilder(iLen * 2);
-                for (int i = 0; i < iLen; i++)
-                {
-                    publicKeyTok.Append(token[i].ToString("x", CultureInfo.InvariantCulture));
-                }
-                satAssemName += ", PublicKeyToken=" + publicKeyTok;
-            }
+            AssemblyName mname = _mediator.MainAssembly.GetName();
+            string satAssemName = AssemblyNameFormatter.ComputeDisplayName(
+                mname.Name + ".resources.dll",
+                _mediator.SatelliteContractVersion,
+                null,
+                mname.GetPublicKeyToken());
 
             Debug.Assert(_mediator.NeutralResourcesCulture != null);
             string missingCultureName = _mediator.NeutralResourcesCulture.Name;
@@ -476,25 +461,19 @@ namespace System.Resources
         {
             Debug.Assert(_mediator.BaseName != null);
             // Keep people from bothering me about resources problems
-            if (_mediator.MainAssembly == typeof(object).Assembly && _mediator.BaseName.Equals(System.CoreLib.Name))
+            if (_mediator.MainAssembly == typeof(object).Assembly && _mediator.BaseName.Equals(CoreLib.Name))
             {
                 // This would break CultureInfo & all our exceptions.
-                Debug.Fail("Couldn't get " + System.CoreLib.Name + ResourceManager.ResFileExtension + " from " + System.CoreLib.Name + "'s assembly" + Environment.NewLineConst + Environment.NewLineConst + "Are you building the runtime on your machine?  Chances are the BCL directory didn't build correctly.  Type 'build -c' in the BCL directory.  If you get build errors, look at buildd.log.  If you then can't figure out what's wrong (and you aren't changing the assembly-related metadata code), ask a BCL dev.\n\nIf you did NOT build the runtime, you shouldn't be seeing this and you've found a bug.");
+                Debug.Fail("Couldn't get " + CoreLib.Name + ResourceManager.ResFileExtension + " from " + CoreLib.Name + "'s assembly" + Environment.NewLineConst + Environment.NewLineConst + "Are you building the runtime on your machine?  Chances are the BCL directory didn't build correctly.  Type 'build -c' in the BCL directory.  If you get build errors, look at buildd.log.  If you then can't figure out what's wrong (and you aren't changing the assembly-related metadata code), ask a BCL dev.\n\nIf you did NOT build the runtime, you shouldn't be seeing this and you've found a bug.");
 
                 // We cannot continue further - simply FailFast.
                 const string MesgFailFast = System.CoreLib.Name + ResourceManager.ResFileExtension + " couldn't be found!  Large parts of the BCL won't work!";
                 System.Environment.FailFast(MesgFailFast);
             }
-            // We really don't think this should happen - we always
-            // expect the neutral locale's resources to be present.
-            string resName = string.Empty;
-            if (_mediator.LocationInfo != null && _mediator.LocationInfo.Namespace != null)
-                resName = _mediator.LocationInfo.Namespace + Type.Delimiter;
-            resName += fileName;
             Debug.Assert(_mediator.MainAssembly != null);
             throw new MissingManifestResourceException(
                             SR.Format(SR.MissingManifestResource_NoNeutralAsm,
-                            resName, _mediator.MainAssembly.GetName().Name, GetManifestResourceNamesList(_mediator.MainAssembly)));
+                            fileName, _mediator.MainAssembly.GetName().Name, GetManifestResourceNamesList(_mediator.MainAssembly)));
         }
     }
 }

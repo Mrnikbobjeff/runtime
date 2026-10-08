@@ -4,13 +4,14 @@
 using System;
 using System.Runtime.InteropServices;
 
-internal partial class Interop
+internal static partial class Interop
 {
-    internal partial class NtDll
+    internal static partial class NtDll
     {
         // https://msdn.microsoft.com/en-us/library/windows/desktop/ms680600(v=vs.85).aspx
-        [DllImport(Libraries.NtDll, ExactSpelling = true)]
-        public static extern unsafe uint RtlNtStatusToDosError(
-            int Status);
+        /// <safety>P/Invoke that maps an NTSTATUS to a DOS error code from the by-value integer argument alone; it accesses no caller-supplied memory.</safety>
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [LibraryImport(Libraries.NtDll)]
+        public static safe partial uint RtlNtStatusToDosError(int Status);
     }
 }

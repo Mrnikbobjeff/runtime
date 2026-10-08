@@ -9,12 +9,17 @@
 
 
 using System;
+using Xunit;
+using TestLibrary;
 
 public interface IFoo{}
 
 public class Casting
 {
-	public static int Main()
+    [ActiveIssue("https://github.com/dotnet/runtimelab/issues/194", typeof(Utilities), nameof(Utilities.IsNativeAot))]
+	[ActiveIssue("needs triage", TestRuntimes.Mono)]
+	[Fact]
+	public static int TestEntryPoint()
 	{
             Object obj = new Object();
             try
@@ -23,13 +28,13 @@ public class Casting
 
 			Console.WriteLine("FAIL: Did not catch expected InvalidCastException");
 			return 101;
-		
+
             }
             catch(InvalidCastException e)
             {
             		string msg ="Unable to cast object of type 'System.Object' to type 'IFoo'.";
-				
-                	
+
+
 			if (e.Message.Equals(msg) || e.Message.Contains("Debugging resource strings are unavailable"))
 			{
 				Console.WriteLine("PASS");

@@ -4,8 +4,8 @@
 using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
@@ -34,7 +34,7 @@ namespace System.IO.Pipelines.Tests
         [Fact]
         public async Task CanReadAndWrite()
         {
-            byte[] bytes = Encoding.ASCII.GetBytes("Hello World");
+            byte[] bytes = "Hello World"u8.ToArray();
 
             await _pipe.Writer.WriteAsync(bytes);
             ReadResult result = await _pipe.Reader.ReadAsync();
@@ -170,7 +170,7 @@ namespace System.IO.Pipelines.Tests
             var blockSize = _pipe.Writer.GetMemory().Length;
 
             byte[] paddingBytes = Enumerable.Repeat((byte)'a', blockSize - 5).ToArray();
-            byte[] bytes = Encoding.ASCII.GetBytes("Hello World");
+            byte[] bytes = "Hello World"u8.ToArray();
 
             writeBuffer.Write(paddingBytes);
             writeBuffer.Write(bytes);
@@ -199,34 +199,51 @@ namespace System.IO.Pipelines.Tests
             Assert.Equal(" World", Encoding.ASCII.GetString(worldBytes));
         }
 
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        void ThrowTestException(Exception ex, Action<Exception> catchAction)
+        {
+            try
+            {
+                throw ex;
+            }
+            catch (Exception e)
+            {
+                catchAction(e);
+            }
+        }
+
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsBrowser), nameof(PlatformDetection.IsMonoAOT))]
         public async Task ReadAsync_ThrowsIfWriterCompletedWithException()
         {
-            void ThrowTestException()
-            {
-                try
-                {
-                    throw new InvalidOperationException("Writer exception");
-                }
-                catch (Exception e)
-                {
-                    _pipe.Writer.Complete(e);
-                }
-            }
-
-            ThrowTestException();
+            ThrowTestException(new InvalidOperationException("Writer exception"), e => _pipe.Writer.Complete(e));
 
             InvalidOperationException invalidOperationException =
                 await Assert.ThrowsAsync<InvalidOperationException>(async () => await _pipe.Reader.ReadAsync());
 
             Assert.Equal("Writer exception", invalidOperationException.Message);
-            Assert.Contains("ThrowTestException", invalidOperationException.StackTrace);
+            Assert.Contains(nameof(ThrowTestException), invalidOperationException.StackTrace);
 
             invalidOperationException = await Assert.ThrowsAsync<InvalidOperationException>(async () => await _pipe.Reader.ReadAsync());
             Assert.Equal("Writer exception", invalidOperationException.Message);
-            Assert.Contains("ThrowTestException", invalidOperationException.StackTrace);
+            Assert.Contains(nameof(ThrowTestException), invalidOperationException.StackTrace);
+        }
 
-            Assert.Single(Regex.Matches(invalidOperationException.StackTrace, "Pipe.GetReadResult"));
+        [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsBrowser), nameof(PlatformDetection.IsMonoAOT))]
+        public async Task WriteAsync_ThrowsIfReaderCompletedWithException()
+        {
+            ThrowTestException(new InvalidOperationException("Reader exception"), e => _pipe.Reader.Complete(e));
+
+            InvalidOperationException invalidOperationException =
+                await Assert.ThrowsAsync<InvalidOperationException>(async () => await _pipe.Writer.WriteAsync(new byte[1]));
+
+            Assert.Equal("Reader exception", invalidOperationException.Message);
+            Assert.Contains(nameof(ThrowTestException), invalidOperationException.StackTrace);
+
+            invalidOperationException = await Assert.ThrowsAsync<InvalidOperationException>(async () => await _pipe.Writer.WriteAsync(new byte[1]));
+            Assert.Equal("Reader exception", invalidOperationException.Message);
+            Assert.Contains(nameof(ThrowTestException), invalidOperationException.StackTrace);
         }
 
         [Fact]
@@ -321,7 +338,7 @@ namespace System.IO.Pipelines.Tests
             await buffer.FlushAsync();
 
             // Write Hello to another pipeline and get the buffer
-            byte[] bytes = Encoding.ASCII.GetBytes("Hello");
+            byte[] bytes = "Hello"u8.ToArray();
 
             var c2 = new Pipe(new PipeOptions(_pool, readerScheduler: PipeScheduler.Inline, writerScheduler: PipeScheduler.Inline));
             await c2.Writer.WriteAsync(bytes);
@@ -367,7 +384,7 @@ namespace System.IO.Pipelines.Tests
             _pipe.Reader.AdvanceTo(reader.Start, reader.Start);
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(true)]
         [InlineData(false)]
         public async Task ReadAsyncOnCompletedCapturesTheExecutionContext(bool useSynchronizationContext)
@@ -420,7 +437,7 @@ namespace System.IO.Pipelines.Tests
             }
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(true)]
         [InlineData(false)]
         public async Task FlushAsyncOnCompletedCapturesTheExecutionContextAndSyncContext(bool useSynchronizationContext)
@@ -474,7 +491,7 @@ namespace System.IO.Pipelines.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task ReadingCanBeCanceled()
         {
             var cts = new CancellationTokenSource();
@@ -499,7 +516,7 @@ namespace System.IO.Pipelines.Tests
         public async Task SyncReadThenAsyncRead()
         {
             PipeWriter buffer = _pipe.Writer;
-            buffer.Write(Encoding.ASCII.GetBytes("Hello World"));
+            buffer.Write("Hello World"u8.ToArray());
             await buffer.FlushAsync();
 
             bool gotData = _pipe.Reader.TryRead(out ReadResult result);
@@ -584,7 +601,7 @@ namespace System.IO.Pipelines.Tests
         [Fact]
         public async Task WritingDataMakesDataReadableViaPipeline()
         {
-            byte[] bytes = Encoding.ASCII.GetBytes("Hello World");
+            byte[] bytes = "Hello World"u8.ToArray();
 
             await _pipe.Writer.WriteAsync(bytes);
             ReadResult result = await _pipe.Reader.ReadAsync();
@@ -738,6 +755,88 @@ namespace System.IO.Pipelines.Tests
             Assert.Equal(3, readResult.Buffer.Length);
 
             pipe.Reader.AdvanceTo(readResult.Buffer.End);
+        }
+
+        // Regression test: https://github.com/dotnet/runtime/issues/107213
+        [Fact]
+        public async Task AdvanceToWithoutExaminedCanUnExamine()
+        {
+            PipeWriter buffer = _pipe.Writer;
+            buffer.Write("Hello Worl"u8.ToArray());
+            await buffer.FlushAsync();
+
+            bool gotData = _pipe.Reader.TryRead(out ReadResult result);
+            Assert.True(gotData);
+
+            Assert.Equal("Hello Worl", Encoding.ASCII.GetString(result.Buffer.ToArray()));
+
+            // Advance past 'Hello ' and examine everything else
+            _pipe.Reader.AdvanceTo(result.Buffer.GetPosition(6), result.Buffer.End);
+
+            // Write so that the next ReadAsync will be unblocked
+            buffer.Write("d"u8.ToArray());
+            await buffer.FlushAsync();
+
+            result = await _pipe.Reader.ReadAsync();
+
+            Assert.Equal("World", Encoding.ASCII.GetString(result.Buffer.ToArray()));
+
+            // Previous examine is at the end of 'Worl', calling AdvanceTo without passing examined will unexamine (not externally visible)
+            // But more importantly, it will work and not throw that you're unexamining
+            _pipe.Reader.AdvanceTo(result.Buffer.Start);
+
+            // Double check that ReadAsync is still unblocked and works
+            result = await _pipe.Reader.ReadAsync();
+            Assert.Equal("World", Encoding.ASCII.GetString(result.Buffer.ToArray()));
+        }
+
+        [Fact]
+        public async Task AdvanceToWithExaminedCanUnExamine()
+        {
+            PipeWriter buffer = _pipe.Writer;
+            buffer.Write("Hello Worl"u8.ToArray());
+            await buffer.FlushAsync();
+
+            bool gotData = _pipe.Reader.TryRead(out ReadResult result);
+            Assert.True(gotData);
+
+            Assert.Equal("Hello Worl", Encoding.ASCII.GetString(result.Buffer.ToArray()));
+
+            // Advance past 'Hello ' and examine everything else
+            _pipe.Reader.AdvanceTo(result.Buffer.GetPosition(6), result.Buffer.End);
+
+            // Write so that the next ReadAsync will be unblocked
+            buffer.Write("d"u8.ToArray());
+            await buffer.FlushAsync();
+
+            result = await _pipe.Reader.ReadAsync();
+
+            Assert.Equal("World", Encoding.ASCII.GetString(result.Buffer.ToArray()));
+
+            // Previous examine is at the end of 'Worl', calling AdvanceTo without passing examined will unexamine (not externally visible)
+            // But more importantly, it will work and not throw that you're unexamining
+            _pipe.Reader.AdvanceTo(result.Buffer.Start, result.Buffer.GetPosition(1));
+
+            // Double check that ReadAsync is still unblocked and works
+            result = await _pipe.Reader.ReadAsync();
+            Assert.Equal("World", Encoding.ASCII.GetString(result.Buffer.ToArray()));
+        }
+
+        [Fact]
+        public async Task ExaminedCannotBeBeforeConsumed()
+        {
+            PipeWriter buffer = _pipe.Writer;
+            buffer.Write("Hello World"u8.ToArray());
+            await buffer.FlushAsync();
+
+            bool gotData = _pipe.Reader.TryRead(out ReadResult result);
+            Assert.True(gotData);
+
+            Assert.Equal("Hello World", Encoding.ASCII.GetString(result.Buffer.ToArray()));
+
+            InvalidOperationException ex = Assert.Throws<InvalidOperationException>(
+                () => _pipe.Reader.AdvanceTo(result.Buffer.GetPosition(6), result.Buffer.GetPosition(5)));
+            Assert.Equal("The examined position must be greater than or equal to the consumed position.", ex.Message);
         }
 
         private bool IsTaskWithResult<T>(ValueTask<T> task)

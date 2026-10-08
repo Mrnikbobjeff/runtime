@@ -5,9 +5,10 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic;
-using System.Linq.Expressions;
 using System.Globalization;
+using System.Linq.Expressions;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using ComTypes = System.Runtime.InteropServices.ComTypes;
@@ -73,7 +74,8 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
     /// just find and invoke the multicast delegate corresponding to the invoked
     /// dispid.
     ///  </summary>
-
+    [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+    [RequiresDynamicCode(Binder.DynamicCodeWarning)]
     internal sealed class IDispatchComObject : ComObject, IDynamicMetaObjectProvider
     {
         private ComTypeDesc _comTypeDesc;
@@ -100,7 +102,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
                 typeName = "IDispatch";
             }
 
-            return string.Format(CultureInfo.CurrentCulture, "{0} ({1})", RuntimeCallableWrapper.ToString(), typeName);
+            return $"{RuntimeCallableWrapper} ({typeName})";
         }
 
         public ComTypeDesc ComTypeDesc
@@ -117,9 +119,9 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
         private static int GetIDsOfNames(IDispatch dispatch, string name, out int dispId)
         {
             int[] dispIds = new int[1];
-            Guid emtpyRiid = Guid.Empty;
+            Guid emptyRiid = Guid.Empty;
             int hresult = dispatch.TryGetIDsOfNames(
-                ref emtpyRiid,
+                ref emptyRiid,
                 new string[] { name },
                 1,
                 0,
@@ -223,7 +225,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
                 return false;
             }
 
-            throw Error.CouldNotGetDispId(name, string.Format(CultureInfo.InvariantCulture, "0x{0:X})", hresult));
+            throw Error.CouldNotGetDispId(name, $"0x{(uint)hresult:X})");
         }
 
         internal bool TryGetPropertySetterExplicit(string name, out ComMethodDesc method, Type limitType, bool holdsNull)
@@ -259,7 +261,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
                 return false;
             }
 
-            throw Error.CouldNotGetDispId(name, string.Format(CultureInfo.InvariantCulture, "0x{0:X})", hresult));
+            throw Error.CouldNotGetDispId(name, $"0x{(uint)hresult:X})");
         }
 
         internal override IList<string> GetMemberNames(bool dataOnly)
@@ -272,10 +274,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
 
         internal override IList<KeyValuePair<string, object>> GetMembers(IEnumerable<string> names)
         {
-            if (names == null)
-            {
-                names = GetMemberNames(true);
-            }
+            names ??= GetMemberNames(true);
 
             Type comType = RuntimeCallableWrapper.GetType();
 
@@ -319,7 +318,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             return new IDispatchMetaObject(parameter, this);
         }
 
-        private static void GetFuncDescForDescIndex(ComTypes.ITypeInfo typeInfo, int funcIndex, out ComTypes.FUNCDESC funcDesc, out IntPtr funcDescHandle)
+        private static unsafe void GetFuncDescForDescIndex(ComTypes.ITypeInfo typeInfo, int funcIndex, out ComTypes.FUNCDESC funcDesc, out IntPtr funcDescHandle)
         {
             IntPtr pFuncDesc;
             typeInfo.GetFuncDesc(funcIndex, out pFuncDesc);
@@ -330,7 +329,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
                 throw Error.CannotRetrieveTypeInformation();
             }
 
-            funcDesc = (ComTypes.FUNCDESC)Marshal.PtrToStructure(pFuncDesc, typeof(ComTypes.FUNCDESC));
+            funcDesc = *(ComTypes.FUNCDESC*)pFuncDesc;
             funcDescHandle = pFuncDesc;
         }
 
@@ -450,7 +449,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
                     // adding new events and putting them on new interfaces while keeping the
                     // old interfaces around. This may cause name collisioning which we are
                     // resolving by keeping only the first event with the same name.
-                    if (events.ContainsKey(name) == false)
+                    if (!events.ContainsKey(name))
                     {
                         ComEventDesc eventDesc = new ComEventDesc
                         {

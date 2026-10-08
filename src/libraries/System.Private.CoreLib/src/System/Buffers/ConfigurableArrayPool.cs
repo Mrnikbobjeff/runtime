@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Threading;
 
 namespace System.Buffers
@@ -21,14 +22,8 @@ namespace System.Buffers
 
         internal ConfigurableArrayPool(int maxArrayLength, int maxArraysPerBucket)
         {
-            if (maxArrayLength <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(maxArrayLength));
-            }
-            if (maxArraysPerBucket <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(maxArraysPerBucket));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxArrayLength);
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maxArraysPerBucket);
 
             // Our bucketing algorithm has a min length of 2^4 and a max length of 2^30.
             // Constrain the actual max used to those values.
@@ -56,20 +51,18 @@ namespace System.Buffers
         /// <summary>Gets an ID for the pool to use with events.</summary>
         private int Id => GetHashCode();
 
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public override T[] Rent(int minimumLength)
         {
             // Arrays can't be smaller than zero.  We allow requesting zero-length arrays (even though
             // pooling such an array isn't valuable) as it's a valid length array, and we want the pool
             // to be usable in general instead of using `new`, even for computed lengths.
-            if (minimumLength < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(minimumLength));
-            }
-            else if (minimumLength == 0)
+            ArgumentOutOfRangeException.ThrowIfNegative(minimumLength);
+            if (minimumLength == 0)
             {
                 // No need for events with the empty array.  Our pool is effectively infinite
                 // and we'll never allocate for rents and never store for returns.
-                return Array.Empty<T>();
+                return [];
             }
 
             ArrayPoolEventSource log = ArrayPoolEventSource.Log;
@@ -110,22 +103,22 @@ namespace System.Buffers
 
             if (log.IsEnabled())
             {
-                int bufferId = buffer.GetHashCode(), bucketId = -1; // no bucket for an on-demand allocated buffer
-                log.BufferRented(bufferId, buffer.Length, Id, bucketId);
-                log.BufferAllocated(bufferId, buffer.Length, Id, bucketId, index >= _buckets.Length ?
-                    ArrayPoolEventSource.BufferAllocatedReason.OverMaximumSize : ArrayPoolEventSource.BufferAllocatedReason.PoolExhausted);
+                int bufferId = buffer.GetHashCode();
+                log.BufferRented(bufferId, buffer.Length, Id, ArrayPoolEventSource.NoBucketId);
+                log.BufferAllocated(bufferId, buffer.Length, Id, ArrayPoolEventSource.NoBucketId, index >= _buckets.Length ?
+                    ArrayPoolEventSource.BufferAllocatedReason.OverMaximumSize :
+                    ArrayPoolEventSource.BufferAllocatedReason.PoolExhausted);
             }
 
             return buffer;
         }
 
+        [MethodImpl(MethodImplOptions.NoInlining)]
         public override void Return(T[] array, bool clearArray = false)
         {
-            if (array == null)
-            {
-                throw new ArgumentNullException(nameof(array));
-            }
-            else if (array.Length == 0)
+            ArgumentNullException.ThrowIfNull(array);
+
+            if (array.Length == 0)
             {
                 // Ignore empty arrays.  When a zero-length array is rented, we return a singleton
                 // rather than actually taking a buffer out of the lowest bucket.
@@ -136,12 +129,13 @@ namespace System.Buffers
             int bucket = Utilities.SelectBucketIndex(array.Length);
 
             // If we can tell that the buffer was allocated, drop it. Otherwise, check if we have space in the pool
-            if (bucket < _buckets.Length)
+            bool haveBucket = bucket < _buckets.Length;
+            if (haveBucket)
             {
                 // Clear the array if the user requests
                 if (clearArray)
                 {
-                    Array.Clear(array, 0, array.Length);
+                    Array.Clear(array);
                 }
 
                 // Return the buffer to its bucket.  In the future, we might consider having Return return false
@@ -154,7 +148,12 @@ namespace System.Buffers
             ArrayPoolEventSource log = ArrayPoolEventSource.Log;
             if (log.IsEnabled())
             {
-                log.BufferReturned(array.GetHashCode(), array.Length, Id);
+                int bufferId = array.GetHashCode();
+                log.BufferReturned(bufferId, array.Length, Id);
+                if (!haveBucket)
+                {
+                    log.BufferDropped(bufferId, array.Length, Id, ArrayPoolEventSource.NoBucketId, ArrayPoolEventSource.BufferDroppedReason.OverMaximumSize);
+                }
             }
         }
 
@@ -240,6 +239,8 @@ namespace System.Buffers
                     throw new ArgumentException(SR.ArgumentException_BufferNotFromPool, nameof(array));
                 }
 
+                bool returned;
+
                 // While holding the spin lock, if there's room available in the bucket,
                 // put the buffer into the next available slot.  Otherwise, we just drop it.
                 // The try/finally is necessary to properly handle thread aborts on platforms
@@ -249,7 +250,8 @@ namespace System.Buffers
                 {
                     _lock.Enter(ref lockTaken);
 
-                    if (_index != 0)
+                    returned = _index != 0;
+                    if (returned)
                     {
                         _buffers[--_index] = array;
                     }
@@ -257,6 +259,15 @@ namespace System.Buffers
                 finally
                 {
                     if (lockTaken) _lock.Exit(false);
+                }
+
+                if (!returned)
+                {
+                    ArrayPoolEventSource log = ArrayPoolEventSource.Log;
+                    if (log.IsEnabled())
+                    {
+                        log.BufferDropped(array.GetHashCode(), _bufferLength, _poolId, Id, ArrayPoolEventSource.BufferDroppedReason.Full);
+                    }
                 }
             }
         }

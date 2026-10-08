@@ -20,6 +20,7 @@ namespace Microsoft.Extensions.Hosting.IntegrationTesting
         private const string ApplicationStartedMessage = "Application started. Press Ctrl+C to shut down.";
 
         public Process HostProcess { get; private set; }
+        internal event DataReceivedEventHandler OutputReceived;
 
         public SelfHostDeployer(DeploymentParameters deploymentParameters, ILoggerFactory loggerFactory)
             : base(deploymentParameters, loggerFactory)
@@ -83,8 +84,9 @@ namespace Microsoft.Extensions.Hosting.IntegrationTesting
                 {
                     // Core+Standalone always publishes. This must be Clr+Standalone or Core+Portable.
                     // Run from the pre-built bin/{config}/{tfm} directory.
+                    Version version = Environment.Version;
                     var targetFramework = DeploymentParameters.TargetFramework
-                        ?? (DeploymentParameters.RuntimeFlavor == RuntimeFlavor.Clr ? Tfm.Net461 : Tfm.NetCoreApp22);
+                        ?? (DeploymentParameters.RuntimeFlavor == RuntimeFlavor.Clr ? "net481" : $"net{version.Major}.{version.Minor}");
                     workingDirectory = Path.Combine(DeploymentParameters.ApplicationPath, "bin", DeploymentParameters.Configuration, targetFramework);
                     // CurrentDirectory will point to bin/{config}/{tfm}, but the config and static files aren't copied, point to the app base instead.
                     DeploymentParameters.EnvironmentVariables["DOTNET_CONTENTROOT"] = DeploymentParameters.ApplicationPath;
@@ -94,7 +96,7 @@ namespace Microsoft.Extensions.Hosting.IntegrationTesting
 
                 if (DeploymentParameters.RuntimeFlavor == RuntimeFlavor.CoreClr && DeploymentParameters.ApplicationType == ApplicationType.Portable)
                 {
-                    executableName = GetDotNetExeForArchitecture();
+                    executableName = GetDotNetMuxerPath();
                     executableArgs = executable;
                 }
                 else
@@ -119,7 +121,8 @@ namespace Microsoft.Extensions.Hosting.IntegrationTesting
 
                 AddEnvironmentVariablesToProcess(startInfo, DeploymentParameters.EnvironmentVariables);
 
-                var started = new TaskCompletionSource<object>();
+                var started = new TaskCompletionSource<object>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var hostExitTokenSource = new CancellationTokenSource();
 
                 HostProcess = new Process() { StartInfo = startInfo };
                 HostProcess.EnableRaisingEvents = true;
@@ -129,8 +132,9 @@ namespace Microsoft.Extensions.Hosting.IntegrationTesting
                     {
                         started.TrySetResult(null);
                     }
+
+                    OutputReceived?.Invoke(sender, dataArgs);
                 };
-                var hostExitTokenSource = new CancellationTokenSource();
                 HostProcess.Exited += (sender, e) =>
                 {
                     Logger.LogInformation("host process ID {pid} shut down", HostProcess.Id);
@@ -147,7 +151,9 @@ namespace Microsoft.Extensions.Hosting.IntegrationTesting
                 }
                 catch (Exception ex)
                 {
+                    // Surface the real launch failure instead of letting it be masked later during disposal.
                     Logger.LogError("Error occurred while starting the process. Exception: {exception}", ex.ToString());
+                    throw;
                 }
 
                 if (HostProcess.HasExited)
@@ -164,7 +170,7 @@ namespace Microsoft.Extensions.Hosting.IntegrationTesting
                     // The timeout here is large, because we don't know how long the test could need
                     // We cover a lot of error cases above, but I want to make sure we eventually give up and don't hang the build
                     // just in case we missed one -anurse
-                    await started.Task.TimeoutAfter(TimeSpan.FromMinutes(10));
+                    await started.Task.WaitAsync(TimeSpan.FromMinutes(10));
                 }
 
                 return hostExitTokenSource.Token;

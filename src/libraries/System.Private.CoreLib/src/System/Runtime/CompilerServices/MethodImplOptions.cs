@@ -3,7 +3,7 @@
 
 namespace System.Runtime.CompilerServices
 {
-    // This Enum matchs the miImpl flags defined in corhdr.h. It is used to specify
+    // This Enum matches the miImpl flags defined in corhdr.h. It is used to specify
     // certain method properties.
     [Flags]
     public enum MethodImplOptions
@@ -16,6 +16,7 @@ namespace System.Runtime.CompilerServices
         PreserveSig = 0x0080,
         AggressiveInlining = 0x0100,
         AggressiveOptimization = 0x0200,
+        Async = 0x2000,
         InternalCall = 0x1000
     }
 }

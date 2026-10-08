@@ -1,46 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections.Generic;
 using System.ComponentModel;
+using System.Runtime.Versioning;
 
 namespace System.Diagnostics
 {
     public partial class Process
     {
         /// <summary>
-        /// Creates an array of <see cref="Process"/> components that are associated with process resources on a
-        /// remote computer. These process resources share the specified process name.
-        /// </summary>
-        public static Process[] GetProcessesByName(string? processName, string machineName)
-        {
-            if (processName == null)
-            {
-                processName = string.Empty;
-            }
-
-            Process[] procs = GetProcesses(machineName);
-            var list = new List<Process>();
-
-            for (int i = 0; i < procs.Length; i++)
-            {
-                if (string.Equals(processName, procs[i].ProcessName, StringComparison.OrdinalIgnoreCase))
-                {
-                    list.Add(procs[i]);
-                }
-                else
-                {
-                    procs[i].Dispose();
-                }
-            }
-
-            return list.ToArray();
-        }
-
-        /// <summary>
         /// Gets or sets which processors the threads in this process can be scheduled to run on.
         /// </summary>
-        private unsafe IntPtr ProcessorAffinityCore
+        private static IntPtr ProcessorAffinityCore
         {
             get
             {
@@ -58,6 +29,8 @@ namespace System.Diagnostics
         /// </summary>
         private void GetWorkingSetLimits(out IntPtr minWorkingSet, out IntPtr maxWorkingSet)
         {
+            EnsureState(State.HaveNonExitedId);
+
             // We can only do this for the current process on OS X
             if (_processId != Environment.ProcessId)
                 throw new PlatformNotSupportedException(SR.OsxExternalProcessWorkingSetNotSupported);
@@ -75,7 +48,7 @@ namespace System.Diagnostics
             }
             else
             {
-                // The contract specifies that this throws Win32Exception when it failes to retrieve the info
+                // The contract specifies that this throws Win32Exception when it fails to retrieve the info
                 throw new Win32Exception();
             }
         }
@@ -87,6 +60,8 @@ namespace System.Diagnostics
         /// <param name="resultingMax">The resulting maximum working set limit after any changes applied.</param>
         private void SetWorkingSetLimitsCore(IntPtr? newMin, IntPtr? newMax, out IntPtr resultingMin, out IntPtr resultingMax)
         {
+            EnsureState(State.HaveNonExitedId);
+
             // We can only do this for the current process on OS X
             if (_processId != Environment.ProcessId)
                 throw new PlatformNotSupportedException(SR.OsxExternalProcessWorkingSetNotSupported);

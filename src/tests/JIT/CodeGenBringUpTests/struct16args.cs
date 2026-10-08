@@ -5,6 +5,7 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 public struct Point
 {
@@ -58,7 +59,7 @@ public struct Point
 
 }
 
-public class BringUpTest
+public class BringUpTest_struct16args
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -669,7 +670,8 @@ public class BringUpTest
         return Pass;
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {       
        int i0 = 2;
        int i1 = 3;

@@ -9,7 +9,8 @@
 
 using System;
 using System.Runtime.CompilerServices;
-namespace structfieldparam
+using Xunit;
+namespace JitTest_Directed_StructABI_structfieldparam
 {
 
     struct Inner1
@@ -104,7 +105,8 @@ namespace structfieldparam
             return s.sum();
         }
 
-        public static int Main()
+        [Fact]
+        public static int TestEntryPoint()
         {
             int result = 100;
 

@@ -2,9 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections.Specialized;
 using System.IO;
 using System.Text;
-using System.Collections.Specialized;
 
 namespace System.Net.Mime
 {
@@ -12,26 +12,22 @@ namespace System.Net.Mime
     /// Provides an abstraction for writing a MIME multi-part
     /// message.
     /// </summary>
-    internal class MimeWriter : BaseWriter
+    internal sealed class MimeWriter : BaseWriter
     {
-        private static readonly byte[] s_DASHDASH = new byte[] { (byte)'-', (byte)'-' };
-
         private readonly byte[] _boundaryBytes;
         private bool _writeBoundary = true;
 
         internal MimeWriter(Stream stream, string boundary)
             : base(stream, false) // Unnecessary, the underlying MailWriter stream already encodes dots
         {
-            if (boundary == null)
-                throw new ArgumentNullException(nameof(boundary));
+            ArgumentNullException.ThrowIfNull(boundary);
 
             _boundaryBytes = Encoding.ASCII.GetBytes(boundary);
         }
 
         internal override void WriteHeaders(NameValueCollection headers, bool allowUnicode)
         {
-            if (headers == null)
-                throw new ArgumentNullException(nameof(headers));
+            ArgumentNullException.ThrowIfNull(headers);
 
             foreach (string key in headers)
                 WriteHeader(key, headers[key]!, allowUnicode);
@@ -39,39 +35,13 @@ namespace System.Net.Mime
 
         #region Cleanup
 
-        internal IAsyncResult BeginClose(AsyncCallback? callback, object? state)
-        {
-            MultiAsyncResult multiResult = new MultiAsyncResult(this, callback, state);
-
-            Close(multiResult);
-
-            multiResult.CompleteSequence();
-
-            return multiResult;
-        }
-
-        internal void EndClose(IAsyncResult result)
-        {
-            MultiAsyncResult.End(result);
-
-            _stream.Close();
-        }
-
         internal override void Close()
         {
-            Close(null);
-
-            _stream.Close();
-        }
-
-        private void Close(MultiAsyncResult? multiResult)
-        {
-            _bufferBuilder.Append(s_crlf);
-            _bufferBuilder.Append(s_DASHDASH);
+            _bufferBuilder.Append("\r\n--"u8);
             _bufferBuilder.Append(_boundaryBytes);
-            _bufferBuilder.Append(s_DASHDASH);
-            _bufferBuilder.Append(s_crlf);
-            Flush(multiResult);
+            _bufferBuilder.Append("--\r\n"u8);
+            Flush();
+            _stream.Close();
         }
 
         /// <summary>
@@ -101,10 +71,9 @@ namespace System.Net.Mime
         {
             if (_writeBoundary)
             {
-                _bufferBuilder.Append(s_crlf);
-                _bufferBuilder.Append(s_DASHDASH);
+                _bufferBuilder.Append("\r\n--"u8);
                 _bufferBuilder.Append(_boundaryBytes);
-                _bufferBuilder.Append(s_crlf);
+                _bufferBuilder.Append("\r\n"u8);
                 _writeBoundary = false;
             }
         }

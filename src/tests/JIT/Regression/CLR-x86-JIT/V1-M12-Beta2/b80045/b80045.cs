@@ -2,7 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b80045;
+
 using System;
+using Xunit;
 
 public class AA
 {
@@ -14,7 +18,8 @@ public class AA
     { return ((byte[])((Array)null))[AA.Static4(AA.Static2())]; }
     static void Main1()
     { Static5(); }
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

@@ -4,8 +4,9 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-public class BringUpTest
+public class BringUpTest_ArrayJagged
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -19,7 +20,8 @@ public class BringUpTest
         return a[1][i];
     }
 
-    static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         if (ArrayJagged(1) != 3) return Fail;
         return Pass;

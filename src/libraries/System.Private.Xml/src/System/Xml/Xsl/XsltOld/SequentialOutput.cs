@@ -1,11 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
-using System.Text;
 using System.Collections;
-using System.Globalization;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.Text;
 
 namespace System.Xml.Xsl.XsltOld
 {
@@ -60,7 +60,7 @@ namespace System.Xml.Xsl.XsltOld
         private bool _firstLine = true;
         private bool _secondRoot;
 
-        // Cached Output propertes:
+        // Cached Output properties:
         private XsltOutput _output;
         private bool _isHtmlOutput;
         private bool _isXmlOutput;
@@ -73,8 +73,6 @@ namespace System.Xml.Xsl.XsltOld
         // Uri Escaping:
         private byte[]? _byteBuffer;
         private Encoding? _utf8Encoding;
-
-        private XmlCharType _xmlCharType = XmlCharType.Instance;
 
         [MemberNotNull(nameof(_output))]
         private void CacheOuptutProps(XsltOutput output)
@@ -231,7 +229,7 @@ namespace System.Xml.Xsl.XsltOld
 
         private void WriteDoctype(BuilderInfo mainNode)
         {
-            Debug.Assert(_outputDoctype == true, "It supposed to check this condition before actual call");
+            Debug.Assert(_outputDoctype, "It supposed to check this condition before actual call");
             Debug.Assert(_output.DoctypeSystem != null || (_isHtmlOutput && _output.DoctypePublic != null), "We set outputDoctype == true only if");
             Indent(0);
             Write(s_DocType);
@@ -266,7 +264,7 @@ namespace System.Xml.Xsl.XsltOld
 
         private void WriteXmlDeclaration()
         {
-            Debug.Assert(_outputXmlDecl == true, "It supposed to check this condition before actual call");
+            Debug.Assert(_outputXmlDecl, "It supposed to check this condition before actual call");
             Debug.Assert(_isXmlOutput && !_output.OmitXmlDeclaration, "We set outputXmlDecl == true only if");
             _outputXmlDecl = false;
 
@@ -374,7 +372,7 @@ namespace System.Xml.Xsl.XsltOld
                 case XmlNodeType.Text:
                 case XmlNodeType.Whitespace:
                 case XmlNodeType.SignificantWhitespace:
-                    if (_xmlCharType.IsOnlyWhitespace(node.Value))
+                    if (XmlCharType.IsOnlyWhitespace(node.Value))
                     {
                         return false;
                     }
@@ -392,10 +390,7 @@ namespace System.Xml.Xsl.XsltOld
 
         private void CacheRecord(RecordBuilder record)
         {
-            if (_outputCache == null)
-            {
-                _outputCache = new ArrayList();
-            }
+            _outputCache ??= new ArrayList();
 
             _outputCache.Add(record.MainNode.Clone());
         }
@@ -662,7 +657,7 @@ namespace System.Xml.Xsl.XsltOld
                         break;
                     }
                 }
-                Debug.Assert(0 <= i, "find char wasn't realy find");
+                Debug.Assert(0 <= i, "find char wasn't really find");
                 pos++;
             }
 

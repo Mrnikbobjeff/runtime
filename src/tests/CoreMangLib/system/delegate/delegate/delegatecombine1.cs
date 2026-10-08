@@ -4,16 +4,17 @@
 using System;
 using System.Globalization;
 using System.Collections;
-//create for delegate combine(delegate a,delagate b) testing
-namespace DelegateTest
+using Xunit;
+//create for delegate combine(delegate a,delegate b) testing
+namespace DelegateCombine1Test
 {
     delegate bool booldelegate();
     delegate void voiddelegate();
-    delegate void delegatecombine(booldelegate delgate1, booldelegate delgate2);
+    delegate void delegatecombine(booldelegate delegate1, booldelegate delegate2);
 
     public class DelegateCombine1
     {
-        const string c_StartWrok = "Stark";
+        const string c_StartWork = "Start";
         const string c_Working = "Working";
         enum identify_null
         {
@@ -26,7 +27,9 @@ namespace DelegateTest
         booldelegate starkWork;
         booldelegate working;
         voiddelegate completeWork;
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             DelegateCombine1 delegateCombine1 = new DelegateCombine1();
 
@@ -73,12 +76,12 @@ namespace DelegateTest
 
             try
             {
-                if (GetInvocationListFlag(identify_null.c_Start_null_false, identify_null.c_Working_null_false ) != c_StartWrok + c_Working)
+                if (GetInvocationListFlag(identify_null.c_Start_null_false, identify_null.c_Working_null_false ) != c_StartWork + c_Working)
                 {
                     TestLibrary.TestFramework.LogError("001", "delegate combine is not successful ");
                     retVal = false;
                 }
-              
+
             }
             catch (Exception e)
             {
@@ -98,13 +101,13 @@ namespace DelegateTest
 
             try
             {
-                
+
                 if (GetInvocationListFlag(identify_null.c_Start_null_true, identify_null.c_Working_null_false ) != c_Working)
                 {
                     TestLibrary.TestFramework.LogError("003", "delegate combine is not successful ");
                     retVal = false;
                 }
-                
+
 
             }
             catch (Exception e)
@@ -125,13 +128,13 @@ namespace DelegateTest
 
             try
             {
-              
-                if (GetInvocationListFlag( identify_null.c_Start_null_false, identify_null.c_Working_null_true ) != c_StartWrok)
+
+                if (GetInvocationListFlag( identify_null.c_Start_null_false, identify_null.c_Working_null_true ) != c_StartWork)
                 {
                     TestLibrary.TestFramework.LogError("005", "delegate combine is not successful ");
                     retVal = false;
                 }
-             
+
 
             }
             catch (Exception e)
@@ -157,7 +160,7 @@ namespace DelegateTest
                     TestLibrary.TestFramework.LogError("007", "delegate combine is not successful ");
                     retVal = false;
                 }
-               
+
 
             }
             catch (Exception e)
@@ -179,7 +182,7 @@ namespace DelegateTest
             try
             {
                 DelegateCombine1 delctor = new DelegateCombine1();
-                TestClass testinstance = new TestClass();
+                DelegateCombine1TestClass testinstance = new DelegateCombine1TestClass();
                 delctor.starkWork = new booldelegate(testinstance.StartWork_Bool);
                 delctor.completeWork = new voiddelegate(testinstance.CompleteWork_Void);
 
@@ -187,11 +190,11 @@ namespace DelegateTest
 
                 TestLibrary.TestFramework.LogError("009", "a ArgumentException should be throw ");
                 retVal = false;
-      
+
             }
             catch (ArgumentException)
             {
-            
+
             }
 
             catch (Exception e)
@@ -205,8 +208,8 @@ namespace DelegateTest
         private string GetInvocationListFlag(identify_null start,identify_null working)
         {
             DelegateCombine1 delctor = new DelegateCombine1();
-            TestClass testinstance = new TestClass();
-            
+            DelegateCombine1TestClass testinstance = new DelegateCombine1TestClass();
+
             string sFlag = string.Empty;
             if (start == identify_null.c_Start_null_false)
             {
@@ -235,7 +238,7 @@ namespace DelegateTest
                 booldelegate bd = (booldelegate)itr.Current;
                 if (bd.Equals(delctor.starkWork))
                 {
-                    sFlag += c_StartWrok;
+                    sFlag += c_StartWork;
                 }
                 if (bd.Equals(delctor.working))
                 {
@@ -245,10 +248,10 @@ namespace DelegateTest
             combine();
             return sFlag;
         }
-       
+
     }
-    //create testclass for provding test method and test target.
-    class TestClass
+    //create testclass for providing test method and test target.
+    class DelegateCombine1TestClass
     {
         public bool StartWork_Bool()
         {
@@ -263,7 +266,7 @@ namespace DelegateTest
         public void CompleteWork_Void()
         {
             TestLibrary.TestFramework.LogInformation("CompleteWork_Void method  is running .");
-           
+
         }
     }
 

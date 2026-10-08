@@ -5,7 +5,7 @@ namespace System.Security.Cryptography.Tests
 {
     public class CurveDef
     {
-#if NETCOREAPP
+#if NET
         public CurveDef() { }
         public ECCurve Curve;
         public ECCurve.ECCurveType CurveType;
@@ -14,23 +14,22 @@ namespace System.Security.Cryptography.Tests
         public bool RequiredOnPlatform;
         public string DisplayName;
 
-        public bool IsCurveValidOnPlatform
-        {
-            get
-            {
-                // Assume curve is valid if required; tests will fail if not present
-                return RequiredOnPlatform ||
-                    (Curve.IsNamed && (EcDsa.Tests.ECDsaFactory.IsCurveValid(Curve.Oid) || EcDiffieHellman.Tests.ECDiffieHellmanFactory.IsCurveValid(Curve.Oid))) ||
-                    (Curve.IsExplicit && (EcDsa.Tests.ECDsaFactory.ExplicitCurvesSupported || EcDiffieHellman.Tests.ECDiffieHellmanFactory.ExplicitCurvesSupported));
-            }
-        }
+        public bool IsCurveValidOnPlatform(EcDsa.Tests.ECDsaProvider provider) =>
+            RequiredOnPlatform ||
+            (Curve.IsNamed && provider.IsCurveValid(Curve.Oid)) ||
+            (Curve.IsExplicit && provider.ExplicitCurvesSupported);
+
+        public bool IsCurveValidOnPlatform(EcDiffieHellman.Tests.ECDiffieHellmanProvider provider) =>
+            RequiredOnPlatform ||
+            (Curve.IsNamed && provider.IsCurveValid(Curve.Oid)) ||
+            (Curve.IsExplicit && provider.ExplicitCurvesSupported);
 
         public bool IsCurveTypeEqual(ECCurve.ECCurveType actual)
         {
             if (CurveType == actual)
                 return true;
 
-            // Montgomery and Weierstrass are interchangable depending on the platform
+            // Montgomery and Weierstrass are interchangeable depending on the platform
             if (CurveType == ECCurve.ECCurveType.PrimeMontgomery && actual == ECCurve.ECCurveType.PrimeShortWeierstrass ||
                 CurveType == ECCurve.ECCurveType.PrimeShortWeierstrass && actual == ECCurve.ECCurveType.PrimeMontgomery)
             {

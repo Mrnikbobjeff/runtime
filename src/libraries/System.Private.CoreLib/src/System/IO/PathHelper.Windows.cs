@@ -1,7 +1,6 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -23,7 +22,7 @@ namespace System.IO
         /// <exception cref="PathTooLongException">Thrown if we have a string that is too large to fit into a UNICODE_STRING.</exception>
         /// <exception cref="IOException">Thrown if the path is empty.</exception>
         /// <returns>Normalized path</returns>
-        internal static string Normalize(string path)
+        internal static unsafe string Normalize(string path)
         {
             var builder = new ValueStringBuilder(stackalloc char[PathInternal.MaxShortPath]);
 
@@ -47,12 +46,13 @@ namespace System.IO
         /// <remarks>
         /// Exceptions are the same as the string overload.
         /// </remarks>
-        internal static string Normalize(ref ValueStringBuilder path)
+        internal static unsafe string Normalize(ref ValueStringBuilder path)
         {
             var builder = new ValueStringBuilder(stackalloc char[PathInternal.MaxShortPath]);
 
             // Get the full path
-            GetFullPathName(path.AsSpan(terminate: true), ref builder);
+            path.NullTerminate();
+            GetFullPathName(path.AsSpan(), ref builder);
 
             string result = builder.AsSpan().IndexOf('~') >= 0
                 ? TryExpandShortFileName(ref builder, originalPath: null)
@@ -84,7 +84,7 @@ namespace System.IO
             if (result == 0)
             {
                 // Failure, get the error and throw
-                int errorCode = Marshal.GetLastWin32Error();
+                int errorCode = Marshal.GetLastPInvokeError();
                 if (errorCode == 0)
                     errorCode = Interop.Errors.ERROR_BAD_PATHNAME;
                 throw Win32Marshal.GetExceptionForWin32Error(errorCode, path.ToString());
@@ -177,8 +177,9 @@ namespace System.IO
 
             while (!success)
             {
+                inputBuilder.NullTerminate();
                 uint result = Interop.Kernel32.GetLongPathNameW(
-                    ref inputBuilder.GetPinnableReference(terminate: true), ref outputBuilder.GetPinnableReference(), (uint)outputBuilder.Capacity);
+                    ref inputBuilder.GetPinnableReference(), ref outputBuilder.GetPinnableReference(), (uint)outputBuilder.Capacity);
 
                 // Replace any temporary null we added
                 if (inputBuilder[foundIndex] == '\0') inputBuilder[foundIndex] = '\\';
@@ -186,7 +187,7 @@ namespace System.IO
                 if (result == 0)
                 {
                     // Look to see if we couldn't find the file
-                    int error = Marshal.GetLastWin32Error();
+                    int error = Marshal.GetLastPInvokeError();
                     if (error != Interop.Errors.ERROR_FILE_NOT_FOUND && error != Interop.Errors.ERROR_PATH_NOT_FOUND)
                     {
                         // Some other failure, give up

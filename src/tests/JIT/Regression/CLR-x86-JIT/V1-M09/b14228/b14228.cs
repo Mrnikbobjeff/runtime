@@ -3,18 +3,20 @@
 
 
 using System;
+using Xunit;
 
 
-namespace DefaultNamespace
+namespace b14228
 {
     public class MainClass
     {
-        public static int Main(String[] argv)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             Decimal c1 = new Decimal();
 
             Console.WriteLine(c1);
-            return 100;
         }
     }
 }

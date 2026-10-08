@@ -1,5 +1,7 @@
 using System;
 using System.Runtime;
+using Xunit;
+using TestLibrary;
 
 public class Test
 {
@@ -52,8 +54,8 @@ public class Test
     static bool TestAllocInNoGCRegion(int sizeMB, int sizeMBLOH, bool disallowFullBlockingGC)
     {
         bool isCurrentTestPassed = false;
-        Console.WriteLine("=====allocating {0}mb {1} full blocking GC first=====", 
-            sizeMB, (disallowFullBlockingGC ? "disallowing" : "allowing"));
+        Console.WriteLine("=====allocating {0}mb/{1}mb {2} full blocking GC first=====", 
+            sizeMB, sizeMBLOH, (disallowFullBlockingGC ? "disallowing" : "allowing"));
             
         DoAlloc();
 
@@ -131,7 +133,11 @@ public class Test
         return isCurrentTestPassed;
     }
 
-    public static int Main(string[] args)
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsArmProcess))]
+    [ActiveIssue("needs triage", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         arrByteArrayLen = 5000;
         arrByteArray = new byte[arrByteArrayLen][];

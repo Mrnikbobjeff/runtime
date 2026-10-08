@@ -2,9 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Xml;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Xml;
 
 namespace System.Runtime.Serialization
 {
@@ -12,30 +12,18 @@ namespace System.Runtime.Serialization
     {
         private IList<ExtensionDataMember>? _members;
 
-#if USE_REFEMIT
-        public ExtensionDataObject()
-#else
         internal ExtensionDataObject()
-#endif
         {
         }
 
-#if USE_REFEMIT
-        public IList<ExtensionDataMember>? Members
-#else
         internal IList<ExtensionDataMember>? Members
-#endif
         {
             get { return _members; }
             set { _members = value; }
         }
     }
 
-#if USE_REFEMIT
-    public class ExtensionDataMember
-#else
-    internal class ExtensionDataMember
-#endif
+    internal sealed class ExtensionDataMember
     {
         private IDataNode? _value;
         private int _memberIndex;
@@ -48,7 +36,7 @@ namespace System.Runtime.Serialization
 
         public string Name { get; }
 
-        public string? Namespace { get; }
+        public string Namespace { get; }
 
         public IDataNode? Value
         {
@@ -63,11 +51,7 @@ namespace System.Runtime.Serialization
         }
     }
 
-#if USE_REFEMIT
-    public interface IDataNode
-#else
     internal interface IDataNode
-#endif
     {
         Type DataType { get; }
         object? Value { get; set; }  // boxes for primitives
@@ -129,13 +113,6 @@ namespace System.Runtime.Serialization
             return _value;
         }
 
-#if NotUsed
-        public void SetValue(T value)
-        {
-            this.value = value;
-        }
-#endif
-
         public string? DataContractName
         {
             get { return _dataContractName; }
@@ -191,7 +168,7 @@ namespace System.Runtime.Serialization
             _clrTypeName = _clrAssemblyName = null;
         }
 
-        internal void AddQualifiedNameAttribute(ElementData element, string elementPrefix, string elementName, string elementNs, string valueName, string? valueNs)
+        internal static void AddQualifiedNameAttribute(ElementData element, string elementPrefix, string elementName, string elementNs, string valueName, string? valueNs)
         {
             string prefix = ExtensionDataReader.GetPrefix(valueNs);
             element.AddAttribute(elementPrefix, elementNs, elementName, prefix + ":" + valueName);
@@ -214,7 +191,7 @@ namespace System.Runtime.Serialization
         }
     }
 
-    internal class ClassDataNode : DataNode<object>
+    internal sealed class ClassDataNode : DataNode<object>
     {
         private IList<ExtensionDataMember>? _members;
 
@@ -236,7 +213,7 @@ namespace System.Runtime.Serialization
         }
     }
 
-    internal class XmlDataNode : DataNode<object>
+    internal sealed class XmlDataNode : DataNode<object>
     {
         private IList<XmlAttribute>? _xmlAttributes;
         private IList<XmlNode>? _xmlChildNodes;
@@ -274,7 +251,7 @@ namespace System.Runtime.Serialization
         }
     }
 
-    internal class CollectionDataNode : DataNode<Array>
+    internal sealed class CollectionDataNode : DataNode<Array>
     {
         private IList<IDataNode?>? _items;
         private string? _itemName;
@@ -325,7 +302,7 @@ namespace System.Runtime.Serialization
         }
     }
 
-    internal class ISerializableDataNode : DataNode<object>
+    internal sealed class ISerializableDataNode : DataNode<object>
     {
         private string? _factoryTypeName;
         private string? _factoryTypeNamespace;
@@ -370,7 +347,7 @@ namespace System.Runtime.Serialization
         }
     }
 
-    internal class ISerializableDataMember
+    internal sealed class ISerializableDataMember
     {
         private IDataNode? _value;
 

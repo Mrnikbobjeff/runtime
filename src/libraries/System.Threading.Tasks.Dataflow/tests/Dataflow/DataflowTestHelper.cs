@@ -7,10 +7,13 @@ using Xunit;
 
 namespace System.Threading.Tasks.Dataflow.Tests
 {
-    internal static class DataflowTestHelpers
+    internal static partial class DataflowTestHelpers
     {
         internal static bool[] BooleanValues = { true, false };
         internal static Func<int, IEnumerable<int>> ToEnumerable = item => Enumerable.Repeat(item, 1);
+
+        /// <summary>Timeout in milliseconds for spin-wait operations in tests, to avoid indefinite hangs under stress.</summary>
+        internal const int SpinTimeoutMs = 30_000;
 
         internal static ITargetBlock<int> PostRange(this ITargetBlock<int> target, int lowerBoundInclusive, int upperBoundExclusive)
         {
@@ -249,6 +252,5 @@ namespace System.Threading.Tasks.Dataflow.Tests
             }
             return DataflowBlock.Encapsulate(transforms[0], transforms[transforms.Length - 1]);
         }
-
     }
 }

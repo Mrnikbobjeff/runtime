@@ -1,17 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Text;
+using System.Xml;
+using System.Xml.XPath;
+
 namespace System.Xml.Xsl.XsltOld
 {
-    using System;
-    using System.Diagnostics;
-    using System.Text;
-    using System.Collections.Generic;
-    using System.Xml;
-    using System.Xml.XPath;
-    using System.Diagnostics.CodeAnalysis;
-
-    internal class BuilderInfo
+    internal sealed class BuilderInfo
     {
         private string? _name;
         private string _localName;
@@ -82,7 +82,7 @@ namespace System.Xml.Xsl.XsltOld
         {
             BuilderInfo info = new BuilderInfo();
             info.Initialize(this);
-            Debug.Assert(info.NodeType != XmlNodeType.Text || XmlCharType.Instance.IsOnlyWhitespace(info.Value));
+            Debug.Assert(info.NodeType != XmlNodeType.Text || XmlCharType.IsOnlyWhitespace(info.Value));
             return info;
         }
 
@@ -99,7 +99,7 @@ namespace System.Xml.Xsl.XsltOld
                     {
                         if (localName.Length > 0)
                         {
-                            _name = prefix + ":" + localName;
+                            _name = $"{prefix}:{localName}";
                         }
                         else
                         {
@@ -169,7 +169,7 @@ namespace System.Xml.Xsl.XsltOld
 
         internal void ValueAppend(string? s, bool disableEscaping)
         {
-            if (s == null || s.Length == 0)
+            if (string.IsNullOrEmpty(s))
             {
                 return;
             }

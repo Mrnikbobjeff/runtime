@@ -5,7 +5,8 @@
 
 using System;
 using System.Runtime.CompilerServices;
-public class BringUpTest
+using Xunit;
+public class BringUpTest_DblAvg2
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -17,7 +18,8 @@ public class BringUpTest
        return z; 
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         double y = DblAvg2(5f, 7f);
         Console.WriteLine(y);

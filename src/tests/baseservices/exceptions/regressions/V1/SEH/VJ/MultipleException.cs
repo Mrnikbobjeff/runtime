@@ -3,6 +3,8 @@
 using System;
 using System.Threading;
 using System.IO;
+using Xunit;
+using TestLibrary;
 
 class UserException : Exception {
 	internal int ExceptionId;
@@ -15,12 +17,16 @@ class UserException : Exception {
 public class MultipleException {
 	private int ThreadId;
 
-	public MultipleException(int id){
+	public MultipleException() { }
+
+	private MultipleException(int id){
 		ThreadId = id;
 	}
 		
 	
-	public static int Main(String [] args) {
+	[SkipOnCoreClr("This test is not compatible with GC stress. See https://github.com/dotnet/runtime/issues/11947.", RuntimeTestModes.AnyGCStress)]
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint() {
 		int retVal = 100;
 		String s = "Done";
 		Thread mv_Thread;

@@ -5,9 +5,10 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 
-public class BringUpTest
+public class BringUpTest_LongArgsAndReturn
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -20,7 +21,8 @@ public class BringUpTest
     }
 
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         long m = LongArgsAndReturn(10L, 20L);
         if (m != 20L) return Fail;

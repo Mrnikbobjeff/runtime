@@ -1,14 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+namespace JitTest_Directed_UnrollLoop_loop6;
+
 using System;
+using Xunit;
 internal struct VT
 {
     public float one;
     public double delta;
     public double temp;
 }
-internal class loop6
+public class loop6
 {
     public static int cnt;
 
@@ -16,7 +19,7 @@ internal class loop6
     public static double sdelta;
     public static double stemp;
 
-    public static void f1()
+    internal static void f1()
     {
         float one = 1.0F;
         double delta = 1.0D;
@@ -35,7 +38,7 @@ internal class loop6
             System.Console.WriteLine("f1 failed");
     }
 
-    public static void f2()
+    internal static void f2()
     {
         float one = 1.0F;
         double delta = 1.0D;
@@ -54,7 +57,7 @@ internal class loop6
             System.Console.WriteLine("f2 failed");
     }
 
-    public static void f3()
+    internal static void f3()
     {
         double temp = 0.0D;
         float one = 1.0F;
@@ -73,7 +76,7 @@ internal class loop6
             System.Console.WriteLine("f3 failed");
     }
 
-    public static void f4()
+    internal static void f4()
     {
         float one = 1.0F;
         double delta = 1.0D;
@@ -93,7 +96,7 @@ internal class loop6
             System.Console.WriteLine("f4 failed");
     }
 
-    public static void f5()
+    internal static void f5()
     {
         sone = 1.0F;
         sdelta = 1.0D;
@@ -111,7 +114,7 @@ internal class loop6
         else
             System.Console.WriteLine("f5 failed");
     }
-    public static void f6()
+    internal static void f6()
     {
         VT vt;
         vt.one = 1.0F;
@@ -131,7 +134,7 @@ internal class loop6
             System.Console.WriteLine("f6 failed");
     }
 
-    public static void f7()
+    internal static void f7()
     {
         float one = 1.0F;
         double delta = 1.0D;
@@ -151,7 +154,7 @@ internal class loop6
             System.Console.WriteLine("f7 failed");
     }
 
-    public static void f8()
+    internal static void f8()
     {
         float one = 1.0F;
         double delta = 1.0D;
@@ -175,7 +178,9 @@ internal class loop6
             System.Console.WriteLine("f8 failed");
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         cnt = 0;
         f1();

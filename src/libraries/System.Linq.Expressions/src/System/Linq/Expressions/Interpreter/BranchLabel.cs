@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Diagnostics;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 
 namespace System.Linq.Expressions.Interpreter
@@ -20,10 +20,8 @@ namespace System.Linq.Expressions.Interpreter
             StackDepth = stackDepth;
         }
 
-        public override string ToString()
-        {
-            return string.Format(CultureInfo.InvariantCulture, "->{0} C({1}) S({2})", Index, ContinuationStackDepth, StackDepth);
-        }
+        public override string ToString() =>
+            string.Create(CultureInfo.InvariantCulture, $"->{Index} C({ContinuationStackDepth}) S({StackDepth})");
     }
 
     internal sealed class BranchLabel
@@ -74,10 +72,7 @@ namespace System.Linq.Expressions.Interpreter
 
             if (_targetIndex == UnknownIndex)
             {
-                if (_forwardBranchFixups == null)
-                {
-                    _forwardBranchFixups = new List<int>();
-                }
+                _forwardBranchFixups ??= new List<int>();
                 _forwardBranchFixups.Add(branchIndex);
             }
             else

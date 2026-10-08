@@ -2,13 +2,23 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 
 namespace System.Net.Http
 {
-    public sealed class HttpRequestOptions : IDictionary<string, object?>
+    /// <summary>
+    /// Represents a collection of options for an HTTP request.
+    /// </summary>
+    [DebuggerDisplay("{DebuggerToString(),nq}")]
+    [DebuggerTypeProxy(typeof(HttpRequestOptionsDebugView))]
+    public sealed class HttpRequestOptions : IDictionary<string, object?>, IReadOnlyDictionary<string, object?>
     {
         private Dictionary<string, object?> Options { get; } = new Dictionary<string, object?>();
+        bool IReadOnlyDictionary<string, object?>.TryGetValue(string key, out object? value) => Options.TryGetValue(key, out value);
+        object? IReadOnlyDictionary<string, object?>.this[string key] => Options[key];
+        IEnumerable<string> IReadOnlyDictionary<string, object?>.Keys => Options.Keys;
+        IEnumerable<object?> IReadOnlyDictionary<string, object?>.Values => Options.Values;
         object? IDictionary<string, object?>.this[string key]
         {
             get
@@ -35,7 +45,22 @@ namespace System.Net.Http
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => ((System.Collections.IEnumerable)Options).GetEnumerator();
         bool IDictionary<string, object?>.Remove(string key) => Options.Remove(key);
         bool ICollection<KeyValuePair<string, object?>>.Remove(KeyValuePair<string, object?> item) => ((IDictionary<string, object?>)Options).Remove(item);
+        bool IReadOnlyDictionary<string, object?>.ContainsKey(string key) => Options.ContainsKey(key);
         bool IDictionary<string, object?>.TryGetValue(string key, out object? value) => Options.TryGetValue(key, out value);
+        int IReadOnlyCollection<KeyValuePair<string, object?>>.Count => Options.Count;
+
+        /// <summary>
+        /// Initializes a new instance of the HttpRequestOptions class.
+        /// </summary>
+        public HttpRequestOptions() { }
+
+        /// <summary>
+        /// Gets the value of a given HTTP request option.
+        /// </summary>
+        /// <param name="key">Strongly typed key to get the value of HTTP request option. For example <code>new HttpRequestOptionsKey&lt;bool&gt;("WebAssemblyEnableStreamingResponse")</code></param>
+        /// <param name="value">Returns the value of HTTP request option.</param>
+        /// <typeparam name="TValue">The type of the HTTP value as defined by <code>key</code> parameter.</typeparam>
+        /// <returns>True, if an option is retrieved.</returns>
         public bool TryGetValue<TValue>(HttpRequestOptionsKey<TValue> key, [MaybeNullWhen(false)] out TValue value)
         {
             if (Options.TryGetValue(key.Key, out object? _value) && _value is TValue tvalue)
@@ -48,9 +73,32 @@ namespace System.Net.Http
             return false;
         }
 
+        /// <summary>
+        /// Sets the value of a given request option.
+        /// </summary>
+        /// <param name="key">Strongly typed key to get the value of HTTP request option. For example <code>new HttpRequestOptionsKey&lt;bool&gt;("WebAssemblyEnableStreamingResponse")</code></param>
+        /// <param name="value">The value of the HTTP request option.</param>
+        /// <typeparam name="TValue">The type of the HTTP value as defined by <code>key</code> parameter.</typeparam>
         public void Set<TValue>(HttpRequestOptionsKey<TValue> key, TValue value)
         {
             Options[key.Key] = value;
+        }
+
+        private string DebuggerToString() => $"Count = {Options.Count}";
+
+        private sealed class HttpRequestOptionsDebugView(HttpRequestOptions options)
+        {
+            [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
+            public KeyValuePair<string, object?>[] Items
+            {
+                get
+                {
+                    var dictionary = (IDictionary<string, object?>)options;
+                    var items = new KeyValuePair<string, object?>[dictionary.Count];
+                    dictionary.CopyTo(items, 0);
+                    return items;
+                }
+            }
         }
     }
 }

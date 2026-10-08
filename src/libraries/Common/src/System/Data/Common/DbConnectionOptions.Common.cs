@@ -4,7 +4,6 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Globalization;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -13,19 +12,6 @@ namespace System.Data.Common
     internal partial class DbConnectionOptions
     {
 #if DEBUG
-        /*private const string ConnectionStringPatternV1 =
-             "[\\s;]*"
-            +"(?<key>([^=\\s]|\\s+[^=\\s]|\\s+==|==)+)"
-            +   "\\s*=(?!=)\\s*"
-            +"(?<value>("
-            +   "(" + "\"" + "([^\"]|\"\")*" + "\"" + ")"
-            +   "|"
-            +   "(" + "'" + "([^']|'')*" + "'" + ")"
-            +   "|"
-            +   "(" + "(?![\"'])" + "([^\\s;]|\\s+[^\\s;])*" + "(?<![\"'])" + ")"
-            + "))"
-            + "[\\s;]*"
-        ;*/
         private const string ConnectionStringPattern =                      // may not contain embedded null except trailing last value
                 "([\\s;]*"                                                  // leading whitespace and extra semicolons
                 + "(?![\\s;])"                                              // key does not start with space or semicolon
@@ -58,21 +44,34 @@ namespace System.Data.Common
                 + ")" // although the spec does not allow {} embedded within a value, the retail code does.
                 + ")(\\s*)(;|[\u0000\\s]*$)"                               // whitespace after value up to semicolon or end-of-line
                 + ")*"                                                     // repeat the key-value pair
-                + "[\\s;]*[\u0000\\s]*"                                    // traling whitespace/semicolons (DataSourceLocator), embedded nulls are allowed only in the end
+                + "[\\s;]*[\u0000\\s]*"                                    // trailing whitespace/semicolons (DataSourceLocator), embedded nulls are allowed only in the end
             ;
 
-        private static readonly Regex s_connectionStringRegex = new Regex(ConnectionStringPattern, RegexOptions.ExplicitCapture | RegexOptions.Compiled);
-        private static readonly Regex s_connectionStringRegexOdbc = new Regex(ConnectionStringPatternOdbc, RegexOptions.ExplicitCapture | RegexOptions.Compiled);
+#if NET
+        [GeneratedRegex(ConnectionStringPattern, RegexOptions.ExplicitCapture)]
+        private static partial Regex ConnectionStringRegex { get; }
+
+        [GeneratedRegex(ConnectionStringPatternOdbc, RegexOptions.ExplicitCapture)]
+        private static partial Regex ConnectionStringRegexOdbc { get; }
+#else
+        private static Regex ConnectionStringRegex { get; } = new Regex(ConnectionStringPattern, RegexOptions.ExplicitCapture | RegexOptions.Compiled);
+        private static Regex ConnectionStringRegexOdbc { get; } = new Regex(ConnectionStringPatternOdbc, RegexOptions.ExplicitCapture | RegexOptions.Compiled);
+#endif
 #endif
         internal const string DataDirectory = "|datadirectory|";
 
-#pragma warning disable CA1823 // used in some compilations and not others
-        private static readonly Regex s_connectionStringValidKeyRegex = new Regex("^(?![;\\s])[^\\p{Cc}]+(?<!\\s)$", RegexOptions.Compiled); // key not allowed to start with semi-colon or space or contain non-visible characters or end with space
-        private static readonly Regex s_connectionStringValidValueRegex = new Regex("^[^\u0000]*$", RegexOptions.Compiled); // value not allowed to contain embedded null
-
-        private static readonly Regex s_connectionStringQuoteValueRegex = new Regex("^[^\"'=;\\s\\p{Cc}]*$", RegexOptions.Compiled); // generally do not quote the value if it matches the pattern
-        private static readonly Regex s_connectionStringQuoteOdbcValueRegex = new Regex("^\\{([^\\}\u0000]|\\}\\})*\\}$", RegexOptions.ExplicitCapture | RegexOptions.Compiled); // do not quote odbc value if it matches this pattern
-#pragma warning restore CA1823
+#if NET
+        [GeneratedRegex("^(?![;\\s])[^\\p{Cc}]+(?<!\\s)$")]
+        private static partial Regex ConnectionStringValidKeyRegex { get; } // key not allowed to start with semi-colon or space or contain non-visible characters or end with space
+        [GeneratedRegex("^[^\"'=;\\s\\p{Cc}]*$")]
+        private static partial Regex ConnectionStringQuoteValueRegex { get; } // generally do not quote the value if it matches the pattern
+        [GeneratedRegex("^\\{([^\\}\u0000]|\\}\\})*\\}$", RegexOptions.ExplicitCapture)]
+        private static partial Regex ConnectionStringQuoteOdbcValueRegex { get; } // do not quote odbc value if it matches this pattern
+#else
+        private static Regex ConnectionStringValidKeyRegex { get; } = new Regex("^(?![;\\s])[^\\p{Cc}]+(?<!\\s)$", RegexOptions.Compiled); // key not allowed to start with semi-colon or space or contain non-visible characters or end with space
+        private static Regex ConnectionStringQuoteValueRegex { get; } = new Regex("^[^\"'=;\\s\\p{Cc}]*$", RegexOptions.Compiled); // generally do not quote the value if it matches the pattern
+        private static Regex ConnectionStringQuoteOdbcValueRegex { get; } = new Regex("^\\{([^\\}\u0000]|\\}\\})*\\}$", RegexOptions.ExplicitCapture | RegexOptions.Compiled); // do not quote odbc value if it matches this pattern
+#endif
 
         // connection string common keywords
         private static class KEY
@@ -397,17 +396,11 @@ namespace System.Data.Common
             return currentPosition;
         }
 
-#pragma warning disable CA2249 // Consider using 'string.Contains' instead of 'string.IndexOf'. This file is built into libraries that don't have string.Contains(char).
         private static bool IsValueValidInternal(string? keyvalue)
         {
             if (null != keyvalue)
             {
-#if DEBUG
-                bool compValue = s_connectionStringValidValueRegex.IsMatch(keyvalue);
-                Debug.Assert((-1 == keyvalue.IndexOf('\u0000')) == compValue, "IsValueValid mismatch with regex");
-#endif
-                // string.Contains(char) is .NetCore2.1+ specific
-                return (-1 == keyvalue.IndexOf('\u0000'));
+                return !keyvalue.Contains('\u0000');
             }
             return true;
         }
@@ -417,21 +410,19 @@ namespace System.Data.Common
             if (null != keyname)
             {
 #if DEBUG
-                bool compValue = s_connectionStringValidKeyRegex.IsMatch(keyname);
-                Debug.Assert(((0 < keyname.Length) && (';' != keyname[0]) && !char.IsWhiteSpace(keyname[0]) && (-1 == keyname.IndexOf('\u0000'))) == compValue, "IsValueValid mismatch with regex");
+                bool compValue = ConnectionStringValidKeyRegex.IsMatch(keyname);
+                Debug.Assert(((0 < keyname.Length) && (';' != keyname[0]) && !char.IsWhiteSpace(keyname[0]) && !keyname.Contains('\u0000')) == compValue, "IsValueValid mismatch with regex");
 #endif
-                // string.Contains(char) is .NetCore2.1+ specific
-                return ((0 < keyname.Length) && (';' != keyname[0]) && !char.IsWhiteSpace(keyname[0]) && (-1 == keyname.IndexOf('\u0000')));
+                return ((0 < keyname.Length) && (';' != keyname[0]) && !char.IsWhiteSpace(keyname[0]) && !keyname.Contains('\u0000'));
             }
             return false;
         }
-#pragma warning restore CA2249 // Consider using 'string.Contains' instead of 'string.IndexOf'
 
 #if DEBUG
         private static Dictionary<string, string> SplitConnectionString(string connectionString, Dictionary<string, string>? synonyms, bool firstKey)
         {
             var parsetable = new Dictionary<string, string>();
-            Regex parser = (firstKey ? s_connectionStringRegexOdbc : s_connectionStringRegex);
+            Regex parser = (firstKey ? ConnectionStringRegexOdbc : ConnectionStringRegex);
 
             const int KeyIndex = 1, ValueIndex = 2;
             Debug.Assert(KeyIndex == parser.GroupNumberFromName("key"), "wrong key index");
@@ -526,11 +517,11 @@ namespace System.Data.Common
                             }
                         }
                     }
-                    Debug.Assert(isEquivalent, "ParseInternal code vs regex message mismatch: <" + msg1 + "> <" + msg2 + ">");
+                    Debug.Assert(isEquivalent, $"ParseInternal code vs regex message mismatch: <{msg1}> <{msg2}>");
                 }
                 else
                 {
-                    Debug.Fail("ParseInternal code vs regex throw mismatch " + f.Message);
+                    Debug.Fail($"ParseInternal code vs regex throw mismatch {f.Message}");
                 }
                 e = null;
             }

@@ -2,9 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections;
+using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.ComponentModel;
 using System.ComponentModel.Design;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Runtime.CompilerServices;
@@ -15,24 +17,24 @@ using Microsoft.Win32.SafeHandles;
 
 namespace System.Diagnostics
 {
-    internal class EventLogInternal : IDisposable, ISupportInitialize
+    internal sealed class EventLogInternal : IDisposable, ISupportInitialize
     {
-        private EventLogEntryCollection entriesCollection;
+        private EventLogEntryCollection? entriesCollection;
         internal string logName;
         // used in monitoring for event postings.
         private int lastSeenCount;
         // holds the machine we're on, or null if it's the local machine
         internal readonly string machineName;
         // the delegate to call when an event arrives
-        internal EntryWrittenEventHandler onEntryWrittenHandler;
+        internal EntryWrittenEventHandler? onEntryWrittenHandler;
         // holds onto the handle for reading
-        private SafeEventLogReadHandle readHandle;
+        private SafeEventLogReadHandle? readHandle;
         // the source name - used only when writing
         internal readonly string sourceName;
         // holds onto the handle for writing
-        private SafeEventLogWriteHandle writeHandle;
+        private SafeEventLogWriteHandle? writeHandle;
 
-        private string logDisplayName;
+        private string? logDisplayName;
         // cache system state variables
         // the initial size of the buffer (it can be made larger if necessary)
         private const int BUF_SIZE = 40000;
@@ -40,7 +42,7 @@ namespace System.Diagnostics
         // the same as BUF_SIZE, because the cache only holds whole entries)
         private int bytesCached;
         // the actual cache buffer
-        private byte[] cache;
+        private byte[]? cache;
         // the number of the entry at the beginning of the cache
         private int firstCachedEntry = -1;
         // the number of the entry that we got out of the cache most recently
@@ -48,14 +50,13 @@ namespace System.Diagnostics
         // where that entry was
         private int lastSeenPos;
         //support for threadpool based deferred execution
-        private ISynchronizeInvoke synchronizingObject;
+        private ISynchronizeInvoke? synchronizingObject;
         // the EventLog object that publicly exposes this instance.
-        private readonly EventLog parent;
+        private readonly EventLog? parent;
 
         private const string EventLogKey = "SYSTEM\\CurrentControlSet\\Services\\EventLog";
-        internal const string DllName = "EventLogMessages.dll";
         private const string eventLogMutexName = "netfxeventlog.1.0";
-        private const int SecondsPerDay = 60 * 60 * 24;
+        private const int SecondsPerDay = 60 * 60 * 24; // can't pull in the new TimeSpan constant because this builds in older CLR versions
 
         private const int Flag_notifying = 0x1;           // keeps track of whether we're notifying our listeners - to prevent double notifications
         private const int Flag_forwards = 0x2;     // whether the cache contains entries in forwards order (true) or backwards (false)
@@ -68,10 +69,10 @@ namespace System.Diagnostics
 
         private BitVector32 boolFlags;
 
-        private Hashtable messageLibraries;
+        private Hashtable? messageLibraries;
         private static readonly Hashtable listenerInfos = new Hashtable(StringComparer.OrdinalIgnoreCase);
 
-        private object m_InstanceLockObject;
+        private object? m_InstanceLockObject;
         private object InstanceLockObject
         {
             get
@@ -86,7 +87,7 @@ namespace System.Diagnostics
             }
         }
 
-        private static object s_InternalSyncObject;
+        private static object? s_InternalSyncObject;
         private static object InternalSyncObject
         {
             get
@@ -101,19 +102,10 @@ namespace System.Diagnostics
             }
         }
 
-        public EventLogInternal(string logName, string machineName) : this(logName, machineName, "", null)
+        public EventLogInternal(string logName, string machineName, string source, EventLog? parent)
         {
-        }
+            ArgumentNullException.ThrowIfNull(logName);
 
-        public EventLogInternal(string logName, string machineName, string source) : this(logName, machineName, source, null)
-        {
-        }
-
-        public EventLogInternal(string logName, string machineName, string source, EventLog parent)
-        {
-            //look out for invalid log names
-            if (logName == null)
-                throw new ArgumentNullException(nameof(logName));
             if (!ValidLogName(logName, true))
                 throw new ArgumentException(SR.BadLogName);
 
@@ -133,9 +125,7 @@ namespace System.Diagnostics
         {
             get
             {
-                if (entriesCollection == null)
-                    entriesCollection = new EventLogEntryCollection(this);
-                return entriesCollection;
+                return entriesCollection ??= new EventLogEntryCollection(this);
             }
         }
 
@@ -161,6 +151,7 @@ namespace System.Diagnostics
             }
         }
 
+        [MemberNotNullWhen(true, nameof(readHandle))]
         private bool IsOpenForRead
         {
             get
@@ -169,6 +160,7 @@ namespace System.Diagnostics
             }
         }
 
+        [MemberNotNullWhen(true, nameof(writeHandle))]
         private bool IsOpenForWrite
         {
             get
@@ -177,7 +169,7 @@ namespace System.Diagnostics
             }
         }
 
-        public string LogDisplayName
+        public string? LogDisplayName
         {
             get
             {
@@ -187,7 +179,7 @@ namespace System.Diagnostics
                 string currentMachineName = this.machineName;
                 if (GetLogName(currentMachineName) != null)
                 {
-                    RegistryKey logkey = null;
+                    RegistryKey? logkey = null;
 
                     try
                     {
@@ -196,15 +188,19 @@ namespace System.Diagnostics
                         if (logkey == null)
                             throw new InvalidOperationException(SR.Format(SR.MissingLog, GetLogName(currentMachineName), currentMachineName));
 
-                        string resourceDll = (string)logkey.GetValue("DisplayNameFile");
+                        string? resourceDll = (string?)logkey.GetValue("DisplayNameFile");
                         if (resourceDll == null)
+                        {
                             logDisplayName = GetLogName(currentMachineName);
+                        }
                         else
                         {
-                            int resourceId = (int)logkey.GetValue("DisplayNameID");
-                            logDisplayName = FormatMessageWrapper(resourceDll, (uint)resourceId, null);
-                            if (logDisplayName == null)
-                                logDisplayName = GetLogName(currentMachineName);
+                            object? resourceIdObject = logkey.GetValue("DisplayNameID");
+                            if (resourceIdObject is not null)
+                            {
+                                logDisplayName = FormatMessageWrapper(resourceDll, (uint)(int)resourceIdObject, null);
+                            }
+                            logDisplayName ??= GetLogName(currentMachineName);
                         }
                     }
                     finally
@@ -228,7 +224,7 @@ namespace System.Diagnostics
 
         private string GetLogName(string currentMachineName)
         {
-            if ((logName == null || logName.Length == 0) && sourceName != null && sourceName.Length != 0)
+            if (string.IsNullOrEmpty(logName) && !string.IsNullOrEmpty(sourceName))
             {
                 logName = EventLog._InternalLogNameFromSourceName(sourceName, currentMachineName);
             }
@@ -250,7 +246,7 @@ namespace System.Diagnostics
             {
                 string currentMachineName = this.machineName;
 
-                object val = GetLogRegValue(currentMachineName, "MaxSize");
+                object? val = GetLogRegValue(currentMachineName, "MaxSize");
                 if (val != null)
                 {
                     int intval = (int)val;         // cast to an int first to unbox
@@ -279,9 +275,7 @@ namespace System.Diagnostics
         {
             get
             {
-                if (messageLibraries == null)
-                    messageLibraries = new Hashtable(StringComparer.OrdinalIgnoreCase);
-                return messageLibraries;
+                return messageLibraries ??= new Hashtable(StringComparer.OrdinalIgnoreCase);
             }
         }
 
@@ -291,7 +285,7 @@ namespace System.Diagnostics
             {
                 string currentMachineName = this.machineName;
 
-                object retentionobj = GetLogRegValue(currentMachineName, "Retention");
+                object? retentionobj = GetLogRegValue(currentMachineName, "Retention");
                 if (retentionobj != null)
                 {
                     int retention = (int)retentionobj;
@@ -314,7 +308,7 @@ namespace System.Diagnostics
             {
                 string currentMachineName = this.machineName;
 
-                object retentionobj = GetLogRegValue(currentMachineName, "Retention");
+                object? retentionobj = GetLogRegValue(currentMachineName, "Retention");
                 if (retentionobj != null)
                 {
                     int retention = (int)retentionobj;
@@ -338,7 +332,7 @@ namespace System.Diagnostics
             {
                 string currentMachineName = this.machineName;
 
-                if (parent.ComponentDesignMode)
+                if (parent?.ComponentDesignMode == true)
                     this.boolFlags[Flag_monitoring] = value;
                 else
                 {
@@ -350,6 +344,7 @@ namespace System.Diagnostics
             }
         }
 
+        [MemberNotNull(nameof(readHandle))]
         private int OldestEntryNumber
         {
             get
@@ -378,13 +373,13 @@ namespace System.Diagnostics
             }
         }
 
-        public ISynchronizeInvoke SynchronizingObject
+        public ISynchronizeInvoke? SynchronizingObject
         {
             get
             {
-                if (this.synchronizingObject == null && parent.ComponentDesignMode)
+                if (this.synchronizingObject == null && parent?.ComponentDesignMode == true)
                 {
-                    IDesignerHost host = (IDesignerHost)parent.ComponentGetService(typeof(IDesignerHost));
+                    IDesignerHost? host = (IDesignerHost?)parent.ComponentGetService(typeof(IDesignerHost));
                     if (host != null)
                     {
                         object baseComponent = host.RootComponent;
@@ -414,19 +409,20 @@ namespace System.Diagnostics
         {
             lock (InternalSyncObject)
             {
-                LogListeningInfo info = (LogListeningInfo)listenerInfos[compLogName];
+                LogListeningInfo? info = (LogListeningInfo?)listenerInfos[compLogName];
                 if (info != null)
                 {
                     info.listeningComponents.Add(component);
                     return;
                 }
 
-                info = new LogListeningInfo();
+
+                info = new LogListeningInfo(
+                    handleOwner: new EventLogInternal(compLogName, compMachineName, string.Empty, parent: null),
+                    waitHandle: new AutoResetEvent(false));
                 info.listeningComponents.Add(component);
 
-                info.handleOwner = new EventLogInternal(compLogName, compMachineName);
                 // tell the event log system about it
-                info.waitHandle = new AutoResetEvent(false);
                 bool success = Interop.Advapi32.NotifyChangeEventLog(info.handleOwner.ReadHandle, info.waitHandle.SafeWaitHandle);
                 if (!success)
                     throw new InvalidOperationException(SR.CantMonitorEventLog, new Win32Exception());
@@ -436,7 +432,7 @@ namespace System.Diagnostics
             }
         }
 
-        public event EntryWrittenEventHandler EntryWritten
+        public event EntryWrittenEventHandler? EntryWritten
         {
             add
             {
@@ -526,7 +522,7 @@ namespace System.Diagnostics
             boolFlags[Flag_sourceVerified] = false;
         }
 
-        private void CompletionCallback(object context)
+        private void CompletionCallback()
         {
             if (boolFlags[Flag_disposed])
             {
@@ -563,10 +559,19 @@ namespace System.Diagnostics
                     while (i < count)
                     {
                         EventLogEntry entry = GetEntryWithOldest(i);
-                        if (this.SynchronizingObject != null && this.SynchronizingObject.InvokeRequired)
-                            this.SynchronizingObject.BeginInvoke(this.onEntryWrittenHandler, new object[] { this, new EntryWrittenEventArgs(entry) });
-                        else
-                            onEntryWrittenHandler(this, new EntryWrittenEventArgs(entry));
+                        EntryWrittenEventHandler? handler = onEntryWrittenHandler;
+                        if (handler is not null)
+                        {
+                            ISynchronizeInvoke? synchronizingObject = SynchronizingObject;
+                            if (synchronizingObject is not null && synchronizingObject.InvokeRequired)
+                            {
+                                synchronizingObject.BeginInvoke(handler, new object[] { this, new EntryWrittenEventArgs(entry) });
+                            }
+                            else
+                            {
+                                handler(this, new EntryWrittenEventArgs(entry));
+                            }
+                        }
 
                         i++;
                     }
@@ -645,23 +650,22 @@ namespace System.Diagnostics
                 StartListening(currentMachineName, GetLogName(currentMachineName));
         }
 
-        internal string FormatMessageWrapper(string dllNameList, uint messageNum, string[] insertionStrings)
+        internal string? FormatMessageWrapper(string? dllNameList, uint messageNum, string[]? insertionStrings)
         {
             if (dllNameList == null)
                 return null;
 
-            if (insertionStrings == null)
-                insertionStrings = Array.Empty<string>();
+            insertionStrings ??= Array.Empty<string>();
 
             string[] listDll = dllNameList.Split(';');
 
             // Find first mesage in DLL list
             foreach (string dllName in listDll)
             {
-                if (dllName == null || dllName.Length == 0)
+                if (string.IsNullOrEmpty(dllName))
                     continue;
 
-                SafeLibraryHandle hModule = null;
+                SafeLibraryHandle? hModule;
 
                 if (IsOpen)
                 {
@@ -681,7 +685,7 @@ namespace System.Diagnostics
                 if (hModule.IsInvalid)
                     continue;
 
-                string msg = null;
+                string? msg = null;
                 try
                 {
                     msg = EventLog.TryFormatMessage(hModule, messageNum, insertionStrings);
@@ -740,7 +744,7 @@ namespace System.Diagnostics
                             buf = new byte[minBytesNeeded];
                         }
                         success = Interop.Advapi32.ReadEventLog(readHandle, Interop.Advapi32.FORWARDS_READ | Interop.Advapi32.SEEK_READ,
-                                                         oldestEntry + idx, buf, buf.Length, out bytesRead, out minBytesNeeded);
+                                                         oldestEntry + idx, buf, buf.Length, out bytesRead, out _);
                         if (!success)
                             break;
                     }
@@ -844,13 +848,13 @@ namespace System.Diagnostics
 
         internal EventLogEntry GetEntryAt(int index)
         {
-            EventLogEntry entry = GetEntryAtNoThrow(index);
+            EventLogEntry? entry = GetEntryAtNoThrow(index);
             if (entry == null)
                 throw new ArgumentException(SR.Format(SR.IndexOutOfBounds, index.ToString()));
             return entry;
         }
 
-        internal EventLogEntry GetEntryAtNoThrow(int index)
+        internal EventLogEntry? GetEntryAtNoThrow(int index)
         {
             if (!IsOpenForRead)
                 OpenForRead(this.machineName);
@@ -858,7 +862,7 @@ namespace System.Diagnostics
             if (index < 0 || index >= EntryCount)
                 return null;
             index += OldestEntryNumber;
-            EventLogEntry entry = null;
+            EventLogEntry? entry = null;
 
             try
             {
@@ -873,16 +877,17 @@ namespace System.Diagnostics
 
         private EventLogEntry GetEntryWithOldest(int index)
         {
-            EventLogEntry entry = null;
+            Debug.Assert(readHandle != null);
+
             int entryPos = GetCachedEntryPos(index);
             if (entryPos >= 0)
             {
-                entry = new EventLogEntry(cache, entryPos, this);
-                return entry;
+                Debug.Assert(cache != null, "Cannot get a non-negative position out of GetCachedEntryPos unless we have a cache");
+                return new EventLogEntry(cache, entryPos, this);
             }
 
             string currentMachineName = this.machineName;
-            int flags = 0;
+            int flags;
             if (GetCachedEntryPos(index + 1) < 0)
             {
                 flags = Interop.Advapi32.FORWARDS_READ | Interop.Advapi32.SEEK_READ;
@@ -919,7 +924,7 @@ namespace System.Diagnostics
                         }
                     }
                     success = Interop.Advapi32.ReadEventLog(readHandle, Interop.Advapi32.FORWARDS_READ | Interop.Advapi32.SEEK_READ, index,
-                                                     cache, cache.Length, out bytesRead, out minBytesNeeded);
+                                                     cache, cache.Length, out bytesRead, out _);
                 }
 
                 if (!success)
@@ -935,9 +940,9 @@ namespace System.Diagnostics
             return new EventLogEntry(cache, 0, this);
         }
 
-        internal static RegistryKey GetEventLogRegKey(string machine, bool writable)
+        internal static RegistryKey? GetEventLogRegKey(string machine, bool writable)
         {
-            RegistryKey lmkey = null;
+            RegistryKey? lmkey = null;
 
             try
             {
@@ -966,8 +971,8 @@ namespace System.Diagnostics
             if (!ValidLogName(logname, false))
                 throw new InvalidOperationException(SR.BadLogName);
 
-            RegistryKey eventkey = null;
-            RegistryKey logkey = null;
+            RegistryKey? eventkey = null;
+            RegistryKey? logkey = null;
 
             try
             {
@@ -987,9 +992,9 @@ namespace System.Diagnostics
             return logkey;
         }
 
-        private object GetLogRegValue(string currentMachineName, string valuename)
+        private object? GetLogRegValue(string currentMachineName, string valuename)
         {
-            RegistryKey logkey = null;
+            RegistryKey? logkey = null;
 
             try
             {
@@ -997,7 +1002,7 @@ namespace System.Diagnostics
                 if (logkey == null)
                     throw new InvalidOperationException(SR.Format(SR.MissingLog, GetLogName(currentMachineName), currentMachineName));
 
-                object val = logkey.GetValue(valuename);
+                object? val = logkey.GetValue(valuename);
                 return val;
             }
             finally
@@ -1008,17 +1013,14 @@ namespace System.Diagnostics
 
         private int GetNextEntryPos(int pos)
         {
+            Debug.Assert(cache != null);
             return pos + IntFrom(cache, pos);
         }
 
         private int GetPreviousEntryPos(int pos)
         {
+            Debug.Assert(cache != null);
             return pos - IntFrom(cache, pos - 4);
-        }
-
-        internal static string GetDllPath(string machineName)
-        {
-            return Path.Combine(NetFrameworkUtils.GetLatestBuildDllDirectory(machineName), DllName);
         }
 
         private static int IntFrom(byte[] buf, int offset)
@@ -1049,6 +1051,7 @@ namespace System.Diagnostics
                 logkey.SetValue("Retention", retentionvalue, RegistryValueKind.DWord);
         }
 
+        [MemberNotNull(nameof(readHandle))]
         private void OpenForRead(string currentMachineName)
         {
             if (this.boolFlags[Flag_disposed])
@@ -1056,7 +1059,7 @@ namespace System.Diagnostics
 
             string logname = GetLogName(currentMachineName);
 
-            if (logname == null || logname.Length == 0)
+            if (string.IsNullOrEmpty(logname))
                 throw new ArgumentException(SR.MissingLogProperty);
 
             if (!EventLog.Exists(logname, currentMachineName))        // do not open non-existing Log [alexvec]
@@ -1073,34 +1076,37 @@ namespace System.Diagnostics
             SafeEventLogReadHandle handle = Interop.Advapi32.OpenEventLog(currentMachineName, logname);
             if (handle.IsInvalid)
             {
-                Win32Exception e = null;
+                Win32Exception? e = null;
                 if (Marshal.GetLastWin32Error() != 0)
                 {
                     e = new Win32Exception();
                 }
+                handle.Dispose();
                 throw new InvalidOperationException(SR.Format(SR.CantOpenLog, logname, currentMachineName, e?.Message ?? ""));
             }
 
             readHandle = handle;
         }
 
+        [MemberNotNull(nameof(writeHandle))]
         private void OpenForWrite(string currentMachineName)
         {
             //Cannot allocate the writeHandle if the object has been disposed, since finalization has been suppressed.
             if (this.boolFlags[Flag_disposed])
                 throw new ObjectDisposedException(GetType().Name);
 
-            if (sourceName == null || sourceName.Length == 0)
+            if (string.IsNullOrEmpty(sourceName))
                 throw new ArgumentException(SR.NeedSourceToOpen);
 
             SafeEventLogWriteHandle handle = Interop.Advapi32.RegisterEventSource(currentMachineName, sourceName);
             if (handle.IsInvalid)
             {
-                Win32Exception e = null;
+                Win32Exception? e = null;
                 if (Marshal.GetLastWin32Error() != 0)
                 {
                     e = new Win32Exception();
                 }
+                handle.Dispose();
                 throw new InvalidOperationException(SR.Format(SR.CantOpenLogAccess, sourceName), e);
             }
             writeHandle = handle;
@@ -1142,7 +1148,7 @@ namespace System.Diagnostics
         {
             lock (InternalSyncObject)
             {
-                LogListeningInfo info = (LogListeningInfo)listenerInfos[compLogName];
+                LogListeningInfo? info = (LogListeningInfo?)listenerInfos[compLogName];
                 Debug.Assert(info != null);
                 // remove the requested component from the list.
                 info.listeningComponents.Remove(component);
@@ -1169,33 +1175,30 @@ namespace System.Diagnostics
 
         private void StartRaisingEvents(string currentMachineName, string currentLogName)
         {
-            if (!boolFlags[Flag_initializing] && !boolFlags[Flag_monitoring] && !parent.ComponentDesignMode)
+            if (!boolFlags[Flag_initializing] && !boolFlags[Flag_monitoring] && parent?.ComponentDesignMode != true)
             {
                 StartListening(currentMachineName, currentLogName);
             }
             boolFlags[Flag_monitoring] = true;
         }
 
-        private static void StaticCompletionCallback(object context, bool wasSignaled)
+        private static void StaticCompletionCallback(object? context, bool wasSignaled)
         {
-            LogListeningInfo info = (LogListeningInfo)context;
+            LogListeningInfo? info = (LogListeningInfo?)context;
             if (info == null)
                 return;
             // get a snapshot of the components to fire the event on
             EventLogInternal[] interestedComponents;
             lock (InternalSyncObject)
             {
-                interestedComponents = (EventLogInternal[])info.listeningComponents.ToArray(typeof(EventLogInternal));
+                interestedComponents = info.listeningComponents.ToArray();
             }
 
             for (int i = 0; i < interestedComponents.Length; i++)
             {
                 try
                 {
-                    if (interestedComponents[i] != null)
-                    {
-                        interestedComponents[i].CompletionCallback(null);
-                    }
+                    interestedComponents[i]?.CompletionCallback();
                 }
                 catch (ObjectDisposedException)
                 {
@@ -1215,7 +1218,7 @@ namespace System.Diagnostics
 
         private void StopRaisingEvents(/*string currentMachineName,*/ string currentLogName)
         {
-            if (!boolFlags[Flag_initializing] && boolFlags[Flag_monitoring] && !parent.ComponentDesignMode)
+            if (!boolFlags[Flag_initializing] && boolFlags[Flag_monitoring] && parent?.ComponentDesignMode != true)
             {
                 StopListening(currentLogName);
             }
@@ -1249,7 +1252,7 @@ namespace System.Diagnostics
 
             if (!EventLog.SourceExists(sourceName, currentMachineName, true))
             {
-                Mutex mutex = null;
+                Mutex? mutex = null;
 
                 try
                 {
@@ -1295,8 +1298,8 @@ namespace System.Diagnostics
             boolFlags[Flag_sourceVerified] = true;
         }
 
-        public void WriteEntry(string message, EventLogEntryType type, int eventID, short category,
-                               byte[] rawData)
+        public void WriteEntry(string? message, EventLogEntryType type, int eventID, short category,
+                               byte[]? rawData)
         {
             if (eventID < 0 || eventID > ushort.MaxValue)
 
@@ -1305,7 +1308,7 @@ namespace System.Diagnostics
             if (Source.Length == 0)
                 throw new ArgumentException(SR.NeedSourceToWrite);
 
-            if (!Enum.IsDefined(typeof(EventLogEntryType), type))
+            if (!Enum.IsDefined(type))
                 throw new InvalidEnumArgumentException(nameof(type), (int)type, typeof(EventLogEntryType));
 
             string currentMachineName = machineName;
@@ -1318,13 +1321,13 @@ namespace System.Diagnostics
             // (message-file driven) logging techniques.
             // Our DLL has 64K different entries; all of them just display the first
             // insertion string.
-            InternalWriteEvent((uint)eventID, (ushort)category, type, new string[] { message }, rawData, currentMachineName);
+            InternalWriteEvent((uint)eventID, (ushort)category, type, new string?[] { message }, rawData, currentMachineName);
         }
 
-        public void WriteEvent(EventInstance instance, byte[] data, params object[] values)
+        public void WriteEvent(EventInstance instance, byte[]? data, params object?[]? values)
         {
-            if (instance == null)
-                throw new ArgumentNullException(nameof(instance));
+            ArgumentNullException.ThrowIfNull(instance);
+
             if (Source.Length == 0)
                 throw new ArgumentException(SR.NeedSourceToWrite);
 
@@ -1336,44 +1339,37 @@ namespace System.Diagnostics
 
             VerifyAndCreateSource(Source, currentMachineName);
 
-            string[] strings = null;
+            string[]? strings = null;
 
             if (values != null)
             {
                 strings = new string[values.Length];
                 for (int i = 0; i < values.Length; i++)
                 {
-                    if (values[i] != null)
-                        strings[i] = values[i].ToString();
-                    else
-                        strings[i] = string.Empty;
+                    strings[i] = values[i]?.ToString() ?? string.Empty;
                 }
             }
 
             InternalWriteEvent((uint)instance.InstanceId, (ushort)instance.CategoryId, instance.EntryType, strings, data, currentMachineName);
         }
 
-        private void InternalWriteEvent(uint eventID, ushort category, EventLogEntryType type, string[] strings,
-                                byte[] rawData, string currentMachineName)
+        private void InternalWriteEvent(uint eventID, ushort category, EventLogEntryType type, string?[]? strings,
+                                byte[]? rawData, string currentMachineName)
         {
-            // check arguments
-            if (strings == null)
-                strings = Array.Empty<string>();
+            strings ??= Array.Empty<string>();
             if (strings.Length >= 256)
                 throw new ArgumentException(SR.TooManyReplacementStrings);
 
             for (int i = 0; i < strings.Length; i++)
             {
-                if (strings[i] == null)
-                    strings[i] = string.Empty;
+                string s = strings[i] ??= string.Empty;
 
                 // make sure the strings aren't too long.  MSDN says each string has a limit of 32k (32768) characters, but
                 // experimentation shows that it doesn't like anything larger than 32766
-                if (strings[i].Length > 32766)
+                if (s.Length > 32766)
                     throw new ArgumentException(SR.LogEntryTooLong);
             }
-            if (rawData == null)
-                rawData = Array.Empty<byte>();
+            rawData ??= Array.Empty<byte>();
 
             if (Source.Length == 0)
                 throw new ArgumentException(SR.NeedSourceToWrite);
@@ -1393,7 +1389,7 @@ namespace System.Diagnostics
                     stringRoots[strIndex] = stringHandles[strIndex].AddrOfPinnedObject();
                 }
 
-                byte[] sid = null;
+                byte[]? sid = null;
                 // actually report the event
                 bool success = Interop.Advapi32.ReportEvent(writeHandle, (short)type, category, eventID,
                                                      sid, (short)strings.Length, rawData.Length, stringsRootHandle.AddrOfPinnedObject(), rawData);
@@ -1414,12 +1410,17 @@ namespace System.Diagnostics
             }
         }
 
-        private class LogListeningInfo
+        private sealed class LogListeningInfo
         {
+            public LogListeningInfo(EventLogInternal handleOwner, AutoResetEvent waitHandle)
+            {
+                this.handleOwner = handleOwner;
+                this.waitHandle = waitHandle;
+            }
             public EventLogInternal handleOwner;
-            public RegisteredWaitHandle registeredWaitHandle;
-            public WaitHandle waitHandle;
-            public ArrayList listeningComponents = new ArrayList();
+            public RegisteredWaitHandle registeredWaitHandle = null!; // Initialized in AddListenerComponent
+            public AutoResetEvent waitHandle;
+            public List<EventLogInternal> listeningComponents = new();
         }
     }
 }

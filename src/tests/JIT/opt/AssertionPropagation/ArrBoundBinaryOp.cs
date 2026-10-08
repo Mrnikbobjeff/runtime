@@ -5,12 +5,15 @@ using System;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-class Program
+public class Program
 {
     private static int returnCode = 100;
 
-    public static int Main(string[] args)
+    [SkipOnCoreClr("Test failure under GC stress is tracked by https://github.com/dotnet/runtime/issues/66279.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int[] testIndices = Enumerable.Range(-50, 50)
                 // also add some corner case values

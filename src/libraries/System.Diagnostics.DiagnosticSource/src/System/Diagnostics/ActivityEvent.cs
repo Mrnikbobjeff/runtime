@@ -9,15 +9,17 @@ namespace System.Diagnostics
     /// <summary>
     /// A text annotation associated with a collection of tags.
     /// </summary>
+    [DebuggerDisplay("Name = {Name}, Timestamp = {Timestamp}")]
     public readonly struct ActivityEvent
     {
-        private static readonly ActivityTagsCollection s_emptyTags = new ActivityTagsCollection();
+        private static readonly IEnumerable<KeyValuePair<string, object?>> s_emptyTags = Array.Empty<KeyValuePair<string, object?>>();
+        private readonly Activity.TagsLinkedList? _tags;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="ActivityEvent"/> class.
         /// </summary>
         /// <param name="name">Event name.</param>
-        public ActivityEvent(string name) : this(name, DateTimeOffset.UtcNow, s_emptyTags)
+        public ActivityEvent(string name) : this(name, DateTimeOffset.UtcNow, tags: null)
         {
         }
 
@@ -27,11 +29,28 @@ namespace System.Diagnostics
         /// <param name="name">Event name.</param>
         /// <param name="timestamp">Event timestamp. Timestamp MUST only be used for the events that happened in the past, not at the moment of this call.</param>
         /// <param name="tags">Event Tags.</param>
-        public ActivityEvent(string name, DateTimeOffset timestamp = default, ActivityTagsCollection? tags = null)
+        public ActivityEvent(string name, DateTimeOffset timestamp = default, ActivityTagsCollection? tags = null) : this(name, timestamp, tags, tags is null ? 0 : tags.Count) { }
+
+        internal ActivityEvent(string name, DateTimeOffset timestamp, ref TagList tags)
         {
             Name = name ?? string.Empty;
-            Tags = tags ?? s_emptyTags;
             Timestamp = timestamp != default ? timestamp : DateTimeOffset.UtcNow;
+
+#if NET
+            // Read directly from the TagList's span so we avoid boxing the TagList (and its
+            // enumerator) as an IEnumerable<T> just to copy its tags into the linked list below.
+            _tags = tags.Count > 0 ? new Activity.TagsLinkedList(tags.Tags) : null;
+#else
+            _tags = tags.Count > 0 ? new Activity.TagsLinkedList((IEnumerable<KeyValuePair<string, object?>>)tags) : null;
+#endif
+        }
+
+        private ActivityEvent(string name, DateTimeOffset timestamp, IEnumerable<KeyValuePair<string, object?>>? tags, int tagsCount)
+        {
+            Name = name ?? string.Empty;
+            Timestamp = timestamp != default ? timestamp : DateTimeOffset.UtcNow;
+
+            _tags = tagsCount > 0 ? new Activity.TagsLinkedList(tags!) : null;
         }
 
         /// <summary>
@@ -47,6 +66,12 @@ namespace System.Diagnostics
         /// <summary>
         /// Gets the collection of tags associated with the event.
         /// </summary>
-        public IEnumerable<KeyValuePair<string, object>> Tags { get; }
+        public IEnumerable<KeyValuePair<string, object?>> Tags => _tags ?? s_emptyTags;
+
+        /// <summary>
+        /// Enumerate the tags attached to this <see cref="ActivityEvent"/> object.
+        /// </summary>
+        /// <returns><see cref="Activity.Enumerator{T}"/>.</returns>
+        public Activity.Enumerator<KeyValuePair<string, object?>> EnumerateTagObjects() => new Activity.Enumerator<KeyValuePair<string, object?>>(_tags?.First);
     }
 }

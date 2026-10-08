@@ -4,10 +4,10 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.Composition;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
-using System.Diagnostics.CodeAnalysis;
-using System.Diagnostics;
 
 namespace Microsoft.Internal
 {
@@ -59,20 +59,14 @@ namespace Microsoft.Internal
 
         public static string GetDisplayName(Type declaringType, string? name)
         {
-            if (declaringType == null)
-            {
-                throw new ArgumentNullException(nameof(name));
-            }
+            ArgumentNullException.ThrowIfNull(declaringType);
 
             return declaringType.GetDisplayName() + "." + name;
         }
 
         public static string GetDisplayName(this MemberInfo member)
         {
-            if (member == null)
-            {
-                throw new ArgumentNullException(nameof(member));
-            }
+            ArgumentNullException.ThrowIfNull(member);
 
             switch (member.MemberType)
             {

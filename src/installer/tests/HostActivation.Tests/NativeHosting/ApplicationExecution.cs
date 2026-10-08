@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using Microsoft.DotNet.Cli.Build.Framework;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -24,37 +25,39 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.NativeHosting
         [Fact]
         public void RunApp()
         {
-            var project = sharedState.PortableAppFixture.TestProject;
+            var app = sharedState.App;
             string[] args =
             {
                 ApplicationExecutionArg,
                 sharedState.HostFxrPath,
-                project.AppDll
+                app.AppDll
             };
 
             sharedState.CreateNativeHostCommand(args, sharedState.DotNetRoot)
                 .Execute()
                 .Should().Pass()
-                .And.InitializeContextForApp(project.AppDll)
-                .And.ExecuteApplication(sharedState.NativeHostPath, project.AppDll);
+                .And.InitializeContextForApp(app.AppDll)
+                .And.ExecuteApplication(sharedState.NativeHostPath, app.AppDll);
         }
 
         [Fact]
         public void RunApp_UnhandledException()
         {
-            var project = sharedState.PortableAppWithExceptionFixture.TestProject;
+            var app = sharedState.App;
             string[] args =
             {
                 ApplicationExecutionArg,
                 sharedState.HostFxrPath,
-                project.AppDll
+                app.AppDll,
+                "throw_exception"
             };
 
             sharedState.CreateNativeHostCommand(args, sharedState.DotNetRoot)
+                .DisableDumps() // Expected to throw an exception
                 .Execute()
                 .Should().Fail()
-                .And.InitializeContextForApp(project.AppDll)
-                .And.ExecuteApplicationWithException(sharedState.NativeHostPath, project.AppDll);
+                .And.InitializeContextForApp(app.AppDll)
+                .And.ExecuteApplicationWithException(sharedState.NativeHostPath, app.AppDll);
         }
 
         public class SharedTestState : SharedTestStateBase
@@ -62,28 +65,19 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.NativeHosting
             public string HostFxrPath { get; }
             public string DotNetRoot { get; }
 
-            public TestProjectFixture PortableAppFixture { get; }
-            public TestProjectFixture PortableAppWithExceptionFixture { get; }
+            public TestApp App { get; }
 
             public SharedTestState()
             {
-                var dotNet = new Microsoft.DotNet.Cli.Build.DotNetCli(Path.Combine(TestArtifact.TestArtifactsPath, "sharedFrameworkPublish"));
-                DotNetRoot = dotNet.BinPath;
-                HostFxrPath = dotNet.GreatestVersionHostFxrFilePath;
+                DotNetRoot = HostTestContext.BuiltDotNet.BinPath;
+                HostFxrPath = HostTestContext.BuiltDotNet.GreatestVersionHostFxrFilePath;
 
-                PortableAppFixture = new TestProjectFixture("PortableApp", RepoDirectories)
-                    .EnsureRestored(RepoDirectories.CorehostPackages)
-                    .PublishProject();
-
-                PortableAppWithExceptionFixture = new TestProjectFixture("PortableAppWithException", RepoDirectories)
-                    .EnsureRestored(RepoDirectories.CorehostPackages)
-                    .PublishProject();
+                App = TestApp.CreateFromBuiltAssets("HelloWorld");
             }
 
             protected override void Dispose(bool disposing)
             {
-                PortableAppFixture.Dispose();
-                PortableAppWithExceptionFixture.Dispose();
+                App?.Dispose();
 
                 base.Dispose(disposing);
             }
@@ -101,7 +95,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.NativeHosting
         public static FluentAssertions.AndConstraint<CommandResultAssertions> ExecuteApplicationWithException(this CommandResultAssertions assertion, string hostPath, string appPath)
         {
             var constraint = assertion.ExecuteApplication(hostPath, appPath);
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (OperatingSystem.IsWindows())
             {
                 return constraint.And.HaveStdOutContaining($"hostfxr_run_app threw exception: 0x{Constants.ErrorCode.COMPlusException.ToString("x")}");
             }

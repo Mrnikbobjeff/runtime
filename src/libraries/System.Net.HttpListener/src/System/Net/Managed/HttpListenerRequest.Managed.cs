@@ -1,5 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+
 //
 // System.Net.HttpListenerRequest
 //
@@ -30,6 +31,7 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
+using System.Buffers;
 using System.Collections.Specialized;
 using System.Diagnostics;
 using System.Globalization;
@@ -42,7 +44,7 @@ namespace System.Net
 {
     public sealed partial class HttpListenerRequest
     {
-        private class Context : TransportContext
+        private sealed class Context : TransportContext
         {
             public override ChannelBinding? GetChannelBinding(ChannelBindingKind kind)
             {
@@ -57,13 +59,13 @@ namespace System.Net
 
         private long _contentLength;
         private bool _clSet;
-        private WebHeaderCollection _headers;
+        private readonly WebHeaderCollection _headers;
         private string? _method;
         private Stream? _inputStream;
-        private HttpListenerContext _context;
+        private readonly HttpListenerContext _context;
         private bool _isChunked;
-
-        private static byte[] s_100continue = Encoding.ASCII.GetBytes("HTTP/1.1 100 Continue\r\n\r\n");
+        private static readonly SearchValues<char> s_validMethodChars = SearchValues.Create("!#$%&'*+-.0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ^_`abcdefghijklmnopqrstuvwxyz|~");
+        private static readonly byte[] s_100continue = "HTTP/1.1 100 Continue\r\n\r\n"u8.ToArray();
 
         internal HttpListenerRequest(HttpListenerContext context)
         {
@@ -72,35 +74,26 @@ namespace System.Net
             _version = HttpVersion.Version10;
         }
 
-        private static readonly char[] s_separators = new char[] { ' ' };
-
-        internal void SetRequestLine(string req)
+        internal unsafe void SetRequestLine(string req)
         {
-            string[] parts = req.Split(s_separators, 3);
-            if (parts.Length != 3)
+            Span<Range> parts = stackalloc Range[3];
+            if (req.AsSpan().Split(parts, ' ') != 3)
             {
                 _context.ErrorMessage = "Invalid request line (parts).";
                 return;
             }
 
-            _method = parts[0];
-            foreach (char c in _method)
+            _method = req[parts[0]];
+            if (_method.AsSpan().ContainsAnyExcept(s_validMethodChars))
             {
-                int ic = (int)c;
-
-                if ((ic >= 'A' && ic <= 'Z') ||
-                    (ic > 32 && c < 127 && c != '(' && c != ')' && c != '<' &&
-                     c != '<' && c != '>' && c != '@' && c != ',' && c != ';' &&
-                     c != ':' && c != '\\' && c != '"' && c != '/' && c != '[' &&
-                     c != ']' && c != '?' && c != '=' && c != '{' && c != '}'))
-                    continue;
-
                 _context.ErrorMessage = "(Invalid verb)";
                 return;
             }
 
-            _rawUrl = parts[1];
-            if (parts[2].Length != 8 || !parts[2].StartsWith("HTTP/", StringComparison.Ordinal))
+            _rawUrl = req[parts[1]];
+
+            ReadOnlySpan<char> version = req.AsSpan(parts[2]);
+            if (version.Length != 8 || !version.StartsWith("HTTP/", StringComparison.Ordinal))
             {
                 _context.ErrorMessage = "Invalid request line (version).";
                 return;
@@ -108,7 +101,7 @@ namespace System.Net
 
             try
             {
-                _version = new Version(parts[2].Substring(5));
+                _version = Version.Parse(version.Slice("HTTP/".Length));
             }
             catch
             {
@@ -132,45 +125,23 @@ namespace System.Net
         private static bool MaybeUri(string s)
         {
             int p = s.IndexOf(':');
-            if (p == -1)
-                return false;
-
-            if (p >= 10)
-                return false;
-
-            return IsPredefinedScheme(s.Substring(0, p));
-        }
-
-        private static bool IsPredefinedScheme(string scheme)
-        {
-            if (scheme == null || scheme.Length < 3)
-                return false;
-
-            char c = scheme[0];
-            if (c == 'h')
-                return (scheme == UriScheme.Http ||  scheme == UriScheme.Https);
-            if (c == 'f')
-                return (scheme == UriScheme.File || scheme == UriScheme.Ftp);
-
-            if (c == 'n')
-            {
-                c = scheme[1];
-                if (c == 'e')
-                    return (scheme == UriScheme.News || scheme == UriScheme.NetPipe || scheme == UriScheme.NetTcp);
-                if (scheme == UriScheme.Nntp)
-                    return true;
-                return false;
-            }
-            if ((c == 'g' && scheme == UriScheme.Gopher) || (c == 'm' && scheme == UriScheme.Mailto))
-                return true;
-
-            return false;
+            return (uint)p < 10 && s.AsSpan(0, p) is
+                UriScheme.Http or
+                UriScheme.Https or
+                UriScheme.File or
+                UriScheme.Ftp or
+                UriScheme.News or
+                UriScheme.NetPipe or
+                UriScheme.NetTcp or
+                UriScheme.Nntp or
+                UriScheme.Gopher or
+                UriScheme.Mailto;
         }
 
         internal void FinishInitialization()
         {
-            string host = UserHostName;
-            if (_version > HttpVersion.Version10 && (host == null || host.Length == 0))
+            ReadOnlySpan<char> host = UserHostName;
+            if (_version > HttpVersion.Version10 && host.IsEmpty)
             {
                 _context.ErrorMessage = "Invalid host name";
                 return;
@@ -184,7 +155,7 @@ namespace System.Net
             else
                 path = _rawUrl;
 
-            if ((host == null || host.Length == 0))
+            if (host.IsEmpty)
                 host = UserHostAddress;
 
             if (raw_uri != null)
@@ -192,9 +163,9 @@ namespace System.Net
 
             int colon = host.IndexOf(':');
             if (colon >= 0)
-                host = host.Substring(0, colon);
+                host = host.Slice(0, colon);
 
-            string base_uri = string.Format("{0}://{1}:{2}", RequestScheme, host, LocalEndPoint!.Port);
+            string base_uri = $"{RequestScheme}://{host}:{LocalEndPoint!.Port}";
 
             if (!Uri.TryCreate(base_uri + path, UriKind.Absolute, out _requestUri))
             {
@@ -234,38 +205,23 @@ namespace System.Net
             }
         }
 
-        internal static string Unquote(string str)
-        {
-            int start = str.IndexOf('\"');
-            int end = str.LastIndexOf('\"');
-            if (start >= 0 && end >= 0)
-                str = str.Substring(start + 1, end - 1);
-            return str.Trim();
-        }
-
         internal void AddHeader(string header)
         {
             int colon = header.IndexOf(':');
-            if (colon == -1 || colon == 0)
+            if (colon <= 0)
             {
                 _context.ErrorMessage = HttpStatusDescription.Get(400);
                 _context.ErrorStatus = 400;
                 return;
             }
 
-            string name = header.AsSpan(0, colon).Trim().ToString();
-            string val = header.AsSpan(colon + 1).Trim().ToString();
+            string name = header.AsSpan(0, colon).ToString();
+            string val = header.AsSpan(colon + 1).Trim(" \t").ToString();
             if (name.Equals("content-length", StringComparison.OrdinalIgnoreCase))
             {
-                // To match Windows behavior:
-                // Content lengths >= 0 and <= long.MaxValue are accepted as is.
-                // Content lengths > long.MaxValue and <= ulong.MaxValue are treated as 0.
-                // Content lengths < 0 cause the requests to fail.
-                // Other input is a failure, too.
-                long parsedContentLength =
-                    ulong.TryParse(val, out ulong parsedUlongContentLength) ? (parsedUlongContentLength <= long.MaxValue ? (long)parsedUlongContentLength : 0) :
-                    long.Parse(val);
-                if (parsedContentLength < 0 || (_clSet && parsedContentLength != _contentLength))
+                // Match the Windows parser shape: strict decimal parsing, and reject on parse failure.
+                bool success = long.TryParse(val, NumberStyles.None, CultureInfo.InvariantCulture.NumberFormat, out long parsedContentLength);
+                if (!success || (_clSet && parsedContentLength != _contentLength))
                 {
                     _context.ErrorMessage = "Invalid Content-Length.";
                 }
@@ -379,7 +335,7 @@ namespace System.Net
 
         public Guid RequestTraceIdentifier { get; } = Guid.NewGuid();
 
-        private IAsyncResult BeginGetClientCertificateCore(AsyncCallback requestCallback, object state)
+        private GetClientCertificateAsyncResult BeginGetClientCertificateCore(AsyncCallback? requestCallback, object? state)
         {
             var asyncResult = new GetClientCertificateAsyncResult(this, state, requestCallback);
 
@@ -393,8 +349,7 @@ namespace System.Net
 
         public X509Certificate2? EndGetClientCertificate(IAsyncResult asyncResult)
         {
-            if (asyncResult == null)
-                throw new ArgumentNullException(nameof(asyncResult));
+            ArgumentNullException.ThrowIfNull(asyncResult);
 
             GetClientCertificateAsyncResult? clientCertAsyncResult = asyncResult as GetClientCertificateAsyncResult;
             if (clientCertAsyncResult == null || clientCertAsyncResult.AsyncObject != this)
@@ -415,11 +370,11 @@ namespace System.Net
         public TransportContext TransportContext => new Context();
 
         private Uri? RequestUri => _requestUri;
-        private bool SupportsWebSockets => true;
+        private static bool SupportsWebSockets => true;
 
-        private class GetClientCertificateAsyncResult : LazyAsyncResult
+        private sealed class GetClientCertificateAsyncResult : LazyAsyncResult
         {
-            public GetClientCertificateAsyncResult(object myObject, object myState, AsyncCallback myCallBack) : base(myObject, myState, myCallBack) { }
+            public GetClientCertificateAsyncResult(object myObject, object? myState, AsyncCallback? myCallBack) : base(myObject, myState, myCallBack) { }
         }
     }
 }

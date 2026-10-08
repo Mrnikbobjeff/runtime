@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 .assembly extern System.Console { }
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
 .assembly extern mscorlib
 {
   .publickeytoken = (B7 7A 5C 56 19 34 E0 89 )                         // .z\V.4..
@@ -17,7 +19,6 @@
   .hash algorithm 0x00008004
   .ver 1:0:0:0
 }
-.module dev10_531793.exe
 
 
 // =============== CLASS MEMBERS DECLARATION ===================
@@ -30,7 +31,7 @@
        extends [mscorlib]System.Object
        implements class N`1<class N`1<class T1>>
 {
-  .method public specialname rtspecialname 
+  .method public specialname rtspecialname
           instance void  .ctor() cil managed
   {
     // Code size       9 (0x9)
@@ -44,11 +45,18 @@
 
 } // end of class T1
 
-.class private auto ansi sealed Module1
+.class public auto ansi sealed Module1
        extends [mscorlib]System.Object
 {
   .method public static int32  Main() cil managed
   {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
+    .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, valuetype [Microsoft.DotNet.XUnitExtensions]Xunit.TestRuntimes) = {
+        string('needs triage')
+        int32(0x2) // Mono
+    }
     .entrypoint
     .maxstack  1
     .locals init ([0] class T1 t, [1] class N`1<class T1> v, int32)
@@ -79,7 +87,7 @@
 
 ENDOFTEST:
 	ldloc.2
-	ret		
+	ret
 
   } // end of method Module1::Main
 

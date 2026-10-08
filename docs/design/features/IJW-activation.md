@@ -44,7 +44,7 @@ Below are the entry-points that the Visual C++ team needs
 When `_CorExeMain()` is called, the following will occur:
 
 1) If a [`.runtimeconfig.json`](https://github.com/dotnet/cli/blob/master/Documentation/specs/runtime-configuration-file.md) file exists adjacent to the shim assembly (`<shim_name>.runtimeconfig.json`), that file will be used to describe CLR configuration details. The documentation for the `.runtimeconfig.json` format defines under what circumstances this file may be optional.
-2) Using the existing `hostfxr` library, attempt to discover the desired CLR and target [framework](https://docs.microsoft.com/en-us/dotnet/core/packages#frameworks).
+2) Using the existing `hostfxr` library, attempt to discover the desired CLR and target [framework](https://learn.microsoft.com/dotnet/core/packages#frameworks).
    * If a CLR is active with the process, the requested CLR version will be validated against that CLR. If version satisfiability fails, activation will fail.
    * If a CLR is **not** active with the process, an attempt will be made to create a satisfying CLR instance.
    * Failure to create an instance will result in activation failure.
@@ -97,3 +97,6 @@ We will implement it similarly, by having CoreCLR call back into the IJW assembl
 #### Caveats
 
 Since native images can only be loaded into memory once on Windows, there is only one instance of the vtfixup table. As a result, the native code in an IJW assembly will always call into managed code from the first managed load of the assembly. As a result, if an IJW assembly is loaded into two different ALCs, then a call to managed code in an IJW assembly that calls into native code and back into managed within the IJW assembly may change ALCs within the stack if the call into the IJW assembly is in a different ALC than the IJW assembly was initially loaded into. We have a test that reproduces this behavior.
+
+## Incompatible with trimming
+.NET Core IJW Activation support on managed side is disabled by default on trimmed apps. .NET Core IJW Activation and trimming are incompatible since the trimmer cannot analyze methods that are called by the native side or doesn't even know about the assembly being loaded (and thus cannot analyze its dependencies). Native hosting support for trimming can be managed through the [feature switch](https://github.com/dotnet/runtime/blob/main/docs/workflow/trimming/feature-switches.md) settings specific to each native host.

@@ -13,19 +13,24 @@ namespace System.Diagnostics
     [Designer("System.Diagnostics.Design.ProcessModuleDesigner, System.Design, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a")]
     public class ProcessModule : Component
     {
-        private FileVersionInfo? _fileVersionInfo;
+        private readonly string _fileName;
+        private readonly string _moduleName;
 
-        internal ProcessModule() { }
+        internal ProcessModule(string fileName, string moduleName)
+        {
+            _fileName = fileName;
+            _moduleName = moduleName;
+        }
 
         /// <devdoc>
         ///     Returns the name of the Module.
         /// </devdoc>
-        public string? ModuleName { get; internal set; }
+        public string ModuleName => _moduleName;
 
         /// <devdoc>
         ///     Returns the full file path for the location of the module.
         /// </devdoc>
-        public string? FileName { get; internal set; }
+        public string FileName => _fileName;
 
         /// <devdoc>
         ///     Returns the memory address that the module was loaded at.
@@ -49,7 +54,7 @@ namespace System.Diagnostics
         /// <devdoc>
         ///     Returns version information about the module.
         /// </devdoc>
-        public FileVersionInfo FileVersionInfo => _fileVersionInfo ?? (_fileVersionInfo = FileVersionInfo.GetVersionInfo(FileName!));
+        public FileVersionInfo FileVersionInfo => field ??= FileVersionInfo.GetVersionInfo(_fileName);
 
         public override string ToString() => $"{base.ToString()} ({ModuleName})";
     }

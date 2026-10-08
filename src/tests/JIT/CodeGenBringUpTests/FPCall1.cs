@@ -5,7 +5,8 @@
 
 using System;
 using System.Runtime.CompilerServices;
-public class BringUpTest
+using Xunit;
+public class BringUpTest_FPCall1
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -20,7 +21,8 @@ public class BringUpTest
         return zero;
     }
                                        
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         float y = FPCall1(-1f);
         Console.WriteLine(y);

@@ -1,8 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b140902;
+
 using System;
-internal unsafe class testout1
+using Xunit;
+public unsafe class testout1
 {
     public struct VT_0_8_5
     {
@@ -3442,7 +3446,9 @@ internal unsafe class testout1
         return retval_0;
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int retval;
         retval = Convert.ToInt32(Func_0());

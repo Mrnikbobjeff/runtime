@@ -135,7 +135,7 @@ namespace System.Linq.Parallel.Tests
         }
 
         // Check that some queries run in parallel by default, and some require forcing.
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [MemberData(nameof(WithExecutionModeQueryData), new[] { 1, 4 })] // DOP of 1 to verify sequential and 4 to verify parallel
         public static void WithExecutionMode(
             Labeled<ParallelQuery<int>> labeled,
@@ -158,7 +158,6 @@ namespace System.Linq.Parallel.Tests
         }
 
         [Theory]
-        [ActiveIssue("https://github.com/mono/mono/issues/14956", TestRuntimes.Mono)]
         [MemberData(nameof(AllExecutionModes_Multiple))]
         public static void WithExecutionMode_Multiple(ParallelExecutionMode first, ParallelExecutionMode second)
         {

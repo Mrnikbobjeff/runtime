@@ -2,17 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.IO;
 using System.Text;
-using System.Collections;
 using System.Xml.Schema;
-using System.Diagnostics;
-using System.Globalization;
-using System.Diagnostics.CodeAnalysis;
 
 namespace System.Xml
 {
-    internal class ValidatingReaderNodeData
+    internal sealed class ValidatingReaderNodeData
     {
         private string _localName;
         private string _namespaceUri;
@@ -84,7 +84,7 @@ namespace System.Xml
                 }
                 else
                 {
-                    _nameWPrefix = nameTable.Add(string.Concat(_prefix, ":", _localName));
+                    _nameWPrefix = nameTable.Add($"{_prefix}:{_localName}");
                 }
             }
 
@@ -179,10 +179,7 @@ namespace System.Xml
             _namespaceUri = string.Empty;
             _rawValue = string.Empty;
 
-            if (_attributePSVIInfo != null)
-            {
-                _attributePSVIInfo.Reset();
-            }
+            _attributePSVIInfo?.Reset();
 
             _nameWPrefix = null;
             _lineNo = 0;

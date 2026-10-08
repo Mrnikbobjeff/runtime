@@ -23,10 +23,13 @@ scriptroot="$( cd -P "$( dirname "$source" )" && pwd )"
 
 imagename="dotnet-sdk-libs-current"
 configuration="Release"
-privateaspnetcore=0
+repo_root=$(git -C "$scriptroot" rev-parse --show-toplevel)
+major_version=$(grep -oP '(?<=<MajorVersion>).*?(?=</MajorVersion>)' "$repo_root/eng/Versions.props")
+minor_version=$(grep -oP '(?<=<MinorVersion>).*?(?=</MinorVersion>)' "$repo_root/eng/Versions.props")
+version="$major_version.$minor_version"
 
-while [[ $# > 0 ]]; do
-  opt="$(echo "${1/#--/-}" | awk '{print tolower($0)}')"
+while [[ $# -gt 0 ]]; do
+  opt="$(echo "${1/#--/-}" | tr "[:upper:]" "[:lower:]")"
   case "$opt" in
     -imagename|-t)
       imagename=$2
@@ -36,25 +39,17 @@ while [[ $# > 0 ]]; do
       configuration=$2
       shift 2
       ;;
-    -privateaspnetcore|-pa)
-      privateaspnetcore=1
-      shift 1
-      ;;
     *)
       shift 1
       ;;
   esac
 done
 
-repo_root=$(git rev-parse --show-toplevel)
 docker_file="$scriptroot/libraries-sdk.linux.Dockerfile"
-
-if [[ $privateaspnetcore -eq 1 ]]; then
-    docker_file="$scriptroot/libraries-sdk-aspnetcore.linux.Dockerfile"
-fi
 
 docker build --tag $imagename \
     --build-arg CONFIGURATION=$configuration \
+    --build-arg VERSION=$version \
     --file $docker_file \
     $repo_root
 

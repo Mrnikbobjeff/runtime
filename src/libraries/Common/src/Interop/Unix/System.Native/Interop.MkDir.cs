@@ -3,12 +3,13 @@
 
 using System;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 
 internal static partial class Interop
 {
     internal static partial class Sys
     {
-        [DllImport(Libraries.SystemNative, EntryPoint = "SystemNative_MkDir", SetLastError = true)]
-        internal static extern int MkDir(string path, int mode);
+        [LibraryImport(Libraries.SystemNative, EntryPoint = "SystemNative_MkDir", SetLastError = true)]
+        internal static partial int MkDir([MarshalUsing(typeof(SpanOfCharAsUtf8StringMarshaller))] ReadOnlySpan<char> path, int mode);
     }
 }

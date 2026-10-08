@@ -16,7 +16,9 @@ internal static partial class Interop
             SkipSetEventOnHandle = 2
         }
 
-        [DllImport(Libraries.Kernel32, SetLastError = true)]
-        internal static extern unsafe bool SetFileCompletionNotificationModes(SafeHandle handle, FileCompletionNotificationModes flags);
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [LibraryImport(Libraries.Kernel32, SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        internal static partial bool SetFileCompletionNotificationModes(SafeHandle handle, FileCompletionNotificationModes flags);
     }
 }

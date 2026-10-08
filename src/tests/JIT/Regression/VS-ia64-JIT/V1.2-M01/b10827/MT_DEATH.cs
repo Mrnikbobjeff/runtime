@@ -2,9 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b10827;
+
 using System;
 using System.Threading;
-class testout1
+using Xunit;
+using TestLibrary;
+public class testout1
 {
 
     public int sum = 0;
@@ -20307,7 +20312,7 @@ class testout1
         if (ab_false[index] && ab_false[index] ? ab_false[index] : ab_false[index]) True_Sum++; else False_Sum++;
         sum += (True_Sum * 2) - False_Sum; return;
     }
-    public void Fire()
+    internal void Fire()
     {
         int temp = sum;
         sum = 0;
@@ -20824,7 +20829,9 @@ class testout1
         return;
     }
 
-    public static int Main()
+    [Fact]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/41472", typeof(PlatformDetection), nameof(PlatformDetection.IsNotMultithreadingSupported))]
+    public static int TestEntryPoint()
     {
         int Sum = 0;
         Thread[] Thrd = new Thread[15];

@@ -8,7 +8,6 @@
 #include <array>
 #include <functional>
 #include <iostream>
-#using <mscorlib.dll>
 using namespace System::Collections::Generic;
 
 public enum class TestCases
@@ -30,6 +29,21 @@ struct HFA
     float f3;
     float f4;
 };
+
+// Floating-point varargs results can differ in the low-order bits between the
+// managed "expected" computation and the native summation.
+static bool AreClose(double expected, double actual)
+{
+    double diff = System::Math::Abs(expected - actual);
+    double scale = System::Math::Max(System::Math::Abs(expected), System::Math::Abs(actual));
+
+    // 0.0001 (0.01%) relative tolerance. The lossy path is single-precision: near
+    // the test's ~1e10 magnitudes one float ULP is ~1.1e-7 relative, and summing
+    // 164 floats (41 HFAs x 4) compounds to a worst case of ~1.8e-5. 0.0001 sits
+    // ~5x above that so rounding never false-fails, yet stays tight enough to
+    // catch a real ABI/marshalling bug.
+    return diff <= scale * 0.0001;
+}
 
 #pragma unmanaged
 
@@ -307,7 +321,7 @@ private:
             values[39],
             values[40]
         );
-        bool result = expected == actual;
+        bool result = AreClose(expected, actual);
         if (!result)
         {
             std::cout << "RunHFAsTest Failed:" << "Expected:" << expected << '\t' << "Actual:" << actual << std::endl;
@@ -383,14 +397,14 @@ private:
     bool RunWidenedShortsTest(System::Random^ rng)
     {
         std::array<int, NumArgsPerCall / 2> intValues;
-        std::array<short, NumArgsPerCall - (NumArgsPerCall / 2)> shortValues;
+        std::array<int16_t, NumArgsPerCall - (NumArgsPerCall / 2)> shortValues;
         for (std::size_t i = 0; i < intValues.size(); ++i)
         {
             intValues[i] = rng->Next(System::Int32::MinValue, System::Int32::MaxValue);
         }
         for (std::size_t i = 0; i < shortValues.size(); ++i)
         {
-            shortValues[i] = (short)rng->Next(System::Int16::MinValue, System::Int16::MaxValue);
+            shortValues[i] = (int16_t)rng->Next(System::Int16::MinValue, System::Int16::MaxValue);
         }
 
         auto expected = std::accumulate(intValues.begin(), intValues.end(), 0, std::plus<>{}) + std::accumulate(shortValues.begin(), shortValues.end(), 0LL, std::plus<>{});

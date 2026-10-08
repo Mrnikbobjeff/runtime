@@ -59,11 +59,12 @@ namespace Microsoft.Win32
         internal SystemEvents() { }
         public static event System.EventHandler? DisplaySettingsChanged { add { } remove { } }
         public static event System.EventHandler? DisplaySettingsChanging { add { } remove { } }
+        [System.ObsoleteAttribute("SystemEvents.EventsThreadShutdown callbacks are not run before the process exits. Use AppDomain.ProcessExit instead.", DiagnosticId = "SYSLIB0059", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
         public static event System.EventHandler? EventsThreadShutdown { add { } remove { } }
         public static event System.EventHandler? InstalledFontsChanged { add { } remove { } }
         [System.ComponentModel.BrowsableAttribute(false)]
         [System.ComponentModel.EditorBrowsableAttribute(System.ComponentModel.EditorBrowsableState.Never)]
-        [System.ObsoleteAttribute("This event has been deprecated. https://go.microsoft.com/fwlink/?linkid=14202")]
+        [System.ObsoleteAttribute("The LowMemory event has been deprecated and is not supported.")]
         public static event System.EventHandler? LowMemory { add { } remove { } }
         public static event System.EventHandler? PaletteChanged { add { } remove { } }
         public static event Microsoft.Win32.PowerModeChangedEventHandler? PowerModeChanged { add { } remove { } }

@@ -2,13 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b26558
 {
     using System;
 
-    class AA
+    public class AA
     {
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             uint[] local5 = new uint[7];
             int local6 = 18;
@@ -25,7 +28,6 @@ namespace DefaultNamespace
                     }
                 }
             }
-            return 100;
         }
     }
 }

@@ -2,33 +2,24 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.IO;
-using System.Xml;
 using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Text;
-using System.Runtime.Serialization;
 using System.Diagnostics.CodeAnalysis;
+using System.IO;
+using System.Runtime.Serialization;
+using System.Text;
+using System.Xml;
 
 namespace System.Xml
 {
     public class XmlDictionary : IXmlDictionary
     {
-        private static IXmlDictionary? s_empty;
         private readonly Dictionary<string, XmlDictionaryString> _lookup;
         private XmlDictionaryString[]? _strings;
         private int _nextId;
 
-        public static IXmlDictionary Empty
-        {
-            get
-            {
-                if (s_empty == null)
-                    s_empty = new EmptyDictionary();
-                return s_empty;
-            }
-        }
+        public static IXmlDictionary Empty => field ??= new EmptyDictionary();
 
         public XmlDictionary()
         {
@@ -86,8 +77,8 @@ namespace System.Xml
 
         public virtual bool TryLookup(XmlDictionaryString value, [NotNullWhen(true)] out XmlDictionaryString? result)
         {
-            if (value == null)
-                throw System.Runtime.Serialization.DiagnosticUtility.ExceptionUtility.ThrowHelperError(new ArgumentNullException(nameof(value)));
+            ArgumentNullException.ThrowIfNull(value);
+
             if (value.Dictionary != this)
             {
                 result = null;
@@ -97,7 +88,7 @@ namespace System.Xml
             return true;
         }
 
-        private class EmptyDictionary : IXmlDictionary
+        private sealed class EmptyDictionary : IXmlDictionary
         {
             public bool TryLookup(string value, [NotNullWhen(true)] out XmlDictionaryString? result)
             {

@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 
 namespace System.Collections.Immutable
 {
@@ -25,7 +26,7 @@ namespace System.Collections.Immutable
         /// </para>
         /// </remarks>
         [DebuggerDisplay("Count = {Count}")]
-        [DebuggerTypeProxy(typeof(ImmutableSortedDictionaryBuilderDebuggerProxy<,>))]
+        [DebuggerTypeProxy(typeof(IDictionaryDebugView<,>))]
         public sealed class Builder : IDictionary<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>, IDictionary
         {
             /// <summary>
@@ -58,11 +59,6 @@ namespace System.Collections.Immutable
             /// A number that increments every time the builder changes its contents.
             /// </summary>
             private int _version;
-
-            /// <summary>
-            /// The object callers may use to synchronize access to this collection.
-            /// </summary>
-            private object? _syncRoot;
 
             /// <summary>
             /// Initializes a new instance of the <see cref="Builder"/> class.
@@ -178,12 +174,12 @@ namespace System.Collections.Immutable
                 get
                 {
                     TValue value;
-                    if (this.TryGetValue(key, out value!))
+                    if (!this.TryGetValue(key, out value!))
                     {
-                        return value;
+                        ThrowHelper.ThrowKeyNotFoundException(key);
                     }
 
-                    throw new KeyNotFoundException(SR.Format(SR.Arg_KeyNotFoundWithKey, key.ToString()));
+                    return value;
                 }
 
                 set
@@ -197,7 +193,6 @@ namespace System.Collections.Immutable
                 }
             }
 
-#if !NETSTANDARD1_0
             /// <summary>
             /// Returns a read-only reference to the value associated with the provided key.
             /// </summary>
@@ -208,7 +203,6 @@ namespace System.Collections.Immutable
 
                 return ref _root.ValueRef(key, _keyComparer);
             }
-#endif
 
             #endregion
 
@@ -264,18 +258,8 @@ namespace System.Collections.Immutable
             /// </summary>
             /// <returns>An object that can be used to synchronize access to the <see cref="ICollection"/>.</returns>
             [DebuggerBrowsable(DebuggerBrowsableState.Never)]
-            object ICollection.SyncRoot
-            {
-                get
-                {
-                    if (_syncRoot == null)
-                    {
-                        Threading.Interlocked.CompareExchange<object?>(ref _syncRoot, new object(), null);
-                    }
-
-                    return _syncRoot;
-                }
-            }
+            object ICollection.SyncRoot =>
+                 field ?? Interlocked.CompareExchange(ref field, new object(), null) ?? field;
 
             /// <summary>
             /// Gets a value indicating whether access to the <see cref="ICollection"/> is synchronized (thread safe).
@@ -305,9 +289,9 @@ namespace System.Collections.Immutable
                     Requires.NotNull(value, nameof(value));
                     if (value != _keyComparer)
                     {
-                        var newRoot = Node.EmptyNode;
+                        ImmutableSortedDictionary<TKey, TValue>.Node newRoot = Node.EmptyNode;
                         int count = 0;
-                        foreach (var item in this)
+                        foreach (KeyValuePair<TKey, TValue> item in this)
                         {
                             bool mutated;
                             newRoot = newRoot.Add(item.Key, item.Value, value, _valueComparer, out mutated);
@@ -578,7 +562,7 @@ namespace System.Collections.Immutable
             {
                 Requires.NotNull(items, nameof(items));
 
-                foreach (var pair in items)
+                foreach (KeyValuePair<TKey, TValue> pair in items)
                 {
                     this.Add(pair);
                 }
@@ -592,7 +576,7 @@ namespace System.Collections.Immutable
             {
                 Requires.NotNull(keys, nameof(keys));
 
-                foreach (var key in keys)
+                foreach (TKey key in keys)
                 {
                     this.Remove(key);
                 }
@@ -642,56 +626,9 @@ namespace System.Collections.Immutable
                 // Creating an instance of ImmutableSortedMap<T> with our root node automatically freezes our tree,
                 // ensuring that the returned instance is immutable.  Any further mutations made to this builder
                 // will clone (and unfreeze) the spine of modified nodes until the next time this method is invoked.
-                if (_immutable == null)
-                {
-                    _immutable = Wrap(this.Root, _count, _keyComparer, _valueComparer);
-                }
-
-                return _immutable;
+                return _immutable ??= Wrap(this.Root, _count, _keyComparer, _valueComparer);
             }
             #endregion
-        }
-    }
-    /// <summary>
-    /// A simple view of the immutable collection that the debugger can show to the developer.
-    /// </summary>
-    internal class ImmutableSortedDictionaryBuilderDebuggerProxy<TKey, TValue> where TKey : notnull
-    {
-        /// <summary>
-        /// The collection to be enumerated.
-        /// </summary>
-        private readonly ImmutableSortedDictionary<TKey, TValue>.Builder _map;
-
-        /// <summary>
-        /// The simple view of the collection.
-        /// </summary>
-        private KeyValuePair<TKey, TValue>[]? _contents;
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="ImmutableSortedDictionaryBuilderDebuggerProxy{TKey, TValue}"/> class.
-        /// </summary>
-        /// <param name="map">The collection to display in the debugger</param>
-        public ImmutableSortedDictionaryBuilderDebuggerProxy(ImmutableSortedDictionary<TKey, TValue>.Builder map)
-        {
-            Requires.NotNull(map, nameof(map));
-            _map = map;
-        }
-
-        /// <summary>
-        /// Gets a simple debugger-viewable collection.
-        /// </summary>
-        [DebuggerBrowsable(DebuggerBrowsableState.RootHidden)]
-        public KeyValuePair<TKey, TValue>[] Contents
-        {
-            get
-            {
-                if (_contents == null)
-                {
-                    _contents = _map.ToArray(_map.Count);
-                }
-
-                return _contents;
-            }
         }
     }
 }

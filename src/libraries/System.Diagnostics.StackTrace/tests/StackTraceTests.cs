@@ -1,12 +1,20 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Reflection.Emit;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using Microsoft.DotNet.RemoteExecutor;
+using System.Threading.Tasks;
 using Xunit;
+using System.Threading.Tasks.Sources;
 
 namespace System.Diagnostics
 {
@@ -25,7 +33,266 @@ namespace System.Diagnostics
             }
         }
     }
+
+    public static class V1Methods
+    {
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(false)]
+#line 1 "Test0.cs"
+        public static async Task Test0(Func<int, Task> method)
+        {
+            await Test1(method);
+            await Task.Yield();
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(false)]
+#line 1 "Test1.cs"
+        public static async Task Test1(Func<int, Task> method)
+        {
+            try
+            {
+                await method(3);
+            }
+            catch (Exception ex) when (ex.Message.Contains("404"))
+            {
+                Console.WriteLine($"Caught exception in Test1 with: {ex}");
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(false)]
+#line 1 "Test2.cs"
+        public static async Task Test2(int i)
+        {
+            throw new NullReferenceException("Exception from Test2");
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(false)]
+#line 1 "EdiOuter.cs"
+        public static async Task EdiOuter()
+        {
+            await V2Methods.EdiMiddle();
+        }
+    }
+
+    public class V2Methods
+    {
+        // v2 -> v1 -> v2 -> v1
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "Foo.cs"
+        public static async Task Foo()
+        {
+            await Task.Yield();
+            try
+            {
+                await V1Methods.Test0(Foo1);
+            }
+            catch (NotImplementedException)
+            {
+                throw;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "Foo1.cs"
+        private static async Task<int> Foo1(int i)
+        {
+            await Task.Yield();
+            try
+            {
+                await Foo2(i);
+                return i * 2;
+            }
+            catch (NotImplementedException)
+            {
+                throw;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "Foo2.cs"
+        private static async Task<int> Foo2(int i)
+        {
+            try
+            {
+                await Task.Yield();
+                await V1Methods.Test2(i);
+            }
+            finally
+            {
+                throw new NotImplementedException("Exception from Foo2");
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "Bar.cs"
+        public static async Task Bar(int i)
+        {
+            if (i == 0)
+                throw new Exception("Exception from Bar");
+            await Bar(i - 1);
+        }
+
+        // also v2 v1 chaining but this time we don't have finally
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "Quux.cs"
+        public static async Task Quux()
+        {
+            await Task.Yield();
+            try
+            {
+                await V1Methods.Test0(Quux1);
+            }
+            catch (NotImplementedException)
+            {
+                throw;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "Quux1.cs"
+        private static async Task<int> Quux1(int i)
+        {
+            try
+            {
+                await Task.Delay(10);
+                throw new NotImplementedException("Exception from Quux1");
+            }
+            catch (NotImplementedException)
+            {
+                throw;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "Quuux.cs"
+        public static async Task<int> Quuux()
+        {
+            var task = Quuux2();
+            await Task.Yield();
+            return await task;
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "Quuux2.cs"
+        private static async Task<int> Quuux2()
+        {
+            await Task.Yield();
+            throw new Exception("Exception from Quuux2");
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "Bux.cs"
+        public static async Task Bux()
+        {
+            await Task.Yield();
+            try
+            {
+                Baz().Wait();
+            }
+            catch (Exception)
+            {
+                throw;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "Baz.cs"
+        public static async Task Baz()
+        {
+            if (Random.Shared.Next(1) == 100) await Task.Yield();
+            throw new Exception("Exception from Baz method.");
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "EdiMiddle.cs"
+        public static async Task EdiMiddle()
+        {
+            await EdiInner();
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "EdiInner.cs"
+        public static async Task EdiInner()
+        {
+            throw new InvalidOperationException("Exception from EdiInner");
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "ThrowsSoon.cs"
+        public static async Task ThrowsSoon()
+        {
+            Task<Guid> t = ThrowsSoonInner();
+            Use(t); // Make sure ThrowsSoonInner does not become a real async call
+            await t;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void Use(Task t)
+        {
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "ThrowsSoonInner.cs"
+        public static async Task<Guid> ThrowsSoonInner()
+        {
+            await Task.Delay(50);
+            throw new Exception("Exception from ThrowsSoonInner");
+        }
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        [System.Runtime.CompilerServices.RuntimeAsyncMethodGeneration(true)]
+#line 1 "ThrowsSoonValueTaskSource.cs"
+        public static async Task ThrowsSoonValueTaskSource()
+        {
+            ValueTask<Guid> vt = new ValueTask<Guid>(new ThrowsSoonValueTaskSourceImpl(), 0);
+            await vt;
+        }
+
+        private class ThrowsSoonValueTaskSourceImpl : IValueTaskSource<Guid>
+        {
+            private bool _isCompleted;
+
+            [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+            public Guid GetResult(short token)
+            {
+#line 1 "ThrowsSoonValueTaskSourceImpl.cs"
+                throw new Exception("Exception from ThrowsSoonValueTaskSourceImpl");
+            }
+
+            public ValueTaskSourceStatus GetStatus(short token)
+            {
+                return _isCompleted ? ValueTaskSourceStatus.Faulted : ValueTaskSourceStatus.Pending;
+            }
+
+            public void OnCompleted(Action<object?> continuation, object? state, short token, ValueTaskSourceOnCompletedFlags flags)
+            {
+                Task.Delay(50).ContinueWith(_ =>
+                {
+                    _isCompleted = true;
+                    continuation(state);
+                });
+            }
+        }
+    }
 }
+#line default
 
 namespace System.Diagnostics.Tests
 {
@@ -38,22 +305,25 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoAOT))]
         public void Ctor_Default()
         {
             var stackTrace = new StackTrace();
-            VerifyFrames(stackTrace, false);
+            VerifyFrames(stackTrace, false, 0);
         }
 
         [Theory]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoAOT))]
         [InlineData(true)]
         [InlineData(false)]
         public void Ctor_FNeedFileInfo(bool fNeedFileInfo)
         {
             var stackTrace = new StackTrace(fNeedFileInfo);
-            VerifyFrames(stackTrace, fNeedFileInfo);
+            VerifyFrames(stackTrace, fNeedFileInfo, 0);
         }
 
         [Theory]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoAOT))]
         [InlineData(0)]
         [InlineData(1)]
         public void Ctor_SkipFrames(int skipFrames)
@@ -65,11 +335,11 @@ namespace System.Diagnostics.Tests
             Assert.Equal(emptyStackTrace.FrameCount - skipFrames, stackTrace.FrameCount);
             Assert.Equal(expectedMethods, stackTrace.GetFrames().Select(f => f.GetMethod()));
 
-            VerifyFrames(stackTrace, false);
+            VerifyFrames(stackTrace, false, skipFrames);
         }
 
         [Fact]
-        public void Ctor_LargeSkipFrames_GetFramesReturnsEmtpy()
+        public void Ctor_LargeSkipFrames_GetFramesReturnsEmpty()
         {
             var stackTrace = new StackTrace(int.MaxValue);
             Assert.Equal(0, stackTrace.FrameCount);
@@ -77,6 +347,7 @@ namespace System.Diagnostics.Tests
         }
 
         [Theory]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoAOT))]
         [InlineData(0, true)]
         [InlineData(1, true)]
         [InlineData(0, false)]
@@ -90,7 +361,7 @@ namespace System.Diagnostics.Tests
             Assert.Equal(emptyStackTrace.FrameCount - skipFrames, stackTrace.FrameCount);
             Assert.Equal(expectedMethods, stackTrace.GetFrames().Select(f => f.GetMethod()));
 
-            VerifyFrames(stackTrace, fNeedFileInfo);
+            VerifyFrames(stackTrace, fNeedFileInfo, skipFrames);
         }
 
         [Theory]
@@ -104,10 +375,11 @@ namespace System.Diagnostics.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoAOT))]
         public void Ctor_ThrownException_GetFramesReturnsExpected()
         {
             var stackTrace = new StackTrace(InvokeException());
-            VerifyFrames(stackTrace, false);
+            VerifyFrames(stackTrace, false, 0);
         }
 
         [Fact]
@@ -121,12 +393,13 @@ namespace System.Diagnostics.Tests
         }
 
         [Theory]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoAOT))]
         [InlineData(true)]
         [InlineData(false)]
         public void Ctor_Bool_ThrownException_GetFramesReturnsExpected(bool fNeedFileInfo)
         {
             var stackTrace = new StackTrace(InvokeException(), fNeedFileInfo);
-            VerifyFrames(stackTrace, fNeedFileInfo);
+            VerifyFrames(stackTrace, fNeedFileInfo, 0);
         }
 
         [Theory]
@@ -143,6 +416,7 @@ namespace System.Diagnostics.Tests
 
         [Theory]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/31796", TestRuntimes.Mono)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoAOT))]
         [InlineData(0)]
         [InlineData(1)]
         public void Ctor_Exception_SkipFrames(int skipFrames)
@@ -159,7 +433,7 @@ namespace System.Diagnostics.Tests
             Assert.Equal(expectedMethods, frames.Select(f => f.GetMethod()));
             if (frames != null)
             {
-                VerifyFrames(stackTrace, false);
+                VerifyFrames(stackTrace, false, skipFrames);
             }
         }
 
@@ -199,7 +473,7 @@ namespace System.Diagnostics.Tests
             Assert.Equal(expectedMethods, frames.Select(f => f.GetMethod()));
             if (frames != null)
             {
-                VerifyFrames(stackTrace, fNeedFileInfo);
+                VerifyFrames(stackTrace, fNeedFileInfo, skipFrames);
             }
         }
 
@@ -232,6 +506,12 @@ namespace System.Diagnostics.Tests
             AssertExtensions.Throws<ArgumentNullException>("e", () => new StackTrace(null, 1));
         }
 
+        [Fact]
+        public void Ctor_NullMultiFrame_ThrowsArgumentNullException()
+        {
+            AssertExtensions.Throws<ArgumentNullException>("frames", () => new StackTrace((IEnumerable<StackFrame>)null));
+        }
+
         public static IEnumerable<object[]> Ctor_Frame_TestData()
         {
             yield return new object[] { new StackFrame() };
@@ -245,6 +525,19 @@ namespace System.Diagnostics.Tests
             var stackTrace = new StackTrace(stackFrame);
             Assert.Equal(1, stackTrace.FrameCount);
             Assert.Equal(new StackFrame[] { stackFrame }, stackTrace.GetFrames());
+        }
+
+        [Fact]
+        public void Ctor_MultiFrame()
+        {
+            var stackFrames = new[] { new StackFrame(), new StackFrame() };
+            var stackTrace = new StackTrace(stackFrames);
+            Assert.Equal(stackFrames.Length, stackTrace.FrameCount);
+
+            for (var i = 0; i < stackFrames.Length; ++i)
+            {
+                Assert.Equal(stackFrames[i], stackTrace.GetFrame(i));
+            }
         }
 
         public static IEnumerable<object[]> ToString_TestData()
@@ -300,12 +593,219 @@ namespace System.Diagnostics.Tests
             Assert.Equal(Environment.NewLine, stackTrace.ToString());
         }
 
+        [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/11354", TestRuntimes.Mono)]
+        public unsafe void ToString_FunctionPointerSignature()
+        {
+            // This is separate from ToString_Invoke_ReturnsExpected since unsafe cannot be used for iterators
+            var stackTrace = FunctionPointerParameter(null);
+            // Function pointers have no Name.
+            Assert.Contains("System.Diagnostics.Tests.StackTraceTests.FunctionPointerParameter( x)", stackTrace.ToString());
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void ToString_ShowILOffset()
+        {
+            string AssemblyName = "ExceptionTestAssembly.dll";
+            string SourceTestAssemblyPath = Path.Combine(Environment.CurrentDirectory, AssemblyName);
+            string regPattern = @":token 0x([a-f0-9]*)\+0x([a-f0-9]*)";
+
+            // Normal loading case
+            RemoteExecutor.Invoke((asmPath, asmName, p) =>
+            {
+                AppContext.SetSwitch("Switch.System.Diagnostics.StackTrace.ShowILOffsets", true);
+                var asm = Assembly.LoadFrom(asmPath);
+                try
+                {
+                    asm.GetType("Program").GetMethod("Foo").Invoke(null, null);
+                }
+                catch (Exception e)
+                {
+                    Assert.Contains(asmName, e.InnerException.StackTrace);
+                    Assert.Matches(p, e.InnerException.StackTrace);
+                }
+            }, SourceTestAssemblyPath, AssemblyName, regPattern).Dispose();
+
+            // AssemblyBuilder.DefineDynamicAssembly() case
+            RemoteExecutor.Invoke((p) =>
+            {
+                AppContext.SetSwitch("Switch.System.Diagnostics.StackTrace.ShowILOffsets", true);
+                AssemblyName asmName = new AssemblyName("ExceptionTestAssembly");
+                AssemblyBuilder asmBldr = AssemblyBuilder.DefineDynamicAssembly(asmName, AssemblyBuilderAccess.Run);
+                ModuleBuilder modBldr = asmBldr.DefineDynamicModule(asmName.Name);
+                TypeBuilder tBldr = modBldr.DefineType("Program");
+                MethodBuilder mBldr = tBldr.DefineMethod("Foo", MethodAttributes.Public | MethodAttributes.Static, null, null);
+                ILGenerator ilGen = mBldr.GetILGenerator();
+                ilGen.ThrowException(typeof(NullReferenceException));
+                ilGen.Emit(OpCodes.Ret);
+                Type t = tBldr.CreateType();
+                try
+                {
+                    t.InvokeMember("Foo", BindingFlags.InvokeMethod, null, null, null);
+                }
+                catch (Exception e)
+                {
+                    Assert.Contains("RefEmit_InMemoryManifestModule", e.InnerException.StackTrace);
+                    Assert.Matches(p, e.InnerException.StackTrace);
+                }
+            }, regPattern).Dispose();
+        }
+
+        // Assembly.Load(byte[]) triggers an AMSI (Antimalware Scan Interface) scan via Windows Defender.
+        // On some Windows x86 CI machines the AMSI RPC call hangs indefinitely,
+        // so we retry with a shorter timeout to work around the transient OS issue.
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void ToString_ShowILOffset_ByteArrayLoad()
+        {
+            string AssemblyName = "ExceptionTestAssembly.dll";
+            string SourceTestAssemblyPath = Path.Combine(Environment.CurrentDirectory, AssemblyName);
+            string regPattern = @":token 0x([a-f0-9]*)\+0x([a-f0-9]*)";
+
+            const int maxAttempts = 3;
+            for (int attempt = 1; ; attempt++)
+            {
+                try
+                {
+                    var options = new RemoteInvokeOptions { TimeOut = 30_000 };
+                    RemoteExecutor.Invoke((asmPath, asmName, p) =>
+                    {
+                        AppContext.SetSwitch("Switch.System.Diagnostics.StackTrace.ShowILOffsets", true);
+                        var inMemBlob = File.ReadAllBytes(asmPath);
+                        var asm = Assembly.Load(inMemBlob);
+                        TargetInvocationException ex = Assert.Throws<TargetInvocationException>(
+                            () => asm.GetType("Program").GetMethod("Foo").Invoke(null, null));
+                        Assert.Contains(asmName, ex.InnerException.StackTrace);
+                        Assert.Matches(p, ex.InnerException.StackTrace);
+                    }, SourceTestAssemblyPath, AssemblyName, regPattern, options).Dispose();
+                    break;
+                }
+                catch (RemoteExecutionException ex) when (OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture == Architecture.X86 && attempt < maxAttempts && ex.Message.Contains("Timed out"))
+                {
+                    // AMSI hang: on some Windows x86 CI machines, Assembly.Load(byte[]) triggers an AMSI scan
+                    // whose RPC call hangs indefinitely. Retry with a fresh process.
+                }
+            }
+        }
+
+        // On Android and Apple mobile, stack traces do not include file names and line numbers
+        // Tracking issue: https://github.com/dotnet/runtime/issues/124087
+        private static string FileInfoPattern(string fileLinePattern) =>
+            PlatformDetection.IsAndroid || PlatformDetection.IsAppleMobile ? "" : fileLinePattern;
+
+        public static Dictionary<string, string[]> MethodExceptionStrings = new()
+        {
+            { "Foo", new[] {
+                @"Exception from Foo2",
+                @"V2Methods\.Foo2\(Int32" + FileInfoPattern(@".*Foo2.*\.cs:line 10"),
+                @"V2Methods\.Foo1\(Int32" + FileInfoPattern(@".*Foo1.*\.cs:line 6"),
+                @"V1Methods.*Test1",
+                @"V1Methods.*Test0",
+                @"V2Methods\.Foo\(\)" + FileInfoPattern(@".*Foo.*\.cs:line 6")
+            }},
+            { "Bar", new[] {
+                @"Exception from Bar",
+                @"V2Methods\.Bar\(Int32" + FileInfoPattern(@".*Bar.*\.cs:line 4"),
+                @"V2Methods\.Bar\(Int32" + FileInfoPattern(@".*Bar.*\.cs:line 5")
+            }},
+            {"Quux", new[] {
+                @"Exception from Quux1",
+                @"V2Methods\.Quux1\(Int32" + FileInfoPattern(@".*Quux1.*\.cs:line 6"),
+                @"V1Methods.*Test1",
+                @"V1Methods.*Test0",
+                @"V2Methods\.Quux\(\)" + FileInfoPattern(@".*Quux.*\.cs:line 6")
+            }},
+            { "Quuux", new[] {
+                @"Exception from Quuux2",
+                @"V2Methods\.Quuux2\(\)" + FileInfoPattern(@".*Quuux2.*\.cs:line 4"),
+                @"V2Methods\.Quuux\(\)" + FileInfoPattern(@".*Quuux.*\.cs:line [35]") // if yield finishes before Task is awaited, line 3 else line 5. Either is ok.
+            }},
+            {"Bux", new[] {
+                @"Exception from Baz method.",
+                @"V2Methods\.Baz\(\)" + FileInfoPattern(@".*Baz.*\.cs:line 4"),
+                @"V2Methods\.Bux\(\)" + FileInfoPattern(@".*Bux.*\.cs:line 6")
+            }},
+            {"ThrowsSoon", new[] {
+                @"Exception from ThrowsSoonInner",
+                @"V2Methods\.ThrowsSoonInner\(\)" + FileInfoPattern(@".*ThrowsSoonInner.*\.cs:line 4"),
+                @"V2Methods\.ThrowsSoon\(\)" + FileInfoPattern(@".*ThrowsSoon.*\.cs:line [35]")
+            }},
+            {"ThrowsSoonValueTaskSource", new[] {
+                @"Exception from ThrowsSoonValueTaskSourceImpl",
+                @"V2Methods\.ThrowsSoonValueTaskSourceImpl.GetResult" + FileInfoPattern(@".*ThrowsSoonValueTaskSourceImpl.*\.cs:line 1"),
+                @"V2Methods\.ThrowsSoonValueTaskSource\(\)" + FileInfoPattern(@".*ThrowsSoonValueTaskSource.*\.cs:line 4")
+            }},
+            { "EdiOuter", new[] {
+                @"Exception from EdiInner",
+                @"V2Methods\.EdiInner\(\)" + FileInfoPattern(@".*EdiInner.*\.cs:line 3"),
+                @"V2Methods\.EdiMiddle\(\)" + FileInfoPattern(@".*EdiMiddle.*\.cs:line 3"),
+                @"V1Methods.*EdiOuter"
+            }},
+        };
+
+        public static IEnumerable<object[]> Ctor_Async_TestData()
+        {
+            yield return new object[] { () => V2Methods.Foo(), MethodExceptionStrings["Foo"] };
+            yield return new object[] { () => V2Methods.Bar(3), MethodExceptionStrings["Bar"] };
+            yield return new object[] { () => V2Methods.Quux(), MethodExceptionStrings["Quux"] };
+            yield return new object[] { () => V2Methods.Quuux(), MethodExceptionStrings["Quuux"] };
+            yield return new object[] { () => V2Methods.Bux(), MethodExceptionStrings["Bux"] };
+            yield return new object[] { () => V2Methods.ThrowsSoon(), MethodExceptionStrings["ThrowsSoon"] };
+            yield return new object[] { () => V1Methods.EdiOuter(), MethodExceptionStrings["EdiOuter"] };
+        }
+
+        // Move test case back into Ctor_Async_TestData once enabled.
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsRuntimeAsyncSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/131123", typeof(PlatformDetection), nameof(PlatformDetection.IsCoreClrInterpreter))]
+        public Task ToString_Async_ThrowsSoonValueTaskSource() =>
+            ToString_Async(V2Methods.ThrowsSoonValueTaskSource, MethodExceptionStrings["ThrowsSoonValueTaskSource"]);
+
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsRuntimeAsyncSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50957", typeof(PlatformDetection), nameof(PlatformDetection.IsBrowser))]
+        [MemberData(nameof(Ctor_Async_TestData))]
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        public async Task ToString_Async(Func<Task> asyncMethod, string[] expectedPatterns)
+        {
+            Exception? caughtException = null;
+            try
+            {
+                await asyncMethod();
+            }
+            catch (Exception ex)
+            {
+                caughtException = ex;
+            }
+
+            Assert.NotNull(caughtException);
+            string exceptionText = caughtException.ToString();
+            int startIndex = 0;
+            foreach (string pattern in expectedPatterns)
+            {
+                Regex regex = new(pattern, RegexOptions.None, TimeSpan.FromSeconds(10));
+                Match match = regex.Match(exceptionText, startIndex);
+                Assert.True(match.Success, $"Could not find expected pattern '{pattern}' in exception text:\n{exceptionText} starting at index {startIndex}.");
+                startIndex = match.Index + match.Length;
+            }
+
+            // [ActiveIssue("https://github.com/dotnet/runtime/issues/129155", typeof(PlatformDetection), nameof(PlatformDetection.IsNativeAot))]
+            if (!PlatformDetection.IsNativeAot)
+            {
+                Assert.DoesNotContain("--- End of stack trace from previous location ---", exceptionText);
+            }
+            Assert.DoesNotContain("ResumeTaskContinuation", exceptionText);
+            Assert.DoesNotContain("ResumeValueTaskSourceContinuation", exceptionText);
+            Assert.DoesNotContain("ValueTaskSourceContinuation.GetResult", exceptionText);
+            Assert.DoesNotContain("RuntimeAsyncTaskContinuation.GetResult", exceptionText);
+        }
+
         [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
         private static StackTrace NoParameters() => new StackTrace();
         [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
         private static StackTrace OneParameter(int x) => new StackTrace();
         [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
         private static StackTrace TwoParameters(int x, string y) => new StackTrace();
+
+        [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
+        private unsafe static StackTrace FunctionPointerParameter(delegate*<void> x) => new StackTrace();
 
         [MethodImpl(MethodImplOptions.NoOptimization | MethodImplOptions.NoInlining)]
         private static StackTrace Generic<T>() => new StackTrace();
@@ -341,7 +841,7 @@ namespace System.Diagnostics.Tests
             public ClassWithConstructor() => StackTrace = new StackTrace();
         }
 
-        private static void VerifyFrames(StackTrace stackTrace, bool hasFileInfo)
+        private static void VerifyFrames(StackTrace stackTrace, bool hasFileInfo, int skippedFrames)
         {
             Assert.True(stackTrace.FrameCount > 0);
 
@@ -358,7 +858,11 @@ namespace System.Diagnostics.Tests
                     Assert.Equal(0, stackFrame.GetFileLineNumber());
                     Assert.Equal(0, stackFrame.GetFileColumnNumber());
                 }
-                Assert.NotNull(stackFrame.GetMethod());
+
+                // On native AOT, the reflection invoke infrastructure uses compiler-generated code
+                // that doesn't have a reflection method associated. Limit the checks.
+                if (!PlatformDetection.IsNativeAot || (i + skippedFrames) == 0)
+                    Assert.NotNull(stackFrame.GetMethod());
             }
         }
     }

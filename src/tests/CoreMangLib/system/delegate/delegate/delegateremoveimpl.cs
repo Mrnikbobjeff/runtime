@@ -3,8 +3,9 @@
 
 using System;
 using System.Globalization;
+using Xunit;
 //test case for delegate RemoveImpl(System.Delegate) method.
-namespace DelegateTest
+namespace DelegateRemoveImplTest
 {
     delegate bool booldelegate();
     public class DelegateRemoveImpl
@@ -12,7 +13,9 @@ namespace DelegateTest
 
         booldelegate starkWork;
 
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             DelegateRemoveImpl delegateRemoveImpl = new DelegateRemoveImpl();
 
@@ -55,7 +58,7 @@ namespace DelegateTest
             try
             {
                 DelegateRemoveImpl delctor = new DelegateRemoveImpl();
-                TestClass tcInstance = new TestClass();
+                DelegateRemoveImplTestClass tcInstance = new DelegateRemoveImplTestClass();
                 delctor.starkWork = new booldelegate(tcInstance.StartWork_Bool);
                 delctor.starkWork -= new booldelegate(tcInstance.StartWork_Bool);
                 if (null != delctor.starkWork)
@@ -63,14 +66,14 @@ namespace DelegateTest
                     TestLibrary.TestFramework.LogError("001", "remove failure  " );
                     retVal = false;
                 }
-                
+
             }
             catch (Exception e)
             {
                 TestLibrary.TestFramework.LogError("002", "Unexpected exception: " + e);
                 retVal = false;
             }
-            
+
             return retVal;
         }
         // Returns true if the expected result is right
@@ -82,7 +85,7 @@ namespace DelegateTest
             try
             {
                 DelegateRemoveImpl delctor = new DelegateRemoveImpl();
-                TestClass tcInstance = new TestClass();
+                DelegateRemoveImplTestClass tcInstance = new DelegateRemoveImplTestClass();
 		booldelegate bStartWork_Bool = new booldelegate(tcInstance.StartWork_Bool);
 		booldelegate bWorking_Bool   = new booldelegate(tcInstance.Working_Bool);
 		booldelegate bCompleted_Bool = new booldelegate(tcInstance.Completed_Bool);
@@ -110,7 +113,7 @@ namespace DelegateTest
                 TestLibrary.TestFramework.LogError("005", "Unexpected exception: " + e);
                 retVal = false;
             }
-            
+
             return retVal;
         }
         // Returns true if the expected result is right
@@ -123,10 +126,10 @@ namespace DelegateTest
             try
             {
                 DelegateRemoveImpl delctor = new DelegateRemoveImpl();
-		booldelegate bStartWork_Bool = new booldelegate(new TestClass().StartWork_Bool);
-		booldelegate bWorking_Bool   = new booldelegate(new TestClass().Working_Bool);
-		booldelegate bCompleted_Bool = new booldelegate(new TestClass().Completed_Bool);
-		booldelegate bOther_bool = new booldelegate(TestClass1.Other_Bool);
+		booldelegate bStartWork_Bool = new booldelegate(new DelegateRemoveImplTestClass().StartWork_Bool);
+		booldelegate bWorking_Bool   = new booldelegate(new DelegateRemoveImplTestClass().Working_Bool);
+		booldelegate bCompleted_Bool = new booldelegate(new DelegateRemoveImplTestClass().Completed_Bool);
+		booldelegate bOther_bool = new booldelegate(DelegateRemoveImplTestClass1.Other_Bool);
 
                 delctor.starkWork += bStartWork_Bool;
                 delctor.starkWork += bWorking_Bool;
@@ -136,7 +139,7 @@ namespace DelegateTest
 		Delegate[] afterList = delctor.starkWork.GetInvocationList();
 		if (beforeList.Length != afterList.Length)
                  {
-                    TestLibrary.TestFramework.LogError("006", 
+                    TestLibrary.TestFramework.LogError("006",
 		String.Format("Remove changed invocation list length from {0} to {1}", beforeList.Length,
 		afterList.Length));
                     retVal = false;
@@ -156,7 +159,7 @@ namespace DelegateTest
                 TestLibrary.TestFramework.LogError("008", "Unexpected exception: " + e);
                 retVal = false;
             }
-            
+
             return retVal;
         }
 
@@ -170,7 +173,7 @@ namespace DelegateTest
             try
             {
                 DelegateRemoveImpl delctor = new DelegateRemoveImpl();
-                TestClass tcInstance = new TestClass();
+                DelegateRemoveImplTestClass tcInstance = new DelegateRemoveImplTestClass();
 		booldelegate bStartWork_Bool = new booldelegate(tcInstance.StartWork_Bool);
 		booldelegate bWorking_Bool   = new booldelegate(tcInstance.Working_Bool);
 		booldelegate bCompleted_Bool = new booldelegate(tcInstance.Completed_Bool);
@@ -213,9 +216,9 @@ namespace DelegateTest
             try
             {
                 DelegateRemoveImpl delctor = new DelegateRemoveImpl();
-		booldelegate bStartWork_Bool = new booldelegate(TestClass1.StartWork_Bool);
-		booldelegate bWorking_Bool   = new booldelegate(TestClass1.Working_Bool);
-		booldelegate bCompleted_Bool = new booldelegate(TestClass1.Completed_Bool);
+		booldelegate bStartWork_Bool = new booldelegate(DelegateRemoveImplTestClass1.StartWork_Bool);
+		booldelegate bWorking_Bool   = new booldelegate(DelegateRemoveImplTestClass1.Working_Bool);
+		booldelegate bCompleted_Bool = new booldelegate(DelegateRemoveImplTestClass1.Completed_Bool);
 
                 delctor.starkWork += bStartWork_Bool;
                 delctor.starkWork += bStartWork_Bool;
@@ -246,8 +249,8 @@ namespace DelegateTest
             return retVal;
         }
     }
-    //create testclass for provding test method and test target.
-    class TestClass
+    //create testclass for providing test method and test target.
+    class DelegateRemoveImplTestClass
     {
         public bool StartWork_Bool()
         {
@@ -265,7 +268,7 @@ namespace DelegateTest
             return true;
         }
     }
-    class TestClass1
+    class DelegateRemoveImplTestClass1
     {
         public static bool StartWork_Bool()
         {

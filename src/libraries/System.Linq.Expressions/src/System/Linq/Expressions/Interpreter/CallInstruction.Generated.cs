@@ -13,9 +13,7 @@ namespace System.Linq.Expressions.Interpreter
 {
     internal partial class CallInstruction
     {
-#if FEATURE_DLG_INVOKE
         private const int MaxHelpers = 5;
-#endif
 
 #if FEATURE_FAST_CREATE
         private const int MaxArgs = 3;
@@ -34,6 +32,7 @@ namespace System.Linq.Expressions.Interpreter
         /// One relaxation is that for return types which are non-primitive types
         /// we can fall back to object due to relaxed delegates.
         /// </summary>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         private static CallInstruction FastCreate(MethodInfo target, ParameterInfo[] pi)
         {
             Type t = TryGetParameterOrReturnType(target, pi, 0);
@@ -73,6 +72,7 @@ namespace System.Linq.Expressions.Interpreter
             }
         }
 
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         private static CallInstruction FastCreate<T0>(MethodInfo target, ParameterInfo[] pi)
         {
             Type t = TryGetParameterOrReturnType(target, pi, 1);
@@ -116,6 +116,7 @@ namespace System.Linq.Expressions.Interpreter
             }
         }
 
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         private static CallInstruction FastCreate<T0, T1>(MethodInfo target, ParameterInfo[] pi)
         {
             Type t = TryGetParameterOrReturnType(target, pi, 2);
@@ -158,8 +159,8 @@ namespace System.Linq.Expressions.Interpreter
         }
 #endif
 
-#if FEATURE_DLG_INVOKE
         [return: DynamicallyAccessedMembersAttribute(DynamicallyAccessedMemberTypes.PublicConstructors)]
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         private static Type GetHelperType(MethodInfo info, Type[] arrTypes)
         {
             Type t;
@@ -211,10 +212,8 @@ namespace System.Linq.Expressions.Interpreter
             }
             return t;
         }
-#endif
     }
 
-#if FEATURE_DLG_INVOKE
     internal sealed class ActionCallInstruction : CallInstruction
     {
         private readonly Action _target;
@@ -577,6 +576,4 @@ namespace System.Linq.Expressions.Interpreter
 
         public override string ToString() => "Call(" + _target.Method + ")";
     }
-
-#endif
 }

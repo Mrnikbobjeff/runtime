@@ -1,8 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers;
+using System.Diagnostics;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace System
 {
@@ -10,219 +13,186 @@ namespace System
     // The idea is to stay with static helper methods and strings
     internal static class DomainNameHelper
     {
+        // Regular ascii dot '.'
+        // IDEOGRAPHIC FULL STOP '\u3002'
+        // FULLWIDTH FULL STOP '\uFF0E'
+        // HALFWIDTH IDEOGRAPHIC FULL STOP '\uFF61'
+        // Using SearchValues isn't beneficial here as it would defer to IndexOfAny(char, char, char, char) anyway
+        private const string IriDotCharacters = ".\u3002\uFF0E\uFF61";
+
+        // The Unicode specification allows certain code points to be normalized not to
+        // punycode, but to ASCII representations that retain the same meaning. For example,
+        // the codepoint U+00BC "Vulgar Fraction One Quarter" is normalized to '1/4' rather
+        // than being punycoded.
+        //
+        // This means that a host containing Unicode characters can be normalized to contain
+        // URI reserved characters, changing the meaning of a URI only when certain properties
+        // such as IdnHost are accessed. To be safe, disallow control characters in normalized hosts.
+        private static readonly SearchValues<char> s_unsafeForNormalizedHostChars =
+            SearchValues.Create(@"\/?@#:[]");
+
+        // Takes into account the additional legal domain name characters '-' and '_'
+        // Note that '_' char is formally invalid but is historically in use, especially on corpnets
+        private static readonly SearchValues<char> s_validChars =
+            SearchValues.Create("-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz.");
+
+        // For IRI, we're accepting anything non-ascii (except 0x80-0x9F), so invert the condition to search for invalid ascii characters.
+        private static readonly SearchValues<char> s_iriInvalidChars = SearchValues.Create(
+            "\u0000\u0001\u0002\u0003\u0004\u0005\u0006\u0007\u0008\u0009\u000A\u000B\u000C\u000D\u000E\u000F" +
+            "\u0010\u0011\u0012\u0013\u0014\u0015\u0016\u0017\u0018\u0019\u001A\u001B\u001C\u001D\u001E\u001F" +
+            " !\"#$%&'()*+,/:;<=>?@[\\]^`{|}~\u007F" +
+            "\u0080\u0081\u0082\u0083\u0084\u0085\u0086\u0087\u0088\u0089\u008A\u008B\u008C\u008D\u008E\u008F" +
+            "\u0090\u0091\u0092\u0093\u0094\u0095\u0096\u0097\u0098\u0099\u009A\u009B\u009C\u009D\u009E\u009F");
+
+        private static readonly SearchValues<char> s_asciiLetterUpperOrColonChars =
+            SearchValues.Create("ABCDEFGHIJKLMNOPQRSTUVWXYZ:");
+
         private static readonly IdnMapping s_idnMapping = new IdnMapping();
 
-        internal const string Localhost = "localhost";
-        internal const string Loopback = "loopback";
+        private const string Localhost = "localhost";
+        private const string Loopback = "loopback";
 
         internal static string ParseCanonicalName(string str, int start, int end, ref bool loopback)
         {
-            string? res = null;
-
-            for (int i = end - 1; i >= start; --i)
+            // Do a quick search for the colon or uppercase letters
+            int index = str.AsSpan(start, end - start).LastIndexOfAny(s_asciiLetterUpperOrColonChars);
+            if (index >= 0)
             {
-                if (str[i] >= 'A' && str[i] <= 'Z')
+                Debug.Assert(!str.AsSpan(start, index).Contains(':'),
+                    "A colon should appear at most once, and must never be followed by letters.");
+
+                if (str[start + index] == ':')
                 {
-                    res = str.Substring(start, end - start).ToLowerInvariant();
-                    break;
+                    // Shrink the slice to only include chars before the colon
+                    end = start + index;
+
+                    // Look for uppercase letters again.
+                    // The index value doesn't matter anymore (nor does the search direction), just whether we've found anything
+                    index = str.AsSpan(start, index).IndexOfAnyInRange('A', 'Z');
                 }
-                if (str[i] == ':')
-                    end = i;
             }
 
-            if (res == null)
+            Debug.Assert(index == -1 || char.IsAsciiLetterUpper(str[start + index]));
+
+            ReadOnlySpan<char> span = str.AsSpan(start, end - start);
+            if (index >= 0)
             {
-                res = str.Substring(start, end - start);
+                if (span.Equals(Localhost, StringComparison.OrdinalIgnoreCase) ||
+                    span.Equals(Loopback, StringComparison.OrdinalIgnoreCase))
+                {
+                    loopback = true;
+                    return Localhost;
+                }
+
+                // We saw uppercase letters. Avoid allocating both the substring and the lower-cased variant.
+                return UriHelper.SpanToLowerInvariantString(span);
             }
 
-            if (res == Localhost || res == Loopback)
+            if (span is Localhost or Loopback)
             {
                 loopback = true;
                 return Localhost;
             }
-            return res;
+
+            return str.Substring(start, end - start);
         }
 
-        //
-        // IsValid
-        //
-        //  Determines whether a string is a valid domain name
-        //
-        //      subdomain -> <label> | <label> "." <subdomain>
-        //
-        // Inputs:
-        //  - name as Name to test
-        //  - starting position
-        //  - ending position
-        //
-        // Outputs:
-        //  The end position of a valid domain name string, the canonical flag if found so
-        //
-        // Returns:
-        //  bool
-        //
-        //  Remarks: Optimized for speed as a most common case,
-        //           MUST NOT be used unless all input indexes are verified and trusted.
-        //
-
-        internal static unsafe bool IsValid(char* name, int pos, ref int returnedEnd, ref bool notCanonical, bool notImplicitFile)
+        public static bool IsValid(ReadOnlySpan<char> hostname, bool iri, bool notImplicitFile, out int length)
         {
-            char* curPos = name + pos;
-            char* newPos = curPos;
-            char* end = name + returnedEnd;
-            for (; newPos < end; ++newPos)
+            int invalidCharOrDelimiterIndex = iri
+                ? hostname.IndexOfAny(s_iriInvalidChars)
+                : hostname.IndexOfAnyExcept(s_validChars);
+
+            if (invalidCharOrDelimiterIndex >= 0)
             {
-                char ch = *newPos;
-                if (ch > 0x7f) return false;    // not ascii
-                if (ch < 'a') // Optimize for lower-case letters, which make up the majority of most Uris, and which are all greater than symbols checked for below
+                char c = hostname[invalidCharOrDelimiterIndex];
+
+                if (c is '/' or '\\' || (notImplicitFile && (c is ':' or '?' or '#')))
                 {
-                    if (ch == '/' || ch == '\\' || (notImplicitFile && (ch == ':' || ch == '?' || ch == '#')))
-                    {
-                        end = newPos;
-                        break;
-                    }
+                    hostname = hostname.Slice(0, invalidCharOrDelimiterIndex);
+                }
+                else
+                {
+                    length = 0;
+                    return false;
                 }
             }
 
-            if (end == curPos)
+            length = hostname.Length;
+
+            if (length == 0)
             {
                 return false;
             }
 
-            do
+            //  Determines whether a string is a valid domain name label. In keeping
+            //  with RFC 1123, section 2.1, the requirement that the first character
+            //  of a label be alphabetic is dropped. Therefore, Domain names are
+            //  formed as:
+            //
+            //      <label> -> <alphanum> [<alphanum> | <hyphen> | <underscore>] * 62
+
+            // We already verified the content, now verify the lengths of individual labels
+            while (true)
             {
-                //  Determines whether a string is a valid domain name label. In keeping
-                //  with RFC 1123, section 2.1, the requirement that the first character
-                //  of a label be alphabetic is dropped. Therefore, Domain names are
-                //  formed as:
-                //
-                //      <label> -> <alphanum> [<alphanum> | <hyphen> | <underscore>] * 62
-
-                //find the dot or hit the end
-                newPos = curPos;
-                while (newPos < end)
-                {
-                    if (*newPos == '.') break;
-                    ++newPos;
-                }
-
-                //check the label start/range
-                if (curPos == newPos || newPos - curPos > 63 || !IsASCIILetterOrDigit(*curPos++, ref notCanonical))
+                char firstChar = hostname[0];
+                if ((!iri || firstChar < 0xA0) && !char.IsAsciiLetterOrDigit(firstChar))
                 {
                     return false;
                 }
-                //check the label content
-                while (curPos < newPos)
+
+                int dotIndex = iri
+                    ? hostname.IndexOfAny(IriDotCharacters)
+                    : hostname.IndexOf('.');
+
+                int labelLength = dotIndex < 0 ? hostname.Length : dotIndex;
+
+                if (iri)
                 {
-                    if (!IsValidDomainLabelCharacter(*curPos++, ref notCanonical))
+                    ReadOnlySpan<char> label = hostname.Slice(0, labelLength);
+                    if (!Ascii.IsValid(label))
                     {
-                        return false;
+                        // Account for the ACE prefix ("xn--")
+                        labelLength += 4;
+
+                        foreach (char c in label)
+                        {
+                            if (c > 0xFF)
+                            {
+                                // counts for two octets
+                                labelLength++;
+                            }
+                        }
                     }
                 }
-                ++curPos;
-            } while (curPos < end);
 
-            returnedEnd = (int)(end - name);
-            return true;
-        }
-
-        //
-        // Checks if the domain name is valid according to iri
-        // There are pretty much no restrictions and we effectively return the end of the
-        // domain name.
-        //
-        internal static unsafe bool IsValidByIri(char* name, int pos, ref int returnedEnd, ref bool notCanonical, bool notImplicitFile)
-        {
-            char* curPos = name + pos;
-            char* newPos = curPos;
-            char* end = name + returnedEnd;
-            int count = 0; // count number of octets in a label;
-
-            for (; newPos < end; ++newPos)
-            {
-                char ch = *newPos;
-                if (ch == '/' || ch == '\\' || (notImplicitFile && (ch == ':' || ch == '?' || ch == '#')))
-                {
-                    end = newPos;
-                    break;
-                }
-            }
-
-            if (end == curPos)
-            {
-                return false;
-            }
-
-            do
-            {
-                //  Determines whether a string is a valid domain name label. In keeping
-                //  with RFC 1123, section 2.1, the requirement that the first character
-                //  of a label be alphabetic is dropped. Therefore, Domain names are
-                //  formed as:
-                //
-                //      <label> -> <alphanum> [<alphanum> | <hyphen> | <underscore>] * 62
-
-                //find the dot or hit the end
-                newPos = curPos;
-                count = 0;
-                bool labelHasUnicode = false; // if label has unicode we need to add 4 to label count for xn--
-                while (newPos < end)
-                {
-                    if ((*newPos == '.') ||
-                        (*newPos == '\u3002') ||    //IDEOGRAPHIC FULL STOP
-                        (*newPos == '\uFF0E') ||    //FULLWIDTH FULL STOP
-                        (*newPos == '\uFF61'))      //HALFWIDTH IDEOGRAPHIC FULL STOP
-                        break;
-                    count++;
-                    if (*newPos > 0xFF)
-                        count++; // counts for two octets
-                    if (*newPos >= 0xA0)
-                        labelHasUnicode = true;
-
-                    ++newPos;
-                }
-
-                //check the label start/range
-                if (curPos == newPos || (labelHasUnicode ? count + 4 : count) > 63 || ((*curPos++ < 0xA0) && !IsASCIILetterOrDigit(*(curPos - 1), ref notCanonical)))
+                if (!IriHelper.IsInInclusiveRange((uint)labelLength, 1, 63))
                 {
                     return false;
                 }
-                //check the label content
-                while (curPos < newPos)
-                {
-                    if ((*curPos++ < 0xA0) && !IsValidDomainLabelCharacter(*(curPos - 1), ref notCanonical))
-                    {
-                        return false;
-                    }
-                }
-                ++curPos;
-            } while (curPos < end);
 
-            returnedEnd = (int)(end - name);
-            return true;
+                if (dotIndex < 0)
+                {
+                    // We validated the last label
+                    return true;
+                }
+
+                hostname = hostname.Slice(dotIndex + 1);
+
+                if (hostname.IsEmpty)
+                {
+                    // Hostname ended with a dot
+                    return true;
+                }
+            }
         }
 
         /// <summary>Converts a host name into its idn equivalent.</summary>
-        internal static string IdnEquivalent(string hostname)
+        public static string IdnEquivalent(string hostname)
         {
-            if (hostname.Length == 0)
-            {
-                return hostname;
-            }
-
             // check if only ascii chars
             // special case since idnmapping will not lowercase if only ascii present
-            bool allAscii = true;
-            foreach (char c in hostname)
-            {
-                if (c > 0x7F)
-                {
-                    allAscii = false;
-                    break;
-                }
-            }
-
-            if (allAscii)
+            if (Ascii.IsValid(hostname))
             {
                 // just lowercase for ascii
                 return hostname.ToLowerInvariant();
@@ -233,7 +203,7 @@ namespace System
             try
             {
                 string asciiForm = s_idnMapping.GetAscii(bidiStrippedHost);
-                if (ContainsCharactersUnsafeForNormalizedHost(asciiForm))
+                if (asciiForm.AsSpan().ContainsAny(s_unsafeForNormalizedHostChars))
                 {
                     throw new UriFormatException(SR.net_uri_BadUnicodeHostForIdn);
                 }
@@ -245,137 +215,63 @@ namespace System
             }
         }
 
-        private static unsafe bool IsIdnAce(string input, int index)
+        public static unsafe bool TryGetUnicodeEquivalent(string hostname, ref ValueStringBuilder dest)
         {
-            if ((input[index] == 'x') &&
-                (input[index + 1] == 'n') &&
-                (input[index + 2] == '-') &&
-                (input[index + 3] == '-'))
-                return true;
-            else
-                return false;
-        }
-
-        private static unsafe bool IsIdnAce(char* input, int index)
-        {
-            if ((input[index] == 'x') &&
-                (input[index + 1] == 'n') &&
-                (input[index + 2] == '-') &&
-                (input[index + 3] == '-'))
-                return true;
-            else
-                return false;
-        }
-
-        //
-        // Will convert a host name into its unicode equivalent expanding any existing idn names present
-        //
-        internal static unsafe string? UnicodeEquivalent(string idnHost, char* hostname, int start, int end)
-        {
-            // Test common scenario first for perf
-            // try to get unicode equivalent
-            try
-            {
-                return s_idnMapping.GetUnicode(idnHost);
-            }
-            catch (ArgumentException)
-            {
-            }
-            // Here because something threw in GetUnicode above
-            // Need to now check individual labels of they had an ace label that was not valid Idn name
-            // or if there is a label with invalid Idn char.
-            bool dummy = true;
-            return UnicodeEquivalent(hostname, start, end, ref dummy, ref dummy);
-        }
-
-        internal static unsafe string? UnicodeEquivalent(char* hostname, int start, int end, ref bool allAscii, ref bool atLeastOneValidIdn)
-        {
-            // hostname already validated
-            allAscii = true;
-            atLeastOneValidIdn = false;
-            string? idn = null;
-            if (end <= start)
-                return idn;
-
-            string unescapedHostname = UriHelper.StripBidiControlCharacters(new ReadOnlySpan<char>(hostname + start, end - start));
-
-            string? unicodeEqvlHost = null;
-            int curPos = 0;
-            int newPos = 0;
-            int length = unescapedHostname.Length;
-            bool asciiLabel = true;
-            bool foundAce = false;
-            bool checkedAce = false;
-            bool foundDot = false;
-
+            Debug.Assert(ReferenceEquals(hostname, UriHelper.StripBidiControlCharacters(hostname, hostname)));
 
             // We run a loop where for every label
             // a) if label is ascii and no ace then we lowercase it
             // b) if label is ascii and ace and not valid idn then just lowercase it
             // c) if label is ascii and ace and is valid idn then get its unicode eqvl
             // d) if label is unicode then clean it by running it through idnmapping
-            do
-            {
-                asciiLabel = true;
-                foundAce = false;
-                checkedAce = false;
-                foundDot = false;
 
-                //find the dot or hit the end
-                newPos = curPos;
-                while (newPos < length)
+            // Buffer for intermediate ASCII form when processing non-ASCII labels
+            // Max label length is 63 chars, but punycode can expand - 256 is a safe upper bound
+            Span<char> asciiBuffer = stackalloc char[256];
+
+            for (int i = 0; i < hostname.Length; i++)
+            {
+                if (i != 0)
                 {
-                    char c = unescapedHostname[newPos];
-                    if (!checkedAce)
-                    {
-                        checkedAce = true;
-                        if ((newPos + 3 < length) && (c == 'x') && IsIdnAce(unescapedHostname, newPos))
-                            foundAce = true;
-                    }
-                    if (asciiLabel && (c > '\x7F'))
-                    {
-                        asciiLabel = false;
-                        allAscii = false;
-                    }
-                    if ((c == '.') || (c == '\u3002') ||    //IDEOGRAPHIC FULL STOP
-                        (c == '\uFF0E') ||                  //FULLWIDTH FULL STOP
-                        (c == '\uFF61'))                    //HALFWIDTH IDEOGRAPHIC FULL STOP
-                    {
-                        foundDot = true;
-                        break;
-                    }
-                    ++newPos;
+                    dest.Append('.');
                 }
 
-                if (!asciiLabel)
+                ReadOnlySpan<char> label = hostname.AsSpan(i);
+
+                int dotIndex = label.IndexOfAny(IriDotCharacters);
+                if (dotIndex >= 0)
                 {
-                    string asciiForm = unescapedHostname.Substring(curPos, newPos - curPos);
+                    label = label.Slice(0, dotIndex);
+                }
+
+                if (!Ascii.IsValid(label))
+                {
+                    // For non-ASCII labels, first convert to ASCII (punycode), then to normalized Unicode
+                    // Use span-based APIs to avoid intermediate string allocations
                     try
                     {
-                        asciiForm = s_idnMapping.GetAscii(asciiForm);
+                        bool asciiSuccess = s_idnMapping.TryGetAscii(label, asciiBuffer, out int asciiWritten);
+                        Debug.Assert(asciiSuccess, "TryGetAscii should always succeed with a 255-char buffer for valid IDN labels");
+
+                        // Now convert the ASCII form to Unicode and append directly to dest
+                        AppendIdnUnicode(asciiBuffer.Slice(0, asciiWritten), ref dest);
                     }
                     catch (ArgumentException)
                     {
-                        throw new UriFormatException(SR.net_uri_BadUnicodeHostForIdn);
+                        return false;
                     }
-
-                    unicodeEqvlHost += s_idnMapping.GetUnicode(asciiForm);
-                    if (foundDot)
-                        unicodeEqvlHost += ".";
                 }
                 else
                 {
                     bool aceValid = false;
-                    if (foundAce)
+
+                    if (label.StartsWith("xn--", StringComparison.Ordinal))
                     {
-                        // check ace validity
+                        // Check ace validity - use span-based API to avoid string allocation
                         try
                         {
-                            unicodeEqvlHost += s_idnMapping.GetUnicode(unescapedHostname, curPos, newPos - curPos);
-                            if (foundDot)
-                                unicodeEqvlHost += ".";
+                            AppendIdnUnicode(label, ref dest);
                             aceValid = true;
-                            atLeastOneValidIdn = true;
                         }
                         catch (ArgumentException)
                         {
@@ -386,74 +282,30 @@ namespace System
                     if (!aceValid)
                     {
                         // for invalid aces we just lowercase the label
-                        unicodeEqvlHost += unescapedHostname.Substring(curPos, newPos - curPos).ToLowerInvariant();
-                        if (foundDot)
-                            unicodeEqvlHost += ".";
+                        int charsWritten = label.ToLowerInvariant(dest.AppendSpan(label.Length));
+                        Debug.Assert(charsWritten == label.Length);
                     }
                 }
 
-                curPos = newPos + (foundDot ? 1 : 0);
-            } while (curPos < length);
+                i += label.Length;
+            }
 
-            return unicodeEqvlHost;
+            return true;
         }
 
-        //
-        //  Determines whether a character is a letter or digit according to the
-        //  DNS specification [RFC 1035]. We use our own variant of IsLetterOrDigit
-        //  because the base version returns false positives for non-ANSI characters
-        //
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsASCIILetterOrDigit(char character, ref bool notCanonical)
+        /// <summary>
+        /// Converts ASCII (punycode) to Unicode and appends directly to the ValueStringBuilder.
+        /// </summary>
+        private static void AppendIdnUnicode(scoped ReadOnlySpan<char> ascii, ref ValueStringBuilder dest)
         {
-            if ((uint)(character - 'a') <= 'z' - 'a' || (uint)(character - '0') <= '9' - '0')
+            int charsWritten;
+
+            while (!s_idnMapping.TryGetUnicode(ascii, dest.RawChars.Slice(dest.Length), out charsWritten))
             {
-                return true;
+                dest.EnsureCapacity(dest.Capacity + 1);
             }
 
-            if ((uint)(character - 'A') <= 'Z' - 'A')
-            {
-                notCanonical = true;
-                return true;
-            }
-
-            return false;
-        }
-
-        //
-        //  Takes into account the additional legal domain name characters '-' and '_'
-        //  Note that '_' char is formally invalid but is historically in use, especially on corpnets
-        //
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static bool IsValidDomainLabelCharacter(char character, ref bool notCanonical)
-        {
-            if ((uint)(character - 'a') <= 'z' - 'a' || (uint)(character - '0') <= '9' - '0' || character == '-' || character == '_')
-            {
-                return true;
-            }
-
-            if ((uint)(character - 'A') <= 'Z' - 'A')
-            {
-                notCanonical = true;
-                return true;
-            }
-
-            return false;
-        }
-
-        // The Unicode specification allows certain code points to be normalized not to
-        // punycode, but to ASCII representations that retain the same meaning. For example,
-        // the codepoint U+00BC "Vulgar Fraction One Quarter" is normalized to '1/4' rather
-        // than being punycoded.
-        //
-        // This means that a host containing Unicode characters can be normalized to contain
-        // URI reserved characters, changing the meaning of a URI only when certain properties
-        // such as IdnHost are accessed. To be safe, disallow control characters in normalized hosts.
-        private static readonly char[] s_UnsafeForNormalizedHost = { '\\', '/', '?', '@', '#', ':', '[', ']' };
-
-        internal static bool ContainsCharactersUnsafeForNormalizedHost(string host)
-        {
-            return host.IndexOfAny(s_UnsafeForNormalizedHost) != -1;
+            dest.Length += charsWritten;
         }
     }
 }

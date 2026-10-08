@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using System.Text;
 
 namespace System.Net.NetworkInformation
@@ -11,7 +12,7 @@ namespace System.Net.NetworkInformation
     /// <summary>
     /// Implements a NetworkInterface on Linux.
     /// </summary>
-    internal class LinuxNetworkInterface : UnixNetworkInterface
+    internal sealed class LinuxNetworkInterface : UnixNetworkInterface
     {
         private OperationalStatus _operationalStatus;
         private bool _supportsMulticast;
@@ -20,23 +21,35 @@ namespace System.Net.NetworkInformation
         private NetworkInterfaceType _interfaceType = NetworkInterfaceType.Unknown;
         private readonly LinuxIPInterfaceProperties _ipProperties;
 
-        internal class LinuxNetworkInterfaceSystemProperties
+        internal sealed class LinuxNetworkInterfaceSystemProperties
         {
             internal string[]? IPv4Routes;
             internal string[]? IPv6Routes;
             internal string? DnsSuffix;
-            internal IPAddressCollection? DnsAddresses;
+            internal IPAddressCollection DnsAddresses;
 
             internal LinuxNetworkInterfaceSystemProperties()
             {
                 if (File.Exists(NetworkFiles.Ipv4RouteFile))
                 {
-                    IPv4Routes = File.ReadAllLines(NetworkFiles.Ipv4RouteFile);
+                    try
+                    {
+                        IPv4Routes = File.ReadAllLines(NetworkFiles.Ipv4RouteFile);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                    }
                 }
 
                 if (File.Exists(NetworkFiles.Ipv6RouteFile))
                 {
-                    IPv6Routes = File.ReadAllLines(NetworkFiles.Ipv6RouteFile);
+                    try
+                    {
+                        IPv6Routes = File.ReadAllLines(NetworkFiles.Ipv6RouteFile);
+                    }
+                    catch (UnauthorizedAccessException)
+                    {
+                    }
                 }
 
                 try
@@ -45,8 +58,9 @@ namespace System.Net.NetworkInformation
                     DnsSuffix = StringParsingHelpers.ParseDnsSuffixFromResolvConfFile(resolverConfig);
                     DnsAddresses = new InternalIPAddressCollection(StringParsingHelpers.ParseDnsAddressesFromResolvConfFile(resolverConfig));
                 }
-                catch (FileNotFoundException)
+                catch (Exception e) when (e is FileNotFoundException || e is UnauthorizedAccessException)
                 {
+                    DnsAddresses = new InternalIPAddressCollection();
                 }
             }
         }
@@ -61,13 +75,13 @@ namespace System.Net.NetworkInformation
         {
             var systemProperties = new LinuxNetworkInterfaceSystemProperties();
 
-            int interfaceCount=0;
-            int addressCount=0;
-            Interop.Sys.NetworkInterfaceInfo * nii = null;
-            Interop.Sys.IpAddressInfo * ai = null;
+            int interfaceCount = 0;
+            int addressCount = 0;
+            Interop.Sys.NetworkInterfaceInfo* nii = null;
+            Interop.Sys.IpAddressInfo* ai = null;
             IntPtr globalMemory = (IntPtr)null;
 
-            if (Interop.Sys.GetNetworkInterfaces(ref interfaceCount, ref nii, ref addressCount, ref ai) != 0)
+            if (Interop.Sys.GetNetworkInterfaces(&interfaceCount, &nii, &addressCount, &ai) != 0)
             {
                 string message = Interop.Sys.GetLastErrorInfo().GetErrorMessage();
                 throw new NetworkInformationException(message);
@@ -81,12 +95,17 @@ namespace System.Net.NetworkInformation
 
                 for (int i = 0; i < interfaceCount; i++)
                 {
-                    var lni = new LinuxNetworkInterface(Marshal.PtrToStringAnsi((IntPtr)nii->Name)!, nii->InterfaceIndex, systemProperties);
+                    var lni = new LinuxNetworkInterface(Utf8StringMarshaller.ConvertToManaged((byte*)&nii->Name)!, nii->InterfaceIndex, systemProperties);
                     lni._interfaceType = (NetworkInterfaceType)nii->HardwareType;
                     lni._speed = nii->Speed;
                     lni._operationalStatus = (OperationalStatus)nii->OperationalState;
                     lni._mtu = nii->Mtu;
                     lni._supportsMulticast = nii->SupportsMulticast != 0;
+
+                    if (nii->NumAddressBytes > 0)
+                    {
+                        lni._physicalAddress = new PhysicalAddress(((ReadOnlySpan<byte>)nii->AddressBytes)[..nii->NumAddressBytes].ToArray());
+                    }
 
                     interfaces[i] = lni;
                     interfacesByIndex.Add(nii->InterfaceIndex, lni);
@@ -95,7 +114,7 @@ namespace System.Net.NetworkInformation
 
                 while (addressCount != 0)
                 {
-                    var address = new IPAddress(new ReadOnlySpan<byte>(ai->AddressBytes, ai->NumAddressBytes));
+                    var address = new IPAddress(((ReadOnlySpan<byte>)ai->AddressBytes)[..ai->NumAddressBytes]);
                     if (address.IsIPv6LinkLocal)
                     {
                         address.ScopeId = ai->InterfaceIndex;

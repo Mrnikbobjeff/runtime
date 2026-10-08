@@ -1,11 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
-
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
+using System.Threading;
 
 namespace System.Runtime.InteropServices
 {
@@ -13,7 +12,7 @@ namespace System.Runtime.InteropServices
     /// Part of ComEventHelpers APIs which allow binding
     /// managed delegates to COM's connection point based events.
     /// </summary>
-    internal class ComEventsMethod
+    internal sealed class ComEventsMethod
     {
         /// <summary>
         /// This delegate wrapper class handles dynamic invocation of delegates. The reason for the wrapper's
@@ -24,7 +23,7 @@ namespace System.Runtime.InteropServices
         /// handling of this scenario - we are pre-processing delegate's signature by looking for 'ref enums'
         /// and cache the types required for such coercion.
         /// </summary>
-        public class DelegateWrapper
+        public sealed class DelegateWrapper
         {
             private bool _once;
             private int _expectedParamsCount;
@@ -38,7 +37,7 @@ namespace System.Runtime.InteropServices
 
             public Delegate Delegate { get; set; }
 
-            public bool WrapArgs { get; private set; }
+            public bool WrapArgs { get; }
 
             public object? Invoke(object[] args)
             {
@@ -57,14 +56,14 @@ namespace System.Runtime.InteropServices
                 {
                     for (int i = 0; i < _expectedParamsCount; i++)
                     {
-                        if (_cachedTargetTypes[i] != null)
+                        if (_cachedTargetTypes[i] is Type t)
                         {
-                            args[i] = Enum.ToObject(_cachedTargetTypes[i]!, args[i]); // TODO-NULLABLE: Indexer nullability tracked (https://github.com/dotnet/roslyn/issues/34644)
+                            args[i] = Enum.ToObject(t, args[i]);
                         }
                     }
                 }
 
-                return Delegate.DynamicInvoke(WrapArgs ? new object[] { args } : args);
+                return Delegate.DynamicInvoke(WrapArgs ? [args] : args);
             }
 
             private void PreProcessSignature()
@@ -83,10 +82,7 @@ namespace System.Runtime.InteropServices
                         && pi.ParameterType.HasElementType
                         && pi.ParameterType.GetElementType()!.IsEnum)
                     {
-                        if (targetTypes == null)
-                        {
-                            targetTypes = new Type?[_expectedParamsCount];
-                        }
+                        targetTypes ??= new Type?[_expectedParamsCount];
 
                         targetTypes[i] = pi.ParameterType.GetElementType();
                     }
@@ -104,7 +100,7 @@ namespace System.Runtime.InteropServices
         /// Since multicast delegate's built-in chaining supports only chaining instances of the same type,
         /// we need to complement this design by using an explicit linked list data structure.
         /// </summary>
-        private readonly List<DelegateWrapper> _delegateWrappers = new List<DelegateWrapper>();
+        private DelegateWrapper[] _delegateWrappers = [];
 
         private readonly int _dispid;
         private ComEventsMethod? _next;
@@ -148,10 +144,7 @@ namespace System.Runtime.InteropServices
                     current = current._next;
                 }
 
-                if (current != null)
-                {
-                    current._next = method._next;
-                }
+                current?._next = method._next;
 
                 return methods;
             }
@@ -159,48 +152,36 @@ namespace System.Runtime.InteropServices
 
         public bool Empty
         {
-            get
-            {
-                lock (_delegateWrappers)
-                {
-                    return _delegateWrappers.Count == 0;
-                }
-            }
+            get => _delegateWrappers.Length == 0;
         }
 
         public void AddDelegate(Delegate d, bool wrapArgs = false)
         {
-            lock (_delegateWrappers)
+            DelegateWrapper[] wrappers, newWrappers;
+            do
             {
-                // Update an existing delegate wrapper
-                foreach (DelegateWrapper wrapper in _delegateWrappers)
-                {
-                    if (wrapper.Delegate.GetType() == d.GetType() && wrapper.WrapArgs == wrapArgs)
-                    {
-                        wrapper.Delegate = Delegate.Combine(wrapper.Delegate, d);
-                        return;
-                    }
-                }
-
-                var newWrapper = new DelegateWrapper(d, wrapArgs);
-                _delegateWrappers.Add(newWrapper);
-            }
+                wrappers = _delegateWrappers;
+                newWrappers = new DelegateWrapper[wrappers.Length + 1];
+                wrappers.CopyTo(newWrappers, 0);
+                newWrappers[^1] = new DelegateWrapper(d, wrapArgs);
+            } while (!PublishNewWrappers(newWrappers, wrappers));
         }
 
         public void RemoveDelegate(Delegate d, bool wrapArgs = false)
         {
-            lock (_delegateWrappers)
+            DelegateWrapper[] wrappers, newWrappers;
+            do
             {
+                wrappers = _delegateWrappers;
+
                 // Find delegate wrapper index
                 int removeIdx = -1;
-                DelegateWrapper? wrapper = null;
-                for (int i = 0; i < _delegateWrappers.Count; i++)
+                for (int i = 0; i < wrappers.Length; i++)
                 {
-                    DelegateWrapper wrapperMaybe = _delegateWrappers[i];
-                    if (wrapperMaybe.Delegate.GetType() == d.GetType() && wrapperMaybe.WrapArgs == wrapArgs)
+                    DelegateWrapper wrapperMaybe = wrappers[i];
+                    if (wrapperMaybe.Delegate == d && wrapperMaybe.WrapArgs == wrapArgs)
                     {
                         removeIdx = i;
-                        wrapper = wrapperMaybe;
                         break;
                     }
                 }
@@ -211,51 +192,21 @@ namespace System.Runtime.InteropServices
                     return;
                 }
 
-                // Update wrapper or remove from collection
-                Delegate? newDelegate = Delegate.Remove(wrapper!.Delegate, d);
-                if (newDelegate != null)
-                {
-                    wrapper.Delegate = newDelegate;
-                }
-                else
-                {
-                    _delegateWrappers.RemoveAt(removeIdx);
-                }
-            }
+                newWrappers = new DelegateWrapper[wrappers.Length - 1];
+                wrappers.AsSpan(0, removeIdx).CopyTo(newWrappers);
+                wrappers.AsSpan(removeIdx + 1).CopyTo(newWrappers.AsSpan(removeIdx));
+            } while (!PublishNewWrappers(newWrappers, wrappers));
         }
 
         public void RemoveDelegates(Func<Delegate, bool> condition)
         {
-            lock (_delegateWrappers)
+            DelegateWrapper[] wrappers, newWrappers;
+            do
             {
-                // Find delegate wrapper indexes. Iterate in reverse such that the list to remove is sorted by high to low index.
-                List<int> toRemove = new List<int>();
-                for (int i = _delegateWrappers.Count - 1; i >= 0; i--)
-                {
-                    DelegateWrapper wrapper = _delegateWrappers[i];
-                    Delegate[] invocationList = wrapper.Delegate.GetInvocationList();
-                    foreach (Delegate delegateMaybe in invocationList)
-                    {
-                        if (condition(delegateMaybe))
-                        {
-                            Delegate? newDelegate = Delegate.Remove(wrapper!.Delegate, delegateMaybe);
-                            if (newDelegate != null)
-                            {
-                                wrapper.Delegate = newDelegate;
-                            }
-                            else
-                            {
-                                toRemove.Add(i);
-                            }
-                        }
-                    }
-                }
-
-                foreach (int idx in toRemove)
-                {
-                    _delegateWrappers.RemoveAt(idx);
-                }
+                wrappers = _delegateWrappers;
+                newWrappers = Array.FindAll(wrappers, w => !condition(w.Delegate));
             }
+            while (!PublishNewWrappers(newWrappers, wrappers));
         }
 
         public object? Invoke(object[] args)
@@ -263,15 +214,18 @@ namespace System.Runtime.InteropServices
             Debug.Assert(!Empty);
             object? result = null;
 
-            lock (_delegateWrappers)
+            foreach (DelegateWrapper wrapper in _delegateWrappers)
             {
-                foreach (DelegateWrapper wrapper in _delegateWrappers)
-                {
-                    result = wrapper.Invoke(args);
-                }
+                result = wrapper.Invoke(args);
             }
 
             return result;
+        }
+
+        // Attempt to update the member wrapper field
+        private bool PublishNewWrappers(DelegateWrapper[] newWrappers, DelegateWrapper[] currentMaybe)
+        {
+            return Interlocked.CompareExchange(ref _delegateWrappers, newWrappers, currentMaybe) == currentMaybe;
         }
     }
 }

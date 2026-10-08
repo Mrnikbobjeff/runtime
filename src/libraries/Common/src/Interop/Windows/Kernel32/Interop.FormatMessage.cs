@@ -15,8 +15,9 @@ internal static partial class Interop
         private const int FORMAT_MESSAGE_ALLOCATE_BUFFER = 0x00000100;
         private const int ERROR_INSUFFICIENT_BUFFER = 0x7A;
 
-        [DllImport(Libraries.Kernel32, CharSet = CharSet.Unicode, EntryPoint = "FormatMessageW", SetLastError = true, BestFitMapping = true, ExactSpelling = true)]
-        private static extern unsafe int FormatMessage(
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [LibraryImport(Libraries.Kernel32, EntryPoint = "FormatMessageW", SetLastError = true)]
+        private static unsafe partial int FormatMessage(
             int dwFlags,
             IntPtr lpSource,
             uint dwMessageId,
@@ -61,7 +62,7 @@ internal static partial class Interop
                     int length = FormatMessage(flags | FORMAT_MESSAGE_ALLOCATE_BUFFER, moduleHandle, unchecked((uint)errorCode), 0, &nativeMsgPtr, 0, IntPtr.Zero);
                     if (length > 0)
                     {
-                        return GetAndTrimString(new Span<char>((char*)nativeMsgPtr, length));
+                        return GetAndTrimString(new ReadOnlySpan<char>((char*)nativeMsgPtr, length));
                     }
                 }
                 finally
@@ -71,10 +72,10 @@ internal static partial class Interop
             }
 
             // Couldn't get a message, so manufacture one.
-            return string.Format("Unknown error (0x{0:x})", errorCode);
+            return $"Unknown error (0x{errorCode:x})";
         }
 
-        private static string GetAndTrimString(Span<char> buffer)
+        private static string GetAndTrimString(ReadOnlySpan<char> buffer)
         {
             int length = buffer.Length;
             while (length > 0 && buffer[length - 1] <= 32)

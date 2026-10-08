@@ -2,11 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b37608
 {
     using System;
 
-    class AA
+    public class AA
     {
         double[] m_adField1 = null;
         static object[] s_axStatic1 = null;
@@ -26,7 +27,8 @@ namespace Test
             }
         }
 
-        static int Main()
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

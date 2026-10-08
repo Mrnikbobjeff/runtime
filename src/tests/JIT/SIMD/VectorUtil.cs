@@ -6,7 +6,9 @@ using System;
 using System.Numerics;
 using System.IO;
 
-internal partial class VectorTest
+namespace SIMDTests;
+
+public class VectorTestBase
 {
     public static bool CheckValue<T>(T value, T expectedValue)
     {
@@ -37,7 +39,7 @@ internal partial class VectorTest
         return returnVal;
     }
 
-    private static bool CheckVector<T>(Vector<T> V, T value) where T : struct, IComparable<T>, IEquatable<T>
+    protected static bool CheckVector<T>(Vector<T> V, T value) where T : struct, IComparable<T>, IEquatable<T>
     {
         for (int i = 0; i < Vector<T>.Count; i++)
         {
@@ -96,13 +98,23 @@ internal partial class VectorTest
         {
             return (T)(object)(sbyte)value;
         }
+        if (typeof(T) == typeof(nint))
+        {
+            nint nintValue = (nint)value;
+            return (T)(object)nintValue;
+        }
+        if (typeof(T) == typeof(nuint))
+        {
+            nuint nuintValue = (nuint)value;
+            return (T)(object)nuintValue;
+        }
         else
         {
             throw new ArgumentException();
         }
     }
 
-    private static void VectorPrint<T>(string mesg, Vector<T> v) where T : struct, IComparable<T>, IEquatable<T>
+    protected static void VectorPrint<T>(string mesg, Vector<T> v) where T : struct, IComparable<T>, IEquatable<T>
     {
         Console.Write(mesg + "[");
         for (int i = 0; i < Vector<T>.Count; i++)
@@ -113,7 +125,7 @@ internal partial class VectorTest
         Console.WriteLine(" ]");
     }
 
-    private static T Add<T>(T left, T right) where T : struct, IComparable<T>, IEquatable<T>
+    protected static T Add<T>(T left, T right) where T : struct, IComparable<T>, IEquatable<T>
     {
         if (typeof(T) == typeof(float))
         {
@@ -155,12 +167,20 @@ internal partial class VectorTest
         {
             return (T)(object)(((ulong)(object)left) + ((ulong)(object)right));
         }
+        if (typeof(T) == typeof(nint))
+        {
+            return (T)(object)(((nint)(object)left) + ((nint)(object)right));
+        }
+        if (typeof(T) == typeof(nuint))
+        {
+            return (T)(object)(((nuint)(object)left) + ((nuint)(object)right));
+        }
         else
         {
             throw new ArgumentException();
         }
     }
-    private static T Multiply<T>(T left, T right) where T : struct, IComparable<T>, IEquatable<T>
+    protected static T Multiply<T>(T left, T right) where T : struct, IComparable<T>, IEquatable<T>
     {
         if (typeof(T) == typeof(float))
         {
@@ -202,6 +222,14 @@ internal partial class VectorTest
         {
             return (T)(object)(((ulong)(object)left) * ((ulong)(object)right));
         }
+        if (typeof(T) == typeof(nint))
+        {
+            return (T)(object)(((nint)(object)left) * ((nint)(object)right));
+        }
+        if (typeof(T) == typeof(nuint))
+        {
+            return (T)(object)(((nuint)(object)left) * ((nuint)(object)right));
+        }
         else
         {
             throw new ArgumentException();
@@ -229,7 +257,7 @@ class JitLog : IDisposable
 
     private static String GetLogFileName()
     {
-        String jitLogFileName = Environment.GetEnvironmentVariable("COMPlus_JitFuncInfoLogFile");
+        String jitLogFileName = Environment.GetEnvironmentVariable("DOTNET_JitFuncInfoLogFile");
         return jitLogFileName;
     }
 

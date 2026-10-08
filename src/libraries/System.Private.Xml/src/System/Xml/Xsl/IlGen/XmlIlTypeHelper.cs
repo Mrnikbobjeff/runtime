@@ -3,12 +3,12 @@
 
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Text;
-using System.Diagnostics;
 using System.Xml;
-using System.Xml.XPath;
 using System.Xml.Schema;
+using System.Xml.XPath;
 using System.Xml.Xsl.Runtime;
 
 namespace System.Xml.Xsl.IlGen
@@ -16,13 +16,8 @@ namespace System.Xml.Xsl.IlGen
     /// <summary>
     /// Static QilExpression type helper methods.
     /// </summary>
-    internal class XmlILTypeHelper
+    internal static class XmlILTypeHelper
     {
-        // Not creatable
-        private XmlILTypeHelper()
-        {
-        }
-
         /// <summary>
         /// Return the default Clr data type that will be used to store instances of the QilNode's type.
         /// </summary>

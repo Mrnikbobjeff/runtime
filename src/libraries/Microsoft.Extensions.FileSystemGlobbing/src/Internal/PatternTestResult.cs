@@ -1,6 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
+
 namespace Microsoft.Extensions.FileSystemGlobbing.Internal
 {
     /// <summary>
@@ -9,18 +11,19 @@ namespace Microsoft.Extensions.FileSystemGlobbing.Internal
     /// </summary>
     public struct PatternTestResult
     {
-        public static readonly PatternTestResult Failed = new PatternTestResult(isSuccessful: false, stem: null);
+        public static readonly PatternTestResult Failed = new(isSuccessful: false, stem: null);
 
+        [MemberNotNullWhen(returnValue: true, nameof(Stem))]
         public bool IsSuccessful { get; }
-        public string Stem { get; }
+        public string? Stem { get; }
 
-        private PatternTestResult(bool isSuccessful, string stem)
+        private PatternTestResult(bool isSuccessful, string? stem)
         {
             IsSuccessful = isSuccessful;
             Stem = stem;
         }
 
-        public static PatternTestResult Success(string stem)
+        public static PatternTestResult Success(string? stem)
         {
             return new PatternTestResult(isSuccessful: true, stem: stem);
         }

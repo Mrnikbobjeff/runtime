@@ -14,7 +14,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "mono/utils/mono-membar.h"
+#include "mono/utils/mono-memory-model.h"
 #include <mono/metadata/string-icalls.h>
 #include <mono/metadata/class-internals.h>
 #include <mono/metadata/appdomain.h>
@@ -37,7 +37,7 @@ ves_icall_System_String_ctor_RedirectToCreateString (void)
 MonoStringHandle
 ves_icall_System_String_FastAllocateString (gint32 length, MonoError *error)
 {
-	return mono_string_new_size_handle (mono_domain_get (), length, error);
+	return mono_string_new_size_handle (length, error);
 }
 
 MonoStringHandle
@@ -50,12 +50,4 @@ MonoStringHandle
 ves_icall_System_String_InternalIsInterned (MonoStringHandle str, MonoError *error)
 {
 	return mono_string_is_interned_internal (str, error);
-}
-
-int
-ves_icall_System_String_GetLOSLimit (void)
-{
-	int limit = mono_gc_get_los_limit ();
-
-	return (limit - 2 - G_STRUCT_OFFSET (MonoString, chars)) / 2;
 }

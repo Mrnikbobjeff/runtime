@@ -1,6 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b425314;
+
 using System;
 using System.Security;
 using System.Reflection;
@@ -10,6 +13,8 @@ using System.Threading;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Collections;
+using Xunit;
+using TestLibrary;
 
 #if false
 Here is the bug text from the bugs that motivated this regression case.  I've annotated
@@ -32,7 +37,7 @@ Text from the first bug report:
     These two non-atomic operations expose a race if the object is not a local variable, and
     can be mutated by another thread.
 
-    This is the tree generated for unboxing an int.  Note the two occurences of "field ref m_obj".
+    This is the tree generated for unboxing an int.  Note the two occurrences of "field ref m_obj".
 
 
     [[
@@ -184,7 +189,7 @@ public static class Util
         return new Timer(callback, null, dueTimeInMilliseconds, Timeout.Infinite);
     }
 
-    public static void PrintFailureAndAddToTestResults(string format, params object[] args)
+    internal static void PrintFailureAndAddToTestResults(string format, params object[] args)
     {
         Console.WriteLine(format, args);
         Mutate.RecordFailure(new Exception(String.Format(format, args)));
@@ -921,7 +926,7 @@ public class Mutate
     private static object s_syncRoot = new object();
     private static volatile List<Exception> s_exceptions = new List<Exception>();
 
-    public static void RecordFailure(Exception ex)
+    internal static void RecordFailure(Exception ex)
     {
         lock (Mutate.s_syncRoot)
         {
@@ -929,7 +934,10 @@ public class Mutate
         }
     }
 
-    public static int Main(String[] args)
+    [Fact]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/41472", typeof(PlatformDetection), nameof(PlatformDetection.IsNotMultithreadingSupported))]
+    [SkipOnCoreClr("This test takes too long and internally times out under GCStress/heap verify. It is not fundamentally incompatible if stress testing is fast enough.", RuntimeTestModes.AnyGCStress | RuntimeTestModes.HeapVerify)]
+    public static int TestEntryPoint()
     {
         try
         {

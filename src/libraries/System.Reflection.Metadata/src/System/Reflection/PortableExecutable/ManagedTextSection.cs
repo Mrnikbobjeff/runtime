@@ -41,7 +41,6 @@ namespace System.Reflection.PortableExecutable
 
         /// <summary>
         /// The size of managed resource data stream.
-        /// Aligned to <see cref="ManagedResourcesDataAlignment"/>.
         /// </summary>
         public int ResourceDataSize { get; }
 
@@ -96,8 +95,8 @@ namespace System.Reflection.PortableExecutable
 
         public const int ManagedResourcesDataAlignment = 8;
 
-        private const string CorEntryPointDll = "mscoree.dll";
-        private string CorEntryPointName => (ImageCharacteristics & Characteristics.Dll) != 0 ? "_CorDllMain" : "_CorExeMain";
+        private static ReadOnlySpan<byte> CorEntryPointDll => "mscoree.dll"u8;
+        private ReadOnlySpan<byte> CorEntryPointName => (ImageCharacteristics & Characteristics.Dll) != 0 ? "_CorDllMain"u8 : "_CorExeMain"u8;
 
         private int SizeOfImportAddressTable => RequiresStartupStub ? (Is32Bit ? 2 * sizeof(uint) : 2 * sizeof(ulong)) : 0;
 
@@ -121,7 +120,7 @@ namespace System.Reflection.PortableExecutable
 
         public const int MappedFieldDataAlignment = 8;
 
-        public int CalculateOffsetToMappedFieldDataStream()
+        internal int CalculateOffsetToMappedFieldDataStreamUnaligned()
         {
             int result = ComputeOffsetToImportTable();
 
@@ -135,11 +134,18 @@ namespace System.Reflection.PortableExecutable
             return result;
         }
 
+        public int CalculateOffsetToMappedFieldDataStream()
+        {
+            int result = CalculateOffsetToMappedFieldDataStreamUnaligned();
+            if (MappedFieldDataSize != 0)
+            {
+                result = BitArithmetic.Align(result, MappedFieldDataAlignment);
+            }
+            return result;
+        }
+
         internal int ComputeOffsetToDebugDirectory()
         {
-            Debug.Assert(MetadataSize % 4 == 0);
-            Debug.Assert(ResourceDataSize % 4 == 0);
-
             return
                 ComputeOffsetToMetadata() +
                 MetadataSize +
@@ -177,7 +183,6 @@ namespace System.Reflection.PortableExecutable
 
         public int ComputeSizeOfTextSection()
         {
-            Debug.Assert(MappedFieldDataSize % MappedFieldDataAlignment == 0);
             return CalculateOffsetToMappedFieldDataStream() + MappedFieldDataSize;
         }
 
@@ -185,7 +190,7 @@ namespace System.Reflection.PortableExecutable
         {
             // TODO: constants
             return RequiresStartupStub ?
-                rva + CalculateOffsetToMappedFieldDataStream() - (Is32Bit ? 6 : 10) :
+                rva + CalculateOffsetToMappedFieldDataStreamUnaligned() - (Is32Bit ? 6 : 10) :
                 0;
         }
 
@@ -244,7 +249,6 @@ namespace System.Reflection.PortableExecutable
             Debug.Assert(ilBuilder.Count == ILStreamSize);
             Debug.Assert((mappedFieldDataBuilderOpt?.Count ?? 0) == MappedFieldDataSize);
             Debug.Assert((resourceBuilderOpt?.Count ?? 0) == ResourceDataSize);
-            Debug.Assert((resourceBuilderOpt?.Count ?? 0) % 4 == 0);
 
             // TODO: avoid recalculation
             int importTableRva = GetImportTableDirectoryEntry(relativeVirtualAddess).RelativeVirtualAddress;
@@ -271,11 +275,9 @@ namespace System.Reflection.PortableExecutable
             }
 
             // strong name signature:
-            strongNameSignature = builder.ReserveBytes(StrongNameSignatureSize);
-
             // The bytes are required to be 0 for the purpose of calculating hash of the PE content
-            // when strong name signing.
-            new BlobWriter(strongNameSignature).WriteBytes(0, StrongNameSignatureSize);
+            // when strong name signing. This is already handled by ReserveBytes.
+            strongNameSignature = builder.ReserveBytes(StrongNameSignatureSize);
 
             // debug directory and data:
             if (debugDataBuilderOpt != null)
@@ -293,6 +295,8 @@ namespace System.Reflection.PortableExecutable
             // mapped field data:
             if (mappedFieldDataBuilderOpt != null)
             {
+                if (mappedFieldDataBuilderOpt.Count != 0)
+                    builder.Align(MappedFieldDataAlignment);
                 builder.LinkSuffix(mappedFieldDataBuilderOpt);
             }
 
@@ -353,11 +357,7 @@ namespace System.Reflection.PortableExecutable
             // Hint table
             builder.WriteUInt16(0); // Hint 54|58
 
-            foreach (char ch in CorEntryPointName)
-            {
-                builder.WriteByte((byte)ch); // 65|69
-            }
-
+            builder.WriteBytes(CorEntryPointName); // 65|69
             builder.WriteByte(0); // 66|70
             Debug.Assert(builder.Count - start == SizeOfImportTable);
         }
@@ -366,11 +366,7 @@ namespace System.Reflection.PortableExecutable
         {
             int start = builder.Count;
 
-            foreach (char ch in CorEntryPointDll)
-            {
-                builder.WriteByte((byte)ch);
-            }
-
+            builder.WriteBytes(CorEntryPointDll);
             builder.WriteByte(0);
             builder.WriteUInt16(0);
             Debug.Assert(builder.Count - start == SizeOfNameTable);

@@ -1,14 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Runtime.CompilerServices;
 using Microsoft.DotNet.Cli.Build;
 using Microsoft.DotNet.Cli.Build.Framework;
 using Xunit;
 
+using static Microsoft.DotNet.CoreSetup.Test.Constants;
+
 namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
 {
     /// <summary>
-    /// Tests for rollForward option behavior considering combinatino of release and pre-release versions.
+    /// Tests for rollForward option behavior considering combinations of release and pre-release versions.
     /// so only release versions are available and only release versions are asked for
     /// in framework references.
     /// </summary>
@@ -80,15 +83,15 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
         [InlineData(Constants.RollForwardSetting.Disable,     true,        false,                  "4.1.1")]
         [InlineData(Constants.RollForwardSetting.Disable,     null,        true,                   "4.1.1")]
         [InlineData(Constants.RollForwardSetting.LatestPatch, null,        false,                  "4.1.2")] // Prefers release over pre-release
-        [InlineData(Constants.RollForwardSetting.LatestPatch, null,        true,                   "4.1.3-preview.1")] // Pre-release is considered equaly to release
+        [InlineData(Constants.RollForwardSetting.LatestPatch, null,        true,                   "4.1.3-preview.1")] // Pre-release is considered equally to release
         [InlineData(Constants.RollForwardSetting.LatestPatch, false,       false,                  "4.1.1")]
         [InlineData(Constants.RollForwardSetting.LatestPatch, false,       true,                   "4.1.1")]
         [InlineData(Constants.RollForwardSetting.Minor,       null,        false,                  "4.1.2")] // Prefers release over pre-release
-        [InlineData(Constants.RollForwardSetting.Minor,       null,        true,                   "4.1.3-preview.1")] // Pre-release is considered equaly to release
+        [InlineData(Constants.RollForwardSetting.Minor,       null,        true,                   "4.1.3-preview.1")] // Pre-release is considered equally to release
         [InlineData(Constants.RollForwardSetting.Minor,       false,       false,                  "4.1.1")]
         [InlineData(Constants.RollForwardSetting.Minor,       false,       true,                   "4.1.1")]
         [InlineData(Constants.RollForwardSetting.Major,       null,        false,                  "4.1.2")] // Prefers release over pre-release
-        [InlineData(Constants.RollForwardSetting.Major,       null,        true,                   "4.1.3-preview.1")] // Pre-release is considered equaly to release
+        [InlineData(Constants.RollForwardSetting.Major,       null,        true,                   "4.1.3-preview.1")] // Pre-release is considered equally to release
         [InlineData(Constants.RollForwardSetting.Major,       false,       false,                  "4.1.1")]
         [InlineData(Constants.RollForwardSetting.Major,       false,       true,                   "4.1.1")]
         public void RollFromExisting_FromReleaseToPreRelease(
@@ -145,7 +148,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
 
         // Verifies that rollForward settings behave as expected when starting from 4.0.0 which doesn't exit
         // to other available 4.1.* versions (both release and pre-release). So roll forward on minor version.
-        // Specifically targetting the behavior that starting from release should by default prefer release versions.
+        // Specifically targeting the behavior that starting from release should by default prefer release versions.
         // Also verifying behavior when DOTNET_ROLL_FORWARD_TO_PRERELEASE is set.
         [Theory] // rollForward                               applyPatches rollForwardToPreRelease resolvedFramework
         [InlineData(Constants.RollForwardSetting.Minor,       null,        false,                  "4.1.2")]
@@ -178,7 +181,7 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
 
         // Verifies that rollForward settings behave as expected when starting from 3.0.0 which does exit
         // to other available 4.1.* versions (both release and pre-release). So roll forward on major version.
-        // Specifically targetting the behavior that starting from release should by default prefer release versions.
+        // Specifically targeting the behavior that starting from release should by default prefer release versions.
         // Also verifying behavior when DOTNET_ROLL_FORWARD_TO_PRERELEASE is set.
         [Theory] // rollForward                               applyPatches rollForwardToPreRelease resolvedFramework
         [InlineData(Constants.RollForwardSetting.Major,       null,        false,                  "4.1.2")]
@@ -320,7 +323,8 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
             string frameworkReferenceVersion,
             string rollForward,
             bool? applyPatches,
-            bool rollForwardToPreRelease = false)
+            bool rollForwardToPreRelease = false,
+            [CallerMemberName] string caller = "")
         {
             return RunTest(
                 SharedState.DotNetWithNETCoreAppReleaseAndPreRelease,
@@ -331,7 +335,8 @@ namespace Microsoft.DotNet.CoreSetup.Test.HostActivation.FrameworkResolution
                         .WithFramework(MicrosoftNETCoreApp, frameworkReferenceVersion))
                     // Using command line, so that it's possible to mix rollForward and applyPatches
                     .With(RollForwardSetting(SettingLocation.CommandLine, rollForward))
-                    .WithEnvironment(Constants.RollForwardToPreRelease.EnvironmentVariable, rollForwardToPreRelease ? "1" : "0"));
+                    .WithEnvironment(Constants.RollForwardToPreRelease.EnvironmentVariable, rollForwardToPreRelease ? "1" : "0"),
+                caller: caller);
         }
     }
 }

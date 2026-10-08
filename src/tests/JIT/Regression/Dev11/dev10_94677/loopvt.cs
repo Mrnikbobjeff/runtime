@@ -15,7 +15,11 @@
  * these routines.  I believe the fix is to add the call to OsrGroupIVsByStride so the loops match. 
  */
 
+
+namespace loopvt;
+
 using System;
+using Xunit;
 
 struct VT
 {
@@ -31,11 +35,11 @@ struct VT
 }
 
 
-class DblArray3
+public class DblArray3
 {
 
     // instance field of valuetype
-    public static void f4(VT[] keys, uint m_ReadMultipleMaxBatchSize)
+    static void f4(VT[] keys, uint m_ReadMultipleMaxBatchSize)
     {
 
         // Create first batch.
@@ -75,7 +79,9 @@ class DblArray3
 
 
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

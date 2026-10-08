@@ -10,13 +10,17 @@ using System.Runtime.Serialization;
 namespace System.Net.Http
 {
     [Serializable]
-    internal class WinHttpException : Win32Exception
+    internal sealed class WinHttpException : Win32Exception
     {
         public WinHttpException(int error, string message) : base(error, message)
         {
             this.HResult = ConvertErrorCodeToHR(error);
         }
 
+#if NET
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+#endif
         public WinHttpException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
         }

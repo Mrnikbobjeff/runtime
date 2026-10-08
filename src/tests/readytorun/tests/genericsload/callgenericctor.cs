@@ -4,6 +4,8 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
+using TestLibrary;
 
 class Foo<T>
 {
@@ -14,9 +16,11 @@ class Foo<T>
     }
 }
 
-class Program
+public class Program
 {
-    static int Main()
+    [ActiveIssue("These tests are not supposed to be run with mono.", TestRuntimes.Mono)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

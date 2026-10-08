@@ -7,6 +7,7 @@
 // Best-scoring single-threaded C# .NET Core version as of 2017-09-01
 
 /* The Computer Language Benchmarks Game
+using TestLibrary;
    http://benchmarksgame.alioth.debian.org/
  *
  * byte processing version using C# *3.0 idioms by Robert F. Tobler
@@ -16,15 +17,10 @@ using System;
 using System.IO;
 using System.Collections.Generic;
 using System.Text;
-using Microsoft.Xunit.Performance;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
-[assembly: MeasureGCCounts]
 
 namespace BenchmarksGame
 {
-
     public struct ByteString : IEquatable<ByteString>
     {
         public byte[] Array;
@@ -87,7 +83,9 @@ namespace BenchmarksGame
     public class KNucleotide_1
     {
 
-        public static int Main(string[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             var helpers = new TestHarnessHelpers(bigInput: false);
 
@@ -100,22 +98,6 @@ namespace BenchmarksGame
             }
 
             return 100;
-        }
-
-        [Benchmark(InnerIterationCount = 3)]
-        public static void RunBench()
-        {
-            var helpers = new TestHarnessHelpers(bigInput: true);
-            bool ok = true;
-
-            Benchmark.Iterate(() =>
-            {
-                using (var inputStream = helpers.GetInputStream())
-                {
-                    ok &= Bench(inputStream, helpers, false);
-                }
-            });
-            Assert.True(ok);
         }
 
         static bool Bench(Stream inputStream, TestHarnessHelpers helpers, bool verbose)

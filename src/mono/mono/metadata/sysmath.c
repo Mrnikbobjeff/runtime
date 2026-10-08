@@ -1,6 +1,6 @@
 /**
  * \file
- * these are based on bob smith's csharp routines 
+ * these are based on bob smith's csharp routines
  *
  * Author:
  *	Mono Project (http://www.mono-project.com)
@@ -17,7 +17,8 @@
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 //
 // Files:
-//  - src/classlibnative/float/floatnative.cpp
+//  - src/coreclr/vm/floatdouble.cpp
+//  - src/coreclr/vm/floatsingle.cpp
 //  - src/pal/src/cruntime/floatnative.cpp
 //
 // Ported from C++ to C and adjusted to Mono runtime
@@ -26,8 +27,8 @@
 
 #include <math.h>
 
-#include "number-ms.h"
 #include "utils/mono-compiler.h"
+#include "utils/mono-math.h"
 #include "icalls.h"
 #include "icall-decl.h"
 
@@ -40,26 +41,7 @@ ves_icall_System_Math_Floor (gdouble x)
 gdouble
 ves_icall_System_Math_Round (gdouble x)
 {
-	gdouble floor_tmp;
-
-	/* If the number has no fractional part do nothing This shortcut is necessary
-	 * to workaround precision loss in borderline cases on some platforms */
-	if (x == (gdouble)(gint64) x)
-		return x;
-
-	floor_tmp = floor (x + 0.5);
-
-	if ((x == (floor (x) + 0.5)) && (fmod (floor_tmp, 2.0) != 0)) {
-		floor_tmp -= 1.0;
-	}
-
-	return copysign (floor_tmp, x);
-}
-
-gdouble
-ves_icall_System_Math_FMod (gdouble x, gdouble y)
-{
-	return fmod (x, y);
+	return mono_round_to_even (x);
 }
 
 gdouble
@@ -68,49 +50,49 @@ ves_icall_System_Math_ModF (gdouble x, gdouble *d)
 	return modf (x, d);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Sin (gdouble x)
 {
 	return sin (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Cos (gdouble x)
 {
 	return cos (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Cbrt (gdouble x)
 {
 	return cbrt (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Tan (gdouble x)
 {
 	return tan (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Sinh (gdouble x)
 {
 	return sinh (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Cosh (gdouble x)
 {
 	return cosh (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Tanh (gdouble x)
 {
 	return tanh (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Acos (gdouble x)
 {
 	return acos (x);
@@ -122,94 +104,70 @@ ves_icall_System_Math_Acosh (gdouble x)
 	return acosh (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Asin (gdouble x)
 {
 	return asin (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Asinh (gdouble x)
 {
 	return asinh (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Atan (gdouble x)
 {
 	return atan (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Atan2 (gdouble y, gdouble x)
 {
 	return atan2 (y, x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Atanh (gdouble x)
 {
 	return atanh (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Exp (gdouble x)
 {
 	return exp (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Log (gdouble x)
 {
 	return log (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Log10 (gdouble x)
 {
 	return log10 (x);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Pow (gdouble x, gdouble y)
 {
 	return pow (x, y);
 }
 
-gdouble 
+gdouble
 ves_icall_System_Math_Sqrt (gdouble x)
 {
 	return sqrt (x);
 }
 
 gdouble
-ves_icall_System_Math_Abs_double (gdouble v)
-{
-	return fabs (v);
-}
-
-float
-ves_icall_System_Math_Abs_single (float v)
-{
-	return fabsf (v);
-}
-
-gdouble
 ves_icall_System_Math_Ceiling (gdouble v)
 {
 	return ceil (v);
-}
-
-#if ENABLE_NETCORE
-gint32
-ves_icall_System_Math_ILogB (gdouble x)
-{
-	if (FP_ILOGB0 != INT_MIN && x == 0.0)
-		return INT_MIN;
-	if (FP_ILOGBNAN != INT_MAX && isnan(x))
-		return INT_MAX;
-	
-	return ilogb(x);
 }
 
 gdouble
@@ -219,17 +177,10 @@ ves_icall_System_Math_Log2 (gdouble x)
 }
 
 gdouble
-ves_icall_System_Math_ScaleB (gdouble x, gint32 n)
-{
-	return scalbn (x, n);
-}
-
-gdouble
 ves_icall_System_Math_FusedMultiplyAdd (gdouble x, gdouble y, gdouble z)
 {
 	return fma (x, y, z);
 }
-#endif
 
 float
 ves_icall_System_MathF_Acos (float x)
@@ -258,7 +209,7 @@ ves_icall_System_MathF_Asinh  (float x)
 float
 ves_icall_System_MathF_Atan  (float x)
 {
-	return atan (x);
+	return atanf (x);
 }
 
 float
@@ -336,7 +287,7 @@ ves_icall_System_MathF_Sin (float x)
 float
 ves_icall_System_MathF_Sinh (float x)
 {
-	return sinh (x);
+	return sinhf (x);
 }
 
 float
@@ -354,31 +305,13 @@ ves_icall_System_MathF_Tan (float x)
 float
 ves_icall_System_MathF_Tanh (float x)
 {
-	return tanh (x);
-}
-
-float
-ves_icall_System_MathF_FMod (float x, float y)
-{
-	return fmodf (x, y);
+	return tanhf (x);
 }
 
 float
 ves_icall_System_MathF_ModF (float x, float *d)
 {
 	return modff (x, d);
-}
-
-#if ENABLE_NETCORE
-gint32
-ves_icall_System_MathF_ILogB (float x)
-{
-	if (FP_ILOGB0 != INT_MIN && x == 0.0)
-		return INT_MIN;
-	if (FP_ILOGBNAN != INT_MAX && isnan(x))
-		return INT_MAX;
-	
-	return ilogbf(x);
 }
 
 float
@@ -388,14 +321,7 @@ ves_icall_System_MathF_Log2 (float x)
 }
 
 float
-ves_icall_System_MathF_ScaleB (float x, gint32 n)
-{
-	return scalbnf (x, n);
-}
-
-float
 ves_icall_System_MathF_FusedMultiplyAdd (float x, float y, float z)
 {
 	return fmaf (x, y, z);
 }
-#endif

@@ -1,0 +1,116 @@
+// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+
+
+
+#ifndef _FPTRSTUBS_H
+#define _FPTRSTUBS_H
+
+#include "common.h"
+
+// FuncPtrStubs contains stubs that is used by GetMultiCallableAddrOfCode() if
+// the function has not been jitted. Using a stub decouples ldftn from
+// the prestub, so prestub does not need to be backpatched.
+//
+// This stub is also used in other places which need a function pointer
+
+class FuncPtrStubs
+{
+public :
+    FuncPtrStubs();
+
+    Precode*            Lookup(MethodDesc * pMD, PrecodeType type);
+    PCODE               GetFuncPtrStub(MethodDesc * pMD, PrecodeType type);
+
+    Precode*            Lookup(MethodDesc * pMD)
+    {
+        return Lookup(pMD, GetDefaultType(pMD));
+    }
+
+    PCODE               GetFuncPtrStub(MethodDesc * pMD)
+    {
+        return GetFuncPtrStub(pMD, GetDefaultType(pMD));
+    }
+
+#ifdef FEATURE_PORTABLE_ENTRYPOINTS
+    PCODE               LookupClosedStaticRetBufStub(MethodDesc* pTargetMD, MethodDesc* pDelegateInvoke);
+    PCODE               AddClosedStaticRetBufStub(MethodDesc* pTargetMD, MethodDesc* pDelegateInvoke, PCODE pStub);
+#endif // FEATURE_PORTABLE_ENTRYPOINTS
+
+    static PrecodeType GetDefaultType(MethodDesc* pMD);
+
+private:
+    Crst                m_hashTableCrst;
+
+    struct PrecodeKey
+    {
+        PrecodeKey(MethodDesc* pMD, PrecodeType type)
+            : m_pMD(pMD), m_type(type)
+        {
+        }
+
+        MethodDesc*     m_pMD;
+        PrecodeType     m_type;
+    };
+
+    class PrecodeTraits : public NoRemoveSHashTraits< DefaultSHashTraits<Precode*> >
+    {
+    public:
+        typedef PrecodeKey key_t;
+
+        static key_t GetKey(element_t e)
+        {
+            CONTRACTL
+            {
+                NOTHROW;
+                GC_NOTRIGGER;
+                MODE_ANY;
+            }
+            CONTRACTL_END;
+            return PrecodeKey(e->GetMethodDesc(), e->GetType());
+        }
+        static BOOL Equals(key_t k1, key_t k2)
+        {
+            LIMITED_METHOD_CONTRACT;
+            return (k1.m_pMD == k2.m_pMD) && (k1.m_type == k2.m_type);
+        }
+        static count_t Hash(key_t k)
+        {
+            LIMITED_METHOD_CONTRACT;
+            return (count_t)(size_t)k.m_pMD ^ k.m_type;
+        }
+    };
+
+    SHash<PrecodeTraits>    m_hashTable;    // To find a existing stub for a method
+
+#ifdef FEATURE_PORTABLE_ENTRYPOINTS
+    struct ClosedStaticRetBufStubEntry
+    {
+        MethodDesc* Target;
+        MethodDesc* DelegateInvoke;
+        PCODE Stub;
+    };
+
+    class ClosedStaticRetBufStubTraits : public NoRemoveSHashTraits<DefaultSHashTraits<ClosedStaticRetBufStubEntry>>
+    {
+    public:
+        struct key_t
+        {
+            MethodDesc* Target;
+            MethodDesc* DelegateInvoke;
+        };
+
+        static key_t GetKey(const element_t& entry) { LIMITED_METHOD_CONTRACT; return { entry.Target, entry.DelegateInvoke }; }
+        static BOOL Equals(key_t left, key_t right) { LIMITED_METHOD_CONTRACT; return left.Target == right.Target && left.DelegateInvoke == right.DelegateInvoke; }
+        static count_t Hash(key_t key) { LIMITED_METHOD_CONTRACT; return (count_t)(size_t)key.Target ^ (count_t)(size_t)key.DelegateInvoke; }
+        static bool IsNull(const element_t& entry) { LIMITED_METHOD_CONTRACT; return entry.Target == NULL; }
+        static element_t Null() { LIMITED_METHOD_CONTRACT; return { NULL, NULL, NULL }; }
+        static bool IsDeleted(const element_t& entry) { LIMITED_METHOD_CONTRACT; return entry.Target == (MethodDesc*)-1; }
+        static element_t Deleted() { LIMITED_METHOD_CONTRACT; return { (MethodDesc*)-1, NULL, NULL }; }
+    };
+
+    SHash<ClosedStaticRetBufStubTraits> m_closedStaticRetBufStubs;
+#endif // FEATURE_PORTABLE_ENTRYPOINTS
+};
+
+#endif // _FPTRSTUBS_H

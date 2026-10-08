@@ -6,9 +6,15 @@
   .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )
   .ver 4:0:0:0
 }
+.assembly extern Microsoft.DotNet.XUnitExtensions
+{
+  .publickeytoken = (31 BF 38 56 AD 36 4E 35 )
+}
+.assembly extern TestLibrary { .ver 0:0:0:0 }
+.assembly extern xunit.core {}
 
 .assembly extern legacy library mscorlib {}
-.assembly complex3
+.assembly '_Arrayscomplex3'
 {
 }
 
@@ -38,8 +44,13 @@
 
 } // end of class 'Yak'
 
-.class auto ansi Complex2_Array_Test
+.class public auto ansi Complex2_Array_Test
 {
+  .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, class [mscorlib]System.Type, string[]) = {
+    string('https://github.com/dotnet/runtime/issues/133307')
+    type([TestLibrary]TestLibrary.PlatformDetection)
+    string[1] ('IsWasmReadyToRun')
+  }
    .method public static int32 TestRank(value class Yak[,,,,,,] Odd_Variable) il managed
   {
     .maxstack  3
@@ -67,8 +78,11 @@
     IL_000b:  ret
   } // end of method 'Complex2_Array_Test::test'
 
-  .method public static int32 Main(string[] args) il managed
+  .method public static int32 Main() il managed
   {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
     .entrypoint
     .maxstack  9
     .locals (int32 SIZE,
@@ -410,4 +424,3 @@ bne.un IL_0200
   } // end of method 'Complex2_Array_Test::.ctor'
 
 } // end of class 'Complex2_Array_Test'
-

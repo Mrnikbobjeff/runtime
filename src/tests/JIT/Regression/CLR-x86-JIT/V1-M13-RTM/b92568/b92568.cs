@@ -2,15 +2,20 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b92568;
+
 using System;
-struct AA
+using Xunit;
+public struct AA
 {
     static bool Static3(ulong param2)
     {
         bool b = false;
         return (bool)(object)(long)(byte)(b ? Convert.ToInt64(param2) : (long)param2);
     }
-    static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

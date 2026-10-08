@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Xunit;
 namespace NetClient
 {
     using System;
@@ -8,17 +9,18 @@ namespace NetClient
     using System.Runtime.InteropServices;
 
     using TestLibrary;
+    using Xunit;
     using Server.Contract;
     using Server.Contract.Servers;
     using Server.Contract.Events;
 
-    class Program
+    public class Program
     {
         static void Validate_BasicCOMEvent()
         {
             Console.WriteLine($"{nameof(Validate_BasicCOMEvent)}...");
 
-            var eventTesting = (EventTesting)new EventTestingClass();
+            var eventTesting = new EventTesting();
 
             // Verify event handler subscription
 
@@ -29,8 +31,8 @@ namespace NetClient
             string message = string.Empty;
             eventTesting.FireEvent();
 
-            Assert.IsTrue(eventFired, "Event didn't fire");
-            Assert.AreEqual(nameof(EventTesting.FireEvent), message, "Event message is incorrect");
+            Assert.True(eventFired);
+            Assert.Equal(nameof(EventTesting.FireEvent), message);
 
             // Remove event
             eventTesting.OnEvent -= OnEventEventHandler;
@@ -40,7 +42,7 @@ namespace NetClient
             eventFired = false;
             eventTesting.FireEvent();
 
-            Assert.IsFalse(eventFired, "Event shouldn't fire");
+            Assert.False(eventFired);
 
             void OnEventEventHandler(string msg)
             {
@@ -55,7 +57,7 @@ namespace NetClient
         {
             Console.WriteLine($"{nameof(Validate_COMEventViaComAwareEventInfo)}...");
 
-            var eventTesting = (EventTesting)new EventTestingClass();
+            var eventTesting = new EventTesting();
 
             // Verify event handler subscription
 
@@ -68,8 +70,8 @@ namespace NetClient
             string message = string.Empty;
             eventTesting.FireEvent();
 
-            Assert.IsTrue(eventFired, "Event didn't fire");
-            Assert.AreEqual(nameof(EventTesting.FireEvent), message, "Event message is incorrect");
+            Assert.True(eventFired);
+            Assert.Equal(nameof(EventTesting.FireEvent), message);
 
             comAwareEventInfo.RemoveEventHandler(eventTesting, handler);
 
@@ -78,7 +80,7 @@ namespace NetClient
             eventFired = false;
             eventTesting.FireEvent();
 
-            Assert.IsFalse(eventFired, "Event shouldn't fire");
+            Assert.False(eventFired);
 
             void OnEventEventHandler(string msg)
             {
@@ -87,7 +89,8 @@ namespace NetClient
             }
         }
 
-        static int Main(string[] doNotUse)
+        [Fact]
+        public static int TestEntryPoint()
         {
             // RegFree COM is not supported on Windows Nano
             if (Utilities.IsWindowsNanoServer)

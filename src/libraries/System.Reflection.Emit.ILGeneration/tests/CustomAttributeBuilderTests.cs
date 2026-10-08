@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Microsoft.DotNet.RemoteExecutor;
 using Xunit;
 
 namespace System.Reflection.Emit.Tests
@@ -255,7 +256,6 @@ namespace System.Reflection.Emit.Tests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/2383", TestRuntimes.Mono)]
         public static void Ctor_AllPrimitives()
         {
             ConstructorInfo con = typeof(Primitives).GetConstructors()[0];
@@ -423,7 +423,7 @@ namespace System.Reflection.Emit.Tests
             setMethodGenerator.Emit(OpCodes.Ret);
             propertyBuilder.SetSetMethod(setMethod);
 
-            Type createdType = typeBuilder.CreateTypeInfo().AsType();
+            Type createdType = typeBuilder.CreateType();
 
             // ConstructorBuilder, PropertyInfo, FieldInfo
             yield return new object[]
@@ -556,7 +556,7 @@ namespace System.Reflection.Emit.Tests
             ConstructorBuilder constructorBuilder = typeBuilder.DefineConstructor(MethodAttributes.Public, callingConvention, new Type[0]);
             constructorBuilder.GetILGenerator().Emit(OpCodes.Ret);
 
-            ConstructorInfo con = typeBuilder.CreateTypeInfo().AsType().GetConstructor(new Type[0]);
+            ConstructorInfo con = typeBuilder.CreateType().GetConstructor(new Type[0]);
 
             AssertExtensions.Throws<ArgumentException>(null, () => new CustomAttributeBuilder(con, new object[0]));
             AssertExtensions.Throws<ArgumentException>(null, () => new CustomAttributeBuilder(con, new object[0], new FieldInfo[0], new object[0]));
@@ -578,14 +578,19 @@ namespace System.Reflection.Emit.Tests
         public static IEnumerable<object[]> NotSupportedObject_Constructor_TestData()
         {
             yield return new object[] { new int[0, 0] };
-            yield return new object[] { Enum.GetValues(CreateEnum(typeof(char), 'a')).GetValue(0) };
-            yield return new object[] { Enum.GetValues(CreateEnum(typeof(bool), true)).GetValue(0) };
+            if (PlatformDetection.IsRareEnumsSupported)
+            {
+                yield return new object[] { Enum.GetValues(CreateEnum(typeof(char), 'a')).GetValue(0) };
+            }
         }
 
         public static IEnumerable<object[]> FloatEnum_DoubleEnum_TestData()
         {
-            yield return new object[] { Enum.GetValues(CreateEnum(typeof(float), 0.0f)).GetValue(0) };
-            yield return new object[] { Enum.GetValues(CreateEnum(typeof(double), 0.0)).GetValue(0) };
+            if (PlatformDetection.IsRareEnumsSupported)
+            {
+                yield return new object[] { Enum.GetValues(CreateEnum(typeof(float), 0.0f)).GetValue(0) };
+                yield return new object[] { Enum.GetValues(CreateEnum(typeof(double), 0.0)).GetValue(0) };
+            }
         }
 
         public static IEnumerable<object[]> NotSupportedObject_Others_TestData()
@@ -595,7 +600,6 @@ namespace System.Reflection.Emit.Tests
         }
 
         [Theory]
-        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "Netfx doesn't support Enum.GetEnumName for float or double enums.")]
         [MemberData(nameof(FloatEnum_DoubleEnum_TestData))]
         public void ConstructorArgsContainsFloatEnumOrDoubleEnum_ThrowsArgumentException(object value)
         {
@@ -640,17 +644,19 @@ namespace System.Reflection.Emit.Tests
         {
             yield return new object[] { typeof(Guid), new Guid() };
             yield return new object[] { typeof(int[,]), new int[5, 5] };
-            yield return new object[] { CreateEnum(typeof(char), 'a'), 'a' };
-            yield return new object[] { CreateEnum(typeof(bool), false), true };
-            yield return new object[] { CreateEnum(typeof(float), 1.0f), 1.0f };
-            yield return new object[] { CreateEnum(typeof(double), 1.0), 1.0 };
-            yield return new object[] { CreateEnum(typeof(IntPtr)), (IntPtr)1 };
-            yield return new object[] { CreateEnum(typeof(UIntPtr)), (UIntPtr)1 };
+            if (PlatformDetection.IsRareEnumsSupported)
+            {
+                yield return new object[] { CreateEnum(typeof(char), 'a'), 'a' };
+                yield return new object[] { CreateEnum(typeof(bool), false), true };
+                yield return new object[] { CreateEnum(typeof(float), 1.0f), 1.0f };
+                yield return new object[] { CreateEnum(typeof(double), 1.0), 1.0 };
+                yield return new object[] { CreateEnum(typeof(IntPtr)), (IntPtr)1 };
+                yield return new object[] { CreateEnum(typeof(UIntPtr)), (UIntPtr)1 };
+            }
         }
 
         [Theory]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/2383", TestRuntimes.Mono)]
-        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "Coreclr fixed an issue where IntPtr/UIntPtr in constructorParameters causes a corrupt created binary.")]
         [MemberData(nameof(IntPtrAttributeTypes_TestData))]
         public void ConstructorParametersContainsIntPtrOrUIntPtrArgument_ThrowsArgumentException(Type type, object value)
         {
@@ -674,7 +680,6 @@ namespace System.Reflection.Emit.Tests
 
         [Fact]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/2383", TestRuntimes.Mono)]
-        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "Used to throw a NullReferenceException, see https://github.com/dotnet/runtime/issues/18552.")]
         public void NullValueForPrimitiveTypeInConstructorArgs_ThrowsArgumentNullException()
         {
             ConstructorInfo con = typeof(TestAttribute).GetConstructor(new Type[] { typeof(int) });
@@ -694,7 +699,6 @@ namespace System.Reflection.Emit.Tests
 
         [Theory]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/2383", TestRuntimes.Mono)]
-        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "Coreclr fixed an issue where IntPtr/UIntPtr in constructorArgs causes a corrupt created binary.")]
         [MemberData(nameof(NotSupportedPrimitives_TestData))]
         public static void NotSupportedPrimitiveInConstructorArgs_ThrowsArgumentException(object value)
         {
@@ -848,7 +852,6 @@ namespace System.Reflection.Emit.Tests
         [Theory]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/2383", TestRuntimes.Mono)]
         [MemberData(nameof(NotSupportedPrimitives_TestData))]
-        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "Coreclr fixed an issue where IntPtr/UIntPtr in fieldValues causes a corrupt created binary.")]
         public static void NotSupportedPrimitiveInFieldValues_ThrowsArgumentException(object value)
         {
             // Used to assert in CustomAttributeBuilder.EmitType(), not writing any CustomAttributeEncoding.
@@ -883,7 +886,7 @@ namespace System.Reflection.Emit.Tests
         [InlineData(new string[] { nameof(TestAttribute.TestInt) }, new object[] { "TestString", 10 }, "namedFields, fieldValues")]
         [InlineData(new string[] { nameof(TestAttribute.TestInt), nameof(TestAttribute.TestStringField) }, new object[] { "TestString", 10 }, null)]
         [InlineData(new string[] { nameof(TestAttribute.TestStringField) }, new object[] { 10 }, null)]
-        public void NamedFieldAndFieldValuesDifferentLengths_ThrowsArgumentException(string[] fieldNames, object[] fieldValues, string paramName)
+        public void NamedFieldAndFieldValuesDifferentLengths_ThrowsArgumentException(string[] fieldNames, object[] fieldValues, string? paramName)
         {
             ConstructorInfo con = typeof(TestAttribute).GetConstructor(new Type[0]);
             FieldInfo[] namedFields = Helpers.GetFields(typeof(TestAttribute), fieldNames);
@@ -1018,7 +1021,6 @@ namespace System.Reflection.Emit.Tests
         [Theory]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/2383", TestRuntimes.Mono)]
         [MemberData(nameof(NotSupportedPrimitives_TestData))]
-        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "Coreclr fixed an issue where IntPtr/UIntPtr in propertValues causes a corrupt created binary.")]
         public static void NotSupportedPrimitiveInPropertyValues_ThrowsArgumentException(object value)
         {
             ConstructorInfo con = typeof(TestAttribute).GetConstructor(new Type[0]);
@@ -1052,13 +1054,35 @@ namespace System.Reflection.Emit.Tests
         [InlineData(new string[] { nameof(TestAttribute.GetOnlyInt32) }, new object[] { "TestString" }, null)]
         [InlineData(new string[] { nameof(TestAttribute.GetOnlyString) }, new object[] { "TestString" }, null)]
         [InlineData(new string[] { nameof(TestAttribute.TestInt32) }, new object[] { "TestString" }, null)]
-        public void NamedPropertyAndPropertyValuesDifferentLengths_ThrowsArgumentException(string[] propertyNames, object[] propertyValues, string paramName)
+        public void NamedPropertyAndPropertyValuesDifferentLengths_ThrowsArgumentException(string[] propertyNames, object[] propertyValues, string? paramName)
         {
             ConstructorInfo con = typeof(TestAttribute).GetConstructor(new Type[0]);
             PropertyInfo[] namedProperties = Helpers.GetProperties(typeof(TestAttribute), propertyNames);
 
             AssertExtensions.Throws<ArgumentException>(paramName, () => new CustomAttributeBuilder(con, new object[0], namedProperties, propertyValues));
             AssertExtensions.Throws<ArgumentException>(paramName, () => new CustomAttributeBuilder(con, new object[0], namedProperties, propertyValues, new FieldInfo[0], new object[0]));
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public static void ThrowsWhenDynamicCodeNotSupported()
+        {
+            RemoteInvokeOptions options = new RemoteInvokeOptions();
+            options.RuntimeConfigurationOptions.Add("System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported", false.ToString());
+
+            using RemoteInvokeHandle remoteHandle = RemoteExecutor.Invoke(static () =>
+            {
+                ConstructorInfo con = typeof(TestAttribute).GetConstructor(new Type[0]);
+                object[] constructorArgs = new object[0];
+                PropertyInfo[] namedProperties = Helpers.GetProperties(typeof(TestAttribute), nameof(TestAttribute.ObjectProperty));
+                object[] propertyValues = new object[] { new int[0, 0] };
+                FieldInfo[] namedFields = new FieldInfo[0];
+                object[] fieldValues = new object[0];
+
+                Assert.Throws<PlatformNotSupportedException>(() => new CustomAttributeBuilder(con, constructorArgs));
+                Assert.Throws<PlatformNotSupportedException>(() => new CustomAttributeBuilder(con, constructorArgs, namedFields, fieldValues));
+                Assert.Throws<PlatformNotSupportedException>(() => new CustomAttributeBuilder(con, constructorArgs, namedProperties, propertyValues));
+                Assert.Throws<PlatformNotSupportedException>(() => new CustomAttributeBuilder(con, constructorArgs, namedProperties, propertyValues, namedFields, fieldValues));
+            }, options);
         }
 
         private static Type CreateEnum(Type underlyingType, params object[] literalValues)
@@ -1069,7 +1093,7 @@ namespace System.Reflection.Emit.Tests
             {
                 enumBuilder.DefineLiteral("Value" + i, literalValues[i]);
             }
-            return enumBuilder.CreateTypeInfo().AsType();
+            return enumBuilder.CreateType();
         }
     }
 

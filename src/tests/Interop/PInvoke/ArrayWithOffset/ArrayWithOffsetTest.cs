@@ -4,11 +4,15 @@
 using System;
 using System.Text;
 using System.Runtime.InteropServices;
-using TestLibrary;
+using Xunit;
 
-unsafe class ArrayWithOffsetTest
+public unsafe class ArrayWithOffsetTest
 {
-    public static int Main()
+    [Fact]
+    [SkipOnMono("needs triage")]
+    [ActiveIssue("https://github.com/dotnet/runtimelab/issues/170", typeof(TestLibrary.Utilities), nameof(TestLibrary.Utilities.IsNativeAot))]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/91388", typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.PlatformDoesNotSupportNativeTestAssets))]
+    public static int TestEntryPoint()
     {
         try
         {
@@ -23,17 +27,17 @@ unsafe class ArrayWithOffsetTest
                 fixed (int* expectedSubArray = expected.Slice(i))
                 fixed (int* newValueSubArray = newValue.Slice(i))
                 {
-                    Assert.IsTrue(ArrayWithOffsetNative.Marshal_InOut(expectedSubArray, offset, expected.Length - i, newValueSubArray), $"Native call failed with element offset {i}.");
+                    Assert.True(ArrayWithOffsetNative.Marshal_InOut(expectedSubArray, offset, expected.Length - i, newValueSubArray), $"Native call failed with element offset {i}.");
                 }
 
                 for (int j = 0; j < i; j++)
                 {
-                    Assert.AreEqual(expected[j], array[j]);
+                    Assert.Equal(expected[j], array[j]);
                 }
 
                 for (int j = i; j < array.Length; j++)
                 {
-                    Assert.AreEqual(newValue[j], array[j]);
+                    Assert.Equal(newValue[j], array[j]);
                 }
             }
 

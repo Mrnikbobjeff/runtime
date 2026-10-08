@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 
 public struct ValX1<T> {}
@@ -23,8 +25,8 @@ class Gen<T>
 		if(monitorU.Equals(monitorT))
 			throw new Exception("Invalid use of test case, T must not be equal to U - POSSIBLE TYPE SYSTEM BUG");
 
-		TestHelper myHelper = new TestHelper(Test.nThreads);
-		TestHelper myHelper2 = new TestHelper(Test.nThreads);
+		TestHelper myHelper = new TestHelper(Test_EnterExit12.nThreads);
+		TestHelper myHelper2 = new TestHelper(Test_EnterExit12.nThreads);
 		WaitHandle[] myWaiter = new WaitHandle[2];
 		myWaiter[0] = myHelper.m_Event;
 		myWaiter[1] = myHelper2.m_Event;
@@ -34,7 +36,7 @@ class Gen<T>
 		// 	new MonitorDelegate(myHelper2.Consumer).BeginInvoke(monitorU,null,null);
 		// }
 
-		for(int i=0; i<Test.nThreads; i++)
+		for(int i=0; i<Test_EnterExit12.nThreads; i++)
 		{
 			ThreadPool.QueueUserWorkItem(state =>
 			{
@@ -54,14 +56,14 @@ class Gen<T>
 			if(myHelper.Error == true || myHelper2.Error == true)
 				break;
 		}
-		Test.Eval(!(myHelper.Error || myHelper2.Error));
+		Test_EnterExit12.Eval(!(myHelper.Error || myHelper2.Error));
 	}
 
 
 	
 }
 
-public class Test
+public class Test_EnterExit12
 {
 	public static int nThreads = 50;
 	public static int counter = 0;
@@ -78,7 +80,8 @@ public class Test
 	
 	}
 	
-	public static int Main()
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint()
 	{
 		Gen<double>.EnterExitTest<int>();
 		Gen<string>.EnterExitTest<int>();

@@ -1,9 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
+namespace JitTest_Directed_Misc_Concat_ConcatTest;
 
-internal class ConcatTest
+using System;
+using Xunit;
+
+public class ConcatTest
 {
     static string strA = "A";
     static string strB = "B";
@@ -19,7 +22,9 @@ internal class ConcatTest
 
     static int iReturn = 100;
 
-    static public int Main()
+    [OuterLoop]
+    [Fact]
+    static public int TestEntryPoint()
     {
         iReturn = 100;
         try

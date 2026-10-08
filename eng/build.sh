@@ -17,7 +17,7 @@ scriptroot="$( cd -P "$( dirname "$source" )" && pwd )"
 usage()
 {
   echo "Common settings:"
-  echo "  --arch                          Target platform: x86, x64, arm, armel, arm64 or wasm."
+  echo "  --arch (-a)                     Target platform: x86, x64, arm, armv6, armel, arm64, loongarch64, riscv64, s390x, ppc64le or wasm."
   echo "                                  [Default: Your machine's architecture.]"
   echo "  --binaryLog (-bl)               Output binary log."
   echo "  --cross                         Optional argument to signify cross compilation."
@@ -26,21 +26,34 @@ usage()
   echo "                                  compiled with optimizations enabled."
   echo "                                  [Default: Debug]"
   echo "  --help (-h)                     Print help and exit."
+  echo "  --hostConfiguration (-hc)       Host build configuration: Debug, Release or Checked."
+  echo "                                  [Default: Debug]"
   echo "  --librariesConfiguration (-lc)  Libraries build configuration: Debug or Release."
   echo "                                  [Default: Debug]"
-  echo "  --os                            Target operating system: Windows_NT, Linux, FreeBSD, OSX, tvOS, iOS, Android,"
-  echo "                                  Browser, NetBSD, illumos or Solaris."
+  echo "  --os                            Target operating system: windows, linux, freebsd, osx, maccatalyst, tvos,"
+  echo "                                  tvossimulator, ios, iossimulator, android, browser, wasi, netbsd, illumos, solaris"
+  echo "                                  linux-musl, linux-bionic, tizen, or haiku."
   echo "                                  [Default: Your machine's OS.]"
+  echo "  --targetrid <rid>               Optional argument that overrides the target rid name."
   echo "  --projects <value>              Project or solution file(s) to build."
   echo "  --runtimeConfiguration (-rc)    Runtime build configuration: Debug, Release or Checked."
   echo "                                  Checked is exclusive to the CLR runtime. It is the same as Debug, except code is"
   echo "                                  compiled with optimizations enabled."
   echo "                                  [Default: Debug]"
+  echo "  -runtimeFlavor (-rf)            Runtime flavor: CoreCLR or Mono."
+  echo "                                  [Default: CoreCLR]"
   echo "  --subset (-s)                   Build a subset, print available subsets with -subset help."
   echo "                                 '--subset' can be omitted if the subset is given as the first argument."
   echo "                                  [Default: Builds the entire repo.]"
+  echo "  --usemonoruntime                Product a .NET runtime with Mono as the underlying runtime."
+  echo "  --clrinterpreter                Enables CoreCLR interpreter for Release builds of targets where it is a Debug only feature."
+  echo "  --dynamiccodecompiled           Enable or disable dynamic code compilation support. Accepts true or false."
+  echo "                                  Also enables the interpreter when dynamic code compilation is disabled."
+  echo "                                  [Default: true for most platforms, false for ios/tvos/browser/wasi]"
   echo "  --verbosity (-v)                MSBuild verbosity: q[uiet], m[inimal], n[ormal], d[etailed], and diag[nostic]."
   echo "                                  [Default: Minimal]"
+  echo "  --use-bootstrap                 Use the results of building the bootstrap subset to build published tools on the target machine."
+  echo "  --bootstrap                     Build the bootstrap subset and then build the repo with --use-bootstrap."
   echo ""
 
   echo "Actions (defaults to --restore --build):"
@@ -54,14 +67,13 @@ usage()
   echo "  --restore (-r)             Restore dependencies."
   echo "  --sign                     Sign build outputs."
   echo "  --test (-t)                Incrementally builds and runs tests."
-  echo "                             Use in conjuction with --testnobuild to only run tests."
+  echo "                             Use in conjunction with --testnobuild to only run tests."
   echo ""
 
   echo "Libraries settings:"
-  echo "  --allconfigurations        Build packages for all build configurations."
   echo "  --coverage                 Collect code coverage when testing."
-  echo "  --framework (-f)           Build framework: net5.0 or net48."
-  echo "                             [Default: net5.0]"
+  echo "  --framework (-f)           Build framework: net11.0 or net481."
+  echo "                             [Default: net11.0]"
   echo "  --testnobuild              Skip building tests when invoking -test."
   echo "  --testscope                Test scope, allowed values: innerloop, outerloop, all."
   echo ""
@@ -74,6 +86,10 @@ usage()
   echo "  --gcc                      Optional argument to build using gcc in PATH (default)."
   echo "  --gccx.y                   Optional argument to build using gcc version x.y."
   echo "  --portablebuild            Optional argument: set to false to force a non-portable build."
+  echo "  --keepnativesymbols        Optional argument: set to keep native symbols/debuginfo in generated binaries."
+  echo "  --ninja                    Optional argument: use Ninja instead of Make (default: true, use --ninja false to disable)."
+  echo "  --pgoinstrument            Optional argument: build PGO-instrumented runtime"
+  echo "  --fsanitize                Optional argument: Specify native sanitizers to instrument the native build with. Supported values are: 'address'."
   echo ""
 
   echo "Command line arguments starting with '/p:' are passed through to MSBuild."
@@ -105,7 +121,7 @@ usage()
   echo ""
   echo "However, for this example, you need to already have ROOTFS_DIR set up."
   echo "Further information on this can be found here:"
-  echo "https://github.com/dotnet/runtime/blob/master/docs/workflow/building/coreclr/linux-instructions.md"
+  echo "https://github.com/dotnet/runtime/blob/main/docs/workflow/building/coreclr/cross-building.md"
   echo ""
   echo "* Build Mono runtime for Linux x64 on Release configuration."
   echo "./build.sh mono -c release"
@@ -117,54 +133,61 @@ usage()
   echo "./build.sh mono.corelib+libs.pretest -rc debug -c release"
   echo ""
   echo ""
-  echo "For more general information, check out https://github.com/dotnet/runtime/blob/master/docs/workflow/README.md"
+  echo "For more general information, check out https://github.com/dotnet/runtime/blob/main/docs/workflow/README.md"
 }
 
 initDistroRid()
 {
-    source "$scriptroot"/native/init-distro-rid.sh
+    source "$scriptroot"/common/native/init-distro-rid.sh
 
     local passedRootfsDir=""
     local targetOs="$1"
-    local buildArch="$2"
+    local targetArch="$2"
     local isCrossBuild="$3"
-    local isPortableBuild="$4"
 
-    # Only pass ROOTFS_DIR if __DoCrossArchBuild is specified.
-    if (( isCrossBuild == 1 )); then
+    # Only pass ROOTFS_DIR if __DoCrossArchBuild is specified and the current platform is not an Apple platform (that doesn't use rootfs)
+    if [[ $isCrossBuild == 1 && "$targetOs" != "osx" && "$targetOs" != "android" && "$targetOs" != "ios" && "$targetOs" != "iossimulator" && "$targetOs" != "tvos" && "$targetOs" != "tvossimulator" && "$targetOs" != "maccatalyst" ]]; then
         passedRootfsDir=${ROOTFS_DIR}
     fi
-    initDistroRidGlobal ${targetOs} ${buildArch} ${isPortableBuild} ${passedRootfsDir}
+    initDistroRidGlobal "${targetOs}" "${targetArch}" "${passedRootfsDir}"
 }
 
 showSubsetHelp()
 {
-  "$scriptroot/common/build.sh" "-restore" "-build" "/p:Subset=help" "/clp:nosummary"
+  "$scriptroot/common/build.sh" "-restore" "-build" "/p:Subset=help" "/clp:nosummary" "/tl:false"
 }
 
-arguments=''
+arguments=()
 cmakeargs=''
-extraargs=''
+extraargs=()
 crossBuild=0
 portableBuild=1
+bootstrap=0
+bootstrapConfig='Debug'
+dynamiccodecompiled=""
 
-source $scriptroot/native/init-os-and-arch.sh
+source "$scriptroot"/common/native/init-os-and-arch.sh
+
+hostArch=$arch
+
+# Default to using Ninja for faster builds (can be overridden with --ninja false)
+useNinja=true
 
 # Check if an action is passed in
 declare -a actions=("b" "build" "r" "restore" "rebuild" "testnobuild" "sign" "publish" "clean")
-actInt=($(comm -12 <(printf '%s\n' "${actions[@]/#/-}" | sort) <(printf '%s\n' "${@/#--/-}" | sort)))
+actInt=($(LC_ALL=C comm -12 <(printf '%s\n' "${actions[@]/#/-}" | LC_ALL=C sort) <(printf '%s\n' "${@/#--/-}" | LC_ALL=C sort)))
 firstArgumentChecked=0
 
-while [[ $# > 0 ]]; do
-  opt="$(echo "${1/#--/-}" | awk '{print tolower($0)}')"
+while [[ $# -gt 0 ]]; do
+  opt="$(echo "${1/#--/-}" | tr "[:upper:]" "[:lower:]")"
 
   if [[ $firstArgumentChecked -eq 0 && $opt =~ ^[a-zA-Z.+]+$ ]]; then
-    if [ $opt == "help" ]; then
+    if [[ "$opt" == "help" ]]; then
       showSubsetHelp
       exit 0
     fi
 
-    arguments="$arguments /p:Subset=$1"
+    arguments+=("/p:Subset=$1")
     shift 1
     continue
   fi
@@ -172,7 +195,7 @@ while [[ $# > 0 ]]; do
   firstArgumentChecked=1
 
   case "$opt" in
-     -help|-h)
+     -help|-h|-\?|/?)
       usage
       exit 0
       ;;
@@ -182,29 +205,29 @@ while [[ $# > 0 ]]; do
         showSubsetHelp
         exit 0
       else
-        passedSubset="$(echo "$2" | awk '{print tolower($0)}')"
-        if [ $passedSubset == "help" ]; then
+        passedSubset="$(echo "$2" | tr "[:upper:]" "[:lower:]")"
+        if [[ "$passedSubset" == "help" ]]; then
           showSubsetHelp
           exit 0
         fi
-        arguments="$arguments /p:Subset=$2"
+        arguments+=("/p:Subset=$2")
         shift 2
       fi
       ;;
 
-     -arch)
+     -arch|-a)
       if [ -z ${2+x} ]; then
         echo "No architecture supplied. See help (--help) for supported architectures." 1>&2
         exit 1
       fi
-      passedArch="$(echo "$2" | awk '{print tolower($0)}')"
+      passedArch="$(echo "$2" | tr "[:upper:]" "[:lower:]")"
       case "$passedArch" in
-        x64|x86|arm|armel|arm64|wasm)
+        x64|x86|arm|armv6|armel|arm64|loongarch64|riscv64|s390x|ppc64le|wasm)
           arch=$passedArch
           ;;
         *)
           echo "Unsupported target architecture '$2'."
-          echo "The allowed values are x86, x64, arm, armel, arm64, and wasm."
+          echo "The allowed values are x86, x64, arm, armv6, armel, arm64, loongarch64, riscv64, s390x, ppc64le and wasm."
           exit 1
           ;;
       esac
@@ -216,7 +239,7 @@ while [[ $# > 0 ]]; do
         echo "No configuration supplied. See help (--help) for supported configurations." 1>&2
         exit 1
       fi
-      passedConfig="$(echo "$2" | awk '{print tolower($0)}')"
+      passedConfig="$(echo "$2" | tr "[:upper:]" "[:lower:]")"
       case "$passedConfig" in
         debug|release|checked)
           val="$(tr '[:lower:]' '[:upper:]' <<< ${passedConfig:0:1})${passedConfig:1}"
@@ -227,7 +250,8 @@ while [[ $# > 0 ]]; do
           exit 1
           ;;
       esac
-      arguments="$arguments -configuration $val"
+      bootstrapConfig=$val
+      arguments+=("-configuration" "$val")
       shift 2
       ;;
 
@@ -236,8 +260,8 @@ while [[ $# > 0 ]]; do
         echo "No framework supplied. See help (--help) for supported frameworks." 1>&2
         exit 1
       fi
-      val="$(echo "$2" | awk '{print tolower($0)}')"
-      arguments="$arguments /p:BuildTargetFramework=$val"
+      val="$(echo "$2" | tr "[:upper:]" "[:lower:]")"
+      arguments+=("/p:BuildTargetFramework=$val")
       shift 2
       ;;
 
@@ -246,40 +270,60 @@ while [[ $# > 0 ]]; do
         echo "No target operating system supplied. See help (--help) for supported target operating systems." 1>&2
         exit 1
       fi
-      passedOS="$(echo "$2" | awk '{print tolower($0)}')"
+      passedOS="$(echo "$2" | tr "[:upper:]" "[:lower:]")"
       case "$passedOS" in
-        windows_nt)
-          os="Windows_NT" ;;
+        windows)
+          os="windows" ;;
         linux)
-          os="Linux" ;;
+          os="linux" ;;
         freebsd)
-          os="FreeBSD" ;;
+          os="freebsd" ;;
+        openbsd)
+          os="openbsd" ;;
         osx)
-          os="OSX" ;;
+          os="osx" ;;
+        maccatalyst)
+          os="maccatalyst" ;;
         tvos)
-          os="tvOS" ;;
+          os="tvos" ;;
+        tvossimulator)
+          os="tvossimulator" ;;
         ios)
-          os="iOS" ;;
+          os="ios" ;;
+        iossimulator)
+          os="iossimulator" ;;
         android)
-          os="Android" ;;
+          os="android" ;;
         browser)
-          os="Browser" ;;
+          os="browser" ;;
+        wasi)
+          os="wasi" ;;
         illumos)
           os="illumos" ;;
         solaris)
-          os="Solaris" ;;
+          os="solaris" ;;
+        linux-bionic)
+          os="linux"
+          __PortableTargetOS=linux-bionic
+          ;;
+        linux-musl)
+          os="linux"
+          __PortableTargetOS=linux-musl
+          ;;
+        haiku)
+          os="haiku" ;;
         *)
           echo "Unsupported target OS '$2'."
-          echo "The allowed values are Windows_NT, Linux, FreeBSD, OSX, tvOS, iOS, Android, Browser, illumos and Solaris."
+          echo "Try 'build.sh --help' for values supported by '--os'."
           exit 1
           ;;
       esac
-      arguments="$arguments /p:TargetOS=$os"
+      arguments+=("/p:TargetOS=$os")
       shift 2
       ;;
 
-     -allconfigurations)
-      arguments="$arguments /p:BuildAllConfigurations=true"
+     -pack)
+      arguments+=("--pack" "/p:BuildAllConfigurations=true")
       shift 1
       ;;
 
@@ -288,17 +332,17 @@ while [[ $# > 0 ]]; do
         echo "No test scope supplied. See help (--help) for supported test scope values." 1>&2
         exit 1
       fi
-      arguments="$arguments /p:TestScope=$2"
+      arguments+=("/p:TestScope=$2")
       shift 2
       ;;
 
      -testnobuild)
-      arguments="$arguments /p:TestNoBuild=true"
+      arguments+=("/p:TestNoBuild=true")
       shift 1
       ;;
 
      -coverage)
-      arguments="$arguments /p:Coverage=true"
+      arguments+=("/p:Coverage=true")
       shift 1
       ;;
 
@@ -307,7 +351,7 @@ while [[ $# > 0 ]]; do
         echo "No runtime configuration supplied. See help (--help) for supported runtime configurations." 1>&2
         exit 1
       fi
-      passedRuntimeConf="$(echo "$2" | awk '{print tolower($0)}')"
+      passedRuntimeConf="$(echo "$2" | tr "[:upper:]" "[:lower:]")"
       case "$passedRuntimeConf" in
         debug|release|checked)
           val="$(tr '[:lower:]' '[:upper:]' <<< ${passedRuntimeConf:0:1})${passedRuntimeConf:1}"
@@ -318,7 +362,51 @@ while [[ $# > 0 ]]; do
           exit 1
           ;;
       esac
-      arguments="$arguments /p:RuntimeConfiguration=$val"
+      arguments+=("/p:RuntimeConfiguration=$val")
+      shift 2
+      ;;
+
+     -runtimeflavor|-rf)
+      if [ -z ${2+x} ]; then
+        echo "No runtime flavor supplied. See help (--help) for supported runtime flavors." 1>&2
+        exit 1
+      fi
+      passedRuntimeFlav="$(echo "$2" | tr "[:upper:]" "[:lower:]")"
+      case "$passedRuntimeFlav" in
+        coreclr|mono)
+          val="$(tr '[:lower:]' '[:upper:]' <<< ${passedRuntimeFlav:0:1})${passedRuntimeFlav:1}"
+          ;;
+        *)
+          echo "Unsupported runtime flavor '$2'."
+          echo "The allowed values are CoreCLR and Mono."
+          exit 1
+          ;;
+      esac
+      arguments+=("/p:RuntimeFlavor=$val")
+      shift 2
+      ;;
+
+     -usemonoruntime)
+      arguments+=("/p:PrimaryRuntimeFlavor=Mono")
+      shift 1
+      ;;
+
+     -clrinterpreter)
+      arguments+=("/p:FeatureInterpreter=true")
+      shift 1
+      ;;
+
+     -dynamiccodecompiled)
+      if [ -z ${2+x} ]; then
+        echo "No value for dynamiccodecompiled is supplied. See help (--help) for supported values." 1>&2
+        exit 1
+      fi
+      dynamiccodecompiled="$(echo "$2" | tr "[:upper:]" "[:lower:]")"
+      if [[ "$dynamiccodecompiled" != "true" && "$dynamiccodecompiled" != "false" ]]; then
+        echo "Unsupported value '$2' for dynamiccodecompiled."
+        echo "The allowed values are true and false."
+        exit 1
+      fi
       shift 2
       ;;
 
@@ -327,7 +415,7 @@ while [[ $# > 0 ]]; do
         echo "No libraries configuration supplied. See help (--help) for supported libraries configurations." 1>&2
         exit 1
       fi
-      passedLibConf="$(echo "$2" | awk '{print tolower($0)}')"
+      passedLibConf="$(echo "$2" | tr "[:upper:]" "[:lower:]")"
       case "$passedLibConf" in
         debug|release)
           val="$(tr '[:lower:]' '[:upper:]' <<< ${passedLibConf:0:1})${passedLibConf:1}"
@@ -338,18 +426,45 @@ while [[ $# > 0 ]]; do
           exit 1
           ;;
       esac
-      arguments="$arguments /p:LibrariesConfiguration=$val"
+      arguments+=("/p:LibrariesConfiguration=$val")
+      shift 2
+      ;;
+
+     -hostconfiguration|-hc)
+      if [ -z ${2+x} ]; then
+        echo "No host configuration supplied. See help (--help) for supported host configurations." 1>&2
+        exit 1
+      fi
+      passedHostConf="$(echo "$2" | tr "[:upper:]" "[:lower:]")"
+      case "$passedHostConf" in
+        debug|release|checked)
+          val="$(tr '[:lower:]' '[:upper:]' <<< ${passedHostConf:0:1})${passedHostConf:1}"
+          ;;
+        *)
+          echo "Unsupported host configuration '$2'."
+          echo "The allowed values are Debug, Release, and Checked."
+          exit 1
+          ;;
+      esac
+      arguments+=("/p:HostConfiguration=$val")
       shift 2
       ;;
 
      -cross)
       crossBuild=1
-      arguments="$arguments /p:CrossBuild=True"
+      arguments+=("/p:CrossBuild=True")
+      shift 1
+      ;;
+
+     *crossbuild=true*)
+      crossBuild=1
+      extraargs+=("$1")
       shift 1
       ;;
 
      -clang*)
-      arguments="$arguments /p:Compiler=$opt"
+      compiler="${opt/#-/}" # -clang-9 => clang-9 or clang-9 => (unchanged)
+      arguments+=("/p:CppCompilerAndLinker=$compiler")
       shift 1
       ;;
 
@@ -358,13 +473,23 @@ while [[ $# > 0 ]]; do
         echo "No cmake args supplied." 1>&2
         exit 1
       fi
-      cmakeargs="${cmakeargs} ${opt} $2"
+      cmakeargs="${cmakeargs} $2"
       shift 2
       ;;
 
      -gcc*)
-      arguments="$arguments /p:Compiler=$opt"
+      compiler="${opt/#-/}" # -gcc-9 => gcc-9 or gcc-9 => (unchanged)
+      arguments+=("/p:CppCompilerAndLinker=$compiler")
       shift 1
+      ;;
+
+     -targetrid|-outputrid)
+      if [ -z ${2+x} ]; then
+        echo "No value for targetrid is supplied. See help (--help) for supported values." 1>&2
+        exit 1
+      fi
+      arguments+=("/p:TargetRid=$(echo "$2" | tr "[:upper:]" "[:lower:]")")
+      shift 2
       ;;
 
      -portablebuild)
@@ -372,30 +497,161 @@ while [[ $# > 0 ]]; do
         echo "No value for portablebuild is supplied. See help (--help) for supported values." 1>&2
         exit 1
       fi
-      passedPortable="$(echo "$2" | awk '{print tolower($0)}')"
+      passedPortable="$(echo "$2" | tr "[:upper:]" "[:lower:]")"
       if [ "$passedPortable" = false ]; then
         portableBuild=0
-        arguments="$arguments /p:PortableBuild=false"
+        arguments+=("/p:PortableBuild=false")
       fi
       shift 2
       ;;
 
+     -keepnativesymbols)
+      arguments+=("/p:KeepNativeSymbols=true")
+      shift 1
+      ;;
+
+
+      -ninja)
+      if [ -z ${2+x} ] || [[ "$2" == -* ]]; then
+        useNinja=true
+        shift 1
+      else
+        ninja="$(echo "$2" | tr "[:upper:]" "[:lower:]")"
+        shift 2
+        if [ "$ninja" = false ]; then
+          arguments+=("/p:Ninja=false")
+          useNinja=false
+        else
+          useNinja=true
+        fi
+      fi
+      ;;
+
+      -pgoinstrument)
+      arguments+=("/p:PgoInstrument=true")
+      shift 1
+      ;;
+
+      -use-bootstrap)
+      arguments+=("/p:UseBootstrap=true")
+      shift 1
+      ;;
+
+      -bootstrap)
+      bootstrap=1
+      shift 1
+      ;;
+
+      -fsanitize)
+      if [ -z ${2+x} ]; then
+        echo "No value for -fsanitize is supplied. See help (--help) for supported values." 1>&2
+        exit 1
+      fi
+      arguments+=("/p:EnableNativeSanitizers=$2")
+      shift 2
+      ;;
+
+      -fsanitize=*)
+      sanitizers="${opt/#-fsanitize=/}" # -fsanitize=address => address
+      arguments+=("/p:EnableNativeSanitizers=$sanitizers")
+      shift 2
+      ;;
+
+      -verbose)
+      arguments+=("/p:CoreclrVerbose=true")
+      shift 1
+      ;;
+
       *)
-      extraargs="$extraargs $1"
+      extraargs+=("$1")
       shift 1
       ;;
   esac
 done
 
 if [ ${#actInt[@]} -eq 0 ]; then
-    arguments="-restore -build $arguments"
+    arguments=("-restore" "-build" ${arguments[@]+"${arguments[@]}"})
 fi
 
-initDistroRid $os $arch $crossBuild $portableBuild
+if [[ "$os" == "browser" ]]; then
+    # override default arch for Browser, we only support wasm
+    arch=wasm
+    # because on docker instance without swap file, MSBuild nodes need to make some room for LLVM
+    # https://github.com/dotnet/runtime/issues/113724
+    # this is hexa percentage: 46-> 70%
+    export DOTNET_GCHeapHardLimitPercent="46"
+fi
+if [[ "$os" == "wasi" ]]; then
+    # override default arch for wasi, we only support wasm
+    arch=wasm
+fi
+
+# Default dynamiccodecompiled based on target OS if not explicitly set
+if [[ -z "$dynamiccodecompiled" ]]; then
+    case "$os" in
+        maccatalyst|ios|iossimulator|tvos|tvossimulator|browser|wasi)
+            dynamiccodecompiled="false"
+            ;;
+        *)
+            dynamiccodecompiled="true"
+            ;;
+    esac
+fi
+arguments+=("/p:FeatureDynamicCodeCompiled=$dynamiccodecompiled")
+if [[ "$dynamiccodecompiled" == "false" ]]; then
+    arguments+=("/p:FeatureInterpreter=true")
+fi
+
+if [[ "${TreatWarningsAsErrors:-}" == "false" ]]; then
+    arguments+=("-warnAsError" "false")
+fi
+
+# disable terminal logger for now: https://github.com/dotnet/runtime/issues/97211
+arguments+=("-tl:false")
+# disable line wrapping so that C&P from the console works well
+arguments+=("-clp:ForceNoAlign")
+
+# Apply ninja setting
+if [[ "$useNinja" == true ]]; then
+  arguments+=("/p:Ninja=true")
+fi
+
+initDistroRid "$os" "$arch" "$crossBuild"
+
+# Disable targeting pack caching as we reference a partially constructed targeting pack and update it later.
+# The later changes are ignored when using the cache.
+export DOTNETSDK_ALLOW_TARGETING_PACK_CACHING=0
 
 # URL-encode space (%20) to avoid quoting issues until the msbuild call in /eng/common/tools.sh.
 # In *proj files (XML docs), URL-encoded string are rendered in their decoded form.
 cmakeargs="${cmakeargs// /%20}"
-arguments="$arguments /p:TargetArchitecture=$arch"
-arguments="$arguments /p:CMakeArgs=\"$cmakeargs\" $extraargs"
-"$scriptroot/common/build.sh" $arguments
+arguments+=("/p:TargetArchitecture=$arch" "/p:BuildArchitecture=$hostArch")
+arguments+=("/p:CMakeArgs=\"$cmakeargs\"" ${extraargs[@]+"${extraargs[@]}"})
+
+if [[ "$bootstrap" == "1" ]]; then
+  # Strip build actions other than -restore and -build from the arguments for the bootstrap build.
+  bootstrapArguments=()
+  for argument in "${arguments[@]}"; do
+    add=1
+    for flag in --sign --publish --pack --test -sign -publish -pack -test; do
+      if [[ "$argument" == "$flag" ]]; then
+        add=0
+      fi
+    done
+    if [[ $add == 1 ]]; then
+      bootstrapArguments+=("$argument")
+    fi
+  done
+
+  # Set a different path for prebuilt usage tracking for the bootstrap build.
+  "$scriptroot/common/build.sh" ${bootstrapArguments[@]+"${bootstrapArguments[@]}"} /p:Subset=bootstrap /p:TrackPrebuiltUsageReportFile="$scriptroot/../artifacts/log/bootstrap-prebuilt-usage.xml" -bl:"$scriptroot/../artifacts/log/$bootstrapConfig/bootstrap.binlog"
+
+  # Remove artifacts from the bootstrap build so the product build is a "clean" build.
+  echo "Cleaning up artifacts from bootstrap build..."
+  rm -r "$scriptroot/../artifacts/bin"
+  # Remove all directories in obj except for the source-built-upstream-cache directory to avoid breaking SourceBuild.
+  find "$scriptroot/../artifacts/obj" -mindepth 1 -maxdepth 1 ! -name 'source-built-upstream-cache' -exec rm -rf {} +
+  arguments+=("/p:UseBootstrap=true")
+fi
+
+"$scriptroot/common/build.sh" ${arguments[@]+"${arguments[@]}"}

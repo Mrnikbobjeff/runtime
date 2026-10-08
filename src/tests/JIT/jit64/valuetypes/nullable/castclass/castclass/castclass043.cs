@@ -4,8 +4,10 @@
 
 using System.Runtime.InteropServices;
 using System;
+using Xunit;
 
-internal class NullableTest
+namespace castclass043;
+public class NullableTest
 {
     private static bool BoxUnboxToNQ(object o)
     {
@@ -17,7 +19,9 @@ internal class NullableTest
         return Helper.Compare((WithMultipleGCHandleStruct?)(ValueType)o, Helper.Create(default(WithMultipleGCHandleStruct)));
     }
 
-    private static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         WithMultipleGCHandleStruct? s = Helper.Create(default(WithMultipleGCHandleStruct));
 

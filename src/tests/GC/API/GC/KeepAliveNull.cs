@@ -5,8 +5,9 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-public class Test
+public class Test_KeepAliveNull
 {
     public static bool visited;
     public class Dummy
@@ -45,7 +46,8 @@ public class Test
         }
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         CreateObj temp = new CreateObj();
         temp.RunTest();

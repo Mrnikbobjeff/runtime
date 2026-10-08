@@ -2,7 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Directed_Arrays_complex2;
+
 using System;
+using Xunit;
 public struct Yak
 {
     public Int32 a;
@@ -16,13 +19,15 @@ public struct Yak
 }
 
 
-internal class Complex2_Array_Test
+public class Complex2_Array_Test
 {
-    public static void test(Yak[,,,,,,] Odd_Variable)
+    internal static void test(Yak[,,,,,,] Odd_Variable)
     {
         Console.Write(Odd_Variable.Length);
     }
-    public static int Main(String[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         Console.WriteLine("Starting...");
         int SIZE = 2;

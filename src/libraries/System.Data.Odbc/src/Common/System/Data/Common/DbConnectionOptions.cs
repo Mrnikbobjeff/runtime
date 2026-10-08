@@ -20,13 +20,13 @@ namespace System.Data.Common
 
         // differences between OleDb and Odbc
         // ODBC:
-        //     https://docs.microsoft.com/en-us/sql/odbc/reference/syntax/sqldriverconnect-function
+        //     https://learn.microsoft.com/sql/odbc/reference/syntax/sqldriverconnect-function
         //     do not support == -> = in keywords
         //     first key-value pair wins
         //     quote values using \{ and \}, only driver= and pwd= appear to generically allow quoting
         //     do not strip quotes from value, or add quotes except for driver keyword
         // OLEDB:
-        //     https://docs.microsoft.com/en-us/dotnet/framework/data/adonet/connection-string-syntax#oledb-connection-string-syntax
+        //     https://learn.microsoft.com/dotnet/framework/data/adonet/connection-string-syntax#oledb-connection-string-syntax
         //     support == -> = in keywords
         //     last key-value pair wins
         //     quote values using \" or \'
@@ -45,7 +45,7 @@ namespace System.Data.Common
         {
             _useOdbcRules = useOdbcRules;
             _parsetable = new Dictionary<string, string?>();
-            _usersConnectionString = ((null != connectionString) ? connectionString : "");
+            _usersConnectionString = connectionString ?? "";
 
             // first pass on parsing, initial syntax check
             if (0 < _usersConnectionString.Length)
@@ -77,14 +77,13 @@ namespace System.Data.Common
             {
                 if (!ConvertValueToIntegratedSecurity())
                 {
-                    if (_parsetable.ContainsKey(KEY.Password))
+                    if (_parsetable.TryGetValue(KEY.Password, out string? value))
                     {
-                        return string.IsNullOrEmpty(_parsetable[KEY.Password]);
+                        return string.IsNullOrEmpty(value);
                     }
-                    else
-                    if (_parsetable.ContainsKey(SYNONYM.Pwd))
+                    else if (_parsetable.TryGetValue(SYNONYM.Pwd, out string? val))
                     {
-                        return string.IsNullOrEmpty(_parsetable[SYNONYM.Pwd]); // MDAC 83097
+                        return string.IsNullOrEmpty(val); // MDAC 83097
                     }
                     else
                     {
@@ -120,7 +119,7 @@ namespace System.Data.Common
             ADP.CheckArgumentNull(builder, nameof(builder));
             ADP.CheckArgumentLength(keyName, nameof(keyName));
 
-            if ((null == keyName) || !s_connectionStringValidKeyRegex.IsMatch(keyName))
+            if ((null == keyName) || !ConnectionStringValidKeyRegex.IsMatch(keyName))
             {
                 throw ADP.InvalidKeyname(keyName);
             }
@@ -148,10 +147,9 @@ namespace System.Data.Common
             { // else <keyword>=;
                 if (useOdbcRules)
                 {
-                    if ((0 < keyValue.Length) &&
-                        // string.Contains(char) is .NetCore2.1+ specific
-                        (('{' == keyValue[0]) || (0 <= keyValue.IndexOf(';')) || (0 == string.Compare(DbConnectionStringKeywords.Driver, keyName, StringComparison.OrdinalIgnoreCase))) &&
-                        !s_connectionStringQuoteOdbcValueRegex.IsMatch(keyValue))
+                    if (keyValue.Length > 0 &&
+                        (keyValue[0] == '{' || keyValue.Contains(';') || string.Equals(DbConnectionStringKeywords.Driver, keyName, StringComparison.OrdinalIgnoreCase)) &&
+                        !ConnectionStringQuoteOdbcValueRegex.IsMatch(keyValue))
                     {
                         // always quote Driver value (required for ODBC Version 2.65 and earlier)
                         // always quote values that contain a ';'
@@ -162,13 +160,12 @@ namespace System.Data.Common
                         builder.Append(keyValue);
                     }
                 }
-                else if (s_connectionStringQuoteValueRegex.IsMatch(keyValue))
+                else if (ConnectionStringQuoteValueRegex.IsMatch(keyValue))
                 {
                     // <value> -> <value>
                     builder.Append(keyValue);
                 }
-                // string.Contains(char) is .NetCore2.1+ specific
-                else if ((-1 != keyValue.IndexOf('\"')) && (-1 == keyValue.IndexOf('\'')))
+                else if (keyValue.Contains('\"') && !keyValue.Contains('\''))
                 {
                     // <val"ue> -> <'val"ue'>
                     builder.Append('\'');
@@ -201,7 +198,7 @@ namespace System.Data.Common
             return ConvertValueToIntegratedSecurityInternal((string)value);
         }
 
-        internal bool ConvertValueToIntegratedSecurityInternal(string stringValue)
+        internal static bool ConvertValueToIntegratedSecurityInternal(string stringValue)
         {
             if (CompareInsensitiveInvariant(stringValue, "sspi") || CompareInsensitiveInvariant(stringValue, "true") || CompareInsensitiveInvariant(stringValue, "yes"))
                 return true;
@@ -249,8 +246,7 @@ namespace System.Data.Common
 
         public string ConvertValueToString(string keyName, string defaultValue)
         {
-            string? value = _parsetable[keyName];
-            return ((null != value) ? value : defaultValue);
+            return _parsetable[keyName] ?? defaultValue;
         }
 
         public bool ContainsKey(string keyword)
@@ -322,7 +318,7 @@ namespace System.Data.Common
 
         internal string? ExpandDataDirectories(ref string? filename, ref int position)
         {
-            string? value = null;
+            string? value;
             StringBuilder builder = new StringBuilder(_usersConnectionString.Length);
             string? datadir = null;
 
@@ -340,7 +336,7 @@ namespace System.Data.Common
                 //    continue;
                 //}
 
-                // There is a set of keywords we explictly do NOT want to expand |DataDirectory| on
+                // There is a set of keywords we explicitly do NOT want to expand |DataDirectory| on
                 if (_useOdbcRules)
                 {
                     switch (current.Name)
@@ -448,11 +444,11 @@ namespace System.Data.Common
 
         internal static void ValidateKeyValuePair(string keyword, string value)
         {
-            if ((null == keyword) || !s_connectionStringValidKeyRegex.IsMatch(keyword))
+            if ((null == keyword) || !ConnectionStringValidKeyRegex.IsMatch(keyword))
             {
                 throw ADP.InvalidKeyname(keyword);
             }
-            if ((null != value) && !s_connectionStringValidValueRegex.IsMatch(value))
+            if ((null != value) && value.Contains('\0'))
             {
                 throw ADP.InvalidValue(keyword);
             }

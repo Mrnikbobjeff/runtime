@@ -5,13 +5,14 @@
 
 using System;
 using System.Runtime.CompilerServices;
-public class BringUpTest
+using Xunit;
+public class BringUpTest_Localloc
 {
     const int Pass = 100;
     const int Fail = -1;
 
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
-    public static unsafe void Localloc()
+    internal static unsafe void Localloc()
     {
         byte* a = stackalloc byte[5];
         byte i;
@@ -28,7 +29,7 @@ public class BringUpTest
 
 
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
-    public static unsafe void Localloc(byte n)
+    internal static unsafe void Localloc(byte n)
     {
         byte* a = stackalloc byte[n];
         *a = 0;
@@ -46,7 +47,8 @@ public class BringUpTest
     }
 
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int ret = Pass;
         Localloc();

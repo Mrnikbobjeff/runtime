@@ -1,12 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Numerics;
+using System.Security.Cryptography.Tests;
 using Test.Cryptography;
+using Microsoft.DotNet.XUnitExtensions;
 using Xunit;
 
 namespace System.Security.Cryptography.Rsa.Tests
 {
-    public sealed class EncryptDecrypt_Array : EncryptDecrypt
+    public abstract class EncryptDecrypt_Array : EncryptDecrypt
     {
         protected override byte[] Encrypt(RSA rsa, byte[] data, RSAEncryptionPadding padding) =>
             rsa.Encrypt(data, padding);
@@ -24,9 +29,12 @@ namespace System.Security.Cryptography.Rsa.Tests
         }
     }
 
+    [SkipOnPlatform(TestPlatforms.Browser, "Not supported on Browser")]
     public abstract class EncryptDecrypt
     {
-        public static bool SupportsSha2Oaep => RSAFactory.SupportsSha2Oaep;
+        public bool SupportsSha2Oaep => RSAFactory.SupportsSha2Oaep;
+
+        protected abstract RSAProvider RSAFactory { get; }
 
         protected abstract byte[] Encrypt(RSA rsa, byte[] data, RSAEncryptionPadding padding);
         protected abstract byte[] Decrypt(RSA rsa, byte[] data, RSAEncryptionPadding padding);
@@ -312,7 +320,19 @@ namespace System.Security.Cryptography.Rsa.Tests
         public void RsaCryptRoundtrip_OaepSHA512() =>
             RsaCryptRoundtrip(RSAEncryptionPadding.OaepSHA512, RSAFactory.SupportsSha2Oaep);
 
-        private void RsaCryptRoundtrip(RSAEncryptionPadding paddingMode, bool expectSuccess=true)
+        [Fact]
+        public void RsaCryptRoundtrip_OaepSHA3_256() =>
+            RsaCryptRoundtrip(RSAEncryptionPadding.OaepSHA3_256, RSAFactory.SupportsSha3);
+
+        [Fact]
+        public void RsaCryptRoundtrip_OaepSHA3_384() =>
+            RsaCryptRoundtrip(RSAEncryptionPadding.OaepSHA3_384, RSAFactory.SupportsSha3);
+
+        [Fact]
+        public void RsaCryptRoundtrip_OaepSHA3_512() =>
+            RsaCryptRoundtrip(RSAEncryptionPadding.OaepSHA3_512, RSAFactory.SupportsSha3);
+
+        private void RsaCryptRoundtrip(RSAEncryptionPadding paddingMode, bool expectSuccess = true)
         {
             byte[] crypt;
             byte[] output;
@@ -321,8 +341,11 @@ namespace System.Security.Cryptography.Rsa.Tests
             {
                 if (!expectSuccess)
                 {
-                    Assert.ThrowsAny<CryptographicException>(
+                    Exception ex = Assert.ThrowsAny<Exception>(
                         () => Encrypt(rsa, TestData.HelloBytes, paddingMode));
+
+                    Assert.True(ex is CryptographicException or PlatformNotSupportedException,
+                        "exception is CryptographicException or PlatformNotSupportedException");
 
                     return;
                 }
@@ -335,7 +358,7 @@ namespace System.Security.Cryptography.Rsa.Tests
             Assert.Equal(TestData.HelloBytes, output);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(EncryptDecrypt), nameof(PlatformSupportsEmptyRSAEncryption))]
         [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework)]
         public void RoundtripEmptyArray()
         {
@@ -357,6 +380,13 @@ namespace System.Security.Cryptography.Rsa.Tests
                     RoundtripEmpty(RSAEncryptionPadding.OaepSHA256);
                     RoundtripEmpty(RSAEncryptionPadding.OaepSHA384);
                     RoundtripEmpty(RSAEncryptionPadding.OaepSHA512);
+                }
+
+                if (RSAFactory.SupportsSha3)
+                {
+                    RoundtripEmpty(RSAEncryptionPadding.OaepSHA3_256);
+                    RoundtripEmpty(RSAEncryptionPadding.OaepSHA3_384);
+                    RoundtripEmpty(RSAEncryptionPadding.OaepSHA3_512);
                 }
             }
         }
@@ -446,9 +476,11 @@ namespace System.Security.Cryptography.Rsa.Tests
             }
         }
 
-        [ConditionalFact(nameof(SupportsSha2Oaep))]
+        [ConditionalFact]
         public void RsaDecryptOaepWrongAlgorithm()
         {
+            SkipTestException.ThrowUnless(SupportsSha2Oaep);
+
             using (RSA rsa = RSAFactory.Create(TestData.RSA2048Params))
             {
                 byte[] data = TestData.HelloBytes;
@@ -617,9 +649,11 @@ namespace System.Security.Cryptography.Rsa.Tests
             Assert.Equal(TestData.HelloBytes, output);
         }
 
-        [Fact]
+        [ConditionalFact]
         public void LargeKeyCryptRoundtrip()
         {
+            SkipTestException.ThrowUnless(RSAFactory.Supports16384);
+
             byte[] output;
 
             using (RSA rsa = RSAFactory.Create())
@@ -662,13 +696,193 @@ namespace System.Security.Cryptography.Rsa.Tests
             Assert.Equal(TestData.HelloBytes, output);
         }
 
+        [Theory]
+        [MemberData(nameof(OaepPaddingModes))]
+        public void NonPowerOfTwoKeySizeOaepRoundtrip(
+            RSAEncryptionPadding oaepPaddingMode,
+            bool requiresSha2Oaep,
+            bool requiresSha3)
+        {
+            if ((requiresSha2Oaep && !RSAFactory.SupportsSha2Oaep) ||
+                (requiresSha3 && !RSAFactory.SupportsSha3))
+            {
+                return;
+            }
+
+            // Key generation can transiently fail on some platforms due to resource contention.
+            // Retry a few times before failing the test.
+            RetryHelper.Execute(() =>
+            {
+                byte[] crypt;
+                byte[] output;
+
+                using (RSA rsa = RSAFactory.Create(3072))
+                {
+                    crypt = Encrypt(rsa, TestData.HelloBytes, oaepPaddingMode);
+                    output = Decrypt(rsa, crypt, oaepPaddingMode);
+                }
+
+                Assert.NotEqual(crypt, output);
+                Assert.Equal(TestData.HelloBytes, output);
+            }, retryWhen: e => e is CryptographicException);
+        }
+
         [Fact]
         public void NotSupportedValueMethods()
         {
             using (RSA rsa = RSAFactory.Create())
             {
+#pragma warning disable SYSLIB0048
                 Assert.Throws<NotSupportedException>(() => rsa.DecryptValue(null));
                 Assert.Throws<NotSupportedException>(() => rsa.EncryptValue(null));
+#pragma warning restore SYSLIB0048
+            }
+        }
+
+        [Fact]
+        public void Decrypt_Pkcs1_BadPadding()
+        {
+            if ((PlatformDetection.IsWindows && !PlatformDetection.IsWindows10Version2004OrGreater))
+            {
+                return;
+            }
+
+            RSAParameters keyParams = TestData.RSA2048Params;
+            BigInteger e = new BigInteger(keyParams.Exponent, true, true);
+            BigInteger n = new BigInteger(keyParams.Modulus, true, true);
+            byte[] buf = new byte[keyParams.Modulus.Length];
+            byte[] c = new byte[buf.Length];
+
+            buf[1] = 2;
+            buf.AsSpan(2).Fill(1);
+
+            ref byte afterMinPadding = ref buf[10];
+            ref byte lastByte = ref buf[^1];
+            afterMinPadding = 0;
+
+            using (RSA rsa = RSAFactory.Create(keyParams))
+            {
+                RawEncrypt(buf, e, n, c);
+                // Assert.NoThrow, check that manual padding is coherent
+                Decrypt(rsa, c, RSAEncryptionPadding.Pkcs1);
+
+                // All RSA encryption schemes start with 00, so pick any other number.
+                //
+                // If buf > modulus then encrypt should fail, so this
+                // is the largest legal-but-invalid value to test.
+                buf[0] = keyParams.Modulus[0];
+                RawEncrypt(buf, e, n, c);
+                Assert.ThrowsAny<CryptographicException>(() => Decrypt(rsa, c, RSAEncryptionPadding.Pkcs1));
+
+                // Check again with a zero length payload
+                (afterMinPadding, lastByte) = (lastByte, afterMinPadding);
+                RawEncrypt(buf, e, n, c);
+                Assert.ThrowsAny<CryptographicException>(() => Decrypt(rsa, c, RSAEncryptionPadding.Pkcs1));
+
+                // Back to valid padding
+                buf[0] = 0;
+                (afterMinPadding, lastByte) = (lastByte, afterMinPadding);
+                RawEncrypt(buf, e, n, c);
+                Decrypt(rsa, c, RSAEncryptionPadding.Pkcs1);
+
+                // This is (sort of) legal for PKCS1 signatures, but not decryption.
+                buf[1] = 1;
+                RawEncrypt(buf, e, n, c);
+                Assert.ThrowsAny<CryptographicException>(() => Decrypt(rsa, c, RSAEncryptionPadding.Pkcs1));
+
+                // No RSA PKCS1 padding scheme starts with 00 FF.
+                buf[1] = 255;
+                RawEncrypt(buf, e, n, c);
+                Assert.ThrowsAny<CryptographicException>(() => Decrypt(rsa, c, RSAEncryptionPadding.Pkcs1));
+
+                // Check again with a zero length payload
+                (afterMinPadding, lastByte) = (lastByte, afterMinPadding);
+                RawEncrypt(buf, e, n, c);
+                Assert.ThrowsAny<CryptographicException>(() => Decrypt(rsa, c, RSAEncryptionPadding.Pkcs1));
+
+                // Back to valid padding
+                buf[1] = 2;
+                (afterMinPadding, lastByte) = (lastByte, afterMinPadding);
+                RawEncrypt(buf, e, n, c);
+                Decrypt(rsa, c, RSAEncryptionPadding.Pkcs1);
+
+                // Try a zero in every possible required padding position
+                for (int i = 2; i < 10; i++)
+                {
+                    buf[i] = 0;
+
+                    RawEncrypt(buf, e, n, c);
+                    Assert.ThrowsAny<CryptographicException>(() => Decrypt(rsa, c, RSAEncryptionPadding.Pkcs1));
+
+                    // It used to be 1, now it's 2, still not zero.
+                    buf[i] = 2;
+                }
+
+                // Back to valid padding
+                RawEncrypt(buf, e, n, c);
+                Decrypt(rsa, c, RSAEncryptionPadding.Pkcs1);
+
+                // Make it such that
+                // "there is no octet with hexadecimal value 0x00 to separate PS from M"
+                // (RFC 3447 sec 7.2.2, rule 3, third clause)
+                buf.AsSpan(10).Fill(3);
+                RawEncrypt(buf, e, n, c);
+                Assert.ThrowsAny<CryptographicException>(() => Decrypt(rsa, c, RSAEncryptionPadding.Pkcs1));
+
+                // Every possible problem, for good measure.
+                buf[0] = 2;
+                buf[1] = 0;
+                buf[4] = 0;
+                RawEncrypt(buf, e, n, c);
+                Assert.ThrowsAny<CryptographicException>(() => Decrypt(rsa, c, RSAEncryptionPadding.Pkcs1));
+            }
+
+            static void RawEncrypt(ReadOnlySpan<byte> source, BigInteger e, BigInteger n, Span<byte> destination)
+            {
+                BigInteger m = new BigInteger(source, true, true);
+                BigInteger c = BigInteger.ModPow(m, e, n);
+                int shift = destination.Length - c.GetByteCount(true);
+                destination.Slice(0, shift).Clear();
+                bool wrote = c.TryWriteBytes(destination.Slice(shift), out int written, true, true);
+
+                if (!wrote || written + shift != destination.Length)
+                {
+                    throw new UnreachableException();
+                }
+            }
+        }
+
+        public static IEnumerable<object[]> OaepPaddingModes
+        {
+            get
+            {
+                yield return new object[] { RSAEncryptionPadding.OaepSHA1, false, false };
+
+                yield return new object[] { RSAEncryptionPadding.OaepSHA256, true, false };
+                yield return new object[] { RSAEncryptionPadding.OaepSHA384, true, false };
+                yield return new object[] { RSAEncryptionPadding.OaepSHA512, true, false };
+
+                yield return new object[] { RSAEncryptionPadding.OaepSHA3_256, false, true };
+                yield return new object[] { RSAEncryptionPadding.OaepSHA3_384, false, true };
+                yield return new object[] { RSAEncryptionPadding.OaepSHA3_512, false, true };
+            }
+        }
+
+        public static bool PlatformSupportsEmptyRSAEncryption
+        {
+            get
+            {
+                if (OperatingSystem.IsIOS() && !OperatingSystem.IsIOSVersionAtLeast(13, 6))
+                {
+                    return false;
+                }
+
+                if (OperatingSystem.IsTvOS() && !OperatingSystem.IsTvOSVersionAtLeast(14, 0))
+                {
+                    return false;
+                }
+
+                return true;
             }
         }
     }

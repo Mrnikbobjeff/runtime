@@ -86,7 +86,7 @@ namespace System.Linq.Expressions.Tests
         }
 
         [Fact]
-        public void ThrowTypeWithGenericParamters()
+        public void ThrowTypeWithGenericParameters()
         {
             Type listType = typeof(List<>);
             Type listListListType = listType.MakeGenericType(listType.MakeGenericType(listType));
@@ -224,6 +224,7 @@ namespace System.Linq.Expressions.Tests
 
         [Theory, ClassData(typeof(CompilationTypes))]
         [ActiveIssue("https://github.com/mono/mono/issues/14925", TestRuntimes.Mono)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/128164", typeof(PlatformDetection), nameof(PlatformDetection.IsBrowser), nameof(PlatformDetection.IsCoreCLR))]
         public void ExpressionsUnwrapeExternallyThrownRuntimeWrappedException(bool useInterpreter)
         {
             ParameterExpression exRWE = Expression.Variable(typeof(RuntimeWrappedException));
@@ -240,9 +241,8 @@ namespace System.Linq.Expressions.Tests
             Assert.Equal(4, func());
         }
 
-#if FEATURE_COMPILE
-
-        [Theory, ClassData(typeof(CompilationTypes))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
+        [ClassData(typeof(CompilationTypes))]
         public void CatchFromExternallyThrownString(bool useInterpreter)
         {
             foreach (bool assemblyWraps in new []{false, true})
@@ -258,7 +258,7 @@ namespace System.Linq.Expressions.Tests
                 ModuleBuilder module = assembly.DefineDynamicModule("Name");
                 TypeBuilder type = module.DefineType("Type");
                 MethodBuilder throwingMethod = type.DefineMethod(
-                    "WillThrow", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Array.Empty<Type>());
+                    "WillThrow", MethodAttributes.Public | MethodAttributes.Static, typeof(void), Type.EmptyTypes);
                 ILGenerator ilGen = throwingMethod.GetILGenerator();
                 ilGen.Emit(OpCodes.Ldstr, "An Exceptional Exception!");
                 ilGen.Emit(OpCodes.Throw);
@@ -274,7 +274,6 @@ namespace System.Linq.Expressions.Tests
                 Assert.Equal("An Exceptional Exception!", func());
             }
         }
-#endif
 
         [Theory]
         [ClassData(typeof(CompilationTypes))]
@@ -818,7 +817,7 @@ namespace System.Linq.Expressions.Tests
         }
 
         [Theory, ClassData(typeof(CompilationTypes))]
-        public void FilterOverwiteExceptionVisibleToHandler(bool useInterpreter)
+        public void FilterOverwriteExceptionVisibleToHandler(bool useInterpreter)
         {
             ParameterExpression exception = Expression.Variable(typeof(TestException));
             TryExpression tryExp = Expression.TryCatch(
@@ -887,7 +886,7 @@ namespace System.Linq.Expressions.Tests
             */
 
             ConstantExpression builder = Expression.Constant(sb);
-            Type[] noTypes = Array.Empty<Type>();
+            Type[] noTypes = Type.EmptyTypes;
             TryExpression tryExp = Expression.TryCatch(
                 Expression.TryFinally(
                     Expression.Block(
@@ -911,7 +910,7 @@ namespace System.Linq.Expressions.Tests
         {
             StringBuilder sb = new StringBuilder();
             ConstantExpression builder = Expression.Constant(sb);
-            Type[] noTypes = Array.Empty<Type>();
+            Type[] noTypes = Type.EmptyTypes;
             TryExpression tryExp = Expression.TryCatch(
                 Expression.TryFault(
                     Expression.Block(
@@ -1006,11 +1005,14 @@ namespace System.Linq.Expressions.Tests
                 )
             );
             Expression<Func<int>> lambda = Expression.Lambda<Func<int>>(tryExp);
-#if FEATURE_COMPILE
-            Assert.Throws<InvalidOperationException>(() => lambda.Compile(false));
-#else
-            lambda.Compile(true);
-#endif
+            if (PlatformDetection.IsNotLinqExpressionsBuiltWithIsInterpretingOnly)
+            {
+                Assert.Throws<InvalidOperationException>(() => lambda.Compile(false));
+            }
+            else
+            {
+                lambda.Compile(true);
+            }
         }
 
         [Theory, InlineData(true)]
@@ -1255,7 +1257,7 @@ namespace System.Linq.Expressions.Tests
         }
 
         [Theory, ClassData(typeof(CompilationTypes))]
-        public void JumpOutOfCatch(bool useIntepreter)
+        public void JumpOutOfCatch(bool useInterpreter)
         {
             LabelTarget target = Expression.Label(typeof(int));
             Expression<Func<int>> tryExp = Expression.Lambda<Func<int>>(
@@ -1269,11 +1271,11 @@ namespace System.Linq.Expressions.Tests
                                 Expression.Throw(Expression.Constant(new Exception()))))),
                     Expression.Return(target, Expression.Constant(2)),
                     Expression.Label(target, Expression.Constant(0))));
-            Assert.Equal(1, tryExp.Compile(useIntepreter)());
+            Assert.Equal(1, tryExp.Compile(useInterpreter)());
         }
 
         [Theory, ClassData(typeof(CompilationTypes))]
-        public void JumpOutOfCatchToPreviousLabel(bool useIntepreter)
+        public void JumpOutOfCatchToPreviousLabel(bool useInterpreter)
         {
             LabelTarget skipStart = Expression.Label();
             LabelTarget skipToEnd = Expression.Label(typeof(int));
@@ -1287,7 +1289,7 @@ namespace System.Linq.Expressions.Tests
                         Expression.Catch(typeof(Exception), Expression.Goto(backToStart))),
                     Expression.Return(skipToEnd, Expression.Constant(2)),
                     Expression.Label(skipToEnd, Expression.Constant(0))));
-            Assert.Equal(1, tryExp.Compile(useIntepreter)());
+            Assert.Equal(1, tryExp.Compile(useInterpreter)());
         }
 
         [Fact]
@@ -1401,7 +1403,7 @@ namespace System.Linq.Expressions.Tests
         [Fact]
         public void CatchesMustReturnVoidWithVoidBody()
         {
-            Assert.Throws<ArgumentException>(null, () =>
+            AssertExtensions.Throws<ArgumentException>(null, () =>
                 Expression.TryCatch(
                     Expression.Empty(),
                     Expression.Catch(typeof(InvocationExpression), Expression.Constant("hello")),
@@ -1582,6 +1584,59 @@ namespace System.Linq.Expressions.Tests
 
             CatchBlock e7 = Expression.Catch(Expression.Parameter(typeof(Exception), "ex"), Expression.Empty(), Expression.Constant(true));
             Assert.Equal("catch (Exception ex) { ... }", e7.ToString());
+        }
+
+        // A user-defined boolean type with op_True/op_False and bitwise operators, used to
+        // exercise the conditional logical operators (OrElse/AndAlso). Defined locally so the
+        // required operators are not trimmed away (e.g. under NativeAOT), which would otherwise
+        // make the runtime lookup of op_True/op_False fail.
+        public sealed class UserBool
+        {
+            public bool Value { get; }
+
+            public UserBool(bool value) => Value = value;
+
+            public static readonly UserBool True = new UserBool(true);
+            public static readonly UserBool False = new UserBool(false);
+
+            public static bool operator true(UserBool b) => b.Value;
+            public static bool operator false(UserBool b) => !b.Value;
+
+            public static UserBool operator &(UserBool x, UserBool y) => new UserBool(x.Value && y.Value);
+            public static UserBool operator |(UserBool x, UserBool y) => new UserBool(x.Value || y.Value);
+
+            public override bool Equals(object obj) => obj is UserBool other && other.Value == Value;
+            public override int GetHashCode() => Value.GetHashCode();
+        }
+
+        [Theory, ClassData(typeof(CompilationTypes))]
+        public void TryCatchInOrElse(bool useInterpreter)
+        {
+            var expr = Expression.Lambda<Func<UserBool>>(
+                Expression.OrElse(
+                    Expression.Constant(UserBool.True),
+                    Expression.TryCatch(
+                        Expression.Constant(UserBool.True),
+                        Expression.Catch(
+                            typeof(TestException),
+                            Expression.Constant(UserBool.False)))));
+            var func = expr.Compile(useInterpreter);
+            Assert.Equal(UserBool.True, func());
+        }
+
+        [Theory, ClassData(typeof(CompilationTypes))]
+        public void TryCatchInAndAlso(bool useInterpreter)
+        {
+            var expr = Expression.Lambda<Func<UserBool>>(
+                Expression.AndAlso(
+                    Expression.Constant(UserBool.True),
+                    Expression.TryCatch(
+                        Expression.Constant(UserBool.True),
+                        Expression.Catch(
+                            typeof(TestException),
+                            Expression.Constant(UserBool.False)))));
+            var func = expr.Compile(useInterpreter);
+            Assert.Equal(UserBool.True, func());
         }
     }
 }

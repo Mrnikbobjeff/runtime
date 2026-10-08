@@ -7,10 +7,13 @@
  */
 
 using System;
+using Xunit;
 
 public class LargeArrayTest {
 
-    public static int Main(string[] args) {
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint() {
 
         for (int i=0; i<= 100; i++) {
             try {

@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Caching.Memory.Infrastructure;
@@ -39,6 +40,175 @@ namespace Microsoft.Extensions.Caching.Memory
             }
         }
 
+        [Theory]
+        [InlineData(null)]
+        [InlineData(10L)]
+        public void SettingSizeAfterEntryIsDisposedThrows(long? sizeLimit)
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = sizeLimit });
+
+            ICacheEntry cacheEntry = cache.CreateEntry("key");
+            cacheEntry.Size = 5;
+            cacheEntry.Value = "value";
+            cacheEntry.Dispose();
+
+            Assert.Throws<InvalidOperationException>(() => { cacheEntry.Size = 6; });
+            Assert.Throws<InvalidOperationException>(() => { cacheEntry.SetSize(6); });
+            Assert.Throws<InvalidOperationException>(() => { cacheEntry.Size = null; });
+            Assert.Throws<InvalidOperationException>(() => cacheEntry.SetOptions(new MemoryCacheEntryOptions { Size = 6 }));
+            Assert.Equal(5L, cacheEntry.Size);
+        }
+
+        [Fact]
+        public void SettingOptionsAfterEntryIsDisposedDoesNotChangeOtherOptions()
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 10 });
+
+            ICacheEntry cacheEntry = cache.CreateEntry("key");
+            cacheEntry.AbsoluteExpiration = DateTimeOffset.MaxValue;
+            cacheEntry.SlidingExpiration = TimeSpan.FromMinutes(5);
+            cacheEntry.Priority = CacheItemPriority.NeverRemove;
+            cacheEntry.Size = 5;
+            cacheEntry.Value = "value";
+            cacheEntry.Dispose();
+
+            DateTimeOffset? absoluteExpiration = cacheEntry.AbsoluteExpiration;
+            TimeSpan? absoluteExpirationRelativeToNow = cacheEntry.AbsoluteExpirationRelativeToNow;
+            TimeSpan? slidingExpiration = cacheEntry.SlidingExpiration;
+            CacheItemPriority priority = cacheEntry.Priority;
+
+            var replacementOptions = new MemoryCacheEntryOptions
+            {
+                AbsoluteExpiration = DateTimeOffset.MaxValue.AddDays(-1),
+                AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(2),
+                SlidingExpiration = TimeSpan.FromMinutes(1),
+                Priority = CacheItemPriority.Low,
+                Size = 6,
+            };
+
+            Assert.Throws<InvalidOperationException>(() => cacheEntry.SetOptions(replacementOptions));
+            Assert.Equal(absoluteExpiration, cacheEntry.AbsoluteExpiration);
+            Assert.Equal(absoluteExpirationRelativeToNow, cacheEntry.AbsoluteExpirationRelativeToNow);
+            Assert.Equal(slidingExpiration, cacheEntry.SlidingExpiration);
+            Assert.Equal(priority, cacheEntry.Priority);
+            Assert.Equal(5L, cacheEntry.Size);
+        }
+
+        [Fact]
+        public void SettingSizeCapturedByGetOrCreateAfterEntryIsDisposedThrows()
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 10 });
+            ICacheEntry? capturedEntry = null;
+
+            string? value = cache.GetOrCreate("key", entry =>
+            {
+                capturedEntry = entry;
+                entry.Size = 4;
+                return "value";
+            });
+
+            Assert.Equal("value", value);
+
+            ICacheEntry cacheEntry = Assert.IsAssignableFrom<ICacheEntry>(capturedEntry);
+            Assert.Throws<InvalidOperationException>(() => { cacheEntry.Size = 2; });
+            AssertCacheSize(4, cache);
+
+            cache.Remove("key");
+            AssertCacheSize(0, cache);
+        }
+
+        [Fact]
+        public void SettingSizeAfterNestedGetOrCreateWithLinkedTrackingThrows()
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions
+            {
+                SizeLimit = 10,
+                TrackLinkedCacheEntries = true,
+            });
+            ICacheEntry? capturedEntry = null;
+
+            string? value = cache.GetOrCreate("outer", outerEntry =>
+            {
+                outerEntry.Size = 4;
+                return cache.GetOrCreate("inner", innerEntry =>
+                {
+                    capturedEntry = innerEntry;
+                    innerEntry.Size = 3;
+                    return "value";
+                });
+            });
+
+            Assert.Equal("value", value);
+            Assert.Equal("value", cache.Get("outer"));
+            Assert.Equal("value", cache.Get("inner"));
+
+            ICacheEntry cacheEntry = Assert.IsAssignableFrom<ICacheEntry>(capturedEntry);
+            Assert.Throws<InvalidOperationException>(() => { cacheEntry.Size = 2; });
+            AssertCacheSize(7, cache);
+
+            cache.Remove("inner");
+            AssertCacheSize(4, cache);
+            cache.Remove("outer");
+            AssertCacheSize(0, cache);
+        }
+
+        [Fact]
+        public void SettingSizeAfterEntryIsDisposedValidatesArgumentBeforeState()
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 10 });
+
+            ICacheEntry cacheEntry = cache.CreateEntry("key");
+            cacheEntry.Size = 5;
+            cacheEntry.Value = "value";
+            cacheEntry.Dispose();
+
+            // A negative size is reported as an argument problem whichever route is used, so the property
+            // and the SetSize extension agree rather than differing on which check runs first.
+            Assert.Throws<ArgumentOutOfRangeException>(() => { cacheEntry.Size = -1; });
+            Assert.Throws<ArgumentOutOfRangeException>(() => { cacheEntry.SetSize(-1); });
+        }
+
+        [Fact]
+        public void SettingSizeAfterEntryIsDisposedWithoutValueThrows()
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 10 });
+
+            // Disposing without setting Value never commits the entry, but the size is frozen regardless.
+            ICacheEntry cacheEntry = cache.CreateEntry("key");
+            cacheEntry.Size = 5;
+            cacheEntry.Dispose();
+
+            Assert.Throws<InvalidOperationException>(() => { cacheEntry.Size = 6; });
+            Assert.Equal(0, cache.Count);
+            AssertCacheSize(0, cache);
+        }
+
+        [Fact]
+        public void SettingSizeAfterEntryIsDisposedDoesNotSkewCacheSize()
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 10 });
+
+            ICacheEntry cacheEntry = cache.CreateEntry("key");
+            cacheEntry.Size = 4;
+            cacheEntry.Value = "value";
+            cacheEntry.Dispose();
+
+            AssertCacheSize(4, cache);
+
+            Assert.Throws<InvalidOperationException>(() => { cacheEntry.Size = 2; });
+            AssertCacheSize(4, cache);
+
+            cache.Remove("key");
+            AssertCacheSize(0, cache);
+
+            // The cache is not latched: an entry needing the whole limit is still admitted, which a skewed
+            // total would have refused.
+            cache.Set("key2", "value2", new MemoryCacheEntryOptions { Size = 10 });
+
+            Assert.Equal("value2", cache.Get("key2"));
+            AssertCacheSize(10, cache);
+        }
+
         [Fact]
         public void CacheWithSizeLimitAddingEntryWithoutSizeThrows()
         {
@@ -72,11 +242,11 @@ namespace Microsoft.Extensions.Caching.Memory
         {
             var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 10 });
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
 
             cache.Set("key", "value", new MemoryCacheEntryOptions { Size = 5 });
 
-            Assert.Equal(5, cache.Size);
+            AssertCacheSize(5, cache);
         }
 
         [Fact]
@@ -84,11 +254,11 @@ namespace Microsoft.Extensions.Caching.Memory
         {
             var cache = new MemoryCache(new MemoryCacheOptions());
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
 
             cache.Set("key", "value", new MemoryCacheEntryOptions { Size = 5 });
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
         }
 
         [Fact]
@@ -96,21 +266,21 @@ namespace Microsoft.Extensions.Caching.Memory
         {
             var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 10 });
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
 
             cache.Set("key", "value", new MemoryCacheEntryOptions { Size = 4 });
 
             Assert.Equal("value", cache.Get("key"));
-            Assert.Equal(4, cache.Size);
+            AssertCacheSize(4, cache);
 
             cache.Set("key2", "value2", new MemoryCacheEntryOptions { Size = 7 });
 
             Assert.Null(cache.Get("key2"));
-            Assert.Equal(4, cache.Size);
+            AssertCacheSize(4, cache);
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/33993")]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/72912")]
         public async Task DoNotAddIfSizeOverflows()
         {
             var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = long.MaxValue });
@@ -123,12 +293,12 @@ namespace Microsoft.Extensions.Caching.Memory
                 State = null
             });
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
 
             cache.Set("key", "value", entryOptions);
 
             Assert.Equal("value", cache.Get("key"));
-            Assert.Equal(long.MaxValue, cache.Size);
+            AssertCacheSize(long.MaxValue, cache);
 
             cache.Set("key1", "value1", new MemoryCacheEntryOptions { Size = long.MaxValue });
             // Do not add the new item
@@ -139,11 +309,11 @@ namespace Microsoft.Extensions.Caching.Memory
 
             // Compaction removes old item
             Assert.Null(cache.Get("key"));
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/33993")]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/72912")]
         public async Task ExceedsCapacityCompacts()
         {
             var cache = new MemoryCache(new MemoryCacheOptions
@@ -161,12 +331,12 @@ namespace Microsoft.Extensions.Caching.Memory
                 State = null
             });
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
 
             cache.Set("key", "value", entryOptions);
 
             Assert.Equal("value", cache.Get("key"));
-            Assert.Equal(6, cache.Size);
+            AssertCacheSize(6, cache);
 
             cache.Set("key2", "value2", new MemoryCacheEntryOptions { Size = 5 });
 
@@ -175,7 +345,7 @@ namespace Microsoft.Extensions.Caching.Memory
 
             Assert.Null(cache.Get("key"));
             Assert.Null(cache.Get("key2"));
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
         }
 
         [Fact]
@@ -183,17 +353,17 @@ namespace Microsoft.Extensions.Caching.Memory
         {
             var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 10 });
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
 
             cache.Set("key", "value", new MemoryCacheEntryOptions { Size = 2 });
 
             Assert.Equal("value", cache.Get("key"));
-            Assert.Equal(2, cache.Size);
+            AssertCacheSize(2, cache);
 
             cache.Set("key", "value1", new MemoryCacheEntryOptions { Size = 3 });
 
             Assert.Equal("value1", cache.Get("key"));
-            Assert.Equal(3, cache.Size);
+            AssertCacheSize(3, cache);
         }
 
         [Fact]
@@ -201,17 +371,17 @@ namespace Microsoft.Extensions.Caching.Memory
         {
             var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 10 });
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
 
             cache.Set("key", "value", new MemoryCacheEntryOptions { Size = 2 });
 
             Assert.Equal("value", cache.Get("key"));
-            Assert.Equal(2, cache.Size);
+            AssertCacheSize(2, cache);
 
             cache.Set("key", "value1", new MemoryCacheEntryOptions { Size = 1 });
 
             Assert.Equal("value1", cache.Get("key"));
-            Assert.Equal(1, cache.Size);
+            AssertCacheSize(1, cache);
         }
 
         [Fact]
@@ -219,25 +389,50 @@ namespace Microsoft.Extensions.Caching.Memory
         {
             var cache = new MemoryCache(new MemoryCacheOptions
             {
-                SizeLimit = 10,
+                SizeLimit = 5,
                 CompactionPercentage = 0.5
             });
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
 
             cache.Set("key", "value", new MemoryCacheEntryOptions { Size = 5 });
 
             Assert.Equal("value", cache.Get("key"));
-            Assert.Equal(5, cache.Size);
+            AssertCacheSize(5, cache);
 
             cache.Set("key", "value1", new MemoryCacheEntryOptions { Size = 6 });
 
             Assert.Null(cache.Get("key"));
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
+        }
+
+        [Theory]
+        [InlineData(6)]
+        [InlineData(5)]
+        [InlineData(2)]
+        public void ReplaceOldEntryWithSameSizeOrLessNewEntryAtSizeLimitCapacity(int newValueSize)
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions
+            {
+                SizeLimit = 6
+            });
+
+            AssertCacheSize(0, cache);
+
+            cache.Set("key", "oldValue", new MemoryCacheEntryOptions { Size = 6 });
+
+            Assert.Equal("oldValue", cache.Get("key"));
+
+            AssertCacheSize(6, cache);
+
+            cache.Set("key", "newValue", new MemoryCacheEntryOptions { Size = newValueSize });
+
+            Assert.Equal("newValue", cache.Get("key"));
+            AssertCacheSize(newValueSize, cache);
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/33993")]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/72912")]
         public async Task AddingReplacementWhenTotalSizeExceedsCapacityDoesNotUpdateRemovesOldEntryAndTriggersCompaction()
         {
             var cache = new MemoryCache(new MemoryCacheOptions
@@ -254,12 +449,12 @@ namespace Microsoft.Extensions.Caching.Memory
                 State = null
             });
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
 
             cache.Set("key", "value", entryOptions);
 
             Assert.Equal("value", cache.Get("key"));
-            Assert.Equal(6, cache.Size);
+            AssertCacheSize(6, cache);
 
             cache.Set("key", "value1", new MemoryCacheEntryOptions { Size = 5 });
 
@@ -267,7 +462,7 @@ namespace Microsoft.Extensions.Caching.Memory
             Assert.True(await sem.WaitAsync(TimeSpan.FromSeconds(10)));
 
             Assert.Null(cache.Get("key"));
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
         }
 
         [Fact]
@@ -279,17 +474,18 @@ namespace Microsoft.Extensions.Caching.Memory
                 CompactionPercentage = 0.5
             });
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
 
             cache.Set("key", "value", new MemoryCacheEntryOptions { Size = 6 });
 
             Assert.Equal("value", cache.Get("key"));
-            Assert.Equal(6, cache.Size);
+
+            AssertCacheSize(6, cache);
 
             cache.Set("key", "value1", new MemoryCacheEntryOptions { Size = 11 });
 
             Assert.Null(cache.Get("key"));
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache); // addition was rejected due to size, and previous item with the same key removed
         }
 
         [Fact]
@@ -299,15 +495,15 @@ namespace Microsoft.Extensions.Caching.Memory
 
             cache.Set("key", "value", new MemoryCacheEntryOptions { Size = 5 });
 
-            Assert.Equal(5, cache.Size);
+            AssertCacheSize(5, cache);
 
             cache.Remove("key");
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/33993")]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/72912")]
         public async Task ExpiringEntryDecreasesCacheSize()
         {
             var cache = new MemoryCache(new MemoryCacheOptions
@@ -328,7 +524,7 @@ namespace Microsoft.Extensions.Caching.Memory
 
             cache.Set("key", "value", entryOptions);
 
-            Assert.Equal(5, cache.Size);
+            AssertCacheSize(5, cache);
 
             // Expire entry
             changeToken.Fire();
@@ -339,7 +535,7 @@ namespace Microsoft.Extensions.Caching.Memory
             // Wait for compaction to complete
             Assert.True(await sem.WaitAsync(TimeSpan.FromSeconds(10)));
 
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
         }
 
         [Fact]
@@ -355,9 +551,9 @@ namespace Microsoft.Extensions.Caching.Memory
             };
 
             cache.Set("key", "value", entryOptions);
-            
+
             Assert.Null(cache.Get("key"));
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
         }
 
         [Fact]
@@ -372,13 +568,13 @@ namespace Microsoft.Extensions.Caching.Memory
             };
 
             cache.Set("key", "value", entryOptions);
-            
+
             Assert.Null(cache.Get("key"));
-            Assert.Equal(0, cache.Size);
+            AssertCacheSize(0, cache);
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/33993")]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/72912")]
         public async Task CompactsToLessThanLowWatermarkUsingLRUWhenHighWatermarkExceeded()
         {
             var testClock = new TestClock();
@@ -444,5 +640,35 @@ namespace Microsoft.Extensions.Caching.Memory
             // There should be 6 items in the cache
             Assert.Equal(6, cache.Count);
         }
+
+        [Fact]
+        public void ClearZeroesTheSize()
+        {
+            var cache = new MemoryCache(new MemoryCacheOptions { SizeLimit = 10 });
+            AssertCacheSize(0, cache);
+
+            cache.Set("key", "value", new MemoryCacheEntryOptions { Size = 5 });
+            AssertCacheSize(5, cache);
+
+            cache.Clear();
+            AssertCacheSize(0, cache);
+            Assert.Equal(0, cache.Count);
+        }
+
+        internal static void AssertCacheSize(long size, MemoryCache cache)
+        {
+            // Size is only eventually consistent, so retry a few times. Note that the expected size must
+            // be a constant. Reading it from the cache instead produces a stale snapshot that a
+            // concurrent overcapacity compaction can move away from, and no number of retries will then
+            // converge; use AssertEventually and re-read both sides inside the callback for that case.
+            AssertEventually(() => Assert.Equal(size, cache.Size));
+        }
+
+        /// <summary>
+        /// Retries <paramref name="assert"/> until the cache state it inspects settles. Every value the
+        /// assertion depends on must be read inside the callback.
+        /// </summary>
+        internal static void AssertEventually(Action assert, [CallerMemberName] string? testName = null) =>
+            RetryHelper.Execute(assert, maxAttempts: 12, (iteration) => (int)Math.Pow(2, iteration), testName: testName); // 2ms, 4ms.. 2048ms. In practice, retries are rarely needed.
     }
 }

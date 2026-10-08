@@ -1,4 +1,4 @@
-﻿<root>
+<root>
   <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
     <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
     <xsd:element name="root" msdata:IsDataSet="true">
@@ -66,9 +66,6 @@
   <data name="Argument_PropertyTypeFromDifferentContext" xml:space="preserve">
     <value>The property type needs to be mapped to the current ReflectionContext.</value>
   </data>
-  <data name="Argument_SetMethNotFnd" xml:space="preserve">
-    <value>The set accessor of the property was not found.</value>
-  </data>
   <data name="Format_AttributeUsage" xml:space="preserve">
     <value>Duplicate AttributeUsageAttribute records found on attribute type {0}.</value>
   </data>
@@ -110,5 +107,8 @@
   </data>
   <data name="Argument_ObjectArgumentMismatch" xml:space="preserve">
     <value>Object of type '{0}' cannot be converted to type '{1}'.</value>
+  </data>
+  <data name="Arg_AmbiguousMatchException_MemberInfo" xml:space="preserve">
+    <value>Ambiguous match found for '{0} {1}'.</value>
   </data>
 </root>

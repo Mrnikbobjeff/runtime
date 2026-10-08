@@ -15,10 +15,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
         private readonly string[] _memberNames;
         private readonly object[] _memberValues;
 
-        public override string ToString()
-        {
-            return string.Format(CultureInfo.CurrentCulture, "<enum '{0}'>", TypeName);
-        }
+        public override string ToString() => $"<enum '{TypeName}'>";
 
         internal ComTypeEnumDesc(ComTypes.ITypeInfo typeInfo, ComTypeLibDesc typeLibDesc) :
             base(typeInfo, typeLibDesc)
@@ -39,7 +36,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
 
                 try
                 {
-                    varDesc = (ComTypes.VARDESC)Marshal.PtrToStructure(p, typeof(ComTypes.VARDESC));
+                    varDesc = Marshal.PtrToStructure<ComTypes.VARDESC>(p);
 
                     if (varDesc.varkind == ComTypes.VARKIND.VAR_CONST)
                     {

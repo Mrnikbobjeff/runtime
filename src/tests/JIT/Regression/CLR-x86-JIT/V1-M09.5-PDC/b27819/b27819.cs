@@ -2,11 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b27819
 {
     using System;
 
-    class AA
+    public class AA
     {
         bool m_bFlag = false;
         static int[] m_anStatic2;
@@ -40,10 +41,11 @@ namespace Test
             return new bool[7];
         }
 
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             Method1();
-            return 100;
         }
     }
 }

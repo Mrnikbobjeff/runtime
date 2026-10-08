@@ -15,7 +15,7 @@ namespace System.IO.Pipelines.Tests
     {
         public delegate Task WriteAsyncDelegate(Stream stream, byte[] data);
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task DisposingPipeWriterStreamCompletesPipeWriter()
         {
             var pipe = new Pipe();
@@ -49,7 +49,7 @@ namespace System.IO.Pipelines.Tests
         [MemberData(nameof(WriteCalls))]
         public async Task WritingToPipeStreamWritesToUnderlyingPipeWriter(WriteAsyncDelegate writeAsync)
         {
-            byte[] helloBytes = Encoding.ASCII.GetBytes("Hello World");
+            byte[] helloBytes = "Hello World"u8.ToArray();
             var pipe = new Pipe();
             var stream = new PipeWriterStream(pipe.Writer, leaveOpen: false);
 
@@ -65,7 +65,7 @@ namespace System.IO.Pipelines.Tests
         [MemberData(nameof(WriteCalls))]
         public async Task AsStreamReturnsPipeWriterStream(WriteAsyncDelegate writeAsync)
         {
-            byte[] helloBytes = Encoding.ASCII.GetBytes("Hello World");
+            byte[] helloBytes = "Hello World"u8.ToArray();
             var pipe = new Pipe();
             Stream stream = pipe.Writer.AsStream();
 
@@ -80,7 +80,7 @@ namespace System.IO.Pipelines.Tests
         [Fact]
         public async Task FlushAsyncFlushesBufferedData()
         {
-            byte[] helloBytes = Encoding.ASCII.GetBytes("Hello World");
+            byte[] helloBytes = "Hello World"u8.ToArray();
             var pipe = new Pipe();
 
             Memory<byte> memory = pipe.Writer.GetMemory();
@@ -99,7 +99,7 @@ namespace System.IO.Pipelines.Tests
         [Fact]
         public async Task ReadingFromPipeWriterStreamThrowsNotSupported()
         {
-            byte[] helloBytes = Encoding.ASCII.GetBytes("Hello World");
+            byte[] helloBytes = "Hello World"u8.ToArray();
             var pipe = new Pipe();
 
             Stream stream = pipe.Writer.AsStream();
@@ -118,11 +118,11 @@ namespace System.IO.Pipelines.Tests
             pipe.Writer.Complete();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task CancellingPendingFlushThrowsOperationCancelledException()
         {
             var pipe = new Pipe(new PipeOptions(pauseWriterThreshold: 10, resumeWriterThreshold: 0));
-            byte[] helloBytes = Encoding.ASCII.GetBytes("Hello World");
+            byte[] helloBytes = "Hello World"u8.ToArray();
 
             Stream stream = pipe.Writer.AsStream();
             ValueTask task = stream.WriteAsync(helloBytes);
@@ -135,11 +135,11 @@ namespace System.IO.Pipelines.Tests
             pipe.Reader.Complete();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task CancellationTokenFlowsToUnderlyingPipeWriter()
         {
             var pipe = new Pipe(new PipeOptions(pauseWriterThreshold: 10, resumeWriterThreshold: 0));
-            byte[] helloBytes = Encoding.ASCII.GetBytes("Hello World");
+            byte[] helloBytes = "Hello World"u8.ToArray();
 
             Stream stream = pipe.Writer.AsStream();
             var cts = new CancellationTokenSource();
@@ -177,10 +177,22 @@ namespace System.IO.Pipelines.Tests
             pipeWriter.AsStream(leaveOpen: true).Dispose();
         }
 
+        [Fact]
+        public async Task DisposeAsyncCallsCompleteAsync()
+        {
+            var pipeWriter = new TestPipeWriter();
+            Stream stream = pipeWriter.AsStream();
+
+            await stream.DisposeAsync();
+
+            Assert.True(pipeWriter.CompleteAsyncCalled);
+        }
+
         public class TestPipeWriter : PipeWriter
         {
             public bool FlushCalled { get; set; }
             public bool WriteAsyncCalled { get; set; }
+            public bool CompleteAsyncCalled { get; set; }
 
             public override void Advance(int bytes)
             {
@@ -195,6 +207,12 @@ namespace System.IO.Pipelines.Tests
             public override void Complete(Exception exception = null)
             {
                 throw new NotImplementedException();
+            }
+
+            public override ValueTask CompleteAsync(Exception exception = null)
+            {
+                CompleteAsyncCalled = true;
+                return default;
             }
 
             public override ValueTask<FlushResult> FlushAsync(CancellationToken cancellationToken = default)

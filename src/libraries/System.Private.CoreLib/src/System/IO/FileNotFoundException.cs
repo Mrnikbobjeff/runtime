@@ -1,14 +1,16 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 
 namespace System.IO
 {
     // Thrown when trying to access a file that doesn't exist on disk.
     [Serializable]
-    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
+    [TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public partial class FileNotFoundException : IOException
     {
         public FileNotFoundException()
@@ -58,7 +60,7 @@ namespace System.IO
             if (_message == null)
             {
                 if ((FileName == null) &&
-                    (HResult == System.HResults.COR_E_EXCEPTION))
+                    (HResult == HResults.COR_E_EXCEPTION))
                     _message = SR.IO_FileNotFound;
                 else if (FileName != null)
                     _message = FileLoadException.FormatFileLoadExceptionMessage(FileName, HResult);
@@ -67,6 +69,7 @@ namespace System.IO
 
         public string? FileName { get; }
         public string? FusionLog { get; }
+        private readonly string? _requestingAssemblyChain;
 
         public override string ToString()
         {
@@ -74,6 +77,9 @@ namespace System.IO
 
             if (!string.IsNullOrEmpty(FileName))
                 s += Environment.NewLineConst + SR.Format(SR.IO_FileName_Name, FileName);
+
+            if (!string.IsNullOrEmpty(_requestingAssemblyChain))
+                s += Environment.NewLineConst + SR.Format(SR.IO_FileLoad_RequestedBy, _requestingAssemblyChain);
 
             if (InnerException != null)
                 s += Environment.NewLineConst + InnerExceptionPrefix + InnerException.ToString();
@@ -89,18 +95,24 @@ namespace System.IO
             return s;
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         protected FileNotFoundException(SerializationInfo info, StreamingContext context)
             : base(info, context)
         {
             FileName = info.GetString("FileNotFound_FileName");
             FusionLog = info.GetString("FileNotFound_FusionLog");
+            _requestingAssemblyChain = (string?)info.GetValueNoThrow("FileNotFound_RequestingAssemblyChain", typeof(string));
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public override void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             base.GetObjectData(info, context);
             info.AddValue("FileNotFound_FileName", FileName, typeof(string));
             info.AddValue("FileNotFound_FusionLog", FusionLog, typeof(string));
+            info.AddValue("FileNotFound_RequestingAssemblyChain", _requestingAssemblyChain, typeof(string));
         }
     }
 }

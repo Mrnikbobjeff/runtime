@@ -1,10 +1,13 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <TargetFrameworks>$(NetCoreAppCurrent);$(NetFrameworkCurrent)</TargetFrameworks>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <TargetFrameworks>$(NetCoreAppCurrent);net461</TargetFrameworks>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="Asn1TagTests.cs" />
+    <Compile Include="Decoder\ReadEncodedValueTests.cs" />
+    <Compile Include="Reader\AsnReaderWrapper.cs" />
+    <Compile Include="Reader\AssertHelpers.cs" />
     <Compile Include="Reader\ComprehensiveReadTests.cs" />
     <Compile Include="Reader\OverlappedReads.cs" />
     <Compile Include="Reader\ParseTag.cs" />
@@ -52,7 +55,7 @@
       <Link>CommonTest\System\Security\Cryptography\ByteUtils.cs</Link>
     </Compile>
   </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'net461'">
+  <ItemGroup Condition="'$(TargetFrameworkIdentifier)' == '.NETFramework'">
     <ProjectReference Include="..\src\System.Formats.Asn1.csproj" />
     <ProjectReference Include="$(LibrariesProjectRoot)System.Reflection.Metadata\src\System.Reflection.Metadata.csproj" />
   </ItemGroup>

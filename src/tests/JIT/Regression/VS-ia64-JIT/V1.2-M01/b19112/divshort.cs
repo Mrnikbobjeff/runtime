@@ -2,23 +2,26 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-class foo
+
+namespace b19112b;
+
+using Xunit;
+public class foo
 {
 
     public static short a, b, c;
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
-
         a = 19;
         b = 3;
 
         div();
-
-        return 100;
     }
 
-    public static void div()
+    internal static void div()
     {
 
         c = (short)(a / b);

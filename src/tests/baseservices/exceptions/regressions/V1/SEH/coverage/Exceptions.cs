@@ -8,12 +8,14 @@ using System.Resources;
 using System.Runtime.InteropServices;
 using System.Security;
 using System.Threading;
+using Xunit;
 
-class MightyExceptor
+public class MightyExceptor
 {
 	static int Result = 100;
 
-	public static int Main(String[] Args)
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		try
 		{
@@ -29,7 +31,7 @@ class MightyExceptor
 		try
 		{
 			Console.WriteLine("Throwing ArgumentOutOfRangeException..");
-			throw new ArgumentOutOfRangeException("Arguement Name", 1, "Arguement Shame");
+			throw new ArgumentOutOfRangeException("Argument Name", 1, "Argument Shame");
 			
 		}
 		catch(ArgumentOutOfRangeException e)

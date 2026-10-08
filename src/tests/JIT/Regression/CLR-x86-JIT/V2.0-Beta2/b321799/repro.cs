@@ -2,8 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b321799;
+
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 class Exception1 : Exception { }
 
@@ -11,7 +15,7 @@ class Exception2 : Exception { }
 
 delegate void NoArg();
 
-class SmallRepro
+public class SmallRepro
 {
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -70,7 +74,8 @@ class SmallRepro
         }
     }
 
-    static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         bool bPassed = true;
         // Works

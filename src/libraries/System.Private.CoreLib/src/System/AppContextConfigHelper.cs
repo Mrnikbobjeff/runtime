@@ -7,6 +7,46 @@ namespace System
 {
     internal static class AppContextConfigHelper
     {
+        internal static bool GetBooleanConfig(string switchName, bool defaultValue) =>
+            AppContext.TryGetSwitch(switchName, out bool value) ? value : defaultValue;
+
+        internal static bool GetBooleanConfig(string switchName, string envVariable, bool defaultValue = false)
+        {
+            string? str = Environment.GetEnvironmentVariable(envVariable);
+            if (str != null)
+            {
+                if (str == "1" || bool.IsTrueStringIgnoreCase(str))
+                {
+                    return true;
+                }
+                if (str == "0" || bool.IsFalseStringIgnoreCase(str))
+                {
+                    return false;
+                }
+            }
+
+            return GetBooleanConfig(switchName, defaultValue);
+        }
+
+        internal static bool GetBooleanComPlusOrDotNetConfig(string configName, string envVariable, bool defaultValue)
+        {
+            string? str = Environment.GetEnvironmentVariable("DOTNET_" + envVariable)
+                ?? Environment.GetEnvironmentVariable("COMPlus_" + envVariable);
+
+            if (str != null && str.StartsWith("0x", StringComparison.Ordinal))
+            {
+                str = str.Substring(2);
+            }
+
+            if (str != null
+                && uint.TryParse(str, NumberStyles.HexNumber, NumberFormatInfo.InvariantInfo, out uint resultUnsigned))
+            {
+                return resultUnsigned != 0;
+            }
+
+            return GetBooleanConfig(configName, defaultValue);
+        }
+
         internal static int GetInt32Config(string configName, int defaultValue, bool allowNegative = true)
         {
             try
@@ -15,6 +55,9 @@ namespace System
                 int result = defaultValue;
                 switch (config)
                 {
+                    case uint value:
+                        result = (int)value;
+                        break;
                     case string str:
                         if (str.StartsWith('0'))
                         {
@@ -48,6 +91,68 @@ namespace System
             }
         }
 
+        internal static int GetInt32Config(string configName, string envVariable, int defaultValue, bool allowNegative = true)
+        {
+            string? str = Environment.GetEnvironmentVariable(envVariable);
+            if (str != null)
+            {
+                try
+                {
+                    int result;
+                    if (str.StartsWith('0'))
+                    {
+                        if (str.Length >= 2 && str[1] == 'x')
+                        {
+                            result = Convert.ToInt32(str, 16);
+                        }
+                        else
+                        {
+                            result = Convert.ToInt32(str, 8);
+                        }
+                    }
+                    else
+                    {
+                        result = int.Parse(str, NumberStyles.AllowLeadingSign, NumberFormatInfo.InvariantInfo);
+                    }
+
+                    if (allowNegative || result >= 0)
+                    {
+                        return result;
+                    }
+                }
+                catch (FormatException)
+                {
+                }
+                catch (OverflowException)
+                {
+                }
+            }
+
+            return GetInt32Config(configName, defaultValue, allowNegative);
+        }
+
+        internal static int GetInt32ComPlusOrDotNetConfig(string configName, string envVariable, int defaultValue, bool allowNegative)
+        {
+            string? str = Environment.GetEnvironmentVariable("DOTNET_" + envVariable)
+                ?? Environment.GetEnvironmentVariable("COMPlus_" + envVariable);
+
+            if (str != null && str.StartsWith("0x", StringComparison.Ordinal))
+            {
+                str = str.Substring(2);
+            }
+
+            if (str != null
+                && uint.TryParse(str, NumberStyles.HexNumber, NumberFormatInfo.InvariantInfo, out uint resultUnsigned))
+            {
+                int result = (int)resultUnsigned;
+                if (allowNegative || result >= 0)
+                {
+                    return result;
+                }
+            }
+
+            return GetInt32Config(configName, defaultValue, allowNegative);
+        }
 
         internal static short GetInt16Config(string configName, short defaultValue, bool allowNegative = true)
         {
@@ -57,12 +162,21 @@ namespace System
                 short result = defaultValue;
                 switch (config)
                 {
+                    case uint value:
+                        {
+                            result = (short)value;
+                            if ((uint)result != value)
+                            {
+                                return defaultValue; // overflow
+                            }
+                            break;
+                        }
                     case string str:
                         if (str.StartsWith("0x"))
                         {
                             result = Convert.ToInt16(str, 16);
                         }
-                        else if (str.StartsWith("0"))
+                        else if (str.StartsWith('0'))
                         {
                             result = Convert.ToInt16(str, 8);
                         }
@@ -85,6 +199,69 @@ namespace System
             {
                 return defaultValue;
             }
+        }
+
+        internal static short GetInt16Config(string configName, string envVariable, short defaultValue, bool allowNegative = true)
+        {
+            string? str = Environment.GetEnvironmentVariable(envVariable);
+            if (str != null)
+            {
+                try
+                {
+                    short result;
+                    if (str.StartsWith('0'))
+                    {
+                        if (str.Length >= 2 && str[1] == 'x')
+                        {
+                            result = Convert.ToInt16(str, 16);
+                        }
+                        else
+                        {
+                            result = Convert.ToInt16(str, 8);
+                        }
+                    }
+                    else
+                    {
+                        result = short.Parse(str, NumberStyles.AllowLeadingSign, NumberFormatInfo.InvariantInfo);
+                    }
+
+                    if (allowNegative || result >= 0)
+                    {
+                        return result;
+                    }
+                }
+                catch (FormatException)
+                {
+                }
+                catch (OverflowException)
+                {
+                }
+            }
+
+            return GetInt16Config(configName, defaultValue, allowNegative);
+        }
+
+        internal static short GetInt16ComPlusOrDotNetConfig(string configName, string envVariable, short defaultValue, bool allowNegative)
+        {
+            string? str = Environment.GetEnvironmentVariable("DOTNET_" + envVariable)
+                ?? Environment.GetEnvironmentVariable("COMPlus_" + envVariable);
+
+            if (str != null && str.StartsWith("0x", StringComparison.Ordinal))
+            {
+                str = str.Substring(2);
+            }
+
+            if (str != null
+                && ushort.TryParse(str, NumberStyles.HexNumber, NumberFormatInfo.InvariantInfo, out ushort resultUnsigned))
+            {
+                short result = (short)resultUnsigned;
+                if (allowNegative || result >= 0)
+                {
+                    return result;
+                }
+            }
+
+            return GetInt16Config(configName, defaultValue, allowNegative);
         }
     }
 }

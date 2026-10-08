@@ -5,8 +5,13 @@
 using System;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics.Arm;
+using System.Runtime.Intrinsics.X86;
+using Xunit;
 
-internal partial class VectorTest
+namespace SIMDTests.VectorGetTests;
+
+public partial class VectorTest : VectorTestBase
 {
     private const int Pass = 100;
     private const int Fail = -1;
@@ -103,6 +108,41 @@ internal partial class VectorTest
                 if (!CheckValue(A[30], value)) returnVal = Fail;
                 if (!CheckValue(A[31], value)) returnVal = Fail;
             }
+            if (Vector<T>.Count >= 64)
+            {
+                if (!CheckValue(A[32], value)) returnVal = Fail;
+                if (!CheckValue(A[33], value)) returnVal = Fail;
+                if (!CheckValue(A[34], value)) returnVal = Fail;
+                if (!CheckValue(A[35], value)) returnVal = Fail;
+                if (!CheckValue(A[36], value)) returnVal = Fail;
+                if (!CheckValue(A[37], value)) returnVal = Fail;
+                if (!CheckValue(A[38], value)) returnVal = Fail;
+                if (!CheckValue(A[39], value)) returnVal = Fail;
+                if (!CheckValue(A[40], value)) returnVal = Fail;
+                if (!CheckValue(A[41], value)) returnVal = Fail;
+                if (!CheckValue(A[42], value)) returnVal = Fail;
+                if (!CheckValue(A[43], value)) returnVal = Fail;
+                if (!CheckValue(A[44], value)) returnVal = Fail;
+                if (!CheckValue(A[45], value)) returnVal = Fail;
+                if (!CheckValue(A[46], value)) returnVal = Fail;
+                if (!CheckValue(A[47], value)) returnVal = Fail;
+                if (!CheckValue(A[48], value)) returnVal = Fail;
+                if (!CheckValue(A[49], value)) returnVal = Fail;
+                if (!CheckValue(A[50], value)) returnVal = Fail;
+                if (!CheckValue(A[51], value)) returnVal = Fail;
+                if (!CheckValue(A[52], value)) returnVal = Fail;
+                if (!CheckValue(A[53], value)) returnVal = Fail;
+                if (!CheckValue(A[54], value)) returnVal = Fail;
+                if (!CheckValue(A[55], value)) returnVal = Fail;
+                if (!CheckValue(A[56], value)) returnVal = Fail;
+                if (!CheckValue(A[57], value)) returnVal = Fail;
+                if (!CheckValue(A[58], value)) returnVal = Fail;
+                if (!CheckValue(A[59], value)) returnVal = Fail;
+                if (!CheckValue(A[60], value)) returnVal = Fail;
+                if (!CheckValue(A[61], value)) returnVal = Fail;
+                if (!CheckValue(A[62], value)) returnVal = Fail;
+                if (!CheckValue(A[63], value)) returnVal = Fail;
+            }
 
             return returnVal;
         }
@@ -126,9 +166,10 @@ internal partial class VectorTest
                     case 8: check = A[8]; break;
                     case 16: check = A[16]; break;
                     case 32: check = A[32]; break;
+                    case 64: check = A[64]; break;
                 }
             }
-            catch (IndexOutOfRangeException)
+            catch (ArgumentOutOfRangeException)
             {
                 caught = true;
             }
@@ -138,7 +179,7 @@ internal partial class VectorTest
             }
             if (!caught)
             {
-                Console.WriteLine("Failed to throw IndexOutOfRangeException for index == Count of " + Vector<T>.Count);
+                Console.WriteLine("Failed to throw ArgumentOutOfRangeException for index == Count of " + Vector<T>.Count);
                 returnVal = Fail;
             }
 
@@ -148,7 +189,7 @@ internal partial class VectorTest
             {
                 check = A[-1];
             }
-            catch (IndexOutOfRangeException)
+            catch (ArgumentOutOfRangeException)
             {
                 caught = true;
             }
@@ -158,7 +199,7 @@ internal partial class VectorTest
             }
             if (!caught)
             {
-                Console.WriteLine("Failed to throw IndexOutOfRangeException for index == -1");
+                Console.WriteLine("Failed to throw ArgumentOutOfRangeException for index == -1");
                 returnVal = Fail;
             }
 
@@ -166,7 +207,8 @@ internal partial class VectorTest
         }
     }
 
-    private static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int returnVal = Pass;
         if (VectorGetTest<Double>.VectorGet(101D, 1) == Fail) returnVal = Fail;
@@ -199,30 +241,42 @@ internal partial class VectorTest
         if (VectorGetTest<ulong>.VectorGet(101, 1) == Fail) returnVal = Fail;
         if (VectorGetTest<ulong>.VectorGet(100, 1) == Fail) returnVal = Fail;
         if (VectorGetTest<ulong>.VectorGetIndexerOutOfRange(100, 1) == Fail) returnVal = Fail;
+        if (VectorGetTest<nint>.VectorGet(101, 1) == Fail) returnVal = Fail;
+        if (VectorGetTest<nint>.VectorGet(100, 1) == Fail) returnVal = Fail;
+        if (VectorGetTest<nint>.VectorGetIndexerOutOfRange(100, 1) == Fail) returnVal = Fail;
+        if (VectorGetTest<nuint>.VectorGet(101, 1) == Fail) returnVal = Fail;
+        if (VectorGetTest<nuint>.VectorGet(100, 1) == Fail) returnVal = Fail;
+        if (VectorGetTest<nuint>.VectorGetIndexerOutOfRange(100, 1) == Fail) returnVal = Fail;
 
-        JitLog jitLog = new JitLog();
-        if (!jitLog.Check("get_Item", "Double")) returnVal = Fail;
-        if (!jitLog.Check("get_Count", "Double")) returnVal = Fail;
-        if (!jitLog.Check("get_Item", "Single")) returnVal = Fail;
-        if (!jitLog.Check("get_Count", "Single")) returnVal = Fail;
-        if (!jitLog.Check("get_Item", "Int32")) returnVal = Fail;
-        if (!jitLog.Check("get_Count", "Int32")) returnVal = Fail;
-        if (!jitLog.Check("get_Item", "Int64")) returnVal = Fail;
-        if (!jitLog.Check("get_Count", "Int64")) returnVal = Fail;
-        if (!jitLog.Check("get_Item", "UInt16")) returnVal = Fail;
-        if (!jitLog.Check("get_Count", "UInt16")) returnVal = Fail;
-        if (!jitLog.Check("get_Item", "Byte")) returnVal = Fail;
-        if (!jitLog.Check("get_Count", "Byte")) returnVal = Fail;
-        if (!jitLog.Check("get_Item", "Int16")) returnVal = Fail;
-        if (!jitLog.Check("get_Count", "Int16")) returnVal = Fail;
-        if (!jitLog.Check("get_Item", "SByte")) returnVal = Fail;
-        if (!jitLog.Check("get_Count", "SByte")) returnVal = Fail;
-        if (!jitLog.Check("get_Item", "UInt32")) returnVal = Fail;
-        if (!jitLog.Check("get_Count", "UInt32")) returnVal = Fail;
-        if (!jitLog.Check("get_Item", "UInt64")) returnVal = Fail;
-        if (!jitLog.Check("get_Count", "UInt64")) returnVal = Fail;
-        jitLog.Dispose();
-
+        if (Sse41.IsSupported || AdvSimd.IsSupported)
+        {
+            JitLog jitLog = new JitLog();
+            if (!jitLog.Check("get_Item", "Double")) returnVal = Fail;
+            if (!jitLog.Check("get_Count", "Double")) returnVal = Fail;
+            if (!jitLog.Check("get_Item", "Single")) returnVal = Fail;
+            if (!jitLog.Check("get_Count", "Single")) returnVal = Fail;
+            if (!jitLog.Check("get_Item", "Int32")) returnVal = Fail;
+            if (!jitLog.Check("get_Count", "Int32")) returnVal = Fail;
+            if (!jitLog.Check("get_Item", "Int64")) returnVal = Fail;
+            if (!jitLog.Check("get_Count", "Int64")) returnVal = Fail;
+            if (!jitLog.Check("get_Item", "UInt16")) returnVal = Fail;
+            if (!jitLog.Check("get_Count", "UInt16")) returnVal = Fail;
+            if (!jitLog.Check("get_Item", "Byte")) returnVal = Fail;
+            if (!jitLog.Check("get_Count", "Byte")) returnVal = Fail;
+            if (!jitLog.Check("get_Item", "Int16")) returnVal = Fail;
+            if (!jitLog.Check("get_Count", "Int16")) returnVal = Fail;
+            if (!jitLog.Check("get_Item", "SByte")) returnVal = Fail;
+            if (!jitLog.Check("get_Count", "SByte")) returnVal = Fail;
+            if (!jitLog.Check("get_Item", "UInt32")) returnVal = Fail;
+            if (!jitLog.Check("get_Count", "UInt32")) returnVal = Fail;
+            if (!jitLog.Check("get_Item", "UInt64")) returnVal = Fail;
+            if (!jitLog.Check("get_Count", "UInt64")) returnVal = Fail;
+            if (!jitLog.Check("get_Item", "IntPtr")) returnVal = Fail;
+            if (!jitLog.Check("get_Count", "IntPtr")) returnVal = Fail;
+            if (!jitLog.Check("get_Item", "UIntPtr")) returnVal = Fail;
+            if (!jitLog.Check("get_Count", "UIntPtr")) returnVal = Fail;
+            jitLog.Dispose();
+        }
         return returnVal;
     }
 }

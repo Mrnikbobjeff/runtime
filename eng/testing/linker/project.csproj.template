@@ -1,46 +1,94 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>{NetCoreAppCurrent}</TargetFramework>
-    <RuntimeIdentifier>{RuntimeIdentifier}</RuntimeIdentifier>
-    <RuntimePackDir>{RuntimePackDir}</RuntimePackDir>
-    <TargetingPackDir>{TargetingPackDir}</TargetingPackDir>
-
-    <!-- These can be removed once we get an SDK with https://github.com/mono/linker/pull/1385. -->
-    <LinkerNoWarn>IL2026</LinkerNoWarn>
-    <!-- IL2032,IL2055,IL2057-IL2061: Reflection intrinsics with unknown arguments -->
-    <LinkerNoWarn>$(LinkerNoWarn);IL2032;IL2055;IL2057;IL2058;IL2059;IL2060;IL2061</LinkerNoWarn>
-    <!-- IL2062-IL2066: Unknown values passed to locations with DynamicallyAccessedMemberTypes -->
-    <LinkerNoWarn>$(LinkerNoWarn);IL2062;IL2063;IL2064;IL2065;IL2066</LinkerNoWarn>
-    <!-- IL2067-IL2091: Unsatisfied DynamicallyAccessedMembers requirements -->
-    <LinkerNoWarn>$(LinkerNoWarn);IL2067;IL2068;IL2069;IL2070;IL2071;IL2072;IL2073;IL2074;IL2075;IL2076;IL2077;IL2078;IL2079;IL2080;IL2081;IL2082;IL2083;IL2084;IL2085;IL2086;IL2087;IL2088;IL2089;IL2090;IL2091</LinkerNoWarn>
-    <!-- https://github.com/dotnet/runtime/issues/40336 - need to suppress IL2008;IL2009;IL2037 on non-Windows -->
-    <LinkerNoWarn Condition="!$(RuntimeIdentifier.StartsWith('win'))">$(LinkerNoWarn);IL2008;IL2009;IL2037</LinkerNoWarn>
-    <_ExtraTrimmerArgs>{ExtraTrimmerArgs} $(_ExtraTrimmerArgs) --nowarn $(LinkerNoWarn)</_ExtraTrimmerArgs>
+    <!-- Needed for PublishTrimmed -->
+    <NetCoreAppToolCurrent>{NetCoreAppToolCurrent}</NetCoreAppToolCurrent>
+    <ToolsILLinkDir>{ToolsILLinkDir}</ToolsILLinkDir>
   </PropertyGroup>
+
+  <!-- Use live illink bits. It is necessary to both import the package props and override
+       the tasks assembly, because the live package props in the build output do not use
+       the same layout as the NuGet package. -->
+  <!-- This must be done after the usual nuget props imports, to override the implicitly referenced
+       Microsoft.NET.ILLink.Tasks.props from the SDK. -->
+  <Import Project="$(ToolsILLinkDir)net/build/Microsoft.NET.ILLink.Tasks.props" />
+
+  <PropertyGroup>
+    <!-- Don't use SDK's trimming functionality. -->
+    <_RequiresILLinkPack>false</_RequiresILLinkPack>
+    <ILLinkTasksAssembly>$(ToolsILLinkDir)net/ILLink.Tasks.dll</ILLinkTasksAssembly>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <TargetFramework>{TargetFramework}</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <NETCoreAppMaximumVersion>{NetCoreAppMaximumVersion}</NETCoreAppMaximumVersion>
+    <UseMonoRuntime>{UseMonoRuntime}</UseMonoRuntime>
+    <RuntimeIdentifier>{RuntimeIdentifier}</RuntimeIdentifier>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+    <!-- Implicitly force 'UseNativeAotForComponents' for AOT tests -->
+    <PublishAot>{PublishAot}</PublishAot>
+    <UseNativeAotForComponents Condition="'$(PublishAot)' == 'true'">true</UseNativeAotForComponents>
+
+    <!-- wasm specific -->
+    <MonoAOTCompilerDir>{MonoAOTCompilerDir}</MonoAOTCompilerDir>
+    <MonoProjectRoot>{MonoProjectRoot}</MonoProjectRoot>
+    <BrowserProjectRoot>{BrowserProjectRoot}</BrowserProjectRoot>
+    <WasmProjectRoot>{WasmProjectRoot}</WasmProjectRoot>
+    <WasiProjectRoot>{WasiProjectRoot}</WasiProjectRoot>
+    <MonoAOTCompilerTasksAssemblyPath>{MonoAOTCompilerTasksAssemblyPath}</MonoAOTCompilerTasksAssemblyPath>
+    <WasmAppBuilderTasksAssemblyPath>{WasmAppBuilderTasksAssemblyPath}</WasmAppBuilderTasksAssemblyPath>
+    <MonoTargetsTasksAssemblyPath>{MonoTargetsTasksAssemblyPath}</MonoTargetsTasksAssemblyPath>
+    <MicrosoftNetCoreAppRuntimePackRidDir>{MicrosoftNetCoreAppRuntimePackRidDir}</MicrosoftNetCoreAppRuntimePackRidDir>
+    <_WebAssemblyPropsFile>{WasmSdkPackBuildPath}Microsoft.NET.Sdk.WebAssembly.Browser.props</_WebAssemblyPropsFile>
+    <_WebAssemblyTargetsFile>{WasmSdkPackBuildPath}Microsoft.NET.Sdk.WebAssembly.Browser.targets</_WebAssemblyTargetsFile>
+    <_WebAssemblySdkTasksDirectory>{WasmSdkPackTasksPath}</_WebAssemblySdkTasksDirectory>
+    <UsingBrowserRuntimeWorkload>true</UsingBrowserRuntimeWorkload>
+
+    <!-- Needed for targetingpacks.targets -->
+    <ProductVersion>{ProductVersion}</ProductVersion>
+    <NetCoreAppCurrent>{NetCoreAppCurrent}</NetCoreAppCurrent>
+    <NetCoreAppCurrentVersion>{NetCoreAppCurrentVersion}</NetCoreAppCurrentVersion>
+    <LocalAppHostPath>{LocalAppHostPath}</LocalAppHostPath>
+    <LocalSingleFileHostPath>{LocalSingleFileHostPath}</LocalSingleFileHostPath>
+    <MicrosoftNetCoreAppFrameworkName>{MicrosoftNetCoreAppFrameworkName}</MicrosoftNetCoreAppFrameworkName>
+    <MicrosoftNetCoreAppRefPackDir>{MicrosoftNetCoreAppRefPackDir}</MicrosoftNetCoreAppRefPackDir>
+    <MicrosoftNetCoreAppRuntimePackDir>{MicrosoftNetCoreAppRuntimePackDir}</MicrosoftNetCoreAppRuntimePackDir>
+    <MicrosoftNetCoreAppRuntimePackRidLibTfmDir>{MicrosoftNetCoreAppRuntimePackRidLibTfmDir}</MicrosoftNetCoreAppRuntimePackRidLibTfmDir>
+    <MicrosoftNetCoreAppRuntimePackNativeDir>{MicrosoftNetCoreAppRuntimePackNativeDir}</MicrosoftNetCoreAppRuntimePackNativeDir>
+    <CoreCLRILCompilerDir>{CoreCLRILCompilerDir}</CoreCLRILCompilerDir>
+    <CoreCLRCrossILCompilerDir>{CoreCLRCrossILCompilerDir}</CoreCLRCrossILCompilerDir>
+    <CoreCLRAotSdkDir>{CoreCLRAotSdkDir}</CoreCLRAotSdkDir>
+
+    <RepositoryEngineeringDir>{RepositoryEngineeringDir}</RepositoryEngineeringDir>
+    <_ExtraTrimmerArgs>{ExtraTrimmerArgs} $(_ExtraTrimmerArgs) --dump-dependencies</_ExtraTrimmerArgs>
+    {AdditionalProperties}
+
+    <!-- Needed for PublishAot -->
+    <CoreCLRBuildIntegrationDir>{CoreCLRBuildIntegrationDir}</CoreCLRBuildIntegrationDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    {RuntimeHostConfigurationOptions}
+  </ItemGroup>
 
   <ItemGroup>
     {AdditionalProjectReferences}
   </ItemGroup>
 
-  <!-- Logic to override the default IlLink tasks that come from the SDK and use the one
-  we use in dotnet/runtime repo -->
+  <Target Name="RemoveInvariantGlobalization" BeforeTargets="_SetWasmBuildNativeDefaults" Condition="'$(TargetArchitecture)' == 'wasm'">
+    <ItemGroup>
+      <_PropertiesThatTriggerRelinking Remove="InvariantGlobalization" />
+      <_PropertiesThatTriggerRelinking Remove="InvariantTimezone" />
+    </ItemGroup>
+  </Target>
 
-  <PropertyGroup>
-    <_ILLinkTasksDirectoryRoot>$(PkgMicrosoft_NET_ILLink_Tasks)\tools\</_ILLinkTasksDirectoryRoot>
-    <_ILLinkTasksTFM>netcoreapp3.0</_ILLinkTasksTFM>
-    <_ILLinkTasksDirectory>$(_ILLinkTasksDirectoryRoot)$(_ILLinkTasksTFM)\</_ILLinkTasksDirectory>
-    <ILLinkTasksAssembly>$(_ILLinkTasksDirectory)ILLink.Tasks.dll</ILLinkTasksAssembly>
-  </PropertyGroup>
+  <Import Project="{NativeSanitizersTargets}" />
+  <Import Project="$(RepositoryEngineeringDir)toolAot.targets" />
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.NET.ILLink.Tasks"
-                      Version="{MicrosoftNETILLinkTasksVersion}"
-                      PrivateAssets="all"
-                      IsImplicitlyDefined="true"
-                      ExcludeAssets="build"
-                      GeneratePathProperty="true" />
+    <Content Include="@(SanitizerRuntimeToCopy->'{SanitizerRuntimeFolder}/%(Identity)')" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

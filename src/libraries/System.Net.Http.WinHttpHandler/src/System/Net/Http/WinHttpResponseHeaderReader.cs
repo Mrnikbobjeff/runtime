@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace System.Net.Http
 {
@@ -28,11 +29,9 @@ namespace System.Net.Http
         /// Empty header lines are skipped, as are malformed header lines that are missing a colon character.
         /// </summary>
         /// <returns>true if the next header was read successfully, or false if all characters have been read.</returns>
-        public bool ReadHeader(out string name, out string value)
+        public bool ReadHeader([NotNullWhen(true)] out string? name, [NotNullWhen(true)] out string? value)
         {
-            int startIndex;
-            int length;
-            while (ReadLine(out startIndex, out length))
+            while (ReadLine(out int startIndex, out int length))
             {
                 // Skip empty lines.
                 if (length == 0)
@@ -43,25 +42,25 @@ namespace System.Net.Http
                 int colonIndex = Array.IndexOf(_buffer, ':', startIndex, length);
 
                 // Skip malformed header lines that are missing the colon character.
-                if (colonIndex == -1)
+                if (colonIndex < 0)
                 {
                     continue;
                 }
 
                 int nameLength = colonIndex - startIndex;
 
+                ReadOnlySpan<char> nameSpan = _buffer.AsSpan(startIndex, nameLength);
+
                 // If it's a known header name, use the known name instead of allocating a new string.
-                if (!HttpKnownHeaderNames.TryGetHeaderName(_buffer, startIndex, nameLength, out name))
+                if (!HttpKnownHeaderNames.TryGetHeaderName(nameSpan, out name))
                 {
-                    name = new string(_buffer, startIndex, nameLength);
+                    name = nameSpan.ToString();
                 }
 
                 // Normalize header value by trimming whitespace.
-                int valueStartIndex = colonIndex + 1;
-                int valueLength = startIndex + length - colonIndex - 1;
-                CharArrayHelpers.Trim(_buffer, ref valueStartIndex, ref valueLength);
+                ReadOnlySpan<char> valueSpan = new ReadOnlySpan<char>(_buffer, colonIndex + 1, startIndex + length - colonIndex - 1).Trim();
 
-                value = HttpKnownHeaderNames.GetHeaderValue(name, _buffer, valueStartIndex, valueLength);
+                value = HttpKnownHeaderNames.GetHeaderValue(name, valueSpan);
 
                 return true;
             }
@@ -77,9 +76,7 @@ namespace System.Net.Http
         /// <returns>true if the next line was read successfully, or false if all characters have been read.</returns>
         public bool ReadLine()
         {
-            int startIndex;
-            int length;
-            return ReadLine(out startIndex, out length);
+            return ReadLine(out _, out _);
         }
 
         /// <summary>
@@ -92,30 +89,22 @@ namespace System.Net.Http
         {
             Debug.Assert(_buffer != null);
 
-            int i = _position;
+            int pos = _position;
 
-            while (i < _length)
+            int newline = _buffer.AsSpan(pos, _length - pos).IndexOf("\r\n".AsSpan());
+            if (newline >= 0)
             {
-                char ch = _buffer[i];
-                if (ch == '\r')
-                {
-                    int next = i + 1;
-                    if (next < _length && _buffer[next] == '\n')
-                    {
-                        startIndex = _position;
-                        length = i - _position;
-                        _position = i + 2;
-                        return true;
-                    }
-                }
-                i++;
+                startIndex = pos;
+                length = newline;
+                _position = pos + newline + 2;
+                return true;
             }
 
-            if (i > _position)
+            if (pos < _length)
             {
-                startIndex = _position;
-                length = i - _position;
-                _position = i;
+                startIndex = pos;
+                length = _length - pos;
+                _position = _length;
                 return true;
             }
 

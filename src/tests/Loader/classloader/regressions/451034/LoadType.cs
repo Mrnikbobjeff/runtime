@@ -5,15 +5,17 @@
 // ngening the assembly and running it resulted in AV
 
 using System;
+using Xunit;
+using TestLibrary;
 
-public class Test
+public class Test_LoadType
 {
-	public static int Main()
-	{
-		S s = CReloc5<char>.s;
-			
-		Console.WriteLine("PASS");
-		return 100;
-	
-	}
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static void TestEntryPoint()
+    {
+        S s = CReloc5<char>.s;
+            
+        Console.WriteLine("PASS");
+    }
 }

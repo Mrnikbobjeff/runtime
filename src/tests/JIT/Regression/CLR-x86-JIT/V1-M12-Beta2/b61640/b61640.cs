@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b61640
 {
     using System;
 
@@ -14,10 +15,11 @@ namespace Test
             public bool b2;
         }
 
-        public static int Main(string[] args)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             foo(true, true);
-            return 100;
         }
 
         public static bool foo(bool b1, bool b2)

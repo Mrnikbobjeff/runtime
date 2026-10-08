@@ -4,115 +4,183 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace Microsoft.Extensions.Configuration.EnvironmentVariables
 {
     /// <summary>
-    /// An environment variable based <see cref="ConfigurationProvider"/>.
+    /// Provides configuration key-value pairs that are obtained from environment variables.
     /// </summary>
     public class EnvironmentVariablesConfigurationProvider : ConfigurationProvider
     {
+        // Connection string prefixes for various services. These prefixes are used to identify connection strings in environment variables.
+        // az webapp config connection-string set: https://learn.microsoft.com/en-us/cli/azure/webapp/config/connection-string?view=azure-cli-latest#az-webapp-config-connection-string-set
+        // Environment variables and app settings in Azure App Service: https://learn.microsoft.com/en-us/azure/app-service/reference-app-settings?tabs=kudu%2Cdotnet#variable-prefixes
         private const string MySqlServerPrefix = "MYSQLCONNSTR_";
         private const string SqlAzureServerPrefix = "SQLAZURECONNSTR_";
         private const string SqlServerPrefix = "SQLCONNSTR_";
-        private const string CustomPrefix = "CUSTOMCONNSTR_";
-
-        private const string ConnStrKeyFormat = "ConnectionStrings:{0}";
-        private const string ProviderKeyFormat = "ConnectionStrings:{0}_ProviderName";
+        private const string CustomConnectionStringPrefix = "CUSTOMCONNSTR_";
+        private const string PostgreSqlServerPrefix = "POSTGRESQLCONNSTR_";
+        private const string ApiHubPrefix = "APIHUBCONNSTR_";
+        private const string DocDbPrefix = "DOCDBCONNSTR_";
+        private const string EventHubPrefix = "EVENTHUBCONNSTR_";
+        private const string NotificationHubPrefix = "NOTIFICATIONHUBCONNSTR_";
+        private const string RedisCachePrefix = "REDISCACHECONNSTR_";
+        private const string ServiceBusPrefix = "SERVICEBUSCONNSTR_";
 
         private readonly string _prefix;
+        private readonly string _normalizedPrefix;
+        private readonly Func<string, string> _transformation;
 
         /// <summary>
         /// Initializes a new instance.
         /// </summary>
-        public EnvironmentVariablesConfigurationProvider() : this(string.Empty)
-        { }
+        public EnvironmentVariablesConfigurationProvider()
+            : this(null, null)
+        {
+        }
 
         /// <summary>
         /// Initializes a new instance with the specified prefix.
         /// </summary>
         /// <param name="prefix">A prefix used to filter the environment variables.</param>
-        public EnvironmentVariablesConfigurationProvider(string prefix)
+        public EnvironmentVariablesConfigurationProvider(string? prefix)
+            : this(prefix, null)
+        {
+        }
+
+        /// <summary>
+        /// Initializes a new instance with the specified prefix and variable name transformation.
+        /// </summary>
+        /// <param name="prefix">A prefix used to filter the environment variables.</param>
+        /// <param name="variableNameTransformation">A function that transforms environment variable names.
+        /// When <see langword="null"/>, <see cref="EnvironmentVariablesConfigurationSource.DefaultTransformation"/> is used.</param>
+        public EnvironmentVariablesConfigurationProvider(string? prefix, Func<string, string>? variableNameTransformation)
         {
             _prefix = prefix ?? string.Empty;
+            _transformation = variableNameTransformation ?? EnvironmentVariablesConfigurationSource.DefaultTransformation;
+            _normalizedPrefix = Normalize(_prefix);
         }
 
         /// <summary>
         /// Loads the environment variables.
         /// </summary>
-        public override void Load()
-        {
+        public override void Load() =>
             Load(Environment.GetEnvironmentVariables());
+
+        /// <summary>
+        /// Generates a string representing this provider name and relevant details.
+        /// </summary>
+        /// <returns>The configuration name.</returns>
+        public override string ToString()
+        {
+            string s = GetType().Name;
+            if (!string.IsNullOrEmpty(_prefix))
+            {
+                s += $" Prefix: '{_prefix}'";
+            }
+            return s;
         }
 
         internal void Load(IDictionary envVariables)
         {
-            var data = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var data = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
 
-            IEnumerable<DictionaryEntry> filteredEnvVariables = envVariables
-                .Cast<DictionaryEntry>()
-                .SelectMany(AzureEnvToAppEnv)
-                .Where(entry => ((string)entry.Key).StartsWith(_prefix, StringComparison.OrdinalIgnoreCase));
-
-            foreach (DictionaryEntry envVariable in filteredEnvVariables)
+            IDictionaryEnumerator e = envVariables.GetEnumerator();
+            try
             {
-                string key = ((string)envVariable.Key).Substring(_prefix.Length);
-                data[key] = (string)envVariable.Value;
+                while (e.MoveNext())
+                {
+                    string key = (string)e.Entry.Key;
+                    string? value = (string?)e.Entry.Value;
+
+                    if (key.StartsWith(MySqlServerPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        HandleMatchedConnectionStringPrefix(data, MySqlServerPrefix, "MySql.Data.MySqlClient", key, value);
+                    }
+                    else if (key.StartsWith(SqlAzureServerPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        HandleMatchedConnectionStringPrefix(data, SqlAzureServerPrefix, "System.Data.SqlClient", key, value);
+                    }
+                    else if (key.StartsWith(SqlServerPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        HandleMatchedConnectionStringPrefix(data, SqlServerPrefix, "System.Data.SqlClient", key, value);
+                    }
+                    else if (key.StartsWith(PostgreSqlServerPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        HandleMatchedConnectionStringPrefix(data, PostgreSqlServerPrefix, "Npgsql", key, value);
+                    }
+                    else if (key.StartsWith(ApiHubPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        HandleMatchedConnectionStringPrefix(data, ApiHubPrefix, null, key, value);
+                    }
+                    else if (key.StartsWith(DocDbPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        HandleMatchedConnectionStringPrefix(data, DocDbPrefix, null, key, value);
+                    }
+                    else if (key.StartsWith(EventHubPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        HandleMatchedConnectionStringPrefix(data, EventHubPrefix, null, key, value);
+                    }
+                    else if (key.StartsWith(NotificationHubPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        HandleMatchedConnectionStringPrefix(data, NotificationHubPrefix, null, key, value);
+                    }
+                    else if (key.StartsWith(RedisCachePrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        HandleMatchedConnectionStringPrefix(data, RedisCachePrefix, null, key, value);
+                    }
+                    else if (key.StartsWith(ServiceBusPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        HandleMatchedConnectionStringPrefix(data, ServiceBusPrefix, null, key, value);
+                    }
+                    else if (key.StartsWith(CustomConnectionStringPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        HandleMatchedConnectionStringPrefix(data, CustomConnectionStringPrefix, null, key, value);
+                    }
+                    else
+                    {
+                        AddIfNormalizedKeyMatchesPrefix(data, Normalize(key), value);
+                    }
+                }
+            }
+            finally
+            {
+                (e as IDisposable)?.Dispose();
             }
 
             Data = data;
         }
 
-        private static string NormalizeKey(string key)
+        private void HandleMatchedConnectionStringPrefix(Dictionary<string, string?> data, string connectionStringPrefix, string? provider, string fullKey, string? value)
         {
-            return key.Replace("__", ConfigurationPath.KeyDelimiter);
+            string normalizedKeyWithoutConnectionStringPrefix = Normalize(fullKey.Substring(connectionStringPrefix.Length));
+
+            // Add the key-value pair for connection string, and optionally provider name
+            AddIfNormalizedKeyMatchesPrefix(data, $"ConnectionStrings:{normalizedKeyWithoutConnectionStringPrefix}", value);
+            if (provider != null)
+            {
+                AddIfNormalizedKeyMatchesPrefix(data, $"ConnectionStrings:{normalizedKeyWithoutConnectionStringPrefix}_ProviderName", provider);
+            }
         }
 
-        private static IEnumerable<DictionaryEntry> AzureEnvToAppEnv(DictionaryEntry entry)
+        private void AddIfNormalizedKeyMatchesPrefix(Dictionary<string, string?> data, string normalizedKey, string? value)
         {
-            string key = (string)entry.Key;
-            string prefix = string.Empty;
-            string provider = string.Empty;
+            if (normalizedKey.StartsWith(_normalizedPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                data[normalizedKey.Substring(_normalizedPrefix.Length)] = value;
+            }
+        }
 
-            if (key.StartsWith(MySqlServerPrefix, StringComparison.OrdinalIgnoreCase))
+        private string Normalize(string key)
+        {
+            string? transformed = _transformation(key);
+
+            if (transformed is null)
             {
-                prefix = MySqlServerPrefix;
-                provider = "MySql.Data.MySqlClient";
-            }
-            else if (key.StartsWith(SqlAzureServerPrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                prefix = SqlAzureServerPrefix;
-                provider = "System.Data.SqlClient";
-            }
-            else if (key.StartsWith(SqlServerPrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                prefix = SqlServerPrefix;
-                provider = "System.Data.SqlClient";
-            }
-            else if (key.StartsWith(CustomPrefix, StringComparison.OrdinalIgnoreCase))
-            {
-                prefix = CustomPrefix;
-            }
-            else
-            {
-                entry.Key = NormalizeKey(key);
-                yield return entry;
-                yield break;
+                throw new InvalidOperationException($"The variable name transformation returned null for environment variable name '{key}'.");
             }
 
-            // Return the key-value pair for connection string
-            yield return new DictionaryEntry(
-                string.Format(ConnStrKeyFormat, NormalizeKey(key.Substring(prefix.Length))),
-                entry.Value);
-
-            if (!string.IsNullOrEmpty(provider))
-            {
-                // Return the key-value pair for provider name
-                yield return new DictionaryEntry(
-                    string.Format(ProviderKeyFormat, NormalizeKey(key.Substring(prefix.Length))),
-                    provider);
-            }
+            return transformed;
         }
     }
 }

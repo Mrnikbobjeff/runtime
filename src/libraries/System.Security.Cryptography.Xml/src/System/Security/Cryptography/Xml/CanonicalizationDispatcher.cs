@@ -1,33 +1,47 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Xml;
 using System.Text;
+using System.Xml;
 
 namespace System.Security.Cryptography.Xml
 {
     // the central dispatcher for canonicalization writes. not all node classes
     // implement ICanonicalizableNode; so a manual dispatch is sometimes necessary.
-    internal class CanonicalizationDispatcher
+    internal static class CanonicalizationDispatcher
     {
-        private CanonicalizationDispatcher() { }
+        [ThreadStatic]
+        private static int t_depth;
 
         public static void Write(XmlNode node, StringBuilder strBuilder, DocPosition docPos, AncestralNamespaceContextManager anc)
         {
-            if (node is ICanonicalizableNode)
+            int maxDepth = LocalAppContextSwitches.DangerousMaxRecursionDepth;
+            if (maxDepth > 0 && t_depth > maxDepth)
             {
-                ((ICanonicalizableNode)node).Write(strBuilder, docPos, anc);
+                throw new CryptographicException(SR.Cryptography_Xml_MaxDepthExceeded);
             }
-            else
+
+            t_depth++;
+            try
             {
-                WriteGenericNode(node, strBuilder, docPos, anc);
+                if (node is ICanonicalizableNode canonicalizableNode)
+                {
+                    canonicalizableNode.Write(strBuilder, docPos, anc);
+                }
+                else
+                {
+                    WriteGenericNode(node, strBuilder, docPos, anc);
+                }
+            }
+            finally
+            {
+                t_depth--;
             }
         }
 
         public static void WriteGenericNode(XmlNode node, StringBuilder strBuilder, DocPosition docPos, AncestralNamespaceContextManager anc)
         {
-            if (node == null)
-                throw new ArgumentNullException(nameof(node));
+            ArgumentNullException.ThrowIfNull(node);
 
             XmlNodeList childNodes = node.ChildNodes;
             foreach (XmlNode childNode in childNodes)
@@ -38,20 +52,33 @@ namespace System.Security.Cryptography.Xml
 
         public static void WriteHash(XmlNode node, HashAlgorithm hash, DocPosition docPos, AncestralNamespaceContextManager anc)
         {
-            if (node is ICanonicalizableNode)
+            int maxDepth = LocalAppContextSwitches.DangerousMaxRecursionDepth;
+            if (maxDepth > 0 && t_depth > maxDepth)
             {
-                ((ICanonicalizableNode)node).WriteHash(hash, docPos, anc);
+                throw new CryptographicException(SR.Cryptography_Xml_MaxDepthExceeded);
             }
-            else
+
+            t_depth++;
+            try
             {
-                WriteHashGenericNode(node, hash, docPos, anc);
+                if (node is ICanonicalizableNode canonicalizableNode)
+                {
+                    canonicalizableNode.WriteHash(hash, docPos, anc);
+                }
+                else
+                {
+                    WriteHashGenericNode(node, hash, docPos, anc);
+                }
+            }
+            finally
+            {
+                t_depth--;
             }
         }
 
         public static void WriteHashGenericNode(XmlNode node, HashAlgorithm hash, DocPosition docPos, AncestralNamespaceContextManager anc)
         {
-            if (node == null)
-                throw new ArgumentNullException(nameof(node));
+            ArgumentNullException.ThrowIfNull(node);
 
             XmlNodeList childNodes = node.ChildNodes;
             foreach (XmlNode childNode in childNodes)

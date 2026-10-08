@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -9,7 +8,7 @@ using System.IO;
 
 namespace System.Resources.Extensions
 {
-    internal class UnknownType { }
+    internal sealed class UnknownType { }
 
     public partial class PreserializedResourceWriter
     {
@@ -37,7 +36,7 @@ namespace System.Resources.Extensions
         // a collection of primitive types in a dictionary, indexed by type name
         // using a comparer which handles type name comparisons similar to what
         // is done by reflection
-        private static readonly IReadOnlyDictionary<string, Type> s_primitiveTypes = new Dictionary<string, Type>(16, TypeNameComparer.Instance)
+        private static readonly Dictionary<string, Type> s_primitiveTypes = new Dictionary<string, Type>(16, TypeNameComparer.Instance)
         {
             { typeof(string).FullName!, typeof(string) },
             { typeof(int).FullName!, typeof(int) },
@@ -71,12 +70,9 @@ namespace System.Resources.Extensions
         /// <param name="typeName">Assembly qualified type name of the resource</param>
         public void AddResource(string name, string value, string typeName)
         {
-            if (name == null)
-                throw new ArgumentNullException(nameof(name));
-            if (value == null)
-                throw new ArgumentNullException(nameof(value));
-            if (typeName == null)
-                throw new ArgumentNullException(nameof(typeName));
+            ArgumentNullException.ThrowIfNull(name);
+            ArgumentNullException.ThrowIfNull(value);
+            ArgumentNullException.ThrowIfNull(typeName);
 
             // determine if the type is a primitive type
             if (s_primitiveTypes.TryGetValue(typeName, out Type? primitiveType))
@@ -99,7 +95,7 @@ namespace System.Resources.Extensions
                         throw new TypeLoadException(SR.Format(SR.TypeLoadException_CannotLoadConverter, primitiveType));
                     }
 
-                    object primitiveValue = converter.ConvertFromInvariantString(value);
+                    object primitiveValue = converter.ConvertFromInvariantString(value)!;
 
                     Debug.Assert(primitiveValue.GetType() == primitiveType);
 
@@ -122,12 +118,9 @@ namespace System.Resources.Extensions
         /// <param name="typeName">Assembly qualified type name of the resource</param>
         public void AddTypeConverterResource(string name, byte[] value, string typeName)
         {
-            if (name == null)
-                throw new ArgumentNullException(nameof(name));
-            if (value == null)
-                throw new ArgumentNullException(nameof(value));
-            if (typeName == null)
-                throw new ArgumentNullException(nameof(typeName));
+            ArgumentNullException.ThrowIfNull(name);
+            ArgumentNullException.ThrowIfNull(value);
+            ArgumentNullException.ThrowIfNull(typeName);
 
             AddResourceData(name, typeName, new ResourceDataRecord(SerializationFormat.TypeConverterByteArray, value));
 
@@ -141,20 +134,17 @@ namespace System.Resources.Extensions
         /// <param name="name">Resource name</param>
         /// <param name="value">Value of the resource in byte[] form understood by BinaryFormatter</param>
         /// <param name="typeName">Assembly qualified type name of the resource</param>
+        [Obsolete(Obsoletions.BinaryFormatterMessage, DiagnosticId = Obsoletions.BinaryFormatterDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         public void AddBinaryFormattedResource(string name, byte[] value, string? typeName = null)
         {
-            if (name == null)
-                throw new ArgumentNullException(nameof(name));
-            if (value == null)
-                throw new ArgumentNullException(nameof(value));
-            if (typeName == null)
-            {
-                // Some resx-files are missing type information for binary-formatted resources.
-                // These would have previously been handled by deserializing once, capturing the type
-                // and reserializing when writing the resources.  We don't want to do that so instead
-                // we just omit the type.
-                typeName = UnknownObjectTypeName;
-            }
+            ArgumentNullException.ThrowIfNull(name);
+            ArgumentNullException.ThrowIfNull(value);
+
+            // Some resx-files are missing type information for binary-formatted resources.
+            // These would have previously been handled by deserializing once, capturing the type
+            // and reserializing when writing the resources.  We don't want to do that so instead
+            // we just omit the type.
+            typeName ??= UnknownObjectTypeName;
 
             AddResourceData(name, typeName, new ResourceDataRecord(SerializationFormat.BinaryFormatter, value));
 
@@ -174,12 +164,9 @@ namespace System.Resources.Extensions
         /// <param name="closeAfterWrite">Indicates that the stream should be closed after resources have been written</param>
         public void AddActivatorResource(string name, Stream value, string typeName, bool closeAfterWrite = false)
         {
-            if (name == null)
-                throw new ArgumentNullException(nameof(name));
-            if (value == null)
-                throw new ArgumentNullException(nameof(value));
-            if (typeName == null)
-                throw new ArgumentNullException(nameof(typeName));
+            ArgumentNullException.ThrowIfNull(name);
+            ArgumentNullException.ThrowIfNull(value);
+            ArgumentNullException.ThrowIfNull(typeName);
 
             if (!value.CanSeek)
                 throw new ArgumentException(SR.NotSupported_UnseekableStream);
@@ -189,7 +176,7 @@ namespace System.Resources.Extensions
             _requiresDeserializingResourceReader = true;
         }
 
-        private class ResourceDataRecord
+        private sealed class ResourceDataRecord
         {
             internal readonly SerializationFormat Format;
             internal readonly object Data;

@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
 namespace System
@@ -54,7 +55,7 @@ namespace System
     };
 
     [StructLayout(LayoutKind.Sequential)]
-    internal class GCMemoryInfoData
+    internal sealed class GCMemoryInfoData
     {
         internal long _highMemoryLoadThresholdBytes;
         internal long _totalAvailableMemoryBytes;
@@ -68,21 +69,10 @@ namespace System
         internal long _index;
         internal int _generation;
         internal int _pauseTimePercentage;
-        internal bool _compacted;
-        internal bool _concurrent;
-
-        private GCGenerationInfo _generationInfo0;
-        private GCGenerationInfo _generationInfo1;
-        private GCGenerationInfo _generationInfo2;
-        private GCGenerationInfo _generationInfo3;
-        private GCGenerationInfo _generationInfo4;
-
-        internal ReadOnlySpan<GCGenerationInfo> GenerationInfoAsSpan => MemoryMarshal.CreateReadOnlySpan<GCGenerationInfo>(ref _generationInfo0, 5);
-
-        private TimeSpan _pauseDuration0;
-        private TimeSpan _pauseDuration1;
-
-        internal ReadOnlySpan<TimeSpan> PauseDurationsAsSpan => MemoryMarshal.CreateReadOnlySpan<TimeSpan>(ref _pauseDuration0, 2);
+        internal byte _compacted;
+        internal byte _concurrent;
+        internal InlineArray5<GCGenerationInfo> _generationInfo;
+        internal InlineArray2<TimeSpan> _pauseDurations;
     }
 
     /// <summary>Provides a set of APIs that can be used to retrieve garbage collection information.</summary>
@@ -104,19 +94,19 @@ namespace System
         }
 
         /// <summary>
-        /// High memory load threshold when this GC occured
+        /// High memory load threshold when this GC occurred
         /// </summary>
         public long HighMemoryLoadThresholdBytes => _data._highMemoryLoadThresholdBytes;
 
         /// <summary>
-        /// Memory load when this GC ocurred
+        /// Memory load when this GC occurred
         /// </summary>
         public long MemoryLoadBytes => _data._memoryLoadBytes;
 
         /// <summary>
-        /// Total available memory for the GC to use when this GC ocurred.
+        /// Total available memory for the GC to use when this GC occurred.
         ///
-        /// If the environment variable COMPlus_GCHeapHardLimit is set,
+        /// If the environment variable DOTNET_GCHeapHardLimit is set,
         /// or "Server.GC.HeapHardLimit" is in runtimeconfig.json, this will come from that.
         /// If the program is run in a container, this will be an implementation-defined fraction of the container's size.
         /// Else, this is the physical memory on the machine that was available for the GC to use when this GC occurred.
@@ -124,12 +114,12 @@ namespace System
         public long TotalAvailableMemoryBytes => _data._totalAvailableMemoryBytes;
 
         /// <summary>
-        /// The total heap size when this GC ocurred
+        /// The total heap size when this GC occurred
         /// </summary>
         public long HeapSizeBytes => _data._heapSizeBytes;
 
         /// <summary>
-        /// The total fragmentation when this GC ocurred
+        /// The total fragmentation when this GC occurred
         ///
         /// Let's take the example below:
         ///  | OBJ_A |     OBJ_B     | OBJ_C |   OBJ_D   | OBJ_E |
@@ -158,12 +148,12 @@ namespace System
         /// <summary>
         /// Is this a compacting GC or not.
         /// </summary>
-        public bool Compacted => _data._compacted;
+        public bool Compacted => _data._compacted != 0;
 
         /// <summary>
         /// Is this a concurrent GC (BGC) or not.
         /// </summary>
-        public bool Concurrent => _data._concurrent;
+        public bool Concurrent => _data._concurrent != 0;
 
         /// <summary>
         /// Total committed bytes of the managed heap.
@@ -188,7 +178,7 @@ namespace System
         /// <summary>
         /// Pause durations. For blocking GCs there's only 1 pause; for BGC there are 2.
         /// </summary>
-        public ReadOnlySpan<TimeSpan> PauseDurations => _data.PauseDurationsAsSpan;
+        public ReadOnlySpan<TimeSpan> PauseDurations => _data._pauseDurations;
 
         /// <summary>
         /// This is the % pause time in GC so far. If it's 1.2%, this number is 1.2.
@@ -198,6 +188,6 @@ namespace System
         /// <summary>
         /// Generation info for all generations.
         /// </summary>
-        public ReadOnlySpan<GCGenerationInfo> GenerationInfo => _data.GenerationInfoAsSpan;
+        public ReadOnlySpan<GCGenerationInfo> GenerationInfo => _data._generationInfo;
     }
 }

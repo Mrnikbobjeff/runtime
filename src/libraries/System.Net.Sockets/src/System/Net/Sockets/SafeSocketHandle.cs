@@ -1,10 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.Win32.SafeHandles;
-
 using System.Diagnostics;
 using System.Threading;
+using Microsoft.Win32.SafeHandles;
 
 namespace System.Net.Sockets
 {
@@ -29,23 +28,33 @@ namespace System.Net.Sockets
         private int _closeSocketThread;
         private int _closeSocketTick;
 #endif
-        private int _ownClose;
+        private bool _ownClose;
 
+        /// <summary>
+        /// Creates a <see cref="T:System.Net.Sockets.SafeSocketHandle" />.
+        /// </summary>
+        public SafeSocketHandle() : base(ownsHandle: true) => OwnsHandle = true;
+
+        /// <summary>
+        /// Creates a <see cref="T:System.Net.Sockets.SafeSocketHandle" /> around a socket handle.
+        /// </summary>
+        /// <param name="preexistingHandle">Handle to wrap</param>
+        /// <param name="ownsHandle">Whether to control the handle lifetime</param>
         public SafeSocketHandle(IntPtr preexistingHandle, bool ownsHandle)
-            : base(ownsHandle)
+            : base(ownsHandle: true) // To support canceling on-going operations we need to detect
+                                     // there are no more on-going operations.
+                                     // For that the base-SafeHandle needs to be owning even
+                                     // when the SafeSocketHandle is not.
         {
-            OwnsHandle = ownsHandle;
+            OwnsHandle = ownsHandle; // Track if the SafesocketHandle is owning.
             SetHandleAndValid(preexistingHandle);
         }
 
-        private SafeSocketHandle() : base(ownsHandle: true) => OwnsHandle = true;
-
         internal bool OwnsHandle { get; }
 
-        private bool TryOwnClose()
-        {
-            return OwnsHandle && Interlocked.CompareExchange(ref _ownClose, 1, 0) == 0;
-        }
+        internal bool HasShutdownSend => _hasShutdownSend;
+
+        private bool TryOwnClose() => !Interlocked.Exchange(ref _ownClose, true);
 
         private volatile bool _released;
         private bool _hasShutdownSend;
@@ -59,13 +68,9 @@ namespace System.Net.Sockets
             }
         }
 
-        public override bool IsInvalid
-        {
-            get
-            {
-                return IsClosed || base.IsInvalid;
-            }
-        }
+        /// <summary>Gets a value indicating whether the handle value is invalid.</summary>
+        /// <value><see langword="true"/> if the handle value is invalid; otherwise, <see langword="false"/>.</value>
+        public override bool IsInvalid => IsClosed || base.IsInvalid;
 
         protected override bool ReleaseHandle()
         {
@@ -91,9 +96,9 @@ namespace System.Net.Sockets
             try
             {
 #endif
-                bool shouldClose = TryOwnClose();
+                bool shouldClose = !IsInvalid && TryOwnClose();
 
-                if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"shouldClose={shouldClose}");
+                if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"abortive={abortive}, shouldClose ={shouldClose}");
 
                 Dispose();
 
@@ -119,7 +124,7 @@ namespace System.Net.Sockets
             }
             catch (Exception exception) when (!ExceptionCheck.IsFatal(exception))
             {
-                NetEventSource.Fail(this, $"handle:{handle}, error:{exception}");
+                Debug.Fail($"handle:{handle}, error:{exception}");
                 throw;
             }
 #endif
@@ -144,17 +149,13 @@ namespace System.Net.Sockets
                     abortive = true;
                 }
 
-                SocketError errorCode = DoCloseHandle(abortive);
-                return ret = errorCode == SocketError.Success;
+                ret = !OwnsHandle || DoCloseHandle(abortive) == SocketError.Success;
+                return ret;
 #if DEBUG
             }
             catch (Exception exception)
             {
-                if (!ExceptionCheck.IsFatal(exception))
-                {
-                    NetEventSource.Fail(this, $"handle:{handle}, error:{exception}");
-                }
-
+                Debug.Assert(ExceptionCheck.IsFatal(exception), $"handle:{handle}, error:{exception}");
                 ret = true;  // Avoid a second assert.
                 throw;
             }
@@ -162,10 +163,7 @@ namespace System.Net.Sockets
             {
                 _closeSocketThread = Environment.CurrentManagedThreadId;
                 _closeSocketTick = Environment.TickCount;
-                if (!ret)
-                {
-                    NetEventSource.Fail(this, $"ReleaseHandle failed. handle:{handle}");
-                }
+                Debug.Assert(ret, $"ReleaseHandle failed. handle:{handle}");
             }
 #endif
         }
@@ -178,10 +176,6 @@ namespace System.Net.Sockets
 
             if (IsInvalid)
             {
-                // CloseAsIs musn't wait for a release.
-                TryOwnClose();
-
-                // Mark handle as invalid, so it won't be released.
                 SetHandleAsInvalid();
             }
         }

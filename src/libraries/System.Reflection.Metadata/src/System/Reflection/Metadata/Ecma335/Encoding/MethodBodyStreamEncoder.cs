@@ -12,10 +12,7 @@ namespace System.Reflection.Metadata.Ecma335
 
         public MethodBodyStreamEncoder(BlobBuilder builder)
         {
-            if (builder == null)
-            {
-                Throw.BuilderArgumentNull();
-            }
+            ArgumentNullException.ThrowIfNull(builder);
 
             // Fat methods are 4-byte aligned. We calculate the alignment relative to the start of the ILStream.
             //
@@ -188,6 +185,8 @@ namespace System.Reflection.Metadata.Ecma335
             {
                 Throw.ArgumentOutOfRange(nameof(instructionEncoder), SR.TooManyExceptionRegions);
             }
+
+            flowBuilder?.ValidateNotInSwitch();
 
             // Note (see also https://github.com/dotnet/runtime/issues/24948)
             //

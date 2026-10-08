@@ -2,9 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Xml.XPath;
 using System.Diagnostics;
 using System.Globalization;
+using System.Xml.XPath;
 
 namespace System.Xml
 {
@@ -25,8 +25,6 @@ namespace System.Xml
             AllExceptPrefixMapping = 0x3,
         };
 
-        private static XmlCharType s_xmlCharType = XmlCharType.Instance;
-
         //-----------------------------------------------
         // Nmtoken parsing
         //-----------------------------------------------
@@ -43,7 +41,7 @@ namespace System.Xml
             int i = offset;
             while (i < s.Length)
             {
-                if (s_xmlCharType.IsNCNameSingleChar(s[i]))
+                if (XmlCharType.IsNCNameSingleChar(s[i]))
                 {
                     i++;
                 }
@@ -74,7 +72,7 @@ namespace System.Xml
             int i = offset;
             while (i < s.Length)
             {
-                if (s_xmlCharType.IsNameSingleChar(s[i]) || s[i] == ':')
+                if (XmlCharType.IsNameSingleChar(s[i]) || s[i] == ':')
                 {
                     i++;
                 }
@@ -112,7 +110,7 @@ namespace System.Xml
             int i = offset;
             if (i < s.Length)
             {
-                if (s_xmlCharType.IsStartNCNameSingleChar(s[i]) || s[i] == ':')
+                if (XmlCharType.IsStartNCNameSingleChar(s[i]) || s[i] == ':')
                 {
                     i++;
                 }
@@ -124,7 +122,7 @@ namespace System.Xml
                 // Keep parsing until the end of string or an invalid NCName character is reached
                 while (i < s.Length)
                 {
-                    if (s_xmlCharType.IsNCNameSingleChar(s[i]) || s[i] == ':')
+                    if (XmlCharType.IsNCNameSingleChar(s[i]) || s[i] == ':')
                     {
                         i++;
                     }
@@ -162,7 +160,7 @@ namespace System.Xml
             int i = offset;
             if (i < s.Length)
             {
-                if (s_xmlCharType.IsStartNCNameSingleChar(s[i]))
+                if (XmlCharType.IsStartNCNameSingleChar(s[i]))
                 {
                     i++;
                 }
@@ -174,7 +172,7 @@ namespace System.Xml
                 // Keep parsing until the end of string or an invalid NCName character is reached
                 while (i < s.Length)
                 {
-                    if (s_xmlCharType.IsNCNameSingleChar(s[i]))
+                    if (XmlCharType.IsNCNameSingleChar(s[i]))
                     {
                         i++;
                     }
@@ -245,7 +243,7 @@ namespace System.Xml
             {
                 // Non-empty NCName, so look for colon if there are any characters left
                 offset += len;
-                if (offset < s.Length && s[offset] == ':')
+                if ((uint)offset < (uint)s.Length && s[offset] == ':')
                 {
                     // First NCName was prefix, so look for local name part
                     lenLocal = ParseNCName(s, offset + 1);
@@ -263,9 +261,9 @@ namespace System.Xml
 
         /// <summary>
         /// Calls parseQName and throws exception if the resulting name is not a valid QName.
-        /// Returns the prefix and local name parts.
+        /// Returns the colon offset in the name.
         /// </summary>
-        internal static void ParseQNameThrow(string s, out string prefix, out string localName)
+        internal static int ParseQNameThrow(string s)
         {
             int colonOffset;
             int len = ParseQName(s, 0, out colonOffset);
@@ -276,6 +274,16 @@ namespace System.Xml
                 ThrowInvalidName(s, 0, len);
             }
 
+            return colonOffset;
+        }
+
+        /// <summary>
+        /// Calls parseQName and throws exception if the resulting name is not a valid QName.
+        /// Returns the prefix and local name parts.
+        /// </summary>
+        internal static void ParseQNameThrow(string s, out string prefix, out string localName)
+        {
+            int colonOffset = ParseQNameThrow(s);
             if (colonOffset != 0)
             {
                 prefix = s.Substring(0, colonOffset);
@@ -298,7 +306,7 @@ namespace System.Xml
         {
             int len, lenLocal, offset;
 
-            if (s.Length != 0 && s[0] == '*')
+            if (s.StartsWith('*'))
             {
                 // '*' as a NameTest
                 prefix = localName = null;
@@ -312,12 +320,12 @@ namespace System.Xml
                 {
                     // Non-empty NCName, so look for colon if there are any characters left
                     localName = s.Substring(0, len);
-                    if (len < s.Length && s[len] == ':')
+                    if ((uint)len < (uint)s.Length && s[len] == ':')
                     {
                         // First NCName was prefix, so look for local name part
                         prefix = localName;
                         offset = len + 1;
-                        if (offset < s.Length && s[offset] == '*')
+                        if ((uint)offset < (uint)s.Length && s[offset] == '*')
                         {
                             // '*' as a local name part, add 2 to len for colon and star
                             localName = null;
@@ -367,7 +375,7 @@ namespace System.Xml
 
             Debug.Assert(offsetBadChar < s.Length);
 
-            if (s_xmlCharType.IsNCNameSingleChar(s[offsetBadChar]) && !XmlCharType.Instance.IsStartNCNameSingleChar(s[offsetBadChar]))
+            if (XmlCharType.IsNCNameSingleChar(s[offsetBadChar]) && !XmlCharType.IsStartNCNameSingleChar(s[offsetBadChar]))
             {
                 // The error character is a valid name character, but is not a valid start name character
                 throw new XmlException(SR.Xml_BadStartNameChar, XmlException.BuildCharExceptionArgs(s, offsetBadChar));
@@ -387,7 +395,7 @@ namespace System.Xml
 
             Debug.Assert(offsetBadChar < s.Length);
 
-            if (s_xmlCharType.IsNCNameSingleChar(s[offsetBadChar]) && !s_xmlCharType.IsStartNCNameSingleChar(s[offsetBadChar]))
+            if (XmlCharType.IsNCNameSingleChar(s[offsetBadChar]) && !XmlCharType.IsStartNCNameSingleChar(s[offsetBadChar]))
             {
                 // The error character is a valid name character, but is not a valid start name character
                 return new XmlException(SR.Xml_BadStartNameChar, XmlException.BuildCharExceptionArgs(s, offsetBadChar));
@@ -402,22 +410,8 @@ namespace System.Xml
         /// <summary>
         /// Returns true if "prefix" starts with the characters 'x', 'm', 'l' (case-insensitive).
         /// </summary>
-        internal static bool StartsWithXml(string s)
-        {
-            if (s.Length < 3)
-                return false;
-
-            if (s[0] != 'x' && s[0] != 'X')
-                return false;
-
-            if (s[1] != 'm' && s[1] != 'M')
-                return false;
-
-            if (s[2] != 'l' && s[2] != 'L')
-                return false;
-
-            return true;
-        }
+        internal static bool StartsWithXml(string s) =>
+            s.StartsWith("xml", StringComparison.OrdinalIgnoreCase);
 
         /// <summary>
         /// Returns true if "s" is a namespace that is reserved by Xml 1.0 or Namespace 1.0.
@@ -432,7 +426,7 @@ namespace System.Xml
         /// specified by the Flags.
         /// NOTE: Namespaces should be passed using a prefix, ns pair.  "localName" is always string.Empty.
         /// </summary>
-        internal static void ValidateNameThrow(string prefix, string localName, string ns, XPathNodeType nodeKind, Flags flags)
+        internal static void ValidateNameThrow(string? prefix, string localName, string? ns, XPathNodeType nodeKind, Flags flags)
         {
             // throwOnError = true
             ValidateNameInternal(prefix, localName, ns, nodeKind, flags, true);
@@ -443,7 +437,7 @@ namespace System.Xml
         /// specified by the Flags.
         /// NOTE: Namespaces should be passed using a prefix, ns pair.  "localName" is always string.Empty.
         /// </summary>
-        internal static bool ValidateName(string prefix, string localName, string ns, XPathNodeType nodeKind, Flags flags)
+        internal static bool ValidateName(string? prefix, string localName, string? ns, XPathNodeType nodeKind, Flags flags)
         {
             // throwOnError = false
             return ValidateNameInternal(prefix, localName, ns, nodeKind, flags, false);
@@ -454,7 +448,7 @@ namespace System.Xml
         /// that are specified by the Flags.
         /// NOTE: Namespaces should be passed using a prefix, ns pair.  "localName" is always string.Empty.
         /// </summary>
-        private static bool ValidateNameInternal(string prefix, string localName, string ns, XPathNodeType nodeKind, Flags flags, bool throwOnError)
+        private static bool ValidateNameInternal(string? prefix, string localName, string? ns, XPathNodeType nodeKind, Flags flags, bool throwOnError)
         {
             Debug.Assert(prefix != null && localName != null && ns != null);
 
@@ -595,7 +589,7 @@ namespace System.Xml
         /// </summary>
         private static string CreateName(string prefix, string localName)
         {
-            return (prefix.Length != 0) ? prefix + ":" + localName : localName;
+            return (prefix.Length != 0) ? $"{prefix}:{localName}" : localName;
         }
 
         /// <summary>
@@ -618,7 +612,7 @@ namespace System.Xml
             {
                 prefix = name.Substring(0, colonPos);
                 colonPos++; // move after colon
-                lname = name.Substring(colonPos, name.Length - colonPos);
+                lname = name.Substring(colonPos);
             }
         }
     }

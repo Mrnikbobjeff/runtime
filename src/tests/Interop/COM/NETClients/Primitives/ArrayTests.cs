@@ -6,7 +6,7 @@ namespace NetClient
     using System;
     using System.Collections.Generic;
     using System.Linq;
-    using TestLibrary;
+    using Xunit;
 
     class ArrayTests
     {
@@ -17,7 +17,7 @@ namespace NetClient
 
         public ArrayTests()
         {
-            this.server = (Server.Contract.Servers.ArrayTesting)new Server.Contract.Servers.ArrayTestingClass();
+            this.server = new Server.Contract.Servers.ArrayTesting();
 
             double acc = 0.0;
             int[] rawData = BaseData.ToArray();
@@ -31,6 +31,7 @@ namespace NetClient
 
         public void Run()
         {
+            Console.WriteLine(nameof(ArrayTests));
             this.Marshal_ByteArray();
             this.Marshal_ShortArray();
             this.Marshal_UShortArray();
@@ -62,10 +63,10 @@ namespace NetClient
             byte[] data = BaseData.Select(i => (byte)i).ToArray();
 
             Console.WriteLine($"{data.GetType().Name} marshalling");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Byte_LP_PreLen(data.Length, data)), $"Mean_Byte_LP_PreLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Byte_LP_PostLen(data, data.Length)), $"Mean_Byte_LP_PostLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Byte_SafeArray_OutLen(data, out len)), $"Mean_Byte_SafeArray_OutLen");
-            Assert.AreEqual(data.Length, len);
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Byte_LP_PreLen(data.Length, data)), $"Mean_Byte_LP_PreLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Byte_LP_PostLen(data, data.Length)), $"Mean_Byte_LP_PostLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Byte_SafeArray_OutLen(data, out len)), $"Mean_Byte_SafeArray_OutLen");
+            Assert.Equal(data.Length, len);
         }
 
         private void Marshal_ShortArray()
@@ -74,10 +75,10 @@ namespace NetClient
             short[] data = BaseData.Select(i => (short)i).ToArray();
 
             Console.WriteLine($"{data.GetType().Name} marshalling");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Short_LP_PreLen(data.Length, data)), $"Mean_Short_LP_PreLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Short_LP_PostLen(data, data.Length)), $"Mean_Short_LP_PostLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Short_SafeArray_OutLen(data, out len)), $"Mean_Short_SafeArray_OutLen");
-            Assert.AreEqual(data.Length, len);
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Short_LP_PreLen(data.Length, data)), $"Mean_Short_LP_PreLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Short_LP_PostLen(data, data.Length)), $"Mean_Short_LP_PostLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Short_SafeArray_OutLen(data, out len)), $"Mean_Short_SafeArray_OutLen");
+            Assert.Equal(data.Length, len);
         }
 
         private void Marshal_UShortArray()
@@ -86,10 +87,10 @@ namespace NetClient
             ushort[] data = BaseData.Select(i => (ushort)i).ToArray();
 
             Console.WriteLine($"{data.GetType().Name} marshalling");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_UShort_LP_PreLen(data.Length, data)), $"Mean_UShort_LP_PreLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_UShort_LP_PostLen(data, data.Length)), $"Mean_UShort_LP_PostLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_UShort_SafeArray_OutLen(data, out len)), $"Mean_UShort_SafeArray_OutLen");
-            Assert.AreEqual(data.Length, len);
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_UShort_LP_PreLen(data.Length, data)), $"Mean_UShort_LP_PreLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_UShort_LP_PostLen(data, data.Length)), $"Mean_UShort_LP_PostLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_UShort_SafeArray_OutLen(data, out len)), $"Mean_UShort_SafeArray_OutLen");
+            Assert.Equal(data.Length, len);
         }
 
         private void Marshal_IntArray()
@@ -98,10 +99,10 @@ namespace NetClient
             int[] data = BaseData.Select(i => i).ToArray();
 
             Console.WriteLine($"{data.GetType().Name} marshalling");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Int_LP_PreLen(data.Length, data)), $"Mean_Int_LP_PreLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Int_LP_PostLen(data, data.Length)), $"Mean_Int_LP_PostLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Int_SafeArray_OutLen(data, out len)), $"Mean_Int_SafeArray_OutLen");
-            Assert.AreEqual(data.Length, len);
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Int_LP_PreLen(data.Length, data)), $"Mean_Int_LP_PreLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Int_LP_PostLen(data, data.Length)), $"Mean_Int_LP_PostLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Int_SafeArray_OutLen(data, out len)), $"Mean_Int_SafeArray_OutLen");
+            Assert.Equal(data.Length, len);
         }
 
         private void Marshal_UIntArray()
@@ -110,10 +111,10 @@ namespace NetClient
             uint[] data = BaseData.Select(i => (uint)i).ToArray();
 
             Console.WriteLine($"{data.GetType().Name} marshalling");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_UInt_LP_PreLen(data.Length, data)), $"Mean_UInt_LP_PreLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_UInt_LP_PostLen(data, data.Length)), $"Mean_UInt_LP_PostLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_UInt_SafeArray_OutLen(data, out len)), $"Mean_UInt_SafeArray_OutLen");
-            Assert.AreEqual(data.Length, len);
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_UInt_LP_PreLen(data.Length, data)), $"Mean_UInt_LP_PreLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_UInt_LP_PostLen(data, data.Length)), $"Mean_UInt_LP_PostLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_UInt_SafeArray_OutLen(data, out len)), $"Mean_UInt_SafeArray_OutLen");
+            Assert.Equal(data.Length, len);
         }
 
         private void Marshal_LongArray()
@@ -122,10 +123,10 @@ namespace NetClient
             long[] data = BaseData.Select(i => (long)i).ToArray();
 
             Console.WriteLine($"{data.GetType().Name} marshalling");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Long_LP_PreLen(data.Length, data)), $"Mean_Long_LP_PreLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Long_LP_PostLen(data, data.Length)), $"Mean_Long_LP_PostLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Long_SafeArray_OutLen(data, out len)), $"Mean_Long_SafeArray_OutLen");
-            Assert.AreEqual(data.Length, len);
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Long_LP_PreLen(data.Length, data)), $"Mean_Long_LP_PreLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Long_LP_PostLen(data, data.Length)), $"Mean_Long_LP_PostLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Long_SafeArray_OutLen(data, out len)), $"Mean_Long_SafeArray_OutLen");
+            Assert.Equal(data.Length, len);
         }
 
         private void Marshal_ULongArray()
@@ -134,10 +135,10 @@ namespace NetClient
             ulong[] data = BaseData.Select(i => (ulong)i).ToArray();
 
             Console.WriteLine($"{data.GetType().Name} marshalling");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_ULong_LP_PreLen(data.Length, data)), $"Mean_ULong_LP_PreLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_ULong_LP_PostLen(data, data.Length)), $"Mean_ULong_LP_PostLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_ULong_SafeArray_OutLen(data, out len)), $"Mean_ULong_SafeArray_OutLen");
-            Assert.AreEqual(data.Length, len);
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_ULong_LP_PreLen(data.Length, data)), $"Mean_ULong_LP_PreLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_ULong_LP_PostLen(data, data.Length)), $"Mean_ULong_LP_PostLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_ULong_SafeArray_OutLen(data, out len)), $"Mean_ULong_SafeArray_OutLen");
+            Assert.Equal(data.Length, len);
         }
 
         private void Marshal_FloatArray()
@@ -146,10 +147,10 @@ namespace NetClient
             float[] data = BaseData.Select(i => (float)i).ToArray();
 
             Console.WriteLine($"{data.GetType().Name} marshalling");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Float_LP_PreLen(data.Length, data)), $"Mean_Float_LP_PreLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Float_LP_PostLen(data, data.Length)), $"Mean_Float_LP_PostLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Float_SafeArray_OutLen(data, out len)), $"Mean_Float_SafeArray_OutLen");
-            Assert.AreEqual(data.Length, len);
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Float_LP_PreLen(data.Length, data)), $"Mean_Float_LP_PreLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Float_LP_PostLen(data, data.Length)), $"Mean_Float_LP_PostLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Float_SafeArray_OutLen(data, out len)), $"Mean_Float_SafeArray_OutLen");
+            Assert.Equal(data.Length, len);
         }
 
         private void Marshal_DoubleArray()
@@ -158,10 +159,10 @@ namespace NetClient
             double[] data = BaseData.Select(i => (double)i).ToArray();
 
             Console.WriteLine($"{data.GetType().Name} marshalling");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Double_LP_PreLen(data.Length, data)), $"Mean_Double_LP_PreLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Double_LP_PostLen(data, data.Length)), $"Mean_Double_LP_PostLen");
-            Assert.IsTrue(EqualByBound(expectedMean, this.server.Mean_Double_SafeArray_OutLen(data, out len)), $"Mean_Double_SafeArray_OutLen");
-            Assert.AreEqual(data.Length, len);
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Double_LP_PreLen(data.Length, data)), $"Mean_Double_LP_PreLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Double_LP_PostLen(data, data.Length)), $"Mean_Double_LP_PostLen");
+            Assert.True(EqualByBound(expectedMean, this.server.Mean_Double_SafeArray_OutLen(data, out len)), $"Mean_Double_SafeArray_OutLen");
+            Assert.Equal(data.Length, len);
         }
     }
 }

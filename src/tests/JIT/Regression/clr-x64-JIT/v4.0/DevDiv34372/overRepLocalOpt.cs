@@ -2,10 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace overRepLocalOpt;
+
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-static class DeadEH
+public static class DeadEH
 {
 
     // This is the method that exposes the JIT bug
@@ -57,11 +61,12 @@ static class DeadEH
     }
 
     // Get everything jitted before we call
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         Foo("prep");
         Bar(0);
         DoIt();
-        return 100;
     }
 }

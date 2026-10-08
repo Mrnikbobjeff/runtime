@@ -1,13 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
-    <FeatureInterpret>true</FeatureInterpret>
-    <TargetFrameworks>$(NetCoreAppCurrent)</TargetFrameworks>
-    <Nullable>enable</Nullable>
-    <IsInterpreting>false</IsInterpreting>
-    <DefineConstants> $(DefineConstants);FEATURE_DLG_INVOKE;FEATURE_FAST_CREATE</DefineConstants>
-    <DefineConstants Condition=" '$(IsInterpreting)' != 'true' ">$(DefineConstants);FEATURE_COMPILE</DefineConstants>
-    <DefineConstants Condition=" '$(FeatureInterpret)' == 'true' ">$(DefineConstants);FEATURE_INTERPRET</DefineConstants>
+    <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DefineConstants> $(DefineConstants);FEATURE_FAST_CREATE</DefineConstants>
+    <NoWarn>$(NoWarn);CA1859</NoWarn>
+    <!--
+      Disable constant propagation so that methods referenced from ILLink.Substitutions.xml don't get inlined
+      with a wrong value at library build time and the substitution can still be selected at publish time.
+    -->
+    <ILLinkDisableIPConstProp>true</ILLinkDisableIPConstProp>
+    <UseCompilerGeneratedDocXmlFile>false</UseCompilerGeneratedDocXmlFile>
   </PropertyGroup>
+
   <ItemGroup>
     <Compile Include="$(CommonPath)System\Obsoletions.cs"
              Link="Common\System\Obsoletions.cs" />
@@ -76,6 +81,7 @@
     <Compile Include="System\Runtime\CompilerServices\RuntimeOps.MergedRuntimeVariables.cs" />
     <Compile Include="System\Runtime\CompilerServices\ReadOnlyCollectionBuilder.cs" />
   </ItemGroup>
+
   <ItemGroup>
     <Compile Include="System\Linq\Expressions\DynamicExpressionVisitor.cs" />
     <Compile Include="System\Linq\Expressions\DynamicExpression.cs" />
@@ -86,13 +92,13 @@
     <Compile Include="System\Runtime\CompilerServices\CallSite.cs" />
     <Compile Include="System\Runtime\CompilerServices\CallSiteBinder.cs" />
     <Compile Include="System\Runtime\CompilerServices\CallSiteOps.cs" />
+    <Compile Include="System\Runtime\CompilerServices\CallSiteOpsReflectionCache.cs" />
     <Compile Include="System\Runtime\CompilerServices\CallSiteHelpers.cs" />
     <Compile Include="System\Runtime\CompilerServices\DynamicAttribute.cs" />
     <Compile Include="System\Runtime\CompilerServices\DebugInfoGenerator.cs" />
     <Compile Include="System\Runtime\CompilerServices\TrueReadOnlyCollection.cs" />
     <Compile Include="System\Dynamic\Utils\CachedReflectionInfo.cs" />
     <Compile Include="System\Dynamic\Utils\CollectionExtensions.cs" />
-    <Compile Include="System\Dynamic\Utils\EmptyReadOnlyCollection.cs" />
     <Compile Include="System\Dynamic\UpdateDelegates.Generated.cs">
       <AutoGen>True</AutoGen>
       <DesignTime>True</DesignTime>
@@ -124,7 +130,8 @@
     <Compile Include="System\Dynamic\UnaryOperationBinder.cs" />
     <Compile Include="System\Dynamic\IInvokeOnGetBinder.cs" />
   </ItemGroup>
-  <ItemGroup Condition=" '$(IsInterpreting)' != 'true'">
+
+  <ItemGroup>
     <Compile Include="System\Linq\Expressions\Compiler\AssemblyGen.cs" />
     <Compile Include="System\Dynamic\Utils\Helpers.cs" />
     <Compile Include="System\Linq\Expressions\Compiler\AnalyzedTree.cs" />
@@ -156,7 +163,8 @@
     <Compile Include="System\Runtime\CompilerServices\RuntimeOps.ExpressionQuoter.cs" />
     <Compile Include="System\Runtime\CompilerServices\RuntimeOps.RuntimeVariableList.cs" />
   </ItemGroup>
-  <ItemGroup Condition="'$(IsInterpreting)' == 'true' Or '$(FeatureInterpret)' == 'true'">
+
+  <ItemGroup>
     <Compile Include="System\Dynamic\Utils\DelegateHelpers.cs" />
     <Compile Include="System\Linq\Expressions\Interpreter\AddInstruction.cs" />
     <Compile Include="System\Linq\Expressions\Interpreter\AndInstruction.cs" />
@@ -204,16 +212,18 @@
     <Compile Include="System\Linq\Expressions\Interpreter\TypeOperations.cs" />
     <Compile Include="System\Linq\Expressions\Interpreter\Utilities.cs" />
   </ItemGroup>
+
   <ItemGroup>
-    <Reference Include="System.Collections" />
-    <Reference Include="System.Linq" />
-    <Reference Include="System.ObjectModel" />
-    <Reference Include="System.Reflection.Emit" />
-    <Reference Include="System.Reflection.Emit.ILGeneration" />
-    <Reference Include="System.Reflection.Emit.Lightweight" />
-    <Reference Include="System.Reflection.Primitives" />
-    <Reference Include="System.Runtime" />
-    <Reference Include="System.Runtime.Extensions" />
-    <Reference Include="System.Threading" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Collections\src\System.Collections.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Linq\src\System.Linq.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Memory\src\System.Memory.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.ObjectModel\src\System.ObjectModel.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Reflection.Emit\src\System.Reflection.Emit.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Reflection.Emit.ILGeneration\src\System.Reflection.Emit.ILGeneration.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Reflection.Emit.Lightweight\src\System.Reflection.Emit.Lightweight.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Reflection.Primitives\src\System.Reflection.Primitives.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Runtime\src\System.Runtime.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Threading\src\System.Threading.csproj" />
   </ItemGroup>
+
 </Project>

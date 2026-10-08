@@ -7,6 +7,8 @@ using Xunit;
 
 namespace System.DirectoryServices.Protocols.Tests
 {
+    // To enable these tests locally for Mono, comment out this line in DirectoryServicesTestHelpers.cs:
+    //     [assembly: ActiveIssue("https://github.com/dotnet/runtime/issues/35912", TestRuntimes.Mono)]
     [ConditionalClass(typeof(DirectoryServicesTestHelpers), nameof(DirectoryServicesTestHelpers.IsWindowsOrLibLdapIsInstalled))]
     public class LdapSessionOptionsTests
     {
@@ -14,7 +16,24 @@ namespace System.DirectoryServices.Protocols.Tests
         [PlatformSpecific(TestPlatforms.Windows)]
         [InlineData(ReferralChasingOptions.None)]
         [InlineData(ReferralChasingOptions.External)]
-        public void ReferralChasing_Set_GetReturnsExpected(ReferralChasingOptions value)
+        public void ReferralChasing_Set_GetReturnsExpected_On_Windows(ReferralChasingOptions value)
+        {
+            using (var connection = new LdapConnection("server"))
+            {
+                LdapSessionOptions options = connection.SessionOptions;
+                Assert.Equal(ReferralChasingOptions.All, options.ReferralChasing);
+
+                options.ReferralChasing = value;
+                Assert.Equal(value, options.ReferralChasing);
+            }
+        }
+
+        [Theory]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/112146")]
+        [PlatformSpecific(TestPlatforms.Linux)]
+        [InlineData(ReferralChasingOptions.None)]
+        [InlineData(ReferralChasingOptions.All)]
+        public void ReferralChasing_Set_GetReturnsExpected_On_Linux(ReferralChasingOptions value)
         {
             using (var connection = new LdapConnection("server"))
             {
@@ -64,7 +83,6 @@ namespace System.DirectoryServices.Protocols.Tests
         }
 
         [Fact]
-        [PlatformSpecific(TestPlatforms.Windows)]
         public void SecureSocketLayer_GetSetWhenDisposed_ThrowsObjectDisposedException()
         {
             var connection = new LdapConnection("server");
@@ -741,5 +759,32 @@ namespace System.DirectoryServices.Protocols.Tests
 
             Assert.Throws<ObjectDisposedException>(() => connection.SessionOptions.StopTransportLayerSecurity());
         }
+
+#if NET
+        [Fact]
+        [PlatformSpecific(TestPlatforms.Linux)]
+        public void CertificateDirectoryProperty()
+        {
+            using (var connection = new LdapConnection("server"))
+            {
+                LdapSessionOptions options = connection.SessionOptions;
+                Assert.Null(options.TrustedCertificatesDirectory);
+
+                options.TrustedCertificatesDirectory = ".";
+                Assert.Equal(".", options.TrustedCertificatesDirectory);
+            }
+        }
+
+        [Fact]
+        [PlatformSpecific(TestPlatforms.Windows)]
+        public void CertificateDirectoryProperty_ThrowsPlatformNotSupportedException()
+        {
+            using (var connection = new LdapConnection("server"))
+            {
+                LdapSessionOptions options = connection.SessionOptions;
+                Assert.Throws<PlatformNotSupportedException>(() => options.TrustedCertificatesDirectory = "CertificateDirectory");
+            }
+        }
+#endif
     }
 }

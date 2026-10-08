@@ -7,6 +7,7 @@
 //
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
+using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 
@@ -17,12 +18,12 @@ namespace System.Linq.Parallel
     /// </summary>
     /// <typeparam name="TKey">The kind of keys contained within.</typeparam>
     /// <typeparam name="TValue">The kind of values contained within.</typeparam>
-    internal class HashLookup<TKey, TValue>
+    internal sealed class HashLookup<TKey, TValue>
     {
         private int[] buckets;
         private Slot[] slots;
         private int count;
-        private int freeList;
+        private ulong fastModMultiplier;
         private readonly IEqualityComparer<TKey>? comparer;
 
         private const int HashCodeMask = 0x7fffffff;
@@ -36,13 +37,16 @@ namespace System.Linq.Parallel
             this.comparer = comparer;
             buckets = new int[7];
             slots = new Slot[7];
-            freeList = -1;
+            if (IntPtr.Size == 8)
+            {
+                fastModMultiplier = HashHelpers.GetFastModMultiplier((uint)buckets.Length);
+            }
         }
 
         // If value is not in set, add it and return true; otherwise return false
         internal bool Add(TKey key, TValue value)
         {
-            return !Find(key, true, false, ref value);
+            return !Find(key, true, false, ref value!);
         }
 
         // Check whether value is in set
@@ -55,7 +59,7 @@ namespace System.Linq.Parallel
         {
             set
             {
-                TValue v = value;
+                TValue? v = value;
                 Find(key, false, true, ref v);
             }
         }
@@ -78,7 +82,7 @@ namespace System.Linq.Parallel
         {
             int hashCode = GetKeyHashCode(key);
 
-            for (int i = buckets[hashCode % buckets.Length] - 1; i >= 0; i = slots[i].next)
+            for (int i = buckets[GetBucketIndex(hashCode)] - 1; i >= 0; i = slots[i].next)
             {
                 if (slots[i].hashCode == hashCode && AreKeysEqual(slots[i].key, key))
                 {
@@ -97,20 +101,12 @@ namespace System.Linq.Parallel
 
             if (add)
             {
-                int index;
-                if (freeList >= 0)
-                {
-                    index = freeList;
-                    freeList = slots[index].next;
-                }
-                else
-                {
-                    if (count == slots.Length) Resize();
-                    index = count;
-                    count++;
-                }
+                if (count == slots.Length) Resize();
 
-                int bucket = hashCode % buckets.Length;
+                int index = count;
+                count++;
+
+                uint bucket = GetBucketIndex(hashCode);
                 slots[index].hashCode = hashCode;
                 slots[index].key = key;
                 slots[index].value = value;
@@ -121,20 +117,33 @@ namespace System.Linq.Parallel
             return false;
         }
 
+        private uint GetBucketIndex(int hashCode)
+        {
+            int[] buckets = this.buckets;
+            return IntPtr.Size == 8
+                ? HashHelpers.FastMod((uint)hashCode, (uint)buckets.Length, fastModMultiplier)
+                : (uint)hashCode % (uint)buckets.Length;
+        }
+
         private void Resize()
         {
-            int newSize = checked(count * 2 + 1);
+            int newSize = HashHelpers.ExpandPrime(count);
             int[] newBuckets = new int[newSize];
             Slot[] newSlots = new Slot[newSize];
             Array.Copy(slots, newSlots, count);
+            buckets = newBuckets;
+            slots = newSlots;
+            if (IntPtr.Size == 8)
+            {
+                fastModMultiplier = HashHelpers.GetFastModMultiplier((uint)newSize);
+            }
+
             for (int i = 0; i < count; i++)
             {
-                int bucket = newSlots[i].hashCode % newSize;
+                uint bucket = GetBucketIndex(newSlots[i].hashCode);
                 newSlots[i].next = newBuckets[bucket] - 1;
                 newBuckets[bucket] = i + 1;
             }
-            buckets = newBuckets;
-            slots = newSlots;
         }
 
         internal int Count

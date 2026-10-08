@@ -3,15 +3,15 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-namespace Sandbox3
+namespace JitTest_Generics_Fields_getclassfrommethodparam
 {
     public class Foo<F>
     {
         public static string Value;
 
-        // [MethodImpl(MethodImplOptions.Synchronized | MethodImplOptions.NoInlining)]
-        [MethodImpl(MethodImplOptions.NoInlining)]
+        [MethodImpl(MethodImplOptions.Synchronized | MethodImplOptions.NoInlining)]
         public static void Action<T>(T value)
         {
             Value = value.ToString();
@@ -20,9 +20,12 @@ namespace Sandbox3
 
     public class Dummy { }
 
-    internal class Program
+    public class Program
     {
-        private static int Main(string[] args)
+        [PlatformSpecific(TestPlatforms.Windows)]
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             string s = "hello";
 
@@ -47,7 +50,6 @@ namespace Sandbox3
                 throw new Exception();
 
             Console.WriteLine("Test SUCCESS");
-            return 100;
         }
     }
 }

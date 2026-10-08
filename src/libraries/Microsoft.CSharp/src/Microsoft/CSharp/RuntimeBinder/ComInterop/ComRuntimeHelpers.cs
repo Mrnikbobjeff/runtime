@@ -3,10 +3,12 @@
 
 using System;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using System.Security;
 using ComTypes = System.Runtime.InteropServices.ComTypes;
 
@@ -14,6 +16,8 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
 {
     internal static class ComRuntimeHelpers
     {
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static void CheckThrowException(int hresult, ref ExcepInfo excepInfo, uint argErr, string message)
         {
             if (ComHresults.IsSuccess(hresult))
@@ -103,24 +107,28 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
         }
 
         /// <summary>
-        /// Look for typeinfo using IDispatch.GetTypeInfo
+        /// Look for type info using IDispatch.GetTypeInfo
         /// </summary>
         /// <param name="dispatch">IDispatch object</param>
         /// <remarks>
-        /// Some COM objects just dont expose typeinfo. In these cases, this method will return null.
-        /// Some COM objects do intend to expose typeinfo, but may not be able to do so if the type-library is not properly
-        /// registered. This will be considered as acceptable or as an error condition depending on throwIfMissingExpectedTypeInfo
+        /// Some COM objects just don't expose type info. In these cases, this method will return null.
+        /// Some COM objects do intend to expose type info, but may not be able to do so if the type library
+        /// is not properly registered. This will be considered an error.
         /// </remarks>
         /// <returns>Type info</returns>
         internal static ComTypes.ITypeInfo GetITypeInfoFromIDispatch(IDispatch dispatch)
         {
             int hresult = dispatch.TryGetTypeInfoCount(out uint typeCount);
-            Marshal.ThrowExceptionForHR(hresult);
-            Debug.Assert(typeCount <= 1);
             if (typeCount == 0)
             {
+                // COM objects should return a type count of 0 to indicate that type info is not exposed.
+                // Some COM objects may return a non-success HRESULT when type info is not supported, so
+                // we only check the count and not the HRESULT in this case.
                 return null;
             }
+
+            Marshal.ThrowExceptionForHR(hresult);
+            Debug.Assert(typeCount == 1);
 
             IntPtr typeInfoPtr;
             hresult = dispatch.TryGetTypeInfo(0, 0, out typeInfoPtr);
@@ -159,7 +167,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             return typeInfo;
         }
 
-        internal static ComTypes.TYPEATTR GetTypeAttrForTypeInfo(ComTypes.ITypeInfo typeInfo)
+        internal static unsafe ComTypes.TYPEATTR GetTypeAttrForTypeInfo(ComTypes.ITypeInfo typeInfo)
         {
             IntPtr pAttrs;
             typeInfo.GetTypeAttr(out pAttrs);
@@ -172,7 +180,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
 
             try
             {
-                return (ComTypes.TYPEATTR)Marshal.PtrToStructure(pAttrs, typeof(ComTypes.TYPEATTR));
+                return *(ComTypes.TYPEATTR*)pAttrs;
             }
             finally
             {
@@ -180,7 +188,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             }
         }
 
-        internal static ComTypes.TYPELIBATTR GetTypeAttrForTypeLib(ComTypes.ITypeLib typeLib)
+        internal static unsafe ComTypes.TYPELIBATTR GetTypeAttrForTypeLib(ComTypes.ITypeLib typeLib)
         {
             IntPtr pAttrs;
             typeLib.GetLibAttr(out pAttrs);
@@ -193,7 +201,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
 
             try
             {
-                return (ComTypes.TYPELIBATTR)Marshal.PtrToStructure(pAttrs, typeof(ComTypes.TYPELIBATTR));
+                return *(ComTypes.TYPELIBATTR*)pAttrs;
             }
             finally
             {
@@ -201,11 +209,14 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             }
         }
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static BoundDispEvent CreateComEvent(object rcw, Guid sourceIid, int dispid)
         {
             return new BoundDispEvent(rcw, sourceIid, dispid);
         }
 
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         public static DispCallable CreateDispCallable(IDispatchComObject dispatch, ComMethodDesc method)
         {
             return new DispCallable(dispatch, method.Name, method.DispId);
@@ -223,11 +234,11 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
         #region public members
 
         public static unsafe IntPtr ConvertInt32ByrefToPtr(ref int value) { return (IntPtr)System.Runtime.CompilerServices.Unsafe.AsPointer(ref value); }
-        public static unsafe IntPtr ConvertVariantByrefToPtr(ref Variant value) { return (IntPtr)System.Runtime.CompilerServices.Unsafe.AsPointer(ref value); }
+        public static unsafe IntPtr ConvertVariantByrefToPtr(ref ComVariant value) { return (IntPtr)System.Runtime.CompilerServices.Unsafe.AsPointer(ref value); }
 
-        internal static Variant GetVariantForObject(object obj)
+        internal static ComVariant GetVariantForObject(object obj)
         {
-            Variant variant = default;
+            ComVariant variant = default;
             if (obj == null)
             {
                 return variant;
@@ -236,16 +247,16 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             return variant;
         }
 
-        internal static void InitVariantForObject(object obj, ref Variant variant)
+        internal static void InitVariantForObject(object obj, ref ComVariant variant)
         {
             Debug.Assert(obj != null);
 
             // GetNativeVariantForObject is very expensive for values that marshal as VT_DISPATCH
-            // also is is extremely common scenario when object at hand is an RCW.
+            // also it is extremely common scenario when object at hand is an RCW.
             // Therefore we are going to test for IDispatch before defaulting to GetNativeVariantForObject.
             if (obj is IDispatch)
             {
-                variant.AsDispatch = obj;
+                variant = ComVariant.CreateRaw(VarEnum.VT_DISPATCH, obj is not null ? Marshal.GetIDispatchForObject(obj) : 0);
                 return;
             }
 
@@ -253,7 +264,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
         }
 
         // This method is intended for use through reflection and should not be used directly
-        public static object GetObjectForVariant(Variant variant)
+        public static object GetObjectForVariant(ComVariant variant)
         {
             IntPtr ptr = UnsafeMethods.ConvertVariantByrefToPtr(ref variant);
             return Marshal.GetObjectForNativeVariant(ptr);
@@ -262,7 +273,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
         // This method is intended for use through reflection and should only be used directly by IUnknownReleaseNotZero
         public static unsafe int IUnknownRelease(IntPtr interfacePointer)
         {
-            return ((delegate* stdcall<IntPtr, int>)(*(*(void***)interfacePointer + 2 /* IUnknown.Release slot */)))(interfacePointer);
+            return ((delegate* unmanaged<IntPtr, int>)(*(*(void***)interfacePointer + 2 /* IUnknown.Release slot */)))(interfacePointer);
         }
 
         // This method is intended for use through reflection and should not be used directly
@@ -280,18 +291,18 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             int memberDispId,
             ComTypes.INVOKEKIND flags,
             ref ComTypes.DISPPARAMS dispParams,
-            out Variant result,
+            out ComVariant result,
             out ExcepInfo excepInfo,
             out uint argErr)
         {
             Guid IID_NULL = default;
 
             fixed (ComTypes.DISPPARAMS* pDispParams = &dispParams)
-            fixed (Variant* pResult = &result)
+            fixed (ComVariant* pResult = &result)
             fixed (ExcepInfo* pExcepInfo = &excepInfo)
             fixed (uint* pArgErr = &argErr)
             {
-                var pfnIDispatchInvoke = (delegate* stdcall <IntPtr, int, Guid*, int, ushort, ComTypes.DISPPARAMS*, Variant*, ExcepInfo*, uint*, int>)
+                var pfnIDispatchInvoke = (delegate* unmanaged<IntPtr, int, Guid*, int, ushort, ComTypes.DISPPARAMS*, ComVariant*, ExcepInfo*, uint*, int>)
                     (*(*(void***)dispatchPointer + 6 /* IDispatch.Invoke slot */));
 
                 int hresult = pfnIDispatchInvoke(dispatchPointer,
@@ -301,7 +312,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
                     && (flags & ComTypes.INVOKEKIND.INVOKE_FUNC) != 0
                     && (flags & (ComTypes.INVOKEKIND.INVOKE_PROPERTYPUT | ComTypes.INVOKEKIND.INVOKE_PROPERTYPUTREF)) == 0)
                 {
-                    // Re-invoke with no result argument to accomodate Word
+                    // Re-invoke with no result argument to accommodate Word
                     hresult = pfnIDispatchInvoke(dispatchPointer,
                         memberDispId, &IID_NULL, 0, (ushort)ComTypes.INVOKEKIND.INVOKE_FUNC, pDispParams, null, pExcepInfo, pArgErr);
                 }
@@ -342,6 +353,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
 
         internal static ModuleBuilder DynamicModule
         {
+            [RequiresDynamicCode(Binder.DynamicCodeWarning)]
             get
             {
                 if (s_dynamicModule != null)

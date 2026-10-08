@@ -3,15 +3,19 @@
 
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
-class Test
+public class Test
 {    
     static bool _fTestFailed = false;
     static bool _fTestDone = false;
     static ManualResetEvent _mre;
     static AutoResetEvent _are = new AutoResetEvent(false);
 
-    public static int Main(string[] args)
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/102544", typeof(Utilities), nameof(Utilities.IsNativeAot))]
+    [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+    public static int TestEntryPoint()
     {
         Thread th = new Thread(new ThreadStart(Thread2));
         th.Start();
@@ -121,4 +125,3 @@ class Test
         }
     }
 }
-

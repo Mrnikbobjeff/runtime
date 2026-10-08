@@ -2,21 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Diagnostics;
 using System.Collections.Generic;
-using System.Globalization;
-using System.Runtime.InteropServices;
+using System.Diagnostics;
 using System.DirectoryServices;
-using System.Text;
+using System.Globalization;
 using System.Net;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace System.DirectoryServices.AccountManagement
 {
-    internal class SDSUtils
+    internal static class SDSUtils
     {
-        // To stop the compiler from autogenerating a constructor for this class
-        private SDSUtils() { }
-
         internal static Principal SearchResultToPrincipal(SearchResult sr, PrincipalContext owningContext, Type principalType)
         {
             Principal p;
@@ -376,9 +373,9 @@ namespace System.DirectoryServices.AccountManagement
         internal static DirectoryEntry BuildDirectoryEntry(string path, NetCred credentials, AuthenticationTypes authTypes)
         {
             DirectoryEntry de = new DirectoryEntry(path,
-                                                                               credentials != null ? credentials.UserName : null,
-                                                                               credentials != null ? credentials.Password : null,
-                                                                               authTypes);
+                                                   credentials?.UserName,
+                                                   credentials?.Password,
+                                                   authTypes);
 
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "SDSUtils", "BuildDirectoryEntry (1): built DE for  " + de.Path);
 
@@ -389,8 +386,8 @@ namespace System.DirectoryServices.AccountManagement
         {
             DirectoryEntry de = new DirectoryEntry();
 
-            de.Username = credentials != null ? credentials.UserName : null;
-            de.Password = credentials != null ? credentials.Password : null;
+            de.Username = credentials?.UserName;
+            de.Password = credentials?.Password;
             de.AuthenticationType = authTypes;
 
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "SDSUtils", "BuildDirectoryEntry (2): built DE");
@@ -428,8 +425,7 @@ namespace System.DirectoryServices.AccountManagement
             }
             finally
             {
-                if (copyOfDe != null)
-                    copyOfDe.Dispose();
+                copyOfDe?.Dispose();
             }
         }
 
@@ -480,8 +476,7 @@ namespace System.DirectoryServices.AccountManagement
             }
             finally
             {
-                if (copyOfDe != null)
-                    copyOfDe.Dispose();
+                copyOfDe?.Dispose();
             }
         }
 
@@ -672,14 +667,14 @@ namespace System.DirectoryServices.AccountManagement
                 if (!isSAM && de.Properties["msDS-User-Account-Control-Computed"].Count > 0)
                 {
                     Debug.Assert(de.Properties["msDS-User-Account-Control-Computed"].Count == 1);
-                    uacValue = uacValue | (int)de.Properties["msDS-User-Account-Control-Computed"][0];
+                    uacValue |= (int)de.Properties["msDS-User-Account-Control-Computed"][0];
                 }
             }
             else
             {
                 // We don't have the userAccountControl property, this must be a persisted principal.  Perhaps we don't have access
                 // to it.  In that case, we don't want to blindly overwrite whatever other bits might be there.
-                Debug.Assert(p.unpersisted == false);
+                Debug.Assert(!p.unpersisted);
                 throw new PrincipalOperationException(
                                 SR.ADStoreCtxUnableToReadExistingAccountControlFlagsForUpdate);
             }
@@ -785,7 +780,7 @@ namespace System.DirectoryServices.AccountManagement
         internal static string ConstructDnsDomainNameFromDn(string dn)
         {
             // Split the DN into its RDNs
-            string[] ncComponents = dn.Split(new char[] { ',' });
+            string[] ncComponents = dn.Split(ADStoreCtx.s_comma);
 
             StringBuilder sb = new StringBuilder();
 

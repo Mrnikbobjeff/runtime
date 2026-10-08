@@ -135,6 +135,7 @@ namespace System.Drawing
         public static System.Drawing.Color PowderBlue { get { throw null; } }
         public static System.Drawing.Color Purple { get { throw null; } }
         public byte R { get { throw null; } }
+        public static System.Drawing.Color RebeccaPurple { get { throw null; } }
         public static System.Drawing.Color Red { get { throw null; } }
         public static System.Drawing.Color RosyBrown { get { throw null; } }
         public static System.Drawing.Color RoyalBlue { get { throw null; } }
@@ -164,8 +165,9 @@ namespace System.Drawing
         public static System.Drawing.Color Yellow { get { throw null; } }
         public static System.Drawing.Color YellowGreen { get { throw null; } }
         public bool Equals(System.Drawing.Color other) { throw null; }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public static System.Drawing.Color FromArgb(int argb) { throw null; }
+        public static System.Drawing.Color FromArgb(System.Numerics.Colors.Argb<byte> argb) { throw null; }
         public static System.Drawing.Color FromArgb(int alpha, System.Drawing.Color baseColor) { throw null; }
         public static System.Drawing.Color FromArgb(int red, int green, int blue) { throw null; }
         public static System.Drawing.Color FromArgb(int alpha, int red, int green, int blue) { throw null; }
@@ -177,7 +179,10 @@ namespace System.Drawing
         public float GetSaturation() { throw null; }
         public static bool operator ==(System.Drawing.Color left, System.Drawing.Color right) { throw null; }
         public static bool operator !=(System.Drawing.Color left, System.Drawing.Color right) { throw null; }
+        public static explicit operator System.Numerics.Colors.Argb<byte>(in System.Drawing.Color color) { throw null; }
+        public static implicit operator System.Drawing.Color(System.Numerics.Colors.Argb<byte> argb) { throw null; }
         public int ToArgb() { throw null; }
+        public System.Numerics.Colors.Argb<byte> ToArgbValue() { throw null; }
         public System.Drawing.KnownColor ToKnownColor() { throw null; }
         public override string ToString() { throw null; }
     }
@@ -366,6 +371,7 @@ namespace System.Drawing
         GradientInactiveCaption = 172,
         MenuBar = 173,
         MenuHighlight = 174,
+        RebeccaPurple = 175,
     }
     [System.ComponentModel.TypeConverterAttribute("System.Drawing.PointConverter, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a")]
     public partial struct Point : System.IEquatable<System.Drawing.Point>
@@ -382,7 +388,7 @@ namespace System.Drawing
         public static System.Drawing.Point Add(System.Drawing.Point pt, System.Drawing.Size sz) { throw null; }
         public static System.Drawing.Point Ceiling(System.Drawing.PointF value) { throw null; }
         public readonly bool Equals(System.Drawing.Point other) { throw null; }
-        public override readonly bool Equals(object? obj) { throw null; }
+        public override readonly bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override readonly int GetHashCode() { throw null; }
         public void Offset(System.Drawing.Point p) { }
         public void Offset(int dx, int dy) { }
@@ -402,6 +408,7 @@ namespace System.Drawing
         private int _dummyPrimitive;
         public static readonly System.Drawing.PointF Empty;
         public PointF(float x, float y) { throw null; }
+        public PointF(System.Numerics.Vector2 vector) { throw null; }
         [System.ComponentModel.BrowsableAttribute(false)]
         public readonly bool IsEmpty { get { throw null; } }
         public float X { readonly get { throw null; } set { } }
@@ -409,8 +416,10 @@ namespace System.Drawing
         public static System.Drawing.PointF Add(System.Drawing.PointF pt, System.Drawing.Size sz) { throw null; }
         public static System.Drawing.PointF Add(System.Drawing.PointF pt, System.Drawing.SizeF sz) { throw null; }
         public readonly bool Equals(System.Drawing.PointF other) { throw null; }
-        public override readonly bool Equals(object? obj) { throw null; }
+        public override readonly bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override readonly int GetHashCode() { throw null; }
+        public static explicit operator System.Numerics.Vector2(System.Drawing.PointF point) { throw null; }
+        public static explicit operator System.Drawing.PointF(System.Numerics.Vector2 vector) { throw null; }
         public static System.Drawing.PointF operator +(System.Drawing.PointF pt, System.Drawing.Size sz) { throw null; }
         public static System.Drawing.PointF operator +(System.Drawing.PointF pt, System.Drawing.SizeF sz) { throw null; }
         public static bool operator ==(System.Drawing.PointF left, System.Drawing.PointF right) { throw null; }
@@ -420,6 +429,7 @@ namespace System.Drawing
         public static System.Drawing.PointF Subtract(System.Drawing.PointF pt, System.Drawing.Size sz) { throw null; }
         public static System.Drawing.PointF Subtract(System.Drawing.PointF pt, System.Drawing.SizeF sz) { throw null; }
         public override readonly string ToString() { throw null; }
+        public System.Numerics.Vector2 ToVector2() { throw null; }
     }
     [System.ComponentModel.TypeConverterAttribute("System.Drawing.RectangleConverter, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a")]
     public partial struct Rectangle : System.IEquatable<System.Drawing.Rectangle>
@@ -451,7 +461,7 @@ namespace System.Drawing
         public readonly bool Contains(System.Drawing.Rectangle rect) { throw null; }
         public readonly bool Contains(int x, int y) { throw null; }
         public readonly bool Equals(System.Drawing.Rectangle other) { throw null; }
-        public override readonly bool Equals(object? obj) { throw null; }
+        public override readonly bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public static System.Drawing.Rectangle FromLTRB(int left, int top, int right, int bottom) { throw null; }
         public override readonly int GetHashCode() { throw null; }
         public static System.Drawing.Rectangle Inflate(System.Drawing.Rectangle rect, int x, int y) { throw null; }
@@ -475,6 +485,7 @@ namespace System.Drawing
         public static readonly System.Drawing.RectangleF Empty;
         public RectangleF(System.Drawing.PointF location, System.Drawing.SizeF size) { throw null; }
         public RectangleF(float x, float y, float width, float height) { throw null; }
+        public RectangleF(System.Numerics.Vector4 vector) { throw null; }
         [System.ComponentModel.BrowsableAttribute(false)]
         public readonly float Bottom { get { throw null; } }
         public float Height { readonly get { throw null; } set { } }
@@ -497,7 +508,7 @@ namespace System.Drawing
         public readonly bool Contains(System.Drawing.RectangleF rect) { throw null; }
         public readonly bool Contains(float x, float y) { throw null; }
         public readonly bool Equals(System.Drawing.RectangleF other) { throw null; }
-        public override readonly bool Equals(object? obj) { throw null; }
+        public override readonly bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public static System.Drawing.RectangleF FromLTRB(float left, float top, float right, float bottom) { throw null; }
         public override readonly int GetHashCode() { throw null; }
         public static System.Drawing.RectangleF Inflate(System.Drawing.RectangleF rect, float x, float y) { throw null; }
@@ -508,10 +519,13 @@ namespace System.Drawing
         public readonly bool IntersectsWith(System.Drawing.RectangleF rect) { throw null; }
         public void Offset(System.Drawing.PointF pos) { }
         public void Offset(float x, float y) { }
+        public static explicit operator System.Numerics.Vector4(System.Drawing.RectangleF rectangle) { throw null; }
+        public static explicit operator System.Drawing.RectangleF(System.Numerics.Vector4 vector) { throw null; }
         public static bool operator ==(System.Drawing.RectangleF left, System.Drawing.RectangleF right) { throw null; }
         public static implicit operator System.Drawing.RectangleF (System.Drawing.Rectangle r) { throw null; }
         public static bool operator !=(System.Drawing.RectangleF left, System.Drawing.RectangleF right) { throw null; }
         public override readonly string ToString() { throw null; }
+        public System.Numerics.Vector4 ToVector4() { throw null; }
         public static System.Drawing.RectangleF Union(System.Drawing.RectangleF a, System.Drawing.RectangleF b) { throw null; }
     }
     [System.ComponentModel.TypeConverterAttribute("System.Drawing.SizeConverter, System.Drawing, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a")]
@@ -528,7 +542,7 @@ namespace System.Drawing
         public static System.Drawing.Size Add(System.Drawing.Size sz1, System.Drawing.Size sz2) { throw null; }
         public static System.Drawing.Size Ceiling(System.Drawing.SizeF value) { throw null; }
         public readonly bool Equals(System.Drawing.Size other) { throw null; }
-        public override readonly bool Equals(object? obj) { throw null; }
+        public override readonly bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override readonly int GetHashCode() { throw null; }
         public static System.Drawing.Size operator +(System.Drawing.Size sz1, System.Drawing.Size sz2) { throw null; }
         public static System.Drawing.Size operator /(System.Drawing.Size left, int right) { throw null; }
@@ -555,14 +569,17 @@ namespace System.Drawing
         public SizeF(System.Drawing.PointF pt) { throw null; }
         public SizeF(System.Drawing.SizeF size) { throw null; }
         public SizeF(float width, float height) { throw null; }
+        public SizeF(System.Numerics.Vector2 vector) { throw null; }
         public float Height { readonly get { throw null; } set { } }
         [System.ComponentModel.BrowsableAttribute(false)]
         public readonly bool IsEmpty { get { throw null; } }
         public float Width { readonly get { throw null; } set { } }
         public static System.Drawing.SizeF Add(System.Drawing.SizeF sz1, System.Drawing.SizeF sz2) { throw null; }
         public readonly bool Equals(System.Drawing.SizeF other) { throw null; }
-        public override readonly bool Equals(object? obj) { throw null; }
+        public override readonly bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public override readonly int GetHashCode() { throw null; }
+        public static explicit operator System.Numerics.Vector2(System.Drawing.SizeF size) { throw null; }
+        public static explicit operator System.Drawing.SizeF(System.Numerics.Vector2 vector) { throw null; }
         public static System.Drawing.SizeF operator +(System.Drawing.SizeF sz1, System.Drawing.SizeF sz2) { throw null; }
         public static System.Drawing.SizeF operator /(System.Drawing.SizeF left, float right) { throw null; }
         public static bool operator ==(System.Drawing.SizeF sz1, System.Drawing.SizeF sz2) { throw null; }
@@ -575,6 +592,7 @@ namespace System.Drawing
         public readonly System.Drawing.PointF ToPointF() { throw null; }
         public readonly System.Drawing.Size ToSize() { throw null; }
         public override readonly string ToString() { throw null; }
+        public System.Numerics.Vector2 ToVector2() { throw null; }
     }
     public static partial class SystemColors
     {
@@ -611,5 +629,7 @@ namespace System.Drawing
         public static System.Drawing.Color Window { get { throw null; } }
         public static System.Drawing.Color WindowFrame { get { throw null; } }
         public static System.Drawing.Color WindowText { get { throw null; } }
+        [System.Diagnostics.CodeAnalysis.Experimental("SYSLIB5002", UrlFormat = "https://aka.ms/dotnet-warnings/{0}")]
+        public static bool UseAlternativeColorSet { get { throw null; } set { } }
     }
 }

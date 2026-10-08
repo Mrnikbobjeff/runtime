@@ -9,6 +9,8 @@ using System;
 using System.Threading;
 using System.Reflection;
 using System.Reflection.Emit;
+using TestLibrary;
+using Xunit;
 
 public class My {
 
@@ -63,7 +65,9 @@ public class My {
         ((Action)method.CreateDelegate(typeof(Action)))();
     }
 
-    static int Main() {
+    [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+    public static void TestEntryPoint()
+    {
         new Thread(Thrower).Start();
 
         new Thread(Dynamizer).Start();
@@ -93,6 +97,5 @@ public class My {
              }
         }
         Console.WriteLine("Test case Pass");
-        return 100;
     }
 }

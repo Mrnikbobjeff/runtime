@@ -13,7 +13,7 @@ namespace System.Collections.Concurrent.Tests
 {
     public class ConcurrentDictionaryTests
     {
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void TestBasicScenarios()
         {
             ConcurrentDictionary<int, int> cd = new ConcurrentDictionary<int, int>();
@@ -123,7 +123,7 @@ namespace System.Collections.Concurrent.Tests
             Assert.Throws<ArgumentException>(action);
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(1, 1, 1, 10000)]
         [InlineData(5, 1, 1, 10000)]
         [InlineData(1, 1, 2, 5000)]
@@ -188,7 +188,7 @@ namespace System.Collections.Concurrent.Tests
             Assert.Equal(expectedCount, dictConcurrent.ToArray().Length);
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(1, 1, 10000)]
         [InlineData(5, 1, 10000)]
         [InlineData(1, 2, 5000)]
@@ -252,7 +252,7 @@ namespace System.Collections.Concurrent.Tests
             }
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(1, 1, 10000)]
         [InlineData(5, 1, 10000)]
         [InlineData(1, 2, 5000)]
@@ -296,7 +296,7 @@ namespace System.Collections.Concurrent.Tests
             }
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(1, 1, 10000)]
         [InlineData(5, 1, 1000)]
         [InlineData(1, 5, 2001)]
@@ -364,7 +364,7 @@ namespace System.Collections.Concurrent.Tests
             Assert.Equal(expectKeys.Count, dict.ToArray().Length);
         }
 
-        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(1)]
         [InlineData(10)]
         [InlineData(5000)]
@@ -482,7 +482,7 @@ namespace System.Collections.Concurrent.Tests
             Assert.True(dict.TryRemove(KeyValuePair.Create("KEY", "value")));
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void TestGetOrAdd()
         {
             TestGetOrAddOrUpdate(1, 1, 1, 10000, true);
@@ -495,7 +495,7 @@ namespace System.Collections.Concurrent.Tests
             TestGetOrAddOrUpdate(5, 5, 5, 25000, true);
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void TestAddOrUpdate()
         {
             TestGetOrAddOrUpdate(1, 1, 1, 10000, false);
@@ -532,10 +532,19 @@ namespace System.Collections.Concurrent.Tests
                                             dict.GetOrAdd(j, -j);
                                             break;
                                         case 1:
-                                            dict.GetOrAdd(j, x => -x);
+                                            dict.GetOrAdd(j, x =>
+                                            {
+                                                Assert.Equal(j, x);
+                                                return -x;
+                                            });
                                             break;
                                         case 2:
-                                            dict.GetOrAdd(j, (x,m) => x * m, -1);
+                                            dict.GetOrAdd(j, (x, m) =>
+                                            {
+                                                Assert.Equal(j, x);
+                                                Assert.Equal(-1, m);
+                                                return x * m;
+                                            }, -1);
                                             break;
                                     }
                                 }
@@ -544,13 +553,38 @@ namespace System.Collections.Concurrent.Tests
                                     switch (j % 3)
                                     {
                                         case 0:
-                                            dict.AddOrUpdate(j, -j, (k, v) => -j);
+                                            dict.AddOrUpdate(j, -j, (k, v) =>
+                                            {
+                                                Assert.Equal(j, k);
+                                                Assert.Equal(-j, v);
+                                                return v;
+                                            });
                                             break;
                                         case 1:
-                                            dict.AddOrUpdate(j, (k) => -k, (k, v) => -k);
+                                            dict.AddOrUpdate(j, k =>
+                                            {
+                                                Assert.Equal(j, k);
+                                                return -k;
+                                            }, (k, v) =>
+                                            {
+                                                Assert.Equal(j, k);
+                                                Assert.Equal(-j, v);
+                                                return -k;
+                                            });
                                             break;
                                         case 2:
-                                            dict.AddOrUpdate(j, (k,m) => k*m, (k, v, m) => k * m, -1);
+                                            dict.AddOrUpdate(j, (k, m) =>
+                                            {
+                                                Assert.Equal(j, k);
+                                                Assert.Equal(-1, m);
+                                                return k * m;
+                                            }, (k, v, m) =>
+                                            {
+                                                Assert.Equal(j, k);
+                                                Assert.Equal(-j, v);
+                                                Assert.Equal(-1, m);
+                                                return k * m;
+                                            }, -1);
                                             break;
                                     }
                                 }
@@ -593,24 +627,9 @@ namespace System.Collections.Concurrent.Tests
         [Fact]
         public static void TestBugFix669376()
         {
-            var cd = new ConcurrentDictionary<string, int>(new OrdinalStringComparer());
+            var cd = new ConcurrentDictionary<string, int>(EqualityComparer<string>.Create((x, y) => string.Equals(x, y, StringComparison.OrdinalIgnoreCase), x => 0));
             cd["test"] = 10;
             Assert.True(cd.ContainsKey("TEST"), "Customized comparer didn't work");
-        }
-
-        private class OrdinalStringComparer : IEqualityComparer<string>
-        {
-            public bool Equals(string x, string y)
-            {
-                var xlower = x.ToLowerInvariant();
-                var ylower = y.ToLowerInvariant();
-                return string.CompareOrdinal(xlower, ylower) == 0;
-            }
-
-            public int GetHashCode(string obj)
-            {
-                return 0;
-            }
         }
 
         [Fact]
@@ -622,25 +641,26 @@ namespace System.Collections.Concurrent.Tests
             Assert.Equal(1, dictionary.Values.Count);
         }
 
-        [Fact]
-        public static void TestDebuggerAttributes()
+        [Theory]
+        [InlineData(-1)]
+        [InlineData(1)]
+        [InlineData(10)]
+        public static void TestConstructor_ConcurrencyLevel(int concurrencyLevel)
         {
-            DebuggerAttributes.ValidateDebuggerDisplayReferences(new ConcurrentDictionary<string, int>());
-            ConcurrentDictionary<string, int> dict = new ConcurrentDictionary<string, int>();
-            dict.TryAdd("One", 1);
-            dict.TryAdd("Two", 2);
-            DebuggerAttributeInfo info = DebuggerAttributes.ValidateDebuggerTypeProxyProperties(dict);
-            PropertyInfo itemProperty = info.Properties.Single(pr => pr.GetCustomAttribute<DebuggerBrowsableAttribute>().State == DebuggerBrowsableState.RootHidden);
-            KeyValuePair<string, int>[] items = itemProperty.GetValue(info.Instance) as KeyValuePair<string, int>[];
-            Assert.Equal(dict, items);
-        }
+            var dictionary = new ConcurrentDictionary<int, int>(concurrencyLevel, 0);
+            Assert.Equal(0, dictionary.Count);
+            Assert.True(dictionary.TryAdd(1, 2));
+            Assert.Equal(1, dictionary.Count);
 
-        [Fact]
-        public static void TestDebuggerAttributes_Null()
-        {
-            Type proxyType = DebuggerAttributes.GetProxyType(new ConcurrentDictionary<string, int>());
-            TargetInvocationException tie = Assert.Throws<TargetInvocationException>(() => Activator.CreateInstance(proxyType, (object)null));
-            Assert.IsType<ArgumentNullException>(tie.InnerException);
+            dictionary = new ConcurrentDictionary<int, int>(concurrencyLevel, 10, EqualityComparer<int>.Default);
+            Assert.Equal(0, dictionary.Count);
+            Assert.True(dictionary.TryAdd(3, 4));
+            Assert.Equal(1, dictionary.Count);
+
+            dictionary = new ConcurrentDictionary<int, int>(concurrencyLevel, new[] { new KeyValuePair<int, int>(1, 1) }, null);
+            Assert.Equal(1, dictionary.Count);
+            Assert.True(dictionary.TryAdd(5, 6));
+            Assert.Equal(2, dictionary.Count);
         }
 
         [Fact]
@@ -663,6 +683,24 @@ namespace System.Collections.Concurrent.Tests
 
                 Assert.False(spyKey.ObjectApiUsed);
                 Assert.True(spyKey.IEquatableApiUsed);
+            }
+        }
+
+        [Fact]
+        public static void TestComparerGetter()
+        {
+            AssertComparerBehavior<string>(null);
+            AssertComparerBehavior<string>(EqualityComparer<string>.Default);
+            AssertComparerBehavior<string>(StringComparer.InvariantCulture);
+            AssertComparerBehavior<string>(StringComparer.OrdinalIgnoreCase);
+            AssertComparerBehavior<int>(EqualityComparer<int>.Default);
+            AssertComparerBehavior<bool>(EqualityComparer<bool>.Default);
+
+            void AssertComparerBehavior<T>(IEqualityComparer<T> comparer)
+            {
+                var dc = new ConcurrentDictionary<T, object>(comparer);
+                object expected = comparer ?? EqualityComparer<T>.Default;
+                Assert.Same(expected, dc.Comparer);
             }
         }
 
@@ -714,7 +752,7 @@ namespace System.Collections.Concurrent.Tests
             // "TestConstructor:  FAILED.  Constructor didn't throw AORE when <1 concurrencyLevel passed");
 
             Assert.Throws<ArgumentOutOfRangeException>(
-               () => new ConcurrentDictionary<int, int>(-1, 0));
+               () => new ConcurrentDictionary<int, int>(-2, 0));
             // "TestConstructor:  FAILED.  Constructor didn't throw AORE when < 0 capacity passed");
         }
 
@@ -950,7 +988,26 @@ namespace System.Collections.Concurrent.Tests
             Assert.True(dictionary.IsEmpty, "TestClear: FAILED.  IsEmpty returned false after Clear");
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotBuiltWithAggressiveTrimming))]
+        [InlineData(3)]
+        [InlineData(1_162_687)]
+        public static void TestCapacity(int capacity)
+        {
+            int itemsCount = capacity + 100;
+            var dictionary = new ConcurrentDictionary<int, int>(1, capacity);
+            Assert.Equal(capacity, GetCapacity(dictionary));
+
+            for (int i = 0; i < itemsCount; i++)
+                dictionary.TryAdd(i, i);
+
+            Assert.Equal(itemsCount, dictionary.Count);
+            Assert.InRange(GetCapacity(dictionary), capacity + 1, int.MaxValue);
+
+            dictionary.Clear();
+            Assert.Equal(capacity, GetCapacity(dictionary));
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void TestTryUpdate()
         {
             var dictionary = new ConcurrentDictionary<string, int>();
@@ -1032,7 +1089,7 @@ namespace System.Collections.Concurrent.Tests
         }
 
         [OuterLoop("Runs for several seconds")]
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void ConcurrentWriteRead_NoTornValues()
         {
             var cd = new ConcurrentDictionary<int, KeyValuePair<long, long>>();
@@ -1063,7 +1120,203 @@ namespace System.Collections.Concurrent.Tests
                 }));
         }
 
+        [Fact]
+        public void GetAlternateLookup_FailsWhenIncompatible()
+        {
+            var dictionary = new ConcurrentDictionary<string, string>(StringComparer.Ordinal);
+
+            dictionary.GetAlternateLookup<ReadOnlySpan<char>>();
+            Assert.True(dictionary.TryGetAlternateLookup<ReadOnlySpan<char>>(out _));
+
+            Assert.Throws<InvalidOperationException>(() => dictionary.GetAlternateLookup<ReadOnlySpan<byte>>());
+            Assert.Throws<InvalidOperationException>(() => dictionary.GetAlternateLookup<string>());
+            Assert.Throws<InvalidOperationException>(() => dictionary.GetAlternateLookup<int>());
+
+            Assert.False(dictionary.TryGetAlternateLookup<ReadOnlySpan<byte>>(out _));
+            Assert.False(dictionary.TryGetAlternateLookup<string>(out _));
+            Assert.False(dictionary.TryGetAlternateLookup<int>(out _));
+        }
+
+        public static IEnumerable<object[]> Dictionary_GetAlternateLookup_OperationsMatchUnderlyingDictionary_MemberData()
+        {
+            yield return new object[] { EqualityComparer<string>.Default };
+            yield return new object[] { StringComparer.Ordinal };
+            yield return new object[] { StringComparer.OrdinalIgnoreCase };
+            yield return new object[] { StringComparer.InvariantCulture };
+            yield return new object[] { StringComparer.InvariantCultureIgnoreCase };
+            yield return new object[] { StringComparer.CurrentCulture };
+            yield return new object[] { StringComparer.CurrentCultureIgnoreCase };
+        }
+
+        [Theory]
+        [MemberData(nameof(Dictionary_GetAlternateLookup_OperationsMatchUnderlyingDictionary_MemberData))]
+        public void GetAlternateLookup_OperationsMatchUnderlyingDictionary(IEqualityComparer<string> comparer)
+        {
+            // Test with a variety of comparers to ensure that the alternate lookup is consistent with the underlying dictionary
+            ConcurrentDictionary<string, int> dictionary = new(comparer);
+            ConcurrentDictionary<string, int>.AlternateLookup<ReadOnlySpan<char>> lookup = dictionary.GetAlternateLookup<ReadOnlySpan<char>>();
+            Assert.Same(dictionary, lookup.Dictionary);
+            Assert.Same(lookup.Dictionary, lookup.Dictionary);
+
+            string actualKey;
+            int value;
+
+            // Add to the dictionary and validate that the lookup reflects the changes
+            dictionary["123"] = 123;
+            Assert.True(lookup.ContainsKey("123".AsSpan()));
+            Assert.True(lookup.TryGetValue("123".AsSpan(), out value));
+            Assert.Equal(123, value);
+            Assert.Equal(123, lookup["123".AsSpan()]);
+            Assert.False(lookup.TryAdd("123".AsSpan(), 321));
+            Assert.True(lookup.TryRemove("123".AsSpan(), out value));
+            Assert.Equal(123, value);
+            Assert.False(dictionary.ContainsKey("123"));
+            Assert.Throws<KeyNotFoundException>(() => lookup["123".AsSpan()]);
+
+            // Add via the lookup and validate that the dictionary reflects the changes
+            Assert.True(lookup.TryAdd("123".AsSpan(), 123));
+            Assert.True(dictionary.ContainsKey("123"));
+            lookup.TryGetValue("123".AsSpan(), out value);
+            Assert.Equal(123, value);
+            Assert.False(lookup.TryRemove("321".AsSpan(), out actualKey, out value));
+            Assert.Null(actualKey);
+            Assert.Equal(0, value);
+            Assert.True(lookup.TryRemove("123".AsSpan(), out actualKey, out value));
+            Assert.Equal("123", actualKey);
+            Assert.Equal(123, value);
+
+            // Ensure that case-sensitivity of the comparer is respected
+            lookup["a".AsSpan()] = 42;
+            if (dictionary.Comparer.Equals(EqualityComparer<string>.Default) ||
+                dictionary.Comparer.Equals(StringComparer.Ordinal) ||
+                dictionary.Comparer.Equals(StringComparer.InvariantCulture) ||
+                dictionary.Comparer.Equals(StringComparer.CurrentCulture))
+            {
+                Assert.True(lookup.TryGetValue("a".AsSpan(), out actualKey, out value));
+                Assert.Equal("a", actualKey);
+                Assert.Equal(42, value);
+                Assert.True(lookup.TryAdd("A".AsSpan(), 42));
+                Assert.True(lookup.TryRemove("a".AsSpan(), out value));
+                Assert.Equal(42, value);
+                Assert.False(lookup.TryRemove("a".AsSpan(), out value));
+                Assert.Equal(0, value);
+                Assert.True(lookup.TryRemove("A".AsSpan(), out value));
+                Assert.Equal(42, value);
+            }
+            else
+            {
+                Assert.True(lookup.TryGetValue("A".AsSpan(), out actualKey, out value));
+                Assert.Equal("a", actualKey);
+                Assert.Equal(42, value);
+                Assert.False(lookup.TryAdd("A".AsSpan(), 42));
+                Assert.True(lookup.TryRemove("A".AsSpan(), out value));
+                Assert.Equal(42, value);
+                Assert.False(lookup.TryRemove("a".AsSpan(), out value));
+                Assert.Equal(0, value);
+                Assert.False(lookup.TryRemove("A".AsSpan(), out value));
+                Assert.Equal(0, value);
+            }
+
+            // Validate overwrites
+            lookup["a".AsSpan()] = 42;
+            Assert.Equal(42, dictionary["a"]);
+            lookup["a".AsSpan()] = 43;
+            Assert.True(lookup.TryRemove("a".AsSpan(), out actualKey, out value));
+            Assert.Equal("a", actualKey);
+            Assert.Equal(43, value);
+
+            // Test adding multiple entries via the lookup
+            for (int i = 0; i < 10; i++)
+            {
+                Assert.Equal(i, dictionary.Count);
+                Assert.True(lookup.TryAdd(i.ToString().AsSpan(), i));
+                Assert.False(lookup.TryAdd(i.ToString().AsSpan(), i));
+            }
+
+            Assert.Equal(10, dictionary.Count);
+
+            // Test that the lookup and the dictionary agree on what's in and not in
+            for (int i = -1; i <= 10; i++)
+            {
+                Assert.Equal(dictionary.TryGetValue(i.ToString(), out int dv), lookup.TryGetValue(i.ToString().AsSpan(), out int lv));
+                Assert.Equal(dv, lv);
+            }
+
+            // Test removing multiple entries via the lookup
+            for (int i = 9; i >= 0; i--)
+            {
+                Assert.True(lookup.TryRemove(i.ToString().AsSpan(), out actualKey, out value));
+                Assert.Equal(i.ToString(), actualKey);
+                Assert.Equal(i, value);
+                Assert.False(lookup.TryRemove(i.ToString().AsSpan(), out actualKey, out value));
+                Assert.Null(actualKey);
+                Assert.Equal(0, value);
+                Assert.Equal(i, dictionary.Count);
+            }
+        }
+
+        [Fact]
+        public void Dictionary_NotCorruptedByThrowingComparer()
+        {
+            ConcurrentDictionary<string, string> dict = new(new CreateThrowsComparer());
+
+            Assert.Equal(0, dict.Count);
+
+            Assert.Throws<FormatException>(() => dict.GetAlternateLookup<ReadOnlySpan<char>>().TryAdd("123".AsSpan(), "123"));
+            Assert.Equal(0, dict.Count);
+
+            Assert.True(dict.TryAdd("123", "123"));
+            Assert.Equal(1, dict.Count);
+        }
+
+        [Fact]
+        public void Dictionary_NotCorruptedByNullReturningComparer()
+        {
+            ConcurrentDictionary<string, string> dict = new(new NullReturningComparer());
+
+            Assert.Equal(0, dict.Count);
+
+            Assert.ThrowsAny<ArgumentException>(() => dict.GetAlternateLookup<ReadOnlySpan<char>>().TryAdd("123".AsSpan(), "123"));
+            Assert.Equal(0, dict.Count);
+
+            Assert.True(dict.TryAdd("123", "123"));
+            Assert.Equal(1, dict.Count);
+        }
+
         #region Helper Classes and Methods
+
+        private static int GetCapacity(ConcurrentDictionary<int, int> dictionary)
+        {
+            var tables = typeof(ConcurrentDictionary<int, int>)
+                .GetField("_tables", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(dictionary);
+
+            var buckets = (ICollection)tables.GetType()
+                .GetField("_buckets", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .GetValue(tables);
+
+            return buckets.Count;
+        }
+
+        private sealed class CreateThrowsComparer : IEqualityComparer<string>, IAlternateEqualityComparer<ReadOnlySpan<char>, string>
+        {
+            public bool Equals(string? x, string? y) => EqualityComparer<string>.Default.Equals(x, y);
+            public int GetHashCode(string obj) => EqualityComparer<string>.Default.GetHashCode(obj);
+
+            public bool Equals(ReadOnlySpan<char> span, string target) => span.SequenceEqual(target);
+            public int GetHashCode(ReadOnlySpan<char> span) => string.GetHashCode(span);
+            public string Create(ReadOnlySpan<char> span) => throw new FormatException();
+        }
+
+        private sealed class NullReturningComparer : IEqualityComparer<string>, IAlternateEqualityComparer<ReadOnlySpan<char>, string>
+        {
+            public bool Equals(string? x, string? y) => EqualityComparer<string>.Default.Equals(x, y);
+            public int GetHashCode(string obj) => EqualityComparer<string>.Default.GetHashCode(obj);
+
+            public bool Equals(ReadOnlySpan<char> span, string target) => span.SequenceEqual(target);
+            public int GetHashCode(ReadOnlySpan<char> span) => string.GetHashCode(span);
+            public string Create(ReadOnlySpan<char> span) => null!;
+        }
 
         private class ThreadData
         {

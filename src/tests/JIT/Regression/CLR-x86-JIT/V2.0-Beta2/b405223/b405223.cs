@@ -2,12 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-class Class1
+namespace b405223;
+
+using System;
+using Xunit;
+
+public class Class1
 {
 
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         Console.WriteLine("Note that this is a test to verify that the implementation stays buggy");
         object o = new short[3];

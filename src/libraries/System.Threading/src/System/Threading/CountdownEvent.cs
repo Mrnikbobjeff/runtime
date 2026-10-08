@@ -8,6 +8,7 @@
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
 using System.Diagnostics;
+using System.Runtime.Versioning;
 
 namespace System.Threading
 {
@@ -21,7 +22,7 @@ namespace System.Threading
     /// completed, and Reset, which should only be used when no other threads are
     /// accessing the event.
     /// </remarks>
-    [DebuggerDisplay("Initial Count={InitialCount}, Current Count={CurrentCount}")]
+    [DebuggerDisplay("InitialCount = {InitialCount}, CurrentCount = {CurrentCount}")]
     public class CountdownEvent : IDisposable
     {
         // CountdownEvent is a simple synchronization primitive used for fork/join parallelism. We create a
@@ -46,10 +47,7 @@ namespace System.Threading
         /// than 0.</exception>
         public CountdownEvent(int initialCount)
         {
-            if (initialCount < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(initialCount));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(initialCount);
 
             _initialCount = initialCount;
             _currentCount = initialCount;
@@ -120,7 +118,7 @@ namespace System.Threading
         {
             get
             {
-                ThrowIfDisposed();
+                ObjectDisposedException.ThrowIf(_disposed, this);
                 return _event.WaitHandle;
             }
         }
@@ -174,7 +172,7 @@ namespace System.Threading
         /// disposed.</exception>
         public bool Signal()
         {
-            ThrowIfDisposed();
+            ObjectDisposedException.ThrowIf(_disposed, this);
             Debug.Assert(_event != null);
 
             if (_currentCount <= 0)
@@ -215,12 +213,9 @@ namespace System.Threading
         /// disposed.</exception>
         public bool Signal(int signalCount)
         {
-            if (signalCount <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(signalCount));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(signalCount);
 
-            ThrowIfDisposed();
+            ObjectDisposedException.ThrowIf(_disposed, this);
             Debug.Assert(_event != null);
 
             int observedCount;
@@ -322,12 +317,9 @@ namespace System.Threading
         /// disposed.</exception>
         public bool TryAddCount(int signalCount)
         {
-            if (signalCount <= 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(signalCount));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegativeOrZero(signalCount);
 
-            ThrowIfDisposed();
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
             // Loop around until we successfully increment the count.
             int observedCount;
@@ -385,12 +377,9 @@ namespace System.Threading
         /// <exception cref="System.ObjectDisposedException">The current instance has already been disposed.</exception>
         public void Reset(int count)
         {
-            ThrowIfDisposed();
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
 
             _currentCount = count;
             _initialCount = count;
@@ -414,6 +403,9 @@ namespace System.Threading
         /// </remarks>
         /// <exception cref="System.ObjectDisposedException">The current instance has already been
         /// disposed.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
+        [UnsupportedOSPlatform("browser")]
+#endif
         public void Wait()
         {
             Wait(Timeout.Infinite, CancellationToken.None);
@@ -437,6 +429,9 @@ namespace System.Threading
         /// canceled.</exception>
         /// <exception cref="System.ObjectDisposedException">The current instance has already been
         /// disposed.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
+        [UnsupportedOSPlatform("browser")]
+#endif
         public void Wait(CancellationToken cancellationToken)
         {
             Wait(Timeout.Infinite, cancellationToken);
@@ -456,13 +451,14 @@ namespace System.Threading
         /// than <see cref="int.MaxValue"/>.</exception>
         /// <exception cref="System.ObjectDisposedException">The current instance has already been
         /// disposed.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
+        [UnsupportedOSPlatform("browser")]
+#endif
         public bool Wait(TimeSpan timeout)
         {
             long totalMilliseconds = (long)timeout.TotalMilliseconds;
-            if (totalMilliseconds < -1 || totalMilliseconds > int.MaxValue)
-            {
-                throw new ArgumentOutOfRangeException(nameof(timeout));
-            }
+            ArgumentOutOfRangeException.ThrowIfLessThan(totalMilliseconds, -1, nameof(timeout));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(totalMilliseconds, int.MaxValue, nameof(timeout));
 
             return Wait((int)totalMilliseconds, CancellationToken.None);
         }
@@ -486,13 +482,14 @@ namespace System.Threading
         /// disposed.</exception>
         /// <exception cref="System.OperationCanceledException"><paramref name="cancellationToken"/> has
         /// been canceled.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
+        [UnsupportedOSPlatform("browser")]
+#endif
         public bool Wait(TimeSpan timeout, CancellationToken cancellationToken)
         {
             long totalMilliseconds = (long)timeout.TotalMilliseconds;
-            if (totalMilliseconds < -1 || totalMilliseconds > int.MaxValue)
-            {
-                throw new ArgumentOutOfRangeException(nameof(timeout));
-            }
+            ArgumentOutOfRangeException.ThrowIfLessThan(totalMilliseconds, -1, nameof(timeout));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(totalMilliseconds, int.MaxValue, nameof(timeout));
 
             return Wait((int)totalMilliseconds, cancellationToken);
         }
@@ -509,6 +506,9 @@ namespace System.Threading
         /// negative number other than -1, which represents an infinite time-out.</exception>
         /// <exception cref="System.ObjectDisposedException">The current instance has already been
         /// disposed.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
+        [UnsupportedOSPlatform("browser")]
+#endif
         public bool Wait(int millisecondsTimeout)
         {
             return Wait(millisecondsTimeout, CancellationToken.None);
@@ -531,14 +531,14 @@ namespace System.Threading
         /// disposed.</exception>
         /// <exception cref="System.OperationCanceledException"><paramref name="cancellationToken"/> has
         /// been canceled.</exception>
+#if !FEATURE_WASM_MANAGED_THREADS
+        [UnsupportedOSPlatform("browser")]
+#endif
         public bool Wait(int millisecondsTimeout, CancellationToken cancellationToken)
         {
-            if (millisecondsTimeout < -1)
-            {
-                throw new ArgumentOutOfRangeException(nameof(millisecondsTimeout));
-            }
+            ArgumentOutOfRangeException.ThrowIfLessThan(millisecondsTimeout, -1);
 
-            ThrowIfDisposed();
+            ObjectDisposedException.ThrowIf(_disposed, this);
             cancellationToken.ThrowIfCancellationRequested();
 
             // Check whether the event is already set.  This is checked instead of this.IsSet, as this.Signal
@@ -556,21 +556,6 @@ namespace System.Threading
             }
 
             return returnValue;
-        }
-
-        // --------------------------------------
-        // Private methods
-
-
-        /// <summary>
-        /// Throws an exception if the latch has been disposed.
-        /// </summary>
-        private void ThrowIfDisposed()
-        {
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(nameof(CountdownEvent));
-            }
         }
     }
 }

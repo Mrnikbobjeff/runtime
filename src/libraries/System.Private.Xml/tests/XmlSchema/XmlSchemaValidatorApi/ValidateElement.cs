@@ -1,13 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections;
 using System.IO;
 using System.Xml.Schema;
+using System.Xml.Tests;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlSchemaValidatorApiTests
 {
     // ===================== ValidateElement =====================
 
@@ -52,7 +52,7 @@ namespace System.Xml.Tests
                 return;
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         [Theory]
@@ -93,7 +93,7 @@ namespace System.Xml.Tests
                 return;
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         [Theory]
@@ -242,7 +242,7 @@ namespace System.Xml.Tests
         [Theory]
         [InlineData(null)]
         [InlineData("false")]
-        public void CallWith_Null_False_XsiNil(string xsiNil)
+        public void CallWith_Null_False_XsiNil(string? xsiNil)
         {
             XmlSchemaValidator val;
             XmlSchemaInfo info = new XmlSchemaInfo();
@@ -265,7 +265,7 @@ namespace System.Xml.Tests
                 return;
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         [Fact]
@@ -290,7 +290,6 @@ namespace System.Xml.Tests
         public void ProvideValidXsiType()
         {
             XmlSchemaValidator val;
-            XmlSchemaInfo info = new XmlSchemaInfo();
             XmlNamespaceManager ns = new XmlNamespaceManager(new NameTable());
             XmlSchemaSet schemas = new XmlSchemaSet();
 
@@ -308,7 +307,6 @@ namespace System.Xml.Tests
         public void ProvideInvalidXsiType()
         {
             XmlSchemaValidator val;
-            XmlSchemaInfo info = new XmlSchemaInfo();
             XmlNamespaceManager ns = new XmlNamespaceManager(new NameTable());
             XmlSchemaSet schemas = new XmlSchemaSet();
 
@@ -327,7 +325,7 @@ namespace System.Xml.Tests
                 _exVerifier.IsExceptionOk(e, "Sch_XsiTypeNotFound", new string[] { "type1" });
                 return;
             }
-            Assert.True(false);
+            Assert.Fail();
         }
 
         [Fact]
@@ -610,7 +608,7 @@ namespace System.Xml.Tests
                 }
                 catch (XmlSchemaValidationException e) { _output.WriteLine(e.Message); return; }
             }
-            Assert.True(false);
+            Assert.Fail();
         }
     }
 }

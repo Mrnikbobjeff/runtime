@@ -14,9 +14,6 @@ namespace System.Net.Tests
     [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))] // httpsys component missing in Nano.
     public class HttpListenerWebSocketTests : IDisposable
     {
-        public static bool IsNotWindows7 { get; } = !PlatformDetection.IsWindows7;
-        public static bool IsNotWindows7AndIsWindowsImplementation => IsNotWindows7 && Helpers.IsWindowsImplementation;
-
         private HttpListenerFactory Factory { get; }
         private HttpListener Listener { get; }
         private ClientWebSocket Client { get; }
@@ -35,7 +32,7 @@ namespace System.Net.Tests
             Client.Dispose();
         }
 
-        [ConditionalTheory(nameof(IsNotWindows7))]
+        [Theory]
         [InlineData(WebSocketMessageType.Text, false)]
         [InlineData(WebSocketMessageType.Binary, false)]
         [InlineData(WebSocketMessageType.Text, true)]
@@ -60,14 +57,14 @@ namespace System.Net.Tests
             Assert.Equal(Text, Encoding.ASCII.GetString(receivedBytes));
         }
 
-        [ConditionalFact(nameof(IsNotWindows7))]
+        [Fact]
         public async Task SendAsync_NoInnerBuffer_ThrowsArgumentNullException()
         {
             HttpListenerWebSocketContext context = await GetWebSocketContext();
             await AssertExtensions.ThrowsAsync<ArgumentNullException>("buffer.Array", () => context.WebSocket.SendAsync(new ArraySegment<byte>(), WebSocketMessageType.Text, false, new CancellationToken()));
         }
 
-        [ConditionalTheory(nameof(IsNotWindows7))]
+        [Theory]
         [InlineData(WebSocketMessageType.Close)]
         [InlineData(WebSocketMessageType.Text - 1)]
         public async Task SendAsync_InvalidMessageType_ThrowsArgumentNullException(WebSocketMessageType messageType)
@@ -76,7 +73,7 @@ namespace System.Net.Tests
             await AssertExtensions.ThrowsAsync<ArgumentException>("messageType", () => context.WebSocket.SendAsync(new ArraySegment<byte>(), messageType, false, new CancellationToken()));
         }
 
-        [ConditionalFact(nameof(IsNotWindows7AndIsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22014", TestPlatforms.AnyUnix)]
+        [ConditionalFact(typeof(Helpers), nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22014", TestPlatforms.AnyUnix)]
         public async Task SendAsync_Disposed_ThrowsObjectDisposedException()
         {
             HttpListenerWebSocketContext context = await GetWebSocketContext();
@@ -85,7 +82,7 @@ namespace System.Net.Tests
             await Assert.ThrowsAsync<ObjectDisposedException>(() => context.WebSocket.SendAsync(new ArraySegment<byte>(new byte[10]), WebSocketMessageType.Text, false, new CancellationToken()));
         }
 
-        [ConditionalTheory(nameof(IsNotWindows7))]
+        [Theory]
         [InlineData(WebSocketMessageType.Text, false)]
         [InlineData(WebSocketMessageType.Binary, false)]
         [InlineData(WebSocketMessageType.Text, true)]
@@ -110,7 +107,7 @@ namespace System.Net.Tests
             Assert.Equal(Text, Encoding.ASCII.GetString(receivedBytes));
         }
 
-        [ConditionalTheory(nameof(IsNotWindows7))]
+        [Theory]
         [InlineData(300)]
         [InlineData(500)]
         [InlineData(1000)]
@@ -144,7 +141,7 @@ namespace System.Net.Tests
             Assert.Equal(sendString, msg);
         }
 
-        [ConditionalFact(nameof(IsNotWindows7))]
+        [Fact]
         public async Task ReceiveAsync_NoInnerBuffer_ThrowsArgumentNullException()
         {
             HttpListenerWebSocketContext context = await GetWebSocketContext();
@@ -153,7 +150,7 @@ namespace System.Net.Tests
             await AssertExtensions.ThrowsAsync<ArgumentNullException>("buffer.Array", () => context.WebSocket.ReceiveAsync(new ArraySegment<byte>(), new CancellationToken()));
         }
 
-        [ConditionalFact(nameof(IsNotWindows7AndIsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22014", TestPlatforms.AnyUnix)]
+        [ConditionalFact(typeof(Helpers), nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22014", TestPlatforms.AnyUnix)]
         public async Task ReceiveAsync_Disposed_ThrowsObjectDisposedException()
         {
             HttpListenerWebSocketContext context = await GetWebSocketContext();
@@ -169,7 +166,7 @@ namespace System.Net.Tests
             yield return new object[] { WebSocketCloseStatus.MandatoryExtension, "StatusDescription", WebSocketCloseStatus.MandatoryExtension };
         }
 
-        [ConditionalTheory(nameof(IsNotWindows7AndIsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22015", TestPlatforms.AnyUnix)]
+        [ConditionalTheory(typeof(Helpers), nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22015", TestPlatforms.AnyUnix)]
         [MemberData(nameof(CloseStatus_Valid_TestData))]
         public async Task CloseOutputAsync_HandshakeStartedFromClient_Success(WebSocketCloseStatus status, string statusDescription, WebSocketCloseStatus expectedCloseStatus)
         {
@@ -232,7 +229,7 @@ namespace System.Net.Tests
             await context.WebSocket.CloseOutputAsync(WebSocketCloseStatus.Empty, null, new CancellationToken());
         }
 
-        [ConditionalTheory(nameof(IsNotWindows7AndIsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22015", TestPlatforms.AnyUnix)]
+        [ConditionalTheory(typeof(Helpers), nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22015", TestPlatforms.AnyUnix)]
         [MemberData(nameof(CloseStatus_Valid_TestData))]
         public async Task CloseAsync_HandshakeStartedFromClient_Success(WebSocketCloseStatus status, string statusDescription, WebSocketCloseStatus expectedCloseStatus)
         {
@@ -305,7 +302,7 @@ namespace System.Net.Tests
             yield return new object[] { (WebSocketCloseStatus)1015, null, "closeStatus" };
         }
 
-        [ConditionalTheory(nameof(IsNotWindows7))]
+        [Theory]
         [MemberData(nameof(CloseStatus_Invalid_TestData))]
         public async Task CloseAsync_InvalidCloseStatus_ThrowsArgumentException(WebSocketCloseStatus status, string statusDescription, string paramName)
         {
@@ -315,7 +312,7 @@ namespace System.Net.Tests
             await Assert.ThrowsAsync<ArgumentException>(paramName, () => context.WebSocket.CloseOutputAsync(status, statusDescription, new CancellationToken()));
         }
 
-        [ConditionalFact(nameof(IsNotWindows7AndIsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22013", TestPlatforms.AnyUnix)]
+        [ConditionalFact(typeof(Helpers), nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22013", TestPlatforms.AnyUnix)]
         public async Task CloseAsync_AfterDisposed_Nop()
         {
             HttpListenerWebSocketContext context = await GetWebSocketContext();
@@ -325,7 +322,7 @@ namespace System.Net.Tests
             await context.WebSocket.CloseAsync(WebSocketCloseStatus.Empty, null, new CancellationToken());
         }
 
-        [ConditionalFact(nameof(IsNotWindows7AndIsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22013", TestPlatforms.AnyUnix)]
+        [ConditionalFact(typeof(Helpers), nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22013", TestPlatforms.AnyUnix)]
         public async Task CloseAsync_AfterAborted_Nop()
         {
             HttpListenerWebSocketContext context = await GetWebSocketContext();
@@ -335,7 +332,7 @@ namespace System.Net.Tests
             await context.WebSocket.CloseAsync(WebSocketCloseStatus.Empty, null, new CancellationToken());
         }
 
-        [ConditionalFact(nameof(IsNotWindows7AndIsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22016", TestPlatforms.AnyUnix)]
+        [ConditionalFact(typeof(Helpers), nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/22016", TestPlatforms.AnyUnix)]
         public async Task Dispose_CallAfterDisposed_Nop()
         {
             HttpListenerWebSocketContext context = await GetWebSocketContext();
@@ -349,7 +346,7 @@ namespace System.Net.Tests
             Assert.Equal(WebSocketState.Aborted, context.WebSocket.State);
         }
 
-        [ConditionalFact(nameof(IsNotWindows7))]
+        [Fact]
         public async Task Abort_CallAfterAborted_Nop()
         {
             HttpListenerWebSocketContext context = await GetWebSocketContext();
@@ -361,6 +358,87 @@ namespace System.Net.Tests
 
             context.WebSocket.Dispose();
             Assert.Equal(WebSocketState.Aborted, context.WebSocket.State);
+        }
+
+        [ConditionalFact(typeof(Helpers), nameof(Helpers.IsWindowsImplementation))]
+        public async Task CloseAsync_ConcurrentWithCloseFrameFromClient_DoesNotDeadlock()
+        {
+            // Closing a WebSocket from both ends at the same time used to deadlock: the thread processing
+            // an incoming close frame holds the session handle lock while acquiring the state lock, while
+            // CloseAsync held the state lock while acquiring the session handle lock.
+            const int Iterations = 100;
+            Random random = new Random(42);
+
+            for (int i = 0; i < Iterations; i++)
+            {
+                using ClientWebSocket client = new ClientWebSocket();
+                HttpListenerWebSocketContext context = await GetWebSocketContext(client);
+                WebSocket server = context.WebSocket;
+
+                // The pending receive makes a separate thread process the close frame sent by the client.
+                Task serverReceiveTask = IgnoreExpectedExceptionsAsync(
+                    server.ReceiveAsync(new ArraySegment<byte>(new byte[16]), CancellationToken.None));
+
+                Task clientCloseTask = IgnoreExpectedExceptionsAsync(
+                    client.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None));
+
+                // Sweep the (very short) window in which the deadlock can happen.
+                Thread.SpinWait(random.Next(200_000));
+
+                Task serverCloseTask = IgnoreExpectedExceptionsAsync(Task.Run(
+                    () => server.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None)));
+
+                Task allTasks = Task.WhenAll(serverReceiveTask, clientCloseTask, serverCloseTask);
+                await allTasks.WaitAsync(TimeSpan.FromSeconds(30));
+
+                server.Dispose();
+            }
+
+            static async Task IgnoreExpectedExceptionsAsync(Task task)
+            {
+                try
+                {
+                    await task;
+                }
+                catch (Exception e) when (e is WebSocketException or InvalidOperationException or ObjectDisposedException or OperationCanceledException)
+                {
+                }
+            }
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsWindows))]
+        public async Task ReceiveAsync_ReadBuffer_WithWindowsAuthScheme_Success()
+        {
+            HttpListenerFactory factory = new HttpListenerFactory(authenticationSchemes: AuthenticationSchemes.IntegratedWindowsAuthentication);
+            var uriBuilder = new UriBuilder(factory.ListeningUrl) { Scheme = "ws" };
+            Task<HttpListenerContext> serverContextTask = factory.GetListener().GetContextAsync();
+            ClientWebSocket client = new ClientWebSocket();
+            client.Options.Credentials = CredentialCache.DefaultCredentials;
+
+            Task clientConnectTask = client.ConnectAsync(uriBuilder.Uri, CancellationToken.None);
+            if (clientConnectTask == await Task.WhenAny(serverContextTask, clientConnectTask))
+            {
+                await clientConnectTask;
+                Assert.Fail("Client should not have completed prior to server sending response");
+            }
+
+            HttpListenerContext context = await serverContextTask;
+            HttpListenerWebSocketContext wsContext = await context.AcceptWebSocketAsync(null);
+            await clientConnectTask;
+
+            const string Text = "Hello Web Socket";
+            byte[] sentBytes = Encoding.ASCII.GetBytes(Text);
+
+            await client.SendAsync(new ArraySegment<byte>(sentBytes), WebSocketMessageType.Text, true, new CancellationToken());
+
+            byte[] receivedBytes = new byte[sentBytes.Length];
+            WebSocketReceiveResult result = await ReceiveAllAsync(wsContext.WebSocket, receivedBytes.Length, receivedBytes);
+            Assert.Equal(WebSocketMessageType.Text, result.MessageType);
+            Assert.True(result.EndOfMessage);
+            Assert.Null(result.CloseStatus);
+            Assert.Null(result.CloseStatusDescription);
+
+            Assert.Equal(Text, Encoding.ASCII.GetString(receivedBytes));
         }
 
         private static async Task<WebSocketReceiveResult> ReceiveAllAsync(WebSocket webSocket, int expectedBytes, byte[] buffer)
@@ -392,11 +470,29 @@ namespace System.Net.Tests
             if (ClientConnectTask == await Task.WhenAny(serverContextTask, ClientConnectTask))
             {
                 await ClientConnectTask;
-                Assert.True(false, "Client should not have completed prior to server sending response");
+                Assert.Fail("Client should not have completed prior to server sending response");
             }
 
             HttpListenerContext context = await serverContextTask;
             return await context.AcceptWebSocketAsync(null);
+        }
+
+        private async Task<HttpListenerWebSocketContext> GetWebSocketContext(ClientWebSocket client)
+        {
+            var uriBuilder = new UriBuilder(Factory.ListeningUrl) { Scheme = "ws" };
+            Task<HttpListenerContext> serverContextTask = Factory.GetListener().GetContextAsync();
+
+            Task clientConnectTask = client.ConnectAsync(uriBuilder.Uri, CancellationToken.None);
+            if (clientConnectTask == await Task.WhenAny(serverContextTask, clientConnectTask))
+            {
+                await clientConnectTask;
+                Assert.Fail("Client should not have completed prior to server sending response");
+            }
+
+            HttpListenerContext context = await serverContextTask;
+            HttpListenerWebSocketContext webSocketContext = await context.AcceptWebSocketAsync(null);
+            await clientConnectTask;
+            return webSocketContext;
         }
     }
 }

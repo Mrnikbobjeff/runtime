@@ -3,8 +3,9 @@
 //
 
 using System;
+using Xunit;
 
-namespace ShiftTest
+namespace JitTest_Directed_shift_int16
 {
     public class CL
     {
@@ -27,7 +28,9 @@ namespace ShiftTest
             arg_data <<= 4;
             return arg_data;
         }
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             short loc_data = 0x7FFF;
 
@@ -47,7 +50,7 @@ namespace ShiftTest
             Console.WriteLine("The expected result of (0x7FFF>>4) is: {0}", (0x7FFF >> 4));
             Console.WriteLine();
 
-            Console.WriteLine("The actual result for funciton argument is: {0}", f1(0x7FFF));
+            Console.WriteLine("The actual result for function argument is: {0}", f1(0x7FFF));
             loc_data >>= 4;
             Console.WriteLine("The actual result for local variable is: {0}", loc_data);
             s_data >>= 4;
@@ -103,7 +106,7 @@ namespace ShiftTest
             Console.WriteLine("The expected result of (0x1<<4) is: {0}", ((short)0x1 << 4));
             Console.WriteLine();
 
-            Console.WriteLine("The actual result for funciton argument is: {0}", f2(0x1));
+            Console.WriteLine("The actual result for function argument is: {0}", f2(0x1));
             loc_data <<= 4;
             Console.WriteLine("The actual result for local variable is: {0}", loc_data);
             s_data <<= 4;

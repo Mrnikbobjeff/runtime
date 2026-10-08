@@ -131,17 +131,15 @@ namespace MS.Internal.Xml.XPath
             Debug.Assert(_argList.Count > 1);
             string s1 = _argList[0].Evaluate(nodeIterator).ToString()!;
             string s2 = _argList[1].Evaluate(nodeIterator).ToString()!;
-            return s1.Length >= s2.Length && string.CompareOrdinal(s1, 0, s2, 0, s2.Length) == 0;
+            return s1.StartsWith(s2, StringComparison.Ordinal);
         }
-
-        private static readonly CompareInfo s_compareInfo = CultureInfo.InvariantCulture.CompareInfo;
 
         private bool Contains(XPathNodeIterator nodeIterator)
         {
             Debug.Assert(_argList.Count > 1);
             string s1 = _argList[0].Evaluate(nodeIterator).ToString()!;
             string s2 = _argList[1].Evaluate(nodeIterator).ToString()!;
-            return s_compareInfo.IndexOf(s1, s2, CompareOptions.Ordinal) >= 0;
+            return s1.Contains(s2);
         }
 
         private string SubstringBefore(XPathNodeIterator nodeIterator)
@@ -150,7 +148,7 @@ namespace MS.Internal.Xml.XPath
             string s1 = _argList[0].Evaluate(nodeIterator).ToString()!;
             string s2 = _argList[1].Evaluate(nodeIterator).ToString()!;
             if (s2.Length == 0) { return s2; }
-            int idx = s_compareInfo.IndexOf(s1, s2, CompareOptions.Ordinal);
+            int idx = s1.AsSpan().IndexOf(s2);
             return (idx < 1) ? string.Empty : s1.Substring(0, idx);
         }
 
@@ -160,7 +158,7 @@ namespace MS.Internal.Xml.XPath
             string s1 = _argList[0].Evaluate(nodeIterator).ToString()!;
             string s2 = _argList[1].Evaluate(nodeIterator).ToString()!;
             if (s2.Length == 0) { return s1; }
-            int idx = s_compareInfo.IndexOf(s1, s2, CompareOptions.Ordinal);
+            int idx = s1.AsSpan().IndexOf(s2);
             return (idx < 0) ? string.Empty : s1.Substring(idx + s2.Length);
         }
 
@@ -230,11 +228,10 @@ namespace MS.Internal.Xml.XPath
             int modifyPos = -1;
             char[] chars = value.ToCharArray();
             bool firstSpace = false; // Start false to trim the beginning
-            XmlCharType xmlCharType = XmlCharType.Instance;
 
             for (int comparePos = 0; comparePos < chars.Length; comparePos++)
             {
-                if (!xmlCharType.IsWhiteSpace(chars[comparePos]))
+                if (!XmlCharType.IsWhiteSpace(chars[comparePos]))
                 {
                     firstSpace = true;
                     modifyPos++;

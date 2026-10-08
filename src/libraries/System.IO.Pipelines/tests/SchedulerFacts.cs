@@ -44,7 +44,7 @@ namespace System.IO.Pipelines.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task UseSynchronizationContextFalseIgnoresSyncContextForReaderScheduler()
         {
             SynchronizationContext previous = SynchronizationContext.Current;
@@ -68,7 +68,7 @@ namespace System.IO.Pipelines.Tests
                 Task reading = doRead();
 
                 PipeWriter buffer = pipe.Writer;
-                buffer.Write(Encoding.UTF8.GetBytes("Hello World"));
+                buffer.Write("Hello World"u8.ToArray());
 
                 // Don't run code on our sync context (we just want to make sure the callbacks)
                 // are scheduled on the sync context
@@ -88,7 +88,7 @@ namespace System.IO.Pipelines.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task DefaultReaderSchedulerRunsOnSynchronizationContext()
         {
             SynchronizationContext previous = SynchronizationContext.Current;
@@ -112,7 +112,7 @@ namespace System.IO.Pipelines.Tests
                 Task reading = doRead();
 
                 PipeWriter buffer = pipe.Writer;
-                buffer.Write(Encoding.UTF8.GetBytes("Hello World"));
+                buffer.Write("Hello World"u8.ToArray());
 
                 // Don't run code on our sync context (we just want to make sure the callbacks)
                 // are scheduled on the sync context
@@ -132,7 +132,7 @@ namespace System.IO.Pipelines.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task DefaultReaderSchedulerIgnoresSyncContextIfConfigureAwaitFalse()
         {
             // Get off the xunit sync context
@@ -160,7 +160,7 @@ namespace System.IO.Pipelines.Tests
                 Task reading = doRead();
 
                 PipeWriter buffer = pipe.Writer;
-                buffer.Write(Encoding.UTF8.GetBytes("Hello World"));
+                buffer.Write("Hello World"u8.ToArray());
 
                 // We don't want to run any code on our fake sync context
                 await buffer.FlushAsync().ConfigureAwait(false);
@@ -180,7 +180,7 @@ namespace System.IO.Pipelines.Tests
 
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task DefaultReaderSchedulerRunsOnThreadPool()
         {
             var pipe = new Pipe(new PipeOptions(useSynchronizationContext: false));
@@ -201,7 +201,7 @@ namespace System.IO.Pipelines.Tests
             Task reading = ExecuteOnNonThreadPoolThread(doRead);
 
             PipeWriter buffer = pipe.Writer;
-            buffer.Write(Encoding.UTF8.GetBytes("Hello World"));
+            buffer.Write("Hello World"u8.ToArray());
             await buffer.FlushAsync();
 
             pipe.Writer.Complete();
@@ -209,7 +209,7 @@ namespace System.IO.Pipelines.Tests
             await reading;
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task DefaultWriterSchedulerRunsOnThreadPool()
         {
             using (var pool = new TestMemoryPool())
@@ -250,7 +250,7 @@ namespace System.IO.Pipelines.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task UseSynchronizationContextFalseIgnoresSyncContextForWriterScheduler()
         {
             SynchronizationContext previous = SynchronizationContext.Current;
@@ -357,7 +357,7 @@ namespace System.IO.Pipelines.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task DefaultWriterSchedulerIgnoresSynchronizationContext()
         {
             SynchronizationContext previous = SynchronizationContext.Current;
@@ -410,7 +410,7 @@ namespace System.IO.Pipelines.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task FlushCallbackRunsOnWriterScheduler()
         {
             using (var pool = new TestMemoryPool())
@@ -439,7 +439,7 @@ namespace System.IO.Pipelines.Tests
 
                         pipe.Writer.Complete();
 
-                        Assert.Equal(Thread.CurrentThread.ManagedThreadId, scheduler.Thread.ManagedThreadId);
+                        Assert.Equal(Environment.CurrentManagedThreadId, scheduler.Thread.ManagedThreadId);
                     };
 
                     Task writing = ExecuteOnNonThreadPoolThread(doWrite);
@@ -455,7 +455,7 @@ namespace System.IO.Pipelines.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task ReadAsyncCallbackRunsOnReaderScheduler()
         {
             using (var pool = new TestMemoryPool())
@@ -470,7 +470,7 @@ namespace System.IO.Pipelines.Tests
 
                         ReadResult result = await pipe.Reader.ReadAsync();
 
-                        Assert.Equal(Thread.CurrentThread.ManagedThreadId, scheduler.Thread.ManagedThreadId);
+                        Assert.Equal(Environment.CurrentManagedThreadId, scheduler.Thread.ManagedThreadId);
 
                         pipe.Reader.AdvanceTo(result.Buffer.End, result.Buffer.End);
 
@@ -480,7 +480,7 @@ namespace System.IO.Pipelines.Tests
                     Task reading = ExecuteOnNonThreadPoolThread(doRead);
 
                     PipeWriter buffer = pipe.Writer;
-                    buffer.Write(Encoding.UTF8.GetBytes("Hello World"));
+                    buffer.Write("Hello World"u8.ToArray());
                     await buffer.FlushAsync();
 
                     await reading;
@@ -488,7 +488,7 @@ namespace System.IO.Pipelines.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task ThreadPoolScheduler_SchedulesOnThreadPool()
         {
             var pipe = new Pipe(new PipeOptions(readerScheduler: PipeScheduler.ThreadPool, writerScheduler: PipeScheduler.Inline, useSynchronizationContext: false));
@@ -525,7 +525,7 @@ namespace System.IO.Pipelines.Tests
             null);
 #pragma warning restore CS0618 // Type or member is obsolete
 
-            buffer.Write(Encoding.UTF8.GetBytes("Hello World"));
+            buffer.Write("Hello World"u8.ToArray());
             await buffer.FlushAsync();
 
             await reading;

@@ -1,8 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Xml;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.Serialization;
+using System.Xml;
 
 namespace System.ServiceModel.Syndication
 {
@@ -18,7 +19,9 @@ namespace System.ServiceModel.Syndication
 
         protected SyndicationItemFormatter(SyndicationItem itemToWrite)
         {
-            _item = itemToWrite ?? throw new ArgumentNullException(nameof(itemToWrite));
+            ArgumentNullException.ThrowIfNull(itemToWrite);
+
+            _item = itemToWrite;
         }
 
         public SyndicationItem Item => _item;
@@ -35,10 +38,12 @@ namespace System.ServiceModel.Syndication
 
         protected internal virtual void SetItem(SyndicationItem item)
         {
-            _item = item ?? throw new ArgumentNullException(nameof(item));
+            ArgumentNullException.ThrowIfNull(item);
+
+            _item = item;
         }
 
-        internal static SyndicationItem CreateItemInstance(Type itemType)
+        internal static SyndicationItem CreateItemInstance([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type itemType)
         {
             if (itemType.Equals(typeof(SyndicationItem)))
             {

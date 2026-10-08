@@ -15,7 +15,7 @@ namespace System.Text.Json.Serialization
     /// <see cref="JsonSerializerOptions.Converters"/> or there is another <see cref="JsonConverterAttribute"/> on a property or field
     /// of the same type.
     /// </remarks>
-    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Struct | AttributeTargets.Enum | AttributeTargets.Property | AttributeTargets.Field, AllowMultiple = false)]
+    [AttributeUsage(AttributeTargets.Class | AttributeTargets.Interface | AttributeTargets.Struct | AttributeTargets.Enum | AttributeTargets.Property | AttributeTargets.Field, AllowMultiple = false)]
     public class JsonConverterAttribute : JsonAttribute
     {
         /// <summary>
@@ -36,7 +36,7 @@ namespace System.Text.Json.Serialization
         /// The type of the converter to create, or null if <see cref="CreateConverter(Type)"/> should be used to obtain the converter.
         /// </summary>
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
-        public Type? ConverterType { get; private set; }
+        public Type? ConverterType { get; }
 
         /// <summary>
         /// If overridden and <see cref="ConverterType"/> is null, allows a custom attribute to create the converter in order to pass additional state.

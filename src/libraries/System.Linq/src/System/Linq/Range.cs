@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Numerics;
 
 namespace System.Linq
 {
@@ -18,43 +19,44 @@ namespace System.Linq
 
             if (count == 0)
             {
-                return Empty<int>();
+                return [];
             }
 
-            return new RangeIterator(start, count);
+            return new RangeIterator<int>(start, start + count);
         }
 
         /// <summary>
         /// An iterator that yields a range of consecutive integers.
         /// </summary>
         [DebuggerDisplay("Count = {CountForDebugger}")]
-        private sealed partial class RangeIterator : Iterator<int>
+        private sealed partial class RangeIterator<T> : Iterator<T> where T : INumber<T>
         {
-            private readonly int _start;
-            private readonly int _end;
+            private readonly T _start;
+            private readonly T _endExclusive;
 
-            public RangeIterator(int start, int count)
+            public RangeIterator(T start, T endExclusive)
             {
-                Debug.Assert(count > 0);
+                Debug.Assert(int.CreateChecked(endExclusive - start) >= 0);
                 _start = start;
-                _end = unchecked(start + count);
+                _endExclusive = endExclusive;
             }
 
-            private int CountForDebugger => _end - _start;
+            private int CountForDebugger => int.CreateTruncating(_endExclusive - _start);
 
-            public override Iterator<int> Clone() => new RangeIterator(_start, _end - _start);
+            private protected override Iterator<T> Clone() => new RangeIterator<T>(_start, _endExclusive);
 
             public override bool MoveNext()
             {
                 switch (_state)
                 {
                     case 1:
-                        Debug.Assert(_start != _end);
+                        Debug.Assert(_start != _endExclusive);
                         _current = _start;
                         _state = 2;
                         return true;
+
                     case 2:
-                        if (unchecked(++_current) == _end)
+                        if (++_current == _endExclusive)
                         {
                             break;
                         }
@@ -69,6 +71,32 @@ namespace System.Linq
             public override void Dispose()
             {
                 _state = -1; // Don't reset current
+            }
+        }
+
+        /// <summary>Fills the <paramref name="destination"/> with incrementing numbers, starting from <paramref name="value"/>.</summary>
+        private static void FillIncrementing<T>(Span<T> destination, T value) where T : INumber<T>
+        {
+            if (Vector.IsHardwareAccelerated &&
+                Vector<T>.IsSupported &&
+                destination.Length >= Vector<T>.Count)
+            {
+                Vector<T> current = new Vector<T>(value) + Vector<T>.Indices;
+                Vector<T> increment = new Vector<T>(T.CreateTruncating(Vector<T>.Count));
+
+                while (destination.Length >= Vector<T>.Count)
+                {
+                    current.CopyTo(destination);
+                    current += increment;
+                    destination = destination.Slice(Vector<T>.Count);
+                }
+
+                value = current[0];
+            }
+
+            foreach (ref T slot in destination)
+            {
+                slot = value++;
             }
         }
     }

@@ -41,6 +41,8 @@ namespace System.Reflection.Emit.Tests
 
     public static class Helpers
     {
+        public const string s_512Chars = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
         public const BindingFlags AllFlags = BindingFlags.Static | BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
 
         public static AssemblyBuilder DynamicAssembly(string name = "TestAssembly", AssemblyBuilderAccess access = AssemblyBuilderAccess.Run)
@@ -54,9 +56,16 @@ namespace System.Reflection.Emit.Tests
             return DynamicAssembly(assemblyName).DefineDynamicModule(moduleName);
         }
 
-        public static TypeBuilder DynamicType(TypeAttributes attributes, string assemblyName = "TestAssembly", string moduleName = "TestModule", string typeName = "TestType")
+        public static TypeBuilder DynamicType(TypeAttributes attributes, string assemblyName = "TestAssembly", string moduleName = "TestModule", string typeName = "TestType", Type? baseType = null)
         {
-            return DynamicModule(assemblyName, moduleName).DefineType(typeName, attributes);
+            if (baseType is null)
+            {
+                return DynamicModule(assemblyName, moduleName).DefineType(typeName, attributes);
+            }
+            else
+            {
+                return DynamicModule(assemblyName, moduleName).DefineType(typeName, attributes, baseType);
+            }
         }
 
         public static EnumBuilder DynamicEnum(TypeAttributes visibility, Type underlyingType, string enumName = "TestEnum", string assemblyName = "TestAssembly", string moduleName = "TestModule")
@@ -91,17 +100,16 @@ namespace System.Reflection.Emit.Tests
 
             if (declaringType == null && !type.IsInterface && (implementedInterfaces == null || implementedInterfaces.Length == 0))
             {
-                Type createdType = type.CreateTypeInfo().AsType();
+                Type createdType = type.CreateType();
                 Assert.Equal(createdType, module.GetType(name, false, false));
                 Assert.Equal(createdType, module.GetType(name, true, false));
 
                 Assert.Equal(type.AsType().GetNestedTypes(AllFlags), createdType.GetNestedTypes(AllFlags));
                 Assert.Equal(type.AsType().GetNestedType(name, AllFlags), createdType.GetNestedType(name, AllFlags));
 
-                // [ActiveIssue("https://github.com/dotnet/runtime/issues/18231", TestPlatforms.AnyUnix)]
-                // Assert.Equal(createdType, module.GetType(name, true, true));
-                // Assert.Equal(createdType, module.GetType(name.ToLowerInvariant(), true, true));
-                // Assert.Equal(createdType, module.GetType(name.ToUpperInvariant(), true, true));
+                Assert.Equal(createdType, module.GetType(name, true, true));
+                Assert.Equal(createdType, module.GetType(name.ToLowerInvariant(), true, true));
+                Assert.Equal(createdType, module.GetType(name.ToUpperInvariant(), true, true));
             }
         }
 
@@ -119,7 +127,7 @@ namespace System.Reflection.Emit.Tests
             Assert.Throws<NotSupportedException>(() => constructor.Invoke(null));
             Assert.Throws<NotSupportedException>(() => constructor.Invoke(null, null));
 
-            Type createdType = type.CreateTypeInfo().AsType();
+            Type createdType = type.CreateType();
             Assert.Equal(type.AsType().GetConstructors(AllFlags), createdType.GetConstructors(AllFlags));
             Assert.Equal(type.AsType().GetConstructor(parameterTypes), createdType.GetConstructor(parameterTypes));
 
@@ -155,5 +163,66 @@ namespace System.Reflection.Emit.Tests
             }
             return name;
         }
+    }
+
+    public static class ModifiedTypeHelpers
+    {
+        public class FunctionPointer : TypeDelegator
+        {
+            private readonly Type[] callingConventions;
+            private readonly Type returnType;
+            private readonly Type[] parameterTypes;
+            private readonly Type[] requiredModifiers;
+            private readonly Type[] optionalModifiers;
+
+            public FunctionPointer(
+                Type baseFunctionPointerType,
+                Type[]? conventions = null,
+                Type? customReturnType = null,
+                Type[]? customParameterTypes = null,
+                Type[]? fnPtrRequiredMods = null,
+                Type[]? fnPtrOptionalMods = null)
+                : base(baseFunctionPointerType)
+            {
+                callingConventions = conventions ?? [];
+                returnType = customReturnType ?? baseFunctionPointerType.GetFunctionPointerReturnType();
+                parameterTypes = customParameterTypes ?? baseFunctionPointerType.GetFunctionPointerParameterTypes();
+                requiredModifiers = fnPtrRequiredMods ?? [];
+                optionalModifiers = fnPtrOptionalMods ?? [];
+            }
+
+            public override Type[] GetFunctionPointerCallingConventions() => callingConventions;
+            public override Type GetFunctionPointerReturnType() => returnType;
+            public override Type[] GetFunctionPointerParameterTypes() => parameterTypes;
+            public override Type[] GetRequiredCustomModifiers() => requiredModifiers;
+            public override Type[] GetOptionalCustomModifiers() => optionalModifiers;
+        }
+
+        public class ModifiedType : TypeDelegator
+        {
+            private readonly Type[] requiredModifiers;
+            private readonly Type[] optionalModifiers;
+
+            public ModifiedType(Type delegatingType, Type[]? requiredMods = null, Type[]? optionalMods = null)
+                : base(delegatingType)
+            {
+                requiredModifiers = requiredMods ?? [];
+                optionalModifiers = optionalMods ?? [];
+            }
+
+            public override Type[] GetRequiredCustomModifiers() => requiredModifiers;
+            public override Type[] GetOptionalCustomModifiers() => optionalModifiers;
+        }
+    }
+
+    public unsafe class ClassWithFunctionPointers
+    {
+        public static delegate*<int, int, int> FuncManaged;
+        public static int Add(int a, int b) => a + b;
+        public static void Init() => FuncManaged = &Add;
+
+        public static delegate* unmanaged[Cdecl]<string, bool> FuncUnmanaged1;
+        public static delegate* unmanaged[Fastcall, SuppressGCTransition]<int, void> FuncUnmanaged2;
+        public static delegate* unmanaged[Swift]<delegate* unmanaged[Stdcall, MemberFunction]<short, bool>, string> FuncUnmanaged3;
     }
 }

@@ -12,8 +12,8 @@
 
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Threading.Tasks.Dataflow.Internal;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading.Tasks.Dataflow.Internal;
 
 namespace System.Threading.Tasks.Dataflow
 {
@@ -90,6 +90,8 @@ namespace System.Threading.Tasks.Dataflow
         /// <exception cref="System.ArgumentNullException">The <paramref name="dataflowBlockOptions"/> is null (Nothing in Visual Basic).</exception>
         private TransformBlock(Func<TInput, TOutput>? transformSync, Func<TInput, Task<TOutput>>? transformAsync, ExecutionDataflowBlockOptions dataflowBlockOptions)
         {
+            ArgumentNullException.ThrowIfNull(dataflowBlockOptions);
+
             if (transformSync == null && transformAsync == null) throw new ArgumentNullException("transform");
             if (dataflowBlockOptions == null) throw new ArgumentNullException(nameof(dataflowBlockOptions));
 
@@ -101,18 +103,18 @@ namespace System.Threading.Tasks.Dataflow
             // Initialize onItemsRemoved delegate if necessary
             Action<ISourceBlock<TOutput>, int>? onItemsRemoved = null;
             if (dataflowBlockOptions.BoundedCapacity > 0)
-                onItemsRemoved = (owningSource, count) => ((TransformBlock<TInput, TOutput>)owningSource)._target.ChangeBoundingCount(-count);
+                onItemsRemoved = static (owningSource, count) => ((TransformBlock<TInput, TOutput>)owningSource)._target.ChangeBoundingCount(-count);
 
             // Initialize source component.
             _source = new SourceCore<TOutput>(this, dataflowBlockOptions,
-                owningSource => ((TransformBlock<TInput, TOutput>)owningSource)._target.Complete(exception: null, dropPendingMessages: true),
+                static owningSource => ((TransformBlock<TInput, TOutput>)owningSource)._target.Complete(exception: null, dropPendingMessages: true),
                 onItemsRemoved);
 
             // If parallelism is employed, we will need to support reordering messages that complete out-of-order.
             // However, a developer can override this with EnsureOrdered == false.
             if (dataflowBlockOptions.SupportsParallelExecution && dataflowBlockOptions.EnsureOrdered)
             {
-                _reorderingBuffer = new ReorderingBuffer<TOutput>(this, (owningSource, message) => ((TransformBlock<TInput, TOutput>)owningSource)._source.AddMessage(message));
+                _reorderingBuffer = new ReorderingBuffer<TOutput>(this, static (owningSource, message) => ((TransformBlock<TInput, TOutput>)owningSource)._source.AddMessage(message));
             }
 
             // Create the underlying target
@@ -135,7 +137,7 @@ namespace System.Threading.Tasks.Dataflow
             // As the target has completed, and as the target synchronously pushes work
             // through the reordering buffer when async processing completes,
             // we know for certain that no more messages will need to be sent to the source.
-            _target.Completion.ContinueWith((completed, state) =>
+            _target.Completion.ContinueWith(static (completed, state) =>
             {
                 var sourceCore = (SourceCore<TOutput>)state!;
                 if (completed.IsFaulted) sourceCore.AddAndUnwrapAggregateException(completed.Exception!);
@@ -146,7 +148,7 @@ namespace System.Threading.Tasks.Dataflow
             // In those cases we need to fault the target half to drop its buffered messages and to release its
             // reservations. This should not create an infinite loop, because all our implementations are designed
             // to handle multiple completion requests and to carry over only one.
-            _source.Completion.ContinueWith((completed, state) =>
+            _source.Completion.ContinueWith(static (completed, state) =>
             {
                 var thisBlock = ((TransformBlock<TInput, TOutput>)state!) as IDataflowBlock;
                 Debug.Assert(completed.IsFaulted, "The source must be faulted in order to trigger a target completion.");
@@ -155,14 +157,12 @@ namespace System.Threading.Tasks.Dataflow
 
             // Handle async cancellation requests by declining on the target
             Common.WireCancellationToComplete(
-                dataflowBlockOptions.CancellationToken, Completion, state => ((TargetCore<TInput>)state!).Complete(exception: null, dropPendingMessages: true), _target);
-#if FEATURE_TRACING
+                dataflowBlockOptions.CancellationToken, Completion, static (state, _) => ((TargetCore<TInput>)state!).Complete(exception: null, dropPendingMessages: true), _target);
             DataflowEtwProvider etwLog = DataflowEtwProvider.Log;
             if (etwLog.IsEnabled())
             {
                 etwLog.DataflowBlockCreated(this, dataflowBlockOptions);
             }
-#endif
         }
 
         /// <summary>Processes the message with a user-provided transform function that returns a TOutput.</summary>
@@ -171,7 +171,7 @@ namespace System.Threading.Tasks.Dataflow
         private void ProcessMessage(Func<TInput, TOutput> transform, KeyValuePair<TInput, long> messageWithId)
         {
             // Process the input message to get the output message
-            TOutput outputItem = default(TOutput);
+            TOutput? outputItem = default(TOutput);
             bool itemIsValid = false;
             try
             {
@@ -245,7 +245,7 @@ namespace System.Threading.Tasks.Dataflow
                 }
 
                 // If there's a reordering buffer, notify it that this message is done.
-                if (_reorderingBuffer != null) _reorderingBuffer.IgnoreItem(messageWithId.Value);
+                _reorderingBuffer?.IgnoreItem(messageWithId.Value);
 
                 // Signal that we're done this async operation, and remove the bounding
                 // count for the input item that didn't yield any output.
@@ -254,7 +254,7 @@ namespace System.Threading.Tasks.Dataflow
             }
 
             // Otherwise, join with the asynchronous operation when it completes.
-            task.ContinueWith((completed, state) =>
+            task.ContinueWith(static (completed, state) =>
             {
                 var tuple = (Tuple<TransformBlock<TInput, TOutput>, KeyValuePair<TInput, long>>)state!;
                 tuple.Item1.AsyncCompleteProcessMessageWithTask(completed, tuple.Item2);
@@ -272,7 +272,7 @@ namespace System.Threading.Tasks.Dataflow
 
             bool isBounded = _target.IsBounded;
             bool gotOutputItem = false;
-            TOutput outputItem = default(TOutput);
+            TOutput? outputItem = default(TOutput);
 
             switch (completed.Status)
             {
@@ -332,7 +332,7 @@ namespace System.Threading.Tasks.Dataflow
         /// <include file='XmlDocs/CommonXmlDocComments.xml' path='CommonXmlDocComments/Blocks/Member[@name="Fault"]/*' />
         void IDataflowBlock.Fault(Exception exception)
         {
-            if (exception == null) throw new ArgumentNullException(nameof(exception));
+            ArgumentNullException.ThrowIfNull(exception);
 
             _target.Complete(exception, dropPendingMessages: true);
         }
@@ -394,16 +394,9 @@ namespace System.Threading.Tasks.Dataflow
         public override string ToString() { return Common.GetNameForDebugger(this, _source.DataflowBlockOptions); }
 
         /// <summary>The data to display in the debugger display attribute.</summary>
-        private object DebuggerDisplayContent
-        {
-            get
-            {
-                return string.Format("{0}, InputCount={1}, OutputCount={2}",
-                    Common.GetNameForDebugger(this, _source.DataflowBlockOptions),
-                    InputCountForDebugger,
-                    OutputCountForDebugger);
-            }
-        }
+        private object DebuggerDisplayContent =>
+            $"{Common.GetNameForDebugger(this, _source.DataflowBlockOptions)}, InputCount = {InputCountForDebugger}, OutputCount = {OutputCountForDebugger}";
+
         /// <summary>Gets the data to display in the debugger display attribute for this instance.</summary>
         object IDebuggerDisplay.Content { get { return DebuggerDisplayContent; } }
 

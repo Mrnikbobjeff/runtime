@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!-- 
     Microsoft ResX Schema 
@@ -119,6 +119,9 @@
   </resheader>
   <data name="Error_InvalidFilePath" xml:space="preserve">
     <value>File path must be a non-empty string.</value>
+  </data>
+  <data name="Error_InvalidTopLevelJSONElement" xml:space="preserve">
+    <value>Top-level JSON element must be an object. Instead, '{0}' was found.</value>
   </data>
   <data name="Error_JSONParseError" xml:space="preserve">
     <value>Could not parse the JSON file.</value>

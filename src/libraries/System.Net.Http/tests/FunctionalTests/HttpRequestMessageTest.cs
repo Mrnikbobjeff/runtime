@@ -3,6 +3,7 @@
 
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net.Http.Headers;
 using System.Net.Test.Common;
 using System.Threading.Tasks;
@@ -63,6 +64,17 @@ namespace System.Net.Http.Functional.Tests
         }
 
         [Fact]
+        public void Ctor_EmptyStringUri_Accepted()
+        {
+            var rm = new HttpRequestMessage(HttpMethod.Put, string.Empty);
+
+            Assert.Null(rm.RequestUri);
+            Assert.Equal(HttpMethod.Put, rm.Method);
+            Assert.Equal(_expectedRequestMessageVersion, rm.Version);
+            Assert.Null(rm.Content);
+        }
+
+        [Fact]
         public void Ctor_RelativeUri_CorrectValues()
         {
             var uri = new Uri("/relative", UriKind.Relative);
@@ -104,9 +116,9 @@ namespace System.Net.Http.Functional.Tests
         }
 
         [Fact]
-        public void Ctor_NonHttpUri_ThrowsArgumentException()
+        public void Ctor_NonHttpUri_DoesNotThrow()
         {
-            AssertExtensions.Throws<ArgumentException>("requestUri", () => new HttpRequestMessage(HttpMethod.Put, "ftp://example.com"));
+            new HttpRequestMessage(HttpMethod.Put, "ftp://example.com");
         }
 
         [Fact]
@@ -158,10 +170,10 @@ namespace System.Net.Http.Functional.Tests
         }
 
         [Fact]
-        public void RequestUri_SetNonHttpUri_ThrowsArgumentException()
+        public void RequestUri_SetNonHttpUri_DoesNotThrow()
         {
             var rm = new HttpRequestMessage();
-            AssertExtensions.Throws<ArgumentException>("value", () => { rm.RequestUri = new Uri("ftp://example.com"); });
+            rm.RequestUri = new Uri("ftp://example.com");
         }
 
         [Fact]
@@ -169,6 +181,16 @@ namespace System.Net.Http.Functional.Tests
         {
             var rm = new HttpRequestMessage();
             Assert.Throws<ArgumentNullException>(() => { rm.Version = null; });
+        }
+
+        [Theory]
+        [InlineData((HttpVersionPolicy)(-1))]
+        [InlineData((HttpVersionPolicy)3)]
+        [InlineData((HttpVersionPolicy)int.MaxValue)]
+        public void VersionPolicy_SetInvalidValue_ThrowsArgumentException(HttpVersionPolicy invalidValue)
+        {
+            var rm = new HttpRequestMessage();
+            AssertExtensions.Throws<ArgumentException>("value", () => rm.VersionPolicy = invalidValue);
         }
 
         [Fact]
@@ -203,24 +225,51 @@ namespace System.Net.Http.Functional.Tests
 
             rm.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/plain", 0.2));
             rm.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/xml", 0.1));
+            rm.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.5"); // validate this remains unparsed
             rm.Headers.Add("Custom-Request-Header", "value1");
             rm.Content.Headers.Add("Custom-Content-Header", "value2");
 
-            Assert.Equal(
-                "Method: PUT, RequestUri: 'http://a.com/', Version: 1.0, Content: " + typeof(StringContent).ToString() + ", Headers:" + Environment.NewLine +
-                "{" + Environment.NewLine +
-                "  Accept: text/plain; q=0.2" + Environment.NewLine +
-                "  Accept: text/xml; q=0.1" + Environment.NewLine +
-                "  Custom-Request-Header: value1" + Environment.NewLine +
-                "  Content-Type: text/plain; charset=utf-8" + Environment.NewLine +
-                "  Custom-Content-Header: value2" + Environment.NewLine +
-                "}", rm.ToString());
+            for (int i = 0; i < 2; i++) // make sure ToString() doesn't impact subsequent use
+            {
+                Assert.Equal(
+                    "Method: PUT, RequestUri: 'http://a.com/', Version: 1.0, Content: " + typeof(StringContent).ToString() + ", Headers:" + Environment.NewLine +
+                    "{" + Environment.NewLine +
+                    "  Accept: text/plain; q=0.2, text/xml; q=0.1" + Environment.NewLine +
+                    "  Accept-Language: en-US,en;q=0.5" + Environment.NewLine +
+                    "  Custom-Request-Header: value1" + Environment.NewLine +
+                    "  Content-Type: text/plain; charset=utf-8" + Environment.NewLine +
+                    "  Custom-Content-Header: value2" + Environment.NewLine +
+                    "}", rm.ToString());
+            }
+        }
+
+        [Fact]
+        public void ToString_HeadersDumpIsEquivalentToHttpHeadersDump()
+        {
+            var m = new HttpRequestMessage(HttpMethod.Get, "http://a.org/x");
+            m.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/plain", 0.2));
+            m.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("text/xml", 0.1));
+            m.Headers.ConnectionClose = true;
+            m.Headers.TryAddWithoutValidation("Accept-Language", "en-US,en;q=0.5");
+            m.Headers.TryAddWithoutValidation("Accept-Encoding", "gzip");
+            m.Headers.TryAddWithoutValidation("Accept-Encoding", "deflate");
+
+            _output.WriteLine(m.Headers.ToString());
+            _output.WriteLine(m.ToString());
+
+            // Add indentation:
+            string expected = string.Join(Environment.NewLine, m.Headers.ToString().Split(Environment.NewLine).Where(s => s.Length > 0).Select(s => "  " + s));
+            _output.WriteLine(expected);
+
+            Assert.Contains(expected, m.ToString());
         }
 
         [Theory]
         [InlineData("DELETE")]
         [InlineData("OPTIONS")]
         [InlineData("HEAD")]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86317", typeof(PlatformDetection), nameof(PlatformDetection.IsNodeJS))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/101115", typeof(PlatformDetection), nameof(PlatformDetection.IsFirefox))]
         public async Task HttpRequest_BodylessMethod_NoContentLength(string method)
         {
             using (HttpClient client = CreateHttpClient())
@@ -234,8 +283,39 @@ namespace System.Net.Http.Functional.Tests
                     Task<HttpResponseMessage> requestTask = client.SendAsync(request);
                     await server.AcceptConnectionAsync(async connection =>
                     {
-                        List<string> headers = await connection.ReadRequestHeaderAsync();
-                        Assert.DoesNotContain(headers, line => line.StartsWith("Content-length"));
+                        var requestData = await connection.ReadRequestDataAsync().ConfigureAwait(false);
+#if TARGET_BROWSER
+                        requestData = await connection.HandleCORSPreFlight(requestData);
+#endif
+
+                        Assert.DoesNotContain(requestData.Headers, line => line.Name.StartsWith("Content-length"));
+
+                        await connection.SendResponseAsync();
+                        await requestTask;
+                    });
+                });
+            }
+        }
+
+        [Fact]
+        public async Task HttpRequest_StringContent_WithoutMediaType()
+        {
+            using (HttpClient client = CreateHttpClient())
+            {
+                await LoopbackServer.CreateServerAsync(async (server, uri) =>
+                {
+                    var request = new HttpRequestMessage(HttpMethod.Post, uri);
+                    request.Content = new StringContent("", null, (MediaTypeHeaderValue)null);
+
+                    Task<HttpResponseMessage> requestTask = client.SendAsync(request);
+                    await server.AcceptConnectionAsync(async connection =>
+                    {
+                        var requestData = await connection.ReadRequestDataAsync().ConfigureAwait(false);
+#if TARGET_BROWSER
+                        requestData = await connection.HandleCORSPreFlight(requestData);
+#endif
+
+                        Assert.DoesNotContain(requestData.Headers, line => line.Name.StartsWith("Content-Type"));
 
                         await connection.SendResponseAsync();
                         await requestTask;

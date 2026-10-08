@@ -2,11 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b32801;
+
 using System;
+using Xunit;
 
 public class bug
 {
-    public static int Main(String[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         Decimal cur1 = new Decimal(UInt32.MaxValue);
         Console.WriteLine("The decimal value is: " + cur1);

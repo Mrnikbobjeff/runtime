@@ -3,6 +3,7 @@
 
 using Profiler.Tests;
 using System;
+using System.Buffers;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics.Tracing;
@@ -11,6 +12,7 @@ using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Diagnostics.NETCore.Client;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Etlx;
@@ -35,6 +37,8 @@ namespace EventPipeTests
 
         public static int RunTest()
         {
+            ArrayPool<char>.Shared.Rent(1); // workaround for https://github.com/dotnet/runtime/issues/1892
+
             bool success = true;
             int allTypesEventCount = 0;
             int arrayTypeEventCount = 0;
@@ -49,7 +53,18 @@ namespace EventPipeTests
 
                 using (EventPipeSession session = ProfilerControlHelpers.AttachEventPipeSessionToSelf(providers))
                 {
-                    TriggerMethod();
+                    using (EventPipeSession session2 = ProfilerControlHelpers.AttachEventPipeSessionToSelf(providers))
+                    {
+                        // Trigger multiple session logic
+                        Console.WriteLine("Session 2 opened");
+                        TriggerMethod();
+
+
+                        var source2 = new EventPipeEventSource(session2.EventStream);
+                        Task processTask2 = Task.Run(() => source2.Process());
+                        session2.Stop();
+                        processTask2.Wait();
+                    }
 
                     ManualResetEvent allEventsReceivedEvent = new ManualResetEvent(false);
 
@@ -88,18 +103,17 @@ namespace EventPipeTests
                         }
                     };
 
-                    Thread processingThread = new Thread(new ThreadStart(() =>
+                    Task processTask = Task.Run(() =>
                     {
                         source.Process();
-                    }));
-                    processingThread.Start();
+                    });
 
                     // The events are fired in the JITCompilationStarted callback for TriggerMethod,
                     // so by the time we are here, all events should be fired.
                     session.Stop();
 
                     allEventsReceivedEvent.WaitOne(TimeSpan.FromSeconds(90));
-                    processingThread.Join();
+                    processTask.Wait();
                 }
             }
             catch(Exception e)
@@ -284,7 +298,7 @@ namespace EventPipeTests
             // // { COR_PRF_EVENTPIPE_DATETIME, L"DateTime" }
             // CopyToBuffer<uint64_t>(buffer, 132243707160000000ULL, &offset);
             DateTime dt = ((DateTime)traceEvent.PayloadValue(14)).ToUniversalTime();
-            if (payloadNames[14] != "DateTime" || dt != DateTime.Parse("1/24/2020 8:18:36 PM"))
+            if (payloadNames[14] != "DateTime" || dt != DateTime.Parse("1/24/2020 8:18:36 PM", CultureInfo.InvariantCulture))
             {
                 Console.WriteLine($"Argument 14 failed to parse, got {dt}");
                 return false;

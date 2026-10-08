@@ -3,8 +3,9 @@
 
 using System;
 using System.Threading;
+using Xunit;
 
-internal class Repro
+public class Repro
 {
     private static volatile bool s_threadsCompleted;
     private static volatile Mutex s_myMutex;
@@ -12,7 +13,11 @@ internal class Repro
     private const int FibSeriesMax = 35;
     private const int FibSeriesMin = 20;
 
-    public static int Main()
+    [Fact]
+    [SkipOnCoreClr("This test takes too long to complete under GC stress; it is not fundamentally incompatible.", RuntimeTestModes.AnyGCStress)]
+    [SkipOnCoreClr("This test is not compatible with HeapVerify.", RuntimeTestModes.HeapVerify)]
+    [OuterLoop]
+    public static int TestEntrypoint()
     {
         // Compute the expected value for a single thread
         int expectedSingle = 0;

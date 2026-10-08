@@ -3,11 +3,10 @@
 
 using System.Buffers.Binary;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Unicode;
-using System.Runtime.CompilerServices;
-using Internal.Runtime.CompilerServices;
 
 namespace System.Globalization
 {
@@ -49,12 +48,12 @@ namespace System.Globalization
                 ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.index);
             }
 
-            return GetBidiCategoryNoBoundsChecks((uint)GetCodePointFromString(s, index));
+            return GetBidiCategory((ReadOnlySpan<char>)s, index);
         }
 
         internal static StrongBidiCategory GetBidiCategory(StringBuilder s, int index)
         {
-            Debug.Assert(s != null, "s != null");
+            Debug.Assert(s != null);
             Debug.Assert(index >= 0 && index < s.Length, "index < s.Length");
 
             // The logic below follows Table 3-5 in the Unicode Standard, Sec. 3.9.
@@ -92,6 +91,33 @@ namespace System.Globalization
             return bidiCategory;
         }
 
+        internal static StrongBidiCategory GetBidiCategory(ReadOnlySpan<char> s, int index)
+        {
+            Debug.Assert(index >= 0 && index < s.Length, "index < s.Length");
+
+            // The logic below follows Table 3-5 in the Unicode Standard, Sec. 3.9.
+            // First char (high surrogate) = 110110wwwwxxxxxx
+            // Second char (low surrogate) = 110111xxxxxxxxxx
+
+            int c = (int)s[index];
+            if (index < s.Length - 1)
+            {
+                int temp1 = c - HIGH_SURROGATE_START; // temp1 = 000000wwwwxxxxxx
+                if ((uint)temp1 <= HIGH_SURROGATE_RANGE)
+                {
+                    int temp2 = (int)s[index + 1] - LOW_SURROGATE_START; // temp2 = 000000xxxxxxxxxx
+                    if ((uint)temp2 <= HIGH_SURROGATE_RANGE)
+                    {
+                        // |--------temp1--||-temp2--|
+                        // 00000uuuuuuxxxxxxxxxxxxxxxx (where uuuuu = wwww + 1)
+                        c = (temp1 << 10) + temp2 + UNICODE_PLANE01_START;
+                    }
+                }
+            }
+
+            return GetBidiCategoryNoBoundsChecks((uint)c);
+        }
+
         /*
          * GetDecimalDigitValue
          * ====================
@@ -116,7 +142,7 @@ namespace System.Globalization
                 ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.index);
             }
 
-            return GetDecimalDigitValueInternalNoBoundsCheck((uint)GetCodePointFromString(s, index));
+            return GetDecimalDigitValueInternalNoBoundsCheck((uint)GetCodePoint(s, index));
         }
 
         private static int GetDecimalDigitValueInternalNoBoundsCheck(uint codePoint)
@@ -150,7 +176,7 @@ namespace System.Globalization
                 ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.index);
             }
 
-            return GetDigitValueInternalNoBoundsCheck((uint)GetCodePointFromString(s, index));
+            return GetDigitValueInternalNoBoundsCheck((uint)GetCodePoint(s, index));
         }
 
         private static int GetDigitValueInternalNoBoundsCheck(uint codePoint)
@@ -229,7 +255,7 @@ namespace System.Globalization
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        internal static double GetNumericValueInternal(string s, int index) => GetNumericValueNoBoundsCheck((uint)GetCodePointFromString(s, index));
+        internal static double GetNumericValueInternal(string s, int index) => GetNumericValueNoBoundsCheck((uint)GetCodePoint(s, index));
 
         private static double GetNumericValueNoBoundsCheck(uint codePoint)
         {
@@ -246,8 +272,78 @@ namespace System.Globalization
             {
                 ulong temp = Unsafe.ReadUnaligned<ulong>(ref refToValue);
                 temp = BinaryPrimitives.ReverseEndianness(temp);
-                return Unsafe.As<ulong, double>(ref temp);
+                return BitConverter.UInt64BitsToDouble(temp);
             }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static char ToUpper(char codePoint)
+        {
+            nuint offset = GetCategoryCasingTableOffsetNoBoundsChecks((uint)codePoint);
+
+            // The offset is specified in shorts:
+            // Get the 'ref short' corresponding to where the addend is, read it as a signed 16-bit value, then add
+
+            ref short rsStart = ref Unsafe.As<byte, short>(ref MemoryMarshal.GetReference(UppercaseValues));
+            ref short rsDelta = ref Unsafe.Add(ref rsStart, (nint)offset);
+            int delta = (BitConverter.IsLittleEndian) ? rsDelta : BinaryPrimitives.ReverseEndianness(rsDelta);
+            return (char)(delta + codePoint);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static uint ToUpper(uint codePoint)
+        {
+            if (!UnicodeUtility.IsValidCodePoint(codePoint))
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.codePoint);
+            }
+
+            nuint offset = GetCategoryCasingTableOffsetNoBoundsChecks(codePoint);
+
+            // The mapped casing for the codePoint usually exists in the same plane as codePoint.
+            // This is why we use 16-bit offsets to calculate the delta value from the codePoint.
+
+            ref ushort rsStart = ref Unsafe.As<byte, ushort>(ref MemoryMarshal.GetReference(UppercaseValues));
+            ref ushort rsDelta = ref Unsafe.Add(ref rsStart, (nint)offset);
+            int delta = (BitConverter.IsLittleEndian) ? rsDelta : BinaryPrimitives.ReverseEndianness(rsDelta);
+
+            // We use the mask 0xFFFF0000u as we are sure the casing is in the same plane as codePoint.
+            return (codePoint & 0xFFFF0000u) | (ushort)((uint)delta + codePoint);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static char ToLower(char codePoint)
+        {
+            nuint offset = GetCategoryCasingTableOffsetNoBoundsChecks((uint)codePoint);
+
+            // The offset is specified in shorts:
+            // Get the 'ref short' corresponding to where the addend is, read it as a signed 16-bit value, then add
+
+            ref short rsStart = ref Unsafe.As<byte, short>(ref MemoryMarshal.GetReference(LowercaseValues));
+            ref short rsDelta = ref Unsafe.Add(ref rsStart, (nint)offset);
+            int delta = (BitConverter.IsLittleEndian) ? rsDelta : BinaryPrimitives.ReverseEndianness(rsDelta);
+            return (char)(delta + codePoint);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static uint ToLower(uint codePoint)
+        {
+            if (!UnicodeUtility.IsValidCodePoint(codePoint))
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.codePoint);
+            }
+
+            nuint offset = GetCategoryCasingTableOffsetNoBoundsChecks(codePoint);
+
+            // The mapped casing for the codePoint usually exists in the same plane as codePoint.
+            // This is why we use 16-bit offsets to calculate the delta value from the codePoint.
+
+            ref ushort rsStart = ref Unsafe.As<byte, ushort>(ref MemoryMarshal.GetReference(LowercaseValues));
+            ref ushort rsDelta = ref Unsafe.Add(ref rsStart, (nint)offset);
+            int delta = (BitConverter.IsLittleEndian) ? rsDelta : BinaryPrimitives.ReverseEndianness(rsDelta);
+
+            // We use the mask 0xFFFF0000u as we are sure the casing is in the same plane as codePoint.
+            return (codePoint & 0xFFFF0000u) | (ushort)((uint)delta + codePoint);
         }
 
         /*
@@ -294,9 +390,9 @@ namespace System.Globalization
         internal static UnicodeCategory GetUnicodeCategoryInternal(string value, int index)
         {
             Debug.Assert(value != null, "value can not be null");
-            Debug.Assert(index < value.Length, "index < value.Length");
+            Debug.Assert(index < value.Length);
 
-            return GetUnicodeCategoryNoBoundsChecks((uint)GetCodePointFromString(value, index));
+            return GetUnicodeCategoryNoBoundsChecks((uint)GetCodePoint(value, index));
         }
 
         /// <summary>
@@ -306,10 +402,10 @@ namespace System.Globalization
         internal static UnicodeCategory GetUnicodeCategoryInternal(string str, int index, out int charLength)
         {
             Debug.Assert(str != null, "str can not be null");
-            Debug.Assert(str.Length > 0, "str.Length > 0");
-            Debug.Assert(index >= 0 && index < str.Length, "index >= 0 && index < str.Length");
+            Debug.Assert(str.Length > 0);
+            Debug.Assert(index >= 0 && index < str.Length);
 
-            uint codePoint = (uint)GetCodePointFromString(str, index);
+            uint codePoint = (uint)GetCodePoint(str, index);
             UnicodeDebug.AssertIsValidCodePoint(codePoint);
 
             charLength = (codePoint >= UNICODE_PLANE01_START) ? 2 /* surrogate pair */ : 1 /* BMP char */;
@@ -337,9 +433,8 @@ namespace System.Globalization
         /// WARNING: since it doesn't throw an exception it CAN return a value
         /// in the surrogate range D800-DFFF, which is not a legal scalar value.
         /// </summary>
-        private static int GetCodePointFromString(string s, int index)
+        private static int GetCodePoint(ReadOnlySpan<char> s, int index)
         {
-            Debug.Assert(s != null, "s != null");
             Debug.Assert((uint)index < (uint)s.Length, "index < s.Length");
 
             int codePoint = 0;
@@ -374,6 +469,7 @@ namespace System.Globalization
         /// information is stored. Used for getting the Unicode category, bidi information,
         /// and whitespace information.
         /// </summary>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static nuint GetCategoryCasingTableOffsetNoBoundsChecks(uint codePoint)
         {
             UnicodeDebug.AssertIsValidCodePoint(codePoint);

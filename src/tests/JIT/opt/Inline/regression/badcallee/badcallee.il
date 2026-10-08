@@ -6,6 +6,7 @@
   .publickeytoken = (B7 7A 5C 56 19 34 E0 89 )
   .ver 4:0:0:0
 }
+.assembly extern xunit.core {}
 
 .assembly extern System.Console
 {
@@ -13,11 +14,10 @@
   .ver 4:0:0:0
 }
 
-.assembly BadCallee
+.assembly 'badcallee'
 {
 }
 
-.module BadCallee.exe
 
 .class public auto ansi beforefieldinit P
        extends [mscorlib]System.Object
@@ -32,9 +32,8 @@
     ret
   } // end of method P::A1
 
-  .method public hidebysig static int32  Main(string[] x) cil managed
+  .method public hidebysig static int32  Test(string[] x) cil managed noinlining
   {
-    .entrypoint
     ldarg.0
     ldlen
     dup
@@ -47,5 +46,18 @@
     OK: ldc.i4.s  100 
     ret
   } // end of method P::Main
+
+  .method public hidebysig static int32  Main() cil managed
+  {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
+    .entrypoint
+
+    ldc.i4.0
+    newarr     [mscorlib]System.String
+    call int32 P::Test(string[] x)
+    ret
+  }
 
 } // end of class P

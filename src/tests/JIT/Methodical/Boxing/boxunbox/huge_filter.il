@@ -8,13 +8,16 @@
 }
 
 .assembly extern mscorlib { }
-.assembly 'huge_filter' { }
-.namespace JitTest
+.assembly ASSEMBLY_NAME { }
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
+.assembly extern xunit.core {}
+.namespace JitTest_huge_filter_boxunbox
 {
-  .class private auto ansi beforefieldinit App
+  .class public auto ansi beforefieldinit App
          extends [mscorlib]System.Object
   {
-    .method private hidebysig static void 
+    .method private hidebysig static void
             Test(bool path) cil managed
     {
       .maxstack  4
@@ -178,16 +181,27 @@
       .try IL_TRY to IL_FILTER filter IL_FILTER handler IL_EXCEPT to IL_END
     } // end of method App::Test
 
-    .method private hidebysig static int32 
+    .method public hidebysig static int32
             Main() cil managed
     {
+      .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = {}
+      .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, class [mscorlib]System.Type, string[]) = {
+          string('https://github.com/dotnet/runtime/issues/91923')
+          type([TestLibrary]TestLibrary.PlatformDetection)
+          string[1] ('IsAppleMobile')
+      }
+      .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, class [mscorlib]System.Type, string[]) = {
+          string('https://github.com/dotnet/runtime/issues/91923')
+          type([TestLibrary]TestLibrary.PlatformDetection)
+          string[1] ('IsMonoInterpreter')
+      }
       .entrypoint
       .maxstack  1
       .locals (int32 V_0)
       IL_0000:  ldc.i4.0
-      IL_0001:  call       void JitTest.App::Test(bool)
+      IL_0001:  call       void JitTest_huge_filter_boxunbox.App::Test(bool)
       IL_0006:  ldc.i4.1
-      IL_0007:  call       void JitTest.App::Test(bool)
+      IL_0007:  call       void JitTest_huge_filter_boxunbox.App::Test(bool)
       IL_000c:  ldstr      "=== TEST PASSED ==="
       IL_0011:  call       void [System.Console]System.Console::WriteLine(string)
       IL_0016:  ldc.i4.s   100
@@ -198,7 +212,7 @@
       IL_001c:  ret
     } // end of method App::Main
 
-    .method public hidebysig specialname rtspecialname 
+    .method public hidebysig specialname rtspecialname
             instance void  .ctor() cil managed
     {
       .maxstack  8
@@ -209,5 +223,5 @@
 
   } // end of class App
 
-} // end of namespace JitTest
+} // end of namespace JitTest_huge_filter_boxunbox
 

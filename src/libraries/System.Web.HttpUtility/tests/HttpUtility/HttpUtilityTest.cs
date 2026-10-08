@@ -57,7 +57,7 @@ namespace System.Web.Tests
         [Theory]
         [InlineData(null, null)]
         [MemberData(nameof(HtmlAttributeEncodeData))]
-        public void HtmlAttributeEncode(string expected, string input)
+        public void HtmlAttributeEncode(string? expected, string? input)
         {
             Assert.Equal(expected, HttpUtility.HtmlAttributeEncode(input));
         }
@@ -74,7 +74,7 @@ namespace System.Web.Tests
         [Theory]
         [InlineData("", null)]
         [MemberData(nameof(HtmlAttributeEncodeData))]
-        public void HtmlAttributeEncode_TextWriter(string expected, string input)
+        public void HtmlAttributeEncode_TextWriter(string expected, string? input)
         {
             var sw = new StringWriter();
             HttpUtility.HtmlAttributeEncode(input, sw);
@@ -98,6 +98,7 @@ namespace System.Web.Tests
                 new object[] {"\u00E1\u00C1\u00E2\u00C2\u00B4", @"&aacute;&Aacute;&acirc;&Acirc;&acute;"},
                 new object[] {"\u00E6\u00C6\u00E0\u00C0\u2135", @"&aelig;&AElig;&agrave;&Agrave;&alefsym;"},
                 new object[] {"\u03B1\u0391&\u2227\u2220", @"&alpha;&Alpha;&amp;&and;&ang;"},
+                new object[] {"\u0027\u0027&\u2227\u2220", @"&apos;&apos;&amp;&and;&ang;"},
                 new object[] {"\u00E5\u00C5\u2248\u00E3\u00C3", @"&aring;&Aring;&asymp;&atilde;&Atilde;"},
                 new object[] {"\u00E4\u00C4\u201E\u03B2\u0392", @"&auml;&Auml;&bdquo;&beta;&Beta;"},
                 new object[] {"\u00A6\u2022\u2229\u00E7\u00C7", @"&brvbar;&bull;&cap;&ccedil;&Ccedil;"},
@@ -260,7 +261,7 @@ namespace System.Web.Tests
         [InlineData(2, "2")]
         [InlineData("", "")]
         [InlineData(null, null)]
-        public void HtmlEncode(object decoded, string encoded)
+        public void HtmlEncode(object? decoded, string? encoded)
         {
             if (decoded is string s)
             {
@@ -283,6 +284,20 @@ namespace System.Web.Tests
             });
         }
 
+        [Fact]
+        public void HtmlEncode_IHtmlString_UseToHtmlString()
+        {
+            Assert.Equal(string.Empty, HttpUtility.HtmlEncode(new ActionHtmlString(() => null)));
+            Assert.Equal(string.Empty, HttpUtility.HtmlEncode(new ActionHtmlString(() => string.Empty)));
+            Assert.Equal("<", HttpUtility.HtmlEncode(new ActionHtmlString(() => "<")));
+            Assert.Throws<FormatException>(() => HttpUtility.HtmlEncode(new ActionHtmlString(() => throw new FormatException())));
+        }
+
+        private sealed class ActionHtmlString(Func<string> toHtmlString) : IHtmlString
+        {
+            public string ToHtmlString() => toHtmlString();
+        }
+
         #endregion HtmlEncode
 
         #region JavaScriptStringEncode
@@ -295,6 +310,7 @@ namespace System.Web.Tests
                 yield return new object[] { "", "" };
                 yield return new object[] {"No escaping needed.", "No escaping needed."};
                 yield return new object[] {"The \t and \n will need to be escaped.", "The \\t and \\n will need to be escaped."};
+                yield return new object[] {"The \t and \n will need to be escaped.>", "The \\t and \\n will need to be escaped.\\u003e" };
                 for (char c = char.MinValue; c < TestMaxChar; c++)
                 {
                     if (c >= 0 && c <= 7 || c == 11 || c >= 14 && c <= 31 || c == 38 || c == 39 || c == 60 || c == 62 || c == 133 || c == 8232 || c == 8233)
@@ -442,6 +458,16 @@ namespace System.Web.Tests
             Assert.Equal(expected, HttpUtility.ParseQueryString(expected).ToString());
         }
 
+
+        [Fact]
+        public void ParseQueryString_nullValue_ToString()
+        {
+            var nameValueCollection = System.Web.HttpUtility.ParseQueryString(string.Empty);
+            nameValueCollection.Add("baz", null);
+            var s = nameValueCollection.ToString();
+            Assert.Equal(string.Empty, s);
+        }
+
         #endregion ParseQueryString
 
         #region UrlDecode(ToBytes)
@@ -562,7 +588,7 @@ namespace System.Web.Tests
 
         static bool IsUrlSafeChar(char c)
         {
-            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+            if (char.IsAsciiLetterOrDigit(c))
             {
                 return true;
             }
@@ -609,7 +635,7 @@ namespace System.Web.Tests
         [Theory]
         [InlineData(null, null)]
         [MemberData(nameof(UrlEncodeData))]
-        public void UrlEncode(string decoded, string encoded)
+        public void UrlEncode(string? decoded, string? encoded)
         {
             Assert.Equal(encoded, HttpUtility.UrlEncode(decoded));
         }
@@ -750,10 +776,12 @@ namespace System.Web.Tests
         [InlineData("http://eXample.net:80/default.xxx?sdsd=sds", "http://eXample.net:80/default.xxx?sdsd=sds")]
         [InlineData("http://EXAMPLE.NET/default.xxx?sdsd=sds", "http://EXAMPLE.NET/default.xxx?sdsd=sds")]
         [InlineData("http://EXAMPLE.NET/d\u00E9fault.xxx?sdsd=sds", "http://EXAMPLE.NET/d%c3%a9fault.xxx?sdsd=sds")]
+        [InlineData("http://EXAMPLE.NET/d fault.xxx?sdsd=sds", "http://EXAMPLE.NET/d%20fault.xxx?sdsd=sds")]
         [InlineData("file:///C/Users", "file:///C/Users")]
         [InlineData("mailto:user@example.net", "mailto:user@example.net")]
         [InlineData("http://example\u200E.net/", "http://example%e2%80%8e.net/")]
-        public void UrlPathEncode(string decoded, string encoded)
+        [InlineData("http://ex ample\u200E.net/", "http://ex%20ample%e2%80%8e.net/")]
+        public void UrlPathEncode(string? decoded, string? encoded)
         {
             Assert.Equal(encoded, HttpUtility.UrlPathEncode(decoded));
         }
@@ -767,6 +795,7 @@ namespace System.Web.Tests
         [InlineData("foo&bar")]
         [InlineData("foo&name=bar")]
         [InlineData("name=bar&foo&foo")]
+        [InlineData("_return_fields%2b=extattrs&name%3a=somename.somedomain.local")]
         public void ParseAndToStringMaintainAllKeyValuePairs(string input)
         {
             var values = HttpUtility.ParseQueryString(input);

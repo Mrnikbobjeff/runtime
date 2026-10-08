@@ -4,10 +4,13 @@
 // Tests GC.TotalMemory
 
 using System;
+using Xunit;
 
-public class Test {
+public class Test_TotalMemory {
 
-    public static int Main() {
+    [SkipOnCoreClr("This test is failing under GC stress variations. See https://github.com/dotnet/runtime/issues/63860.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint() {
 
         GC.Collect();
         GC.Collect();

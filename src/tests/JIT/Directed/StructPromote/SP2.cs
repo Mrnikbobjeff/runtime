@@ -3,10 +3,13 @@
 //
 
 #define USE_STRUCT
+namespace JitTest_Directed_StructPromote_SP2;
+
 using System.Runtime.CompilerServices;
 using System;
+using Xunit;
 
-class SP2
+public class SP2
 {
 
 #if USE_STRUCT
@@ -43,7 +46,9 @@ class SP2
 #endif
     }
 
-    public static int Main(String[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         long res = M(1, 2);
         Console.WriteLine("M(1, 2) is {0}.", res);

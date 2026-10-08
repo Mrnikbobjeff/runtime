@@ -1,25 +1,31 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.Runtime.CompilerServices;
-using System.Collections.ObjectModel;
 using System.Collections.Generic;
-using System.Diagnostics;
-using System.Text;
+using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
+using System.Text;
 
 #if FEATURE_EVENTSOURCE_XPLAT
 
 namespace System.Diagnostics.Tracing
 {
-    internal class XplatEventLogger : EventListener
+    internal sealed partial class XplatEventLogger : EventListener
     {
-        private static readonly Lazy<string?> eventSourceNameFilter = new Lazy<string?>(() => CompatibilitySwitch.GetValueInternal("EventSourceFilter"));
-        private static readonly Lazy<string?> eventSourceEventFilter = new Lazy<string?>(() => CompatibilitySwitch.GetValueInternal("EventNameFilter"));
+        public XplatEventLogger() { }
 
-        public XplatEventLogger() {}
+        private static readonly string s_eventSourceNameFilter = GetClrConfig("EventSourceFilter");
+        private static readonly string s_eventSourceEventFilter = GetClrConfig("EventNameFilter");
+
+        private static unsafe string GetClrConfig(string configName) => new string(EventSource_GetClrConfig(configName));
+
+#if CORECLR
+        [ErrorHandler(typeof(QCallExceptionStatusMarshaller), ErrorLocation.HiddenLastParameter)]
+#endif
+        [LibraryImport(RuntimeHelpers.QCall, StringMarshalling = StringMarshalling.Utf16)]
+        private static unsafe partial char* EventSource_GetClrConfig(string configName);
 
         private static bool initializedPersistentListener;
 
@@ -38,11 +44,18 @@ namespace System.Diagnostics.Tracing
             return null;
         }
 
-        [DllImport(RuntimeHelpers.QCall, CharSet = CharSet.Unicode)]
-        private static extern bool IsEventSourceLoggingEnabled();
+#if CORECLR
+        [ErrorHandler(typeof(QCallExceptionStatusMarshaller), ErrorLocation.HiddenLastParameter)]
+#endif
+        [LibraryImport(RuntimeHelpers.QCall)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static partial bool IsEventSourceLoggingEnabled();
 
-        [DllImport(RuntimeHelpers.QCall, CharSet = CharSet.Unicode)]
-        private static extern void LogEventSource(int eventID, string? eventName, string eventSourceName, string payload);
+#if CORECLR
+        [ErrorHandler(typeof(QCallExceptionStatusMarshaller), ErrorLocation.HiddenLastParameter)]
+#endif
+        [LibraryImport(RuntimeHelpers.QCall, StringMarshalling = StringMarshalling.Utf16)]
+        private static partial void LogEventSource(int eventID, string? eventName, string eventSourceName, string payload);
 
         private static readonly List<char> escape_seq = new List<char> { '\b', '\f', '\n', '\r', '\t', '\"', '\\' };
         private static readonly Dictionary<char, string> seq_mapping = new Dictionary<char, string>()
@@ -56,7 +69,7 @@ namespace System.Diagnostics.Tracing
             {'\\', "\\\\"}
         };
 
-        private static void minimalJsonserializer(string payload, StringBuilder sb)
+        private static void MinimalJsonserializer(string payload, ref ValueStringBuilder sb)
         {
             foreach (var elem in payload)
             {
@@ -72,7 +85,7 @@ namespace System.Diagnostics.Tracing
             }
         }
 
-        private static string Serialize(ReadOnlyCollection<string>? payloadName, ReadOnlyCollection<object?>? payload, string? eventMessage)
+        private static unsafe string Serialize(ReadOnlyCollection<string>? payloadName, ReadOnlyCollection<object?>? payload, string? eventMessage)
         {
             if (payloadName == null || payload == null)
                 return string.Empty;
@@ -84,10 +97,10 @@ namespace System.Diagnostics.Tracing
 
             if (payloadName.Count != payload.Count)
             {
-               eventDataCount = Math.Min(payloadName.Count, payload.Count);
+                eventDataCount = Math.Min(payloadName.Count, payload.Count);
             }
 
-            var sb = StringBuilderCache.Acquire();
+            var sb = new ValueStringBuilder(stackalloc char[256]);
 
             sb.Append('{');
 
@@ -95,7 +108,7 @@ namespace System.Diagnostics.Tracing
             if (!string.IsNullOrEmpty(eventMessage))
             {
                 sb.Append("\\\"EventSource_Message\\\":\\\"");
-                minimalJsonserializer(eventMessage, sb);
+                MinimalJsonserializer(eventMessage, ref sb);
                 sb.Append("\\\"");
                 if (eventDataCount != 0)
                     sb.Append(", ");
@@ -118,56 +131,41 @@ namespace System.Diagnostics.Tracing
                     case string str:
                     {
                         sb.Append("\\\"");
-                        minimalJsonserializer(str, sb);
+                        MinimalJsonserializer(str, ref sb);
                         sb.Append("\\\"");
                         break;
                     }
                     case byte[] byteArr:
                     {
                         sb.Append("\\\"");
-                        AppendByteArrayAsHexString(sb, byteArr);
+                        AppendByteArrayAsHexString(ref sb, byteArr);
                         sb.Append("\\\"");
                         break;
                     }
                     default:
                     {
-                        if (payload[i] != null)
+                        if (payload[i] is object o)
                         {
-                            sb.Append(payload[i]!.ToString()); // TODO-NULLABLE: Indexer nullability tracked (https://github.com/dotnet/roslyn/issues/34644)
+                            sb.Append(o.ToString());
                         }
                         break;
                     }
                 }
             }
             sb.Append('}');
-            return StringBuilderCache.GetStringAndRelease(sb);
+            return sb.ToString();
         }
 
-        private static void AppendByteArrayAsHexString(StringBuilder builder, byte[] byteArray)
+        private static void AppendByteArrayAsHexString(ref ValueStringBuilder builder, byte[] byteArray)
         {
-            Debug.Assert(builder != null);
             Debug.Assert(byteArray != null);
 
-            ReadOnlySpan<char> hexFormat = "X2";
-            Span<char> hex = stackalloc char[2];
-            for (int i=0; i<byteArray.Length; i++)
-            {
-                byteArray[i].TryFormat(hex, out int charsWritten, hexFormat);
-                Debug.Assert(charsWritten == 2);
-                builder.Append(hex);
-            }
+            HexConverter.EncodeToUtf16(byteArray, builder.AppendSpan(byteArray.Length * 2));
         }
 
         protected internal override void OnEventSourceCreated(EventSource eventSource)
         {
-            // Don't enable forwarding of NativeRuntimeEventSource events.`
-            if (eventSource.GetType() == typeof(NativeRuntimeEventSource))
-            {
-                return;
-            }
-
-            string? eventSourceFilter = eventSourceNameFilter.Value;
-            if (string.IsNullOrEmpty(eventSourceFilter) || (eventSource.Name.IndexOf(eventSourceFilter, StringComparison.OrdinalIgnoreCase) >= 0))
+            if (string.IsNullOrEmpty(s_eventSourceNameFilter) || (eventSource.Name.Contains(s_eventSourceNameFilter, StringComparison.OrdinalIgnoreCase)))
             {
                 EnableEvents(eventSource, EventLevel.LogAlways, EventKeywords.All, null);
             }
@@ -175,19 +173,29 @@ namespace System.Diagnostics.Tracing
 
         protected internal override void OnEventWritten(EventWrittenEventArgs eventData)
         {
-            string? eventFilter = eventSourceEventFilter.Value;
-            if (string.IsNullOrEmpty(eventFilter) || (eventData.EventName!.IndexOf(eventFilter, StringComparison.OrdinalIgnoreCase) >= 0))
+            // Don't enable forwarding of NativeRuntimeEventSource events.
+            // NativeRuntimeEventSource events are written to the native side via QCalls (see NativeRuntimeEventSource.cs/nativeeventsource.cpp)
+            // and is forwarded back to this EventListener via NativeRuntimeEventSource.ProcessEvent. We need to filter these events here
+            // because then these events can get logged back into the native runtime as EventSourceEvent events which we use to log
+            // managed events from other EventSources to LTTng.
+            if (eventData.EventSource.GetType() == typeof(NativeRuntimeEventSource))
+            {
+                return;
+            }
+
+            if (string.IsNullOrEmpty(s_eventSourceEventFilter) || (eventData.EventName!.Contains(s_eventSourceEventFilter, StringComparison.OrdinalIgnoreCase)))
             {
                 LogOnEventWritten(eventData);
             }
         }
 
-        private void LogOnEventWritten(EventWrittenEventArgs eventData)
+        private static void LogOnEventWritten(EventWrittenEventArgs eventData)
         {
             string payload = "";
             if (eventData.Payload != null)
             {
-                try{
+                try
+                {
                     payload = Serialize(eventData.PayloadNames, eventData.Payload, eventData.Message);
                 }
                 catch (Exception ex)

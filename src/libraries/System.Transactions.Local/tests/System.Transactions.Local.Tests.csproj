@@ -1,12 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <IncludeRemoteExecutor>true</IncludeRemoteExecutor>
-    <TargetFrameworks>$(NetCoreAppCurrent)</TargetFrameworks>
+    <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
+    <!-- https://github.com/dotnet/runtime/issues/126862 -->
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="AssemblyInfo.cs" />
     <Compile Include="NonMsdtcPromoterTests.cs" />
     <Compile Include="AsyncTransactionScopeTests.cs" />
     <Compile Include="IntResourceManager.cs" />
+    <Compile Include="TransactionManagerTest.cs" />
+    <Compile Include="OleTxNonWindowsUnsupportedTests.cs" />
+    <Compile Include="OleTxTests.cs" />
     <Compile Include="TransactionScopeTest.cs" />
     <Compile Include="AsyncTest.cs" />
     <Compile Include="EnlistTest.cs" />

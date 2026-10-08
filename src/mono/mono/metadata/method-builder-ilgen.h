@@ -128,6 +128,9 @@ void
 mono_mb_emit_ldstr (MonoMethodBuilder *mb, char *str);
 
 void
+mono_mb_emit_no_nullcheck (MonoMethodBuilder *mb);
+
+void
 mono_mb_set_clauses (MonoMethodBuilder *mb, int num_clauses, MonoExceptionClause *clauses);
 
 void
@@ -135,5 +138,12 @@ mono_mb_set_param_names (MonoMethodBuilder *mb, const char **param_names);
 
 char*
 mono_mb_strdup (MonoMethodBuilder *mb, const char *s);
+
+void
+mono_mb_set_wrapper_data_kind (MonoMethodBuilder *mb, uint16_t wrapper_data_kind);
+
+gboolean
+mono_mb_inflate_generic_wrapper_data (MonoGenericContext *context, gpointer *method_data, MonoError *error);
+
 
 #endif

@@ -2,10 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Directed_intrinsic_interlocked_cse_cmpxchg;
+
 using System;
 using System.Threading;
 using System.Runtime.CompilerServices;
-internal class Foo
+using Xunit;
+public class Foo
 {
     private static int s_taskIdCounter;
     private int _taskId = 0;
@@ -19,7 +22,9 @@ internal class Foo
         }
         return _taskId;
     }
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         if (new Foo().Function() == 1) return 100; else return 101;
     }

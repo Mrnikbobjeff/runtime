@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
-using System.Security;
 
 namespace System.Numerics
 {
@@ -14,135 +13,140 @@ namespace System.Numerics
 
         // see https://en.wikipedia.org/wiki/Barrett_reduction
 
-        internal readonly struct FastReducer
+        private readonly ref struct FastReducer
         {
-            private readonly uint[] _modulus;
-            private readonly uint[] _mu;
-            private readonly uint[] _q1;
-            private readonly uint[] _q2;
+            private readonly ReadOnlySpan<nuint> _modulus;
+            private readonly ReadOnlySpan<nuint> _mu;
+            private readonly Span<nuint> _q1;
+            private readonly Span<nuint> _q2;
 
-            private readonly int _muLength;
-
-            public FastReducer(uint[] modulus)
+            public FastReducer(ReadOnlySpan<nuint> modulus, Span<nuint> r, Span<nuint> mu, Span<nuint> q1, Span<nuint> q2)
             {
-                Debug.Assert(modulus != null);
+                Debug.Assert(!modulus.IsEmpty);
+                Debug.Assert(r.Length == modulus.Length * 2 + 1);
+                Debug.Assert(mu.Length == r.Length - modulus.Length + 1);
+                Debug.Assert(q1.Length == modulus.Length * 2 + 2);
+                Debug.Assert(q2.Length == modulus.Length * 2 + 2);
 
-                // Let r = 4^k, with 2^k > m
-                uint[] r = new uint[modulus.Length * 2 + 1];
-                r[r.Length - 1] = 1;
+                // Barrett reduction: precompute mu = floor(4^k / m), where k = modulus.Length.
+                // Start by setting r = 4^k (a 1 in the highest position of a 2k+1 limb number).
+                r[^1] = 1;
 
-                // Let mu = 4^k / m
-                _mu = Divide(r, modulus);
+                // Compute mu = floor(r / m)
+                DivRem(r, modulus, mu);
                 _modulus = modulus;
 
-                // Allocate memory for quotients once
-                _q1 = new uint[modulus.Length * 2 + 2];
-                _q2 = new uint[modulus.Length * 2 + 1];
+                _q1 = q1;
+                _q2 = q2;
 
-                _muLength = ActualLength(_mu);
+                _mu = mu.Slice(0, ActualLength(mu));
             }
 
-            public int Reduce(uint[] value, int length)
+            public int Reduce(Span<nuint> value)
             {
-                Debug.Assert(value != null);
-                Debug.Assert(length <= value.Length);
                 Debug.Assert(value.Length <= _modulus.Length * 2);
 
                 // Trivial: value is shorter
-                if (length < _modulus.Length)
-                    return length;
+                if (value.Length < _modulus.Length)
+                {
+                    return value.Length;
+                }
 
                 // Let q1 = v/2^(k-1) * mu
-                int l1 = DivMul(value, length, _mu, _muLength,
-                                _q1, _modulus.Length - 1);
+                _q1.Clear();
+                int l1 = DivMul(value, _mu, _q1, _modulus.Length - 1);
 
                 // Let q2 = q1/2^(k+1) * m
-                int l2 = DivMul(_q1, l1, _modulus, _modulus.Length,
-                                _q2, _modulus.Length + 1);
+                _q2.Clear();
+                int l2 = DivMul(_q1.Slice(0, l1), _modulus, _q2, _modulus.Length + 1);
 
                 // Let v = (v - q2) % 2^(k+1) - i*m
-                return SubMod(value, length, _q2, l2,
-                              _modulus, _modulus.Length + 1);
+                int length = SubMod(value, _q2.Slice(0, l2), _modulus, _modulus.Length + 1);
+                value = value.Slice(length);
+                value.Clear();
+
+                return length;
             }
 
-            private static unsafe int DivMul(uint[] left, int leftLength,
-                                             uint[] right, int rightLength,
-                                             uint[] bits, int k)
+            private static int DivMul(ReadOnlySpan<nuint> left, ReadOnlySpan<nuint> right, Span<nuint> bits, int k)
             {
-                Debug.Assert(left != null);
-                Debug.Assert(left.Length >= leftLength);
-                Debug.Assert(right != null);
-                Debug.Assert(right.Length >= rightLength);
-                Debug.Assert(bits != null);
-                Debug.Assert(bits.Length + k >= leftLength + rightLength);
+                Debug.Assert(!right.IsEmpty);
+                Debug.Assert(!bits.IsEmpty);
+                Debug.Assert(bits.Length + k >= left.Length + right.Length);
 
                 // Executes the multiplication algorithm for left and right,
                 // but skips the first k limbs of left, which is equivalent to
-                // preceding division by 2^(32*k). To spare memory allocations
+                // preceding division by 2^(BitsPerLimb*k). To spare memory allocations
                 // we write the result to an already allocated memory.
 
-                Array.Clear(bits, 0, bits.Length);
-
-                if (leftLength > k)
+                if (left.Length > k)
                 {
-                    leftLength -= k;
+                    left = left.Slice(k);
+                    bits = bits.Slice(0, left.Length + right.Length);
 
-                    fixed (uint* l = left, r = right, b = bits)
-                    {
-                        if (leftLength < rightLength)
-                        {
-                            Multiply(r, rightLength,
-                                     l + k, leftLength,
-                                     b, leftLength + rightLength);
-                        }
-                        else
-                        {
-                            Multiply(l + k, leftLength,
-                                     r, rightLength,
-                                     b, leftLength + rightLength);
-                        }
-                    }
+                    Multiply(left, right, bits);
 
-                    return ActualLength(bits, leftLength + rightLength);
+                    return ActualLength(bits);
                 }
 
                 return 0;
             }
 
-            private static unsafe int SubMod(uint[] left, int leftLength,
-                                             uint[] right, int rightLength,
-                                             uint[] modulus, int k)
+            private static int SubMod(Span<nuint> left, ReadOnlySpan<nuint> right, ReadOnlySpan<nuint> modulus, int k)
             {
-                Debug.Assert(left != null);
-                Debug.Assert(left.Length >= leftLength);
-                Debug.Assert(right != null);
-                Debug.Assert(right.Length >= rightLength);
-
                 // Executes the subtraction algorithm for left and right,
                 // but considers only the first k limbs, which is equivalent to
-                // preceding reduction by 2^(32*k). Furthermore, if left is
+                // preceding reduction by 2^(BitsPerLimb*k). Furthermore, if left is
                 // still greater than modulus, further subtractions are used.
 
-                if (leftLength > k)
-                    leftLength = k;
-                if (rightLength > k)
-                    rightLength = k;
-
-                fixed (uint* l = left, r = right, m = modulus)
+                if (left.Length > k)
                 {
-                    SubtractSelf(l, leftLength, r, rightLength);
-                    leftLength = ActualLength(left, leftLength);
+                    left = left.Slice(0, k);
+                }
 
-                    while (Compare(l, leftLength, m, modulus.Length) >= 0)
+                if (right.Length > k)
+                {
+                    right = right.Slice(0, k);
+                }
+
+                // Barrett reduction guarantees the true residual x - q̂·m is in
+                // [0, 2·modulus], but after truncating both sides to k limbs the
+                // truncated right can appear larger than the truncated left.
+                // Unsigned underflow is safe here: the wrapped result equals the
+                // true residual, which is guaranteed to fit in k limbs because
+                // 2·modulus < b^k where b = 2^BitsPerLimb.
+                Debug.Assert(left.Length >= right.Length);
+                {
+                    int i = 0;
+                    nuint borrow = 0;
+
+                    if (right.Length != 0)
                     {
-                        SubtractSelf(l, leftLength, m, modulus.Length);
-                        leftLength = ActualLength(left, leftLength);
+                        _ = left[right.Length - 1];
+                    }
+
+                    for (; i < right.Length; i++)
+                    {
+                        left[i] = SubWithBorrow(left[i], right[i], borrow, out borrow);
+                    }
+
+                    for (; borrow != 0 && i < left.Length; i++)
+                    {
+                        nuint val = left[i];
+                        left[i] = val - borrow;
+                        borrow = val == 0 ? 1 : (nuint)0;
                     }
                 }
 
-                Array.Clear(left, leftLength, left.Length - leftLength);
+                left = left.Slice(0, ActualLength(left));
 
-                return leftLength;
+                while (Compare(left, modulus) >= 0)
+                {
+                    SubtractSelf(left, modulus);
+                    left = left.Slice(0, ActualLength(left));
+                }
+
+                return left.Length;
             }
         }
     }

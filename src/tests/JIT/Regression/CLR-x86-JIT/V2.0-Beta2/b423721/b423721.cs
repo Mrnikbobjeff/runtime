@@ -3,13 +3,16 @@
 
 using System;
 using System.Reflection;
+using Xunit;
 
-namespace Test
+namespace b423721
 {
 
     public class C2
     {
-        public static int Main(string[] args)
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             int ret = 100;
 
@@ -33,7 +36,7 @@ namespace Test
                 ret = 101;
             }
 
-            Type t = Type.GetType("Test.C1`1[[System.Int64, mscorlib, Version=0.0.0.0, Culture=neutral ]], c1, Version=0.0.0.0, Culture=neutral");
+            Type t = Type.GetType("b423721.C1`1[[System.Int64, mscorlib, Version=0.0.0.0, Culture=neutral ]], c1, Version=0.0.0.0, Culture=neutral");
             if (t == null)
             {
                 Console.WriteLine("FAIL: Could not get Type C1`1[[System.Int64, mscorlib, Version=0.0.0.0, Culture=neutral ]], c1, Version=0.0.0.0, Culture=neutral");

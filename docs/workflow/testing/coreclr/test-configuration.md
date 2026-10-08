@@ -51,13 +51,46 @@ Therefore the managed portion of each test **must not contain**:
     * `<GCStressIncompatible>true</GCStressIncompatible>`
 * Exclude test from JIT stress runs runs by adding the following to the csproj:
     * `<JitOptimizationSensitive>true</JitOptimizationSensitive>`
-* Add NuGet references by updating the following [test project](https://github.com/dotnet/runtime/blob/master/src/coreclr/tests/src/Common/test_dependencies/test_dependencies.csproj).
-* Get access to System.Private.CoreLib types and methods that are not exposed via public surface by adding the following to the csproj:
-    * `<ReferenceSystemPrivateCoreLib>true</ReferenceSystemPrivateCoreLib>`
+* Exclude test from NativeAOT runs runs by adding the following to the csproj:
+    * `<NativeAotIncompatible>true</NativeAotIncompatible>`
+* Exclude the test from ilasm round trip testing by adding the following to the csproj
+    * `<IlasmRoundTripIncompatible>true</IlasmRoundTripIncompatible>`
+* Exclude the test for unloadability (collectible assemblies) testing
+    * `<UnloadabilityIncompatible>true</UnloadabilityIncompatible>`
+* If the test is specific for testing crossgen2, and should be compiled as such in all test modes
+    * `<AlwaysUseCrossGen2>true</AlwaysUseCrossGen2>`
+* When `CrossGenTest` is set to false, this test is not run with standard R2R compilation even if running an R2R test pass.
+    * `<CrossGenTest>false</CrossGenTest>`
+* Exclude test from ReadyToRun (R2R) test runs by adding the following to the csproj:
+    * `<R2RIncompatible>true</R2RIncompatible>`
+* Add NuGet references by updating the following [test project](https://github.com/dotnet/runtime/blob/main/src/tests/Common/test_dependencies/test_dependencies.csproj).
 * Any System.Private.CoreLib types and methods used by tests must be available for building on all platforms.
 This means there must be enough implementation for the C# compiler to find the referenced types and methods. Unsupported target platforms
 should simply `throw new PlatformNotSupportedException()` in its dummy method implementations.
-* Update exclusion list at [tests/issues.targets](https://github.com/dotnet/runtime/blob/master/src/coreclr/tests/issues.targets) if the test fails due to active bug.
+* Add an `[ActiveIssue]` attribute if the test fails due to active bug.
+
+### Adding a simple JIT regression test
+
+Add tests that use optimized compilation without debug information directly to
+`src/tests/JIT/Regression_ro_2/Runtime_<issue_number>.cs`. The
+`Regression_ro_2/Regression_ro_2.csproj` runner recursively includes all `.cs` files in its
+directory, so adding a test requires neither a
+project-file edit nor a directory for a single source file. Related files can be
+grouped in a subdirectory.
+Other source-compiling regression runners use the same convention for their
+grouped sources, retaining their existing partitions and compilation settings.
+Sources shared by multiple runners live in one runner's directory and are
+explicitly included by the others.
+
+Source-glob directories contain sources compiled directly into their respective
+runners. Tests requiring different compilation settings, separate assemblies,
+native dependencies, or process isolation should instead have their own project
+under `src/tests/JIT/Regression_2/Runtime_<issue_number>/`.
+`Regression_2.csproj` discovers these projects recursively rather than compiling
+their sources directly. `Regression_3.csproj` similarly owns the existing
+project-backed `GitHub_*`, `DevDiv_*`, and other tests under `src/tests/JIT/Regression_3/`.
+Keep each project's sources and supporting files together, and do not place them
+in a source-glob runner's directory.
 
 ### Creating a C# test project
 
@@ -68,28 +101,45 @@ should simply `throw new PlatformNotSupportedException()` in its dummy method im
 
 1. Set the `<CLRTestKind>`/`<CLRTestPriority>` properties.
 1. Add source files to the new project.
-1. Indicate the success of the test by returning `100`. Failure can be indicated by any non-`100` value.
+1. Add test cases using the Xunit `Fact` attribute.
 
-    Example:
-    ```CSharp
-        static public int Main(string[] notUsed)
-        {
-            try
-            {
-                // Test scenario here
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"Test Failure: {e.Message}");
-                return 101;
-            }
+    - We use a source generator to construct the `Main` entry point for test projects. The source generator will discover all methods marked with `Fact` and call them from the generated `Main`.
+    - Alternatively, `Main` can be user-defined. On success, the test returns `100`. Failure can be indicated by any non-`100` value.
 
-            return 100;
-        }
-    ```
+      Example:
+      ```CSharp
+          static public int Main(string[] notUsed)
+          {
+              try
+              {
+                  // Test scenario here
+              }
+              catch (Exception e)
+              {
+                  Console.WriteLine($"Test Failure: {e}");
+                  return 101;
+              }
+
+              return 100;
+          }
+      ```
 
 1. Add any other projects as a dependency, if needed.
     * Managed reference: `<ProjectReference Include="../ManagedDll.csproj" />`
-    * Native reference: `<ProjectReference Include="../NativeDll/CMakeLists.txt" />`
+    * CMake reference: `<CMakeProjectReference Include="../NativeDll/CMakeLists.txt" />`
 1. Build the test.
 1. Follow the steps to re-run a failed test to validate the new test.
+
+### Creating a merged test runner project
+1. Use an existing test such as `<repo_root>\src\tests\JIT\Methodical\Methodical_d1.csproj` as a template.
+1. If your new merged test runner has MANY tests in it, and takes too long to run under GC Stress, set `<NumberOfStripesToUseInStress>` to a number such as 10 to make it possible for the test to complete in a reasonable timeframe.
+
+#### Command line arguments for merged test runner projects
+Unless tests are manually run on the command line to repro a problem, these parameters are handled internally by the test infrastructure, but for running tests locally, there are a set of standard parameters that these merged test runners support.
+
+`[testFilterString] [-stripe <whichStripe> <totalStripes>]`
+
+`testFilterString` is any string other that `-stripe`. The only filters supported today are the simple form supported in 'dotnet test --filter' (substrings of the test's fully qualified name).
+
+Either the -stripe <whichStripe> <totalStripes> parameter can be used or the TEST_HARNESS_STRIPE_TO_EXECUTE environment variable may be used to control striping. The TEST_HARNESS_STRIPE_TO_EXECUTE environment variable must be set to a string of the form `.<whichStripe>.<totalStripes>` if it is used. `<whichStripe>` is a 0 based index into the count of stripes, `<totalStripes>` is the total number of stripes.
+

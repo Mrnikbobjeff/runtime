@@ -15,7 +15,7 @@ Porting the .NET Runtime to a new architecture typically follows along the
 following path.
 
 As engineering continues along the development path, it is best if the logic can
-be placed into the master repository of the runtime as soon as possible. This
+be placed into the main branch of the runtime as soon as possible. This
 will have 2 major effects.
 
 1.  Individual commits are easier to review.
@@ -46,7 +46,7 @@ The process follows the following strategy
     not maintained as generally working. It is expected that the interpreter
     will take 1-2 months to enable for an engineer familiar with the CoreCLR
     codebase. A functional interpreter allows the porting team to have a set of
-    engineers which focus exclusively on the JIT and a set which focusses on the
+    engineers which focus exclusively on the JIT and a set which focuses on the
     VM portion of the runtime.
 
 -   Build up a set of scripts that will run the coreclr tests. The normal
@@ -76,7 +76,7 @@ The process follows the following strategy
     getting some code to work is a prerequisite for handling more complex
     scenarios. When doing initial bringup, configuring the Gen0 budget of the GC
     to be a large number so that the GC does not attempt to run during most
-    tests is very useful. (Set `COMPlus_GCgen0size=99999999`)
+    tests is very useful. (Set `DOTNET_GCgen0size=99999999`)
 
 -   Once basic code is executing, the focus shifts to enabling the GC to work.
     In this initial phase, the correct choice is to enable conservative GC
@@ -137,7 +137,7 @@ Stage 4 Focus on stress
     really works.
 
 -   See the various test passes done in CI, but most critically GCStress testing
-    is needed. See documentation around use of the ComPlus_GCStress environment
+    is needed. See documentation around use of the DOTNET_GCStress environment
     variable.
 
 Stage 5 productization
@@ -181,7 +181,7 @@ both the JIT and VM.
 
 2.  Architecture specific relocation information (to represent generation of
     relocations for use by load, store, jmp and call instructions) See
-    <https://docs.microsoft.com/en-us/windows/win32/debug/pe-format#coff-relocations-object-only>
+    <https://learn.microsoft.com/windows/win32/debug/pe-format#coff-relocations-object-only>
     for the sort of details that need to be defined.
 
 3.  Behavior and accessibility of processor single step features from within a
@@ -218,7 +218,7 @@ be done.
 Notable components
 
 1.  The JIT. The jit maintains the largest concentration of architecture
-    specific logic in the stack. This is not surprising. See [Porting RyuJit](porting-ryujit.md)
+    specific logic in the stack. This is not surprising. See [Porting RyuJit](../jit/porting-ryujit.md)
     for guidance.
 
 2.  The CLR PAL. When porting to a non-Windows OS, the PAL will be the first component
@@ -228,7 +228,7 @@ Notable components
     very machine specific paths.
 
 4.  The unwinder. The unwinder is used to unwind stacks on non-Windows platforms.
-    It is located in https://github.com/dotnet/runtime/tree/master/src/coreclr/src/unwinder.
+    It is located in https://github.com/dotnet/runtime/tree/main/src/coreclr/unwinder.
 
 4.  System.Private.CoreLib/System.Reflection. There is little to no architecture
     specific work here that is necessary for bringup. Nice-to-have work involves
@@ -267,12 +267,12 @@ there are also architecture specific components.
 4. jitsupport.cpp - Depending on how the features of the CPU are exposed, there
    may need to be code to call OS apis to gather information about CPU features.
 
-5. pal arch directory - https://github.com/dotnet/runtime/tree/master/src/coreclr/src/pal/src/arch
+5. pal arch directory - https://github.com/dotnet/runtime/tree/main/src/coreclr/pal/src/arch
    This directory primarily contains assembly stubs for architecture specific
    handling of signals and exceptions.
 
 In addition to the PAL source code, there is a comprehensive set of PAL tests located
-in https://github.com/dotnet/runtime/tree/master/src/coreclr/src/pal/tests.
+in https://github.com/dotnet/runtime/tree/main/src/coreclr/pal/tests.
 
 CLR VM
 ------
@@ -311,7 +311,7 @@ must implement.
     components. The implementation made architecture specific via a long series of
     C preprocessor macros.
 
-6. `gcinfodecoder.h` The GC info format is archictecture specific as it holds
+6. `gcinfodecoder.h` The GC info format is architecture specific as it holds
    information about which specific registers hold GC data. The implementation
    is generally simplified to be defined in terms of register numbers, but if
    the architecture has more registers available for use than existing architectures
@@ -340,27 +340,22 @@ Here is an annotated list of the stubs implemented for Unix on Arm64.
         calls. Necessary for all applications as this is how the main method is
         called.
 
-    2.  `LazyMachStateCaptureState`/`HelperMethodFrameRestoreState` – Needed to
-        support a GC occurring with an FCALL or HCALL on the stack. (Incorrect
-        implementations will cause unpredictable crashes during or after garbage
-        collection)
-
-    3.  `NDirectImportThunk` – Needed to support saving off a set of arguments to
+    2.  `PInvokeImportThunk` – Needed to support saving off a set of arguments to
         a p/invoke so that the runtime can find the actual target. Also uses one
         of the secret arguments (Used by all p/invoke methods)
 
-    4.  `PrecodeFixupThunk` – Needed to convert the secret argument from a
+    3.  `PrecodeFixupThunk` – Needed to convert the secret argument from a
         FixupPrecode\* to a MethodDesc\*. This function exists to reduce the
         code size of FixupPrecodes as there are (Used by many managed methods)
 
-    5.  `ThePreStub` - Needed to support saving off a set of arguments to the
+    4.  `ThePreStub` - Needed to support saving off a set of arguments to the
         stack so that the runtime can find or jit the right target method.
         (Needed for any jitted method to execute Used by all managed methods)
 
-    6.  `ThePreStubPatch` – Exists to provide a reliable spot for the managed
+    5.  `ThePreStubPatch` – Exists to provide a reliable spot for the managed
         debugger to put a breakpoint.
 
-    7.  GC Write Barriers – These are used to provide the GC with information
+    6.  GC Write Barriers – These are used to provide the GC with information
         about what memory is being updated. The existing implementations of
         these are all complex, and there are a number of controls where the
         runtime can adjust to tweak the behavior of the barrier in various ways.
@@ -373,51 +368,40 @@ Here is an annotated list of the stubs implemented for Unix on Arm64.
         FEATURE_USE_SOFTWARE_WRITE_WATCH_FOR_GC_HEAP can be implemented as
         performance needs require.
 
-    8.  `ComCallPreStub`/ `COMToCLRDispatchHelper` /`GenericComCallStub` - not
-        necessary for non-Windows platforms at this time
+    7.  `ComCallPreStub` - not necessary for non-Windows platforms at this time
 
-    9.  `TheUMEntryPrestub`/ `UMThunkStub` - used to enter the runtime from
+    8.  `TheUMEntryPrestub`/ `UMThunkStub` - used to enter the runtime from
         non-managed code through entrypoints generated from the
-        Marshal.GetFunctionPointerForDelagate api.
+        Marshal.GetFunctionPointerForDelegate api.
 
-    10. `OnHijackTripThread` - needed for thread suspension to support GC + other
+    9. `OnHijackTripThread` - needed for thread suspension to support GC + other
         suspension requiring events. This is typically not needed for very early
         stage bringup of the product, but will be needed for any decent size
         application
 
-    11. `CallEHFunclet` – Used to call catch, finally and fault funclets. Behavior
-        is specific to exactly how funclets are implemented. Only used if
-        USE_FUNCLET_CALL_HELPER is set
+    10. `CallEHFunclet` – Used to call catch, finally and fault funclets. Behavior
+        is specific to exactly how funclets are implemented.
 
-    12. `CallEHFilterFunclet` – Used to call filter funclets. Behavior is specific
-        to exactly how funclets are implemented. Only used if
-        USE_FUNCLET_CALL_HELPER is set
+    11. `CallEHFilterFunclet` – Used to call filter funclets. Behavior is specific
+        to exactly how funclets are implemented.
 
-    13. `ResolveWorkerChainLookupAsmStub`/ `ResolveWorkerAsmStub` Used for virtual
+    12. `ResolveWorkerChainLookupAsmStub`/ `ResolveWorkerAsmStub` Used for virtual
         stub dispatch (virtual call support for interface, and some virtual
         methods). These work in tandem with the logic in virtualcallstubcpu.h to
         implement the logic described in [Virtual Stub Dispatch](virtual-stub-dispatch.md)
 
-    14. `ProfileEnter`/ `ProfileeLeave`/ `ProfileTailcall` – Used to call function
+    13. `ProfileEnter`/ `ProfileLeave`/ `ProfileTailcall` – Used to call function
         entry/exit profile functions acquired through the ICorProfiler
         interface. Used in VERY rare circumstances. It is reasonable to wait to
         implement these until the final stages of productization. Most profilers
         do not use this functionality.
 
-    15. `JIT_PInvokeBegin`/`JIT_PInvokeEnd` – Leave/enter the managed runtime state. Necessary
+    14. `JIT_PInvokeBegin`/`JIT_PInvokeEnd` – Leave/enter the managed runtime state. Necessary
         for ReadyToRun pre-compiled pinvoke calls, so that they do not cause GC
         starvation
 
-    16. `VarargPInvokeStub`/ `GenericPInvokeCalliHelper` Used to support calli
-        pinvokes. It is expected that C\# 8.0 will increase use of this feature.
-        Today use of this feature on Unix requires hand-written IL. On Windows
-        this feature is commonly used by C++/CLI
-
-3.  EH Correctness. Some helpers are written in assembly to provide well known
-    locations for NullReferenceExceptions to be generated out of a SIGSEGV
-    signal.
-
-    1.  `JIT_MemSet`, and `JIT_MemCpy` have this requirement
+    15. `VarargPInvokeStub` – Used to support vararg pinvokes, which are commonly
+        used by C++/CLI. Not necessary for non-Windows platforms at this time.
 
 #### cgencpu.h
 

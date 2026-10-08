@@ -4,8 +4,11 @@
 
 using System;
 using System.Numerics;
+using Xunit;
 
-internal partial class VectorTest
+namespace SIMDTests.VectorMaxTests;
+
+public partial class VectorTest : VectorTestBase
 {
     private const int Pass = 100;
     private const int Fail = -1;
@@ -70,7 +73,8 @@ internal partial class VectorTest
         }
     }
 
-    private static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int returnVal = Pass;
         if (VectorMaxTest<float>.VectorMax(2f, 3f, 3f) != Pass) returnVal = Fail;
@@ -86,6 +90,8 @@ internal partial class VectorTest
         if (VectorMaxTest<sbyte>.VectorMax(-2, 3, 3) != Pass) returnVal = Fail;
         if (VectorMaxTest<uint>.VectorMax(0x80000000u, 0x40000000u, 0x80000000u) != Pass) returnVal = Fail;
         if (VectorMaxTest<ulong>.VectorMax(2ul, 3ul, 3ul) != Pass) returnVal = Fail;
+        if (VectorMaxTest<nint>.VectorMax(2, 3, 3) != Pass) returnVal = Fail;
+        if (VectorMaxTest<nuint>.VectorMax(0x80000000u, 0x40000000u, 0x80000000u) != Pass) returnVal = Fail;
 
         JitLog jitLog = new JitLog();
         if (!jitLog.Check("Max", "Single")) returnVal = Fail;
@@ -101,6 +107,8 @@ internal partial class VectorTest
         if (!jitLog.Check("Max", "SByte")) returnVal = Fail;
         if (!jitLog.Check("Max", "UInt32")) returnVal = Fail;
         if (!jitLog.Check("Max", "UInt64")) returnVal = Fail;
+        if (!jitLog.Check("Max", "IntPtr")) returnVal = Fail;
+        if (!jitLog.Check("Max", "UIntPtr")) returnVal = Fail;
         jitLog.Dispose();
 
         return returnVal;

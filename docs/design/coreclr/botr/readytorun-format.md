@@ -5,6 +5,9 @@ Revisions:
 * 1.1 - [Jan Kotas](https://github.com/jkotas) - 2015
 * 3.1 - [Tomas Rylek](https://github.com/trylek) - 2019
 * 4.1 - [Tomas Rylek](https://github.com/trylek) - 2020
+* 5.3 - [Tomas Rylek](https://github.com/trylek) - 2021
+* 5.4 - [David Wrighton](https://github.com/davidwrighton) - 2021
+* 6.3 - [David Wrighton](https://github.com/davidwrighton) - 2022
 
 # Introduction
 
@@ -27,11 +30,11 @@ The COR header and ECMA 335 metadata pointed to by the COM descriptor data direc
 in the COFF header represent a full copy of the input IL and MSIL metadata it was generated from.
 
 **Composite R2R files** currently conform to Windows PE executable file format as the
-native envelope. Moving forward we plan to gradually add support for platform-native
-executable formats (ELF on Linux, MachO on OSX) as the native envelopes. There is a
+native envelope. Moving forward we [plan to gradually add support for platform-native
+executable formats](./readytorun-platform-native-envelope.md) (ELF on Linux, MachO on OSX) as the native envelopes. There is a
 global CLI / COR header in the file, but it only exists to facilitate pdb generation, and does
 not participate in any usages by the CoreCLR runtime. The ReadyToRun header structure is pointed to
-by the well-known export symbol `RTR_HEADER` and has the `READYTORUN_FLAG_COMPOSITE` flag set.
+by the well-known export symbol `RTR_HEADER` (customizable via the `--rtr-header-symbol-name` crossgen2 option — see below) and has the `READYTORUN_FLAG_COMPOSITE` flag set.
 
 Input MSIL metadata and IL streams can be either embedded in the composite R2R file or left
 as separate files on disk. In case of embedded MSIL, the "actual" metadata for the individual
@@ -41,6 +44,13 @@ component assemblies is accessed via the R2R section `ComponentAssemblies`.
 without MSIL embedding are copied to the output folder next to the composite R2R executable
 and are rewritten by the compiler to include a formal ReadyToRun header with forwarding
 information pointing to the owner composite R2R executable (section `OwnerCompositeExecutable`).
+
+# Additions to the debug directory
+
+Currently shipping PE envelopes - both single-file and composite - can contain records for additional
+debug information in the debug directory. One such entry specific to R2R images is the one for R2R PerfMaps.
+The format of the auxiliary file is described [R2R perfmap format](./r2r-perfmap-format.md) and the corresponding
+debug directory entry is described in [PE COFF](../../../design/specs/PE-COFF.md#r2r-perfmap-debug-directory-entry-type-21).
 
 ## Future Improvements
 
@@ -57,11 +67,15 @@ The limitations of the current format are:
 
 # Structures
 
-The structures and accompanying constants are defined in the [readytorun.h]
-(https://github.com/dotnet/runtime/blob/master/src/coreclr/src/inc/readytorun.h) header file.
+The structures and accompanying constants are defined in the
+[readytorun.h](https://github.com/dotnet/runtime/blob/main/src/coreclr/inc/readytorun.h)
+header file.
 Basically the entire R2R executable image is addressed through the READYTORUN_HEADER singleton
-pointed to by the well-known export RTR_HEADER in the export section of the native executable
-envelope.
+pointed to by the well-known export `RTR_HEADER` in the export section of the native executable
+envelope. For composite images, this export symbol name can be customized using the
+`--rtr-header-symbol-name` option in `crossgen2`, which is useful for custom hosts that
+directly link against multiple R2R images (instead of loading them dynamically via `dlopen` or
+equivalent) and therefore need distinct symbol names to avoid collisions.
 
 For single-file R2R executables, there's just one header representing all image sections.
 For composite and single exe, the global `READYTORUN_HEADER` includes a section of the type
@@ -114,12 +128,17 @@ struct READYTORUN_CORE_HEADER
 
 ### READYTORUN_CORE_HEADER::Flags
 
-| Flag                                    |      Value | Description
-|:----------------------------------------|-----------:|:-----------
-| READYTORUN_FLAG_PLATFORM_NEUTRAL_SOURCE | 0x00000001 | Set if the original IL image was platform neutral. The platform neutrality is part of assembly name. This flag can be used to reconstruct the full original assembly name.
-| READYTORUN_FLAG_COMPOSITE               | 0x00000002 | The image represents a composite R2R file resulting from a combined compilation of a larger number of input MSIL assemblies.
-| READYTORUN_FLAG_EMBEDDED_MSIL           | 0x00000004 | Input MSIL is embedded in the R2R image.
-| READYTORUN_FLAG_COMPONENT               | 0x00000008 | This is a component assembly of a composite R2R image
+| Flag                                       |      Value | Description
+|:-------------------------------------------|-----------:|:-----------
+| READYTORUN_FLAG_PLATFORM_NEUTRAL_SOURCE    | 0x00000001 | Set if the original IL image was platform neutral. The platform neutrality is part of assembly name. This flag can be used to reconstruct the full original assembly name.
+| READYTORUN_FLAG_COMPOSITE                  | 0x00000002 | The image represents a composite R2R file resulting from a combined compilation of a larger number of input MSIL assemblies.
+| READYTORUN_FLAG_PARTIAL                    | 0x00000004 |
+| READYTORUN_FLAG_NONSHARED_PINVOKE_STUBS    | 0x00000008 | PInvoke stubs compiled into image are non-shareable (no secret parameter)
+| READYTORUN_FLAG_EMBEDDED_MSIL              | 0x00000010 | Input MSIL is embedded in the R2R image.
+| READYTORUN_FLAG_COMPONENT                  | 0x00000020 | This is a component assembly of a composite R2R image
+| READYTORUN_FLAG_MULTIMODULE_VERSION_BUBBLE | 0x00000040 | This R2R module has multiple modules within its version bubble (For versions before version 6.3, all modules are assumed to possibly have this characteristic)
+| READYTORUN_FLAG_UNRELATED_R2R_CODE         | 0x00000080 | This R2R module has code in it that would not be naturally encoded into this module
+| READYTORUN_FLAG_PLATFORM_NATIVE_IMAGE      | 0x00000100 | The owning composite executable is in the platform native format
 
 ## READYTORUN_SECTION
 
@@ -158,9 +177,19 @@ The following section types are defined and described later in this document:
 | ProfileDataInfo           |   111 | Image (added in V2.2)
 | ManifestMetadata          |   112 | Image (added in V2.3)
 | AttributePresence         |   113 | Assembly (added in V3.1)
-| InliningInfo2             |   114 | Image (added in V4.1)
+| InliningInfo2             |   114 | Image (non-composite, added in V4.1), Assembly (composite, added in V6.3)
 | ComponentAssemblies       |   115 | Image (added in V4.1)
 | OwnerCompositeExecutable  |   116 | Image (added in V4.1)
+| PgoInstrumentationData    |   117 | Image (added in V5.2)
+| ManifestAssemblyMvids     |   118 | Image (added in V5.3)
+| CrossModuleInlineInfo     |   119 | Image (added in V6.3)
+| HotColdMap                |   120 | Image (added in V8.0)
+| MethodIsGenericMap        |   121 | Assembly (Added in V9.0)
+| EnclosingTypeMap          |   122 | Assembly (Added in V9.0)
+| TypeGenericInfoMap        |   123 | Assembly (Added in V9.0)
+| ExternalTypeMaps          |   124 | Assembly (added in V18.3, extended in V28)
+| ProxyTypeMaps             |   125 | Assembly (added in V18.3, extended in V28)
+| TypeMapAssemblyTargets    |   126 | Assembly (added in V18.3)
 
 ## ReadyToRunSectionType.CompilerIdentifier
 
@@ -191,13 +220,19 @@ struct READYTORUN_IMPORT_SECTION
 
 | ReadyToRunImportSectionFlags           | Value  | Description
 |:---------------------------------------|-------:|:-----------
-| READYTORUN_IMPORT_SECTION_FLAGS_EAGER  | 0x0001 | Set if the slots in the section have to be initialized at image load time. It is used to avoid lazy initialization when it cannot be done or when it would have undesirable reliability or performance effects (unexpected failure or GC trigger points, overhead of lazy initialization).
+| ReadyToRunImportSectionFlags::None     | 0x0000  | None
+| ReadyToRunImportSectionFlags::Eager    | 0x0001 | Set if the slots in the section have to be initialized at image load time. It is used to avoid lazy initialization when it cannot be done or when it would have undesirable reliability or performance effects (unexpected failure or GC trigger points, overhead of lazy initialization).
+| ReadyToRunImportSectionFlags::PCode    | 0x0004  | Section contains pointers to code
+
 
 ### READYTORUN_IMPORT_SECTIONS::Type
 
-| ReadyToRunImportSectionType            | Value  | Description
-|:---------------------------------------|-------:|:-----------
-| READYTORUN_IMPORT_SECTION_TYPE_UNKNOWN | 0      | The type of slots in this section is unspecified.
+| ReadyToRunImportSectionType                 | Value  | Description
+|:--------------------------------------------|-------:|:-----------
+| ReadyToRunImportSectionType::Unknown      | 0      | The type of slots in this section is unspecified.
+| ReadyToRunImportSectionType::StubDispatch | 2      | The type of slots in this section rely on stubs for dispatch.
+| ReadyToRunImportSectionType::StringHandle | 3      | The type of slots in this section hold strings
+| ReadyToRunImportSectionType::ILBodyFixups | 7      | The type of slots in this section represent cross module IL bodies
 
 *Future*: The section type can be used to group slots of the same type together. For example, all virtual
 stub dispatch slots may be grouped together to simplify resetting of virtual stub dispatch cells into their
@@ -210,45 +245,55 @@ signature that contains the information required to fill the corresponding slot.
 builds upon the encoding used for signatures in ECMA-335. The first element of the signature describes the
 fixup kind, the rest of the signature varies based on the fixup kind.
 
-| ReadyToRunFixupKind                      | Value | Description
-|:-----------------------------------------|------:|:-----------
-| READYTORUN_FIXUP_ThisObjDictionaryLookup |  0x07 | Generic lookup using `this`; followed by the type signature and by the method signature
-| READYTORUN_FIXUP_TypeDictionaryLookup    |  0x08 | Type-based generic lookup for methods on instantiated types; followed by the typespec signature
-| READYTORUN_FIXUP_MethodDictionaryLookup  |  0x09 | Generic method lookup; followed by the method spec signature
-| READYTORUN_FIXUP_TypeHandle              |  0x10 | Pointer uniquely identifying the type to the runtime, followed by typespec signature (see ECMA-335)
-| READYTORUN_FIXUP_MethodHandle            |  0x11 | Pointer uniquely identifying the method to the runtime, followed by method signature (see below)
-| READYTORUN_FIXUP_FieldHandle             |  0x12 | Pointer uniquely identifying the field to the runtime, followed by field signature (see below)
-| READYTORUN_FIXUP_MethodEntry             |  0x13 | Method entrypoint or call, followed by method signature
-| READYTORUN_FIXUP_MethodEntry_DefToken    |  0x14 | Method entrypoint or call, followed by methoddef token (shortcut)
-| READYTORUN_FIXUP_MethodEntry_RefToken    |  0x15 | Method entrypoint or call, followed by methodref token (shortcut)
-| READYTORUN_FIXUP_VirtualEntry            |  0x16 | Virtual method entrypoint or call, followed by method signature
-| READYTORUN_FIXUP_VirtualEntry_DefToken   |  0x17 | Virtual method entrypoint or call, followed by methoddef token (shortcut)
-| READYTORUN_FIXUP_VirtualEntry_RefToken   |  0x18 | Virtual method entrypoint or call, followed by methodref token (shortcut)
-| READYTORUN_FIXUP_VirtualEntry_Slot       |  0x19 | Virtual method entrypoint or call, followed by typespec signature and slot
-| READYTORUN_FIXUP_Helper                  |  0x1A | Helper call, followed by helper call id (see chapter 4 Helper calls)
-| READYTORUN_FIXUP_StringHandle            |  0x1B | String handle, followed by metadata string token
-| READYTORUN_FIXUP_NewObject               |  0x1C | New object helper, followed by typespec  signature
-| READYTORUN_FIXUP_NewArray                |  0x1D | New array helper, followed by typespec signature
-| READYTORUN_FIXUP_IsInstanceOf            |  0x1E | isinst helper, followed by typespec signature
-| READYTORUN_FIXUP_ChkCast                 |  0x1F | chkcast helper, followed by typespec signature
-| READYTORUN_FIXUP_FieldAddress            |  0x20 | Field address, followed by field signature
-| READYTORUN_FIXUP_CctorTrigger            |  0x21 | Static constructor trigger, followed by typespec signature
-| READYTORUN_FIXUP_StaticBaseNonGC         |  0x22 | Non-GC static base, followed by typespec signature
-| READYTORUN_FIXUP_StaticBaseGC            |  0x23 | GC static base, followed by typespec signature
-| READYTORUN_FIXUP_ThreadStaticBaseNonGC   |  0x24 | Non-GC thread-local static base, followed by typespec signature
-| READYTORUN_FIXUP_ThreadStaticBaseGC      |  0x25 | GC thread-local static base, followed by typespec signature
-| READYTORUN_FIXUP_FieldBaseOffset         |  0x26 | Starting offset of fields for given type, followed by typespec signature. Used to address base class fragility.
-| READYTORUN_FIXUP_FieldOffset             |  0x27 | Field offset, followed by field signature
-| READYTORUN_FIXUP_TypeDictionary          |  0x28 | Hidden dictionary argument for generic code, followed by typespec signature
-| READYTORUN_FIXUP_MethodDictionary        |  0x29 | Hidden dictionary argument for generic code, followed by method signature
-| READYTORUN_FIXUP_Check_TypeLayout        |  0x2A | Verification of type layout, followed by typespec and expected type layout descriptor
-| READYTORUN_FIXUP_Check_FieldOffset       |  0x2B | Verification of field offset, followed by field signature and expected field layout descriptor
-| READYTORUN_FIXUP_DelegateCtor            |  0x2C | Delegate constructor, followed by method signature
-| READYTORUN_FIXUP_DeclaringTypeHandle     |  0x2D | Dictionary lookup for method declaring type. Followed by the type signature.
-| READYTORUN_FIXUP_IndirectPInvokeTarget   |  0x2E | Target (indirect) of an inlined PInvoke. Followed by method signature.
-| READYTORUN_FIXUP_PInvokeTarget           |  0x2F | Target of an inlined PInvoke. Followed by method signature.
-| READYTORUN_FIXUP_Check_InstructionSetSupport | 0x30 | Specify the instruction sets that must be supported/unsupported to use the R2R code associated with the fixup.
-| READYTORUN_FIXUP_ModuleOverride          |  0x80 | When or-ed to the fixup ID, the fixup byte in the signature is followed by an encoded uint with assemblyref index, either within the MSIL metadata of the master context module for the signature or within the manifest metadata R2R header table (used in cases inlining brings in references to assemblies not seen in the input MSIL).
+| ReadyToRunFixupKind                             | Value | Description
+|:------------------------------------------------|------:|:-----------
+| READYTORUN_FIXUP_ThisObjDictionaryLookup        |  0x07 | Generic lookup using `this`; followed by the type signature and by the method signature
+| READYTORUN_FIXUP_TypeDictionaryLookup           |  0x08 | Type-based generic lookup for methods on instantiated types; followed by the typespec signature
+| READYTORUN_FIXUP_MethodDictionaryLookup         |  0x09 | Generic method lookup; followed by the method spec signature
+| READYTORUN_FIXUP_TypeHandle                     |  0x10 | Pointer uniquely identifying the type to the runtime, followed by typespec signature (see ECMA-335)
+| READYTORUN_FIXUP_MethodHandle                   |  0x11 | Pointer uniquely identifying the method to the runtime, followed by method signature (see below)
+| READYTORUN_FIXUP_FieldHandle                    |  0x12 | Pointer uniquely identifying the field to the runtime, followed by field signature (see below)
+| READYTORUN_FIXUP_MethodEntry                    |  0x13 | Method entrypoint or call, followed by method signature
+| READYTORUN_FIXUP_MethodEntry_DefToken           |  0x14 | Method entrypoint or call, followed by methoddef token (shortcut)
+| READYTORUN_FIXUP_MethodEntry_RefToken           |  0x15 | Method entrypoint or call, followed by methodref token (shortcut)
+| READYTORUN_FIXUP_VirtualEntry                   |  0x16 | Virtual method entrypoint or call, followed by method signature
+| READYTORUN_FIXUP_VirtualEntry_DefToken          |  0x17 | Virtual method entrypoint or call, followed by methoddef token (shortcut)
+| READYTORUN_FIXUP_VirtualEntry_RefToken          |  0x18 | Virtual method entrypoint or call, followed by methodref token (shortcut)
+| READYTORUN_FIXUP_VirtualEntry_Slot              |  0x19 | Virtual method entrypoint or call, followed by typespec signature and slot
+| READYTORUN_FIXUP_Helper                         |  0x1A | Helper call, followed by helper call id (see chapter 4 Helper calls)
+| READYTORUN_FIXUP_StringHandle                   |  0x1B | String handle, followed by metadata string token
+| READYTORUN_FIXUP_NewObject                      |  0x1C | New object helper, followed by typespec  signature
+| READYTORUN_FIXUP_NewArray                       |  0x1D | New array helper, followed by typespec signature
+| READYTORUN_FIXUP_IsInstanceOf                   |  0x1E | isinst helper, followed by typespec signature
+| READYTORUN_FIXUP_ChkCast                        |  0x1F | chkcast helper, followed by typespec signature
+| READYTORUN_FIXUP_FieldAddress                   |  0x20 | Field address, followed by field signature
+| READYTORUN_FIXUP_CctorTrigger                   |  0x21 | Static constructor trigger, followed by typespec signature
+| READYTORUN_FIXUP_StaticBaseNonGC                |  0x22 | Non-GC static base, followed by typespec signature
+| READYTORUN_FIXUP_StaticBaseGC                   |  0x23 | GC static base, followed by typespec signature
+| READYTORUN_FIXUP_ThreadStaticBaseNonGC          |  0x24 | Non-GC thread-local static base, followed by typespec signature
+| READYTORUN_FIXUP_ThreadStaticBaseGC             |  0x25 | GC thread-local static base, followed by typespec signature
+| READYTORUN_FIXUP_FieldBaseOffset                |  0x26 | Starting offset of fields for given type, followed by typespec signature. Used to address base class fragility.
+| READYTORUN_FIXUP_FieldOffset                    |  0x27 | Field offset, followed by field signature
+| READYTORUN_FIXUP_TypeDictionary                 |  0x28 | Hidden dictionary argument for generic code, followed by typespec signature
+| READYTORUN_FIXUP_MethodDictionary               |  0x29 | Hidden dictionary argument for generic code, followed by method signature
+| READYTORUN_FIXUP_Check_TypeLayout               |  0x2A | Verification of type layout, followed by typespec and expected type layout descriptor
+| READYTORUN_FIXUP_Check_FieldOffset              |  0x2B | Verification of field offset, followed by field signature and expected field layout descriptor
+| READYTORUN_FIXUP_DelegateCtor                   |  0x2C | Delegate constructor, followed by method signature
+| READYTORUN_FIXUP_DeclaringTypeHandle            |  0x2D | Type which declares the method described by the signature. Followed by the method signature.
+| READYTORUN_FIXUP_IndirectPInvokeTarget          |  0x2E | Target (indirect) of an inlined PInvoke. Followed by method signature.
+| READYTORUN_FIXUP_PInvokeTarget                  |  0x2F | Target of an inlined PInvoke. Followed by method signature.
+| READYTORUN_FIXUP_Check_InstructionSetSupport    |  0x30 | Specify the instruction sets that must be supported/unsupported to use the R2R code associated with the fixup.
+| READYTORUN_FIXUP_Verify_FieldOffset             |  0x31 | Generate a runtime check to ensure that the field offset matches between compile and runtime. Unlike CheckFieldOffset, this will generate a runtime exception on failure instead of silently dropping the method
+| READYTORUN_FIXUP_Verify_TypeLayout              |  0x32 | Generate a runtime check to ensure that the field offset matches between compile and runtime. Unlike CheckFieldOffset, this will generate a runtime exception on failure instead of silently dropping the method
+| READYTORUN_FIXUP_Check_VirtualFunctionOverride  |  0x33 | Generate a runtime check to ensure that virtual function resolution has equivalent behavior at runtime as at compile time. If not equivalent, code will not be used. See [Virtual override signatures](virtual-override-signatures) for details of the signature used.
+| READYTORUN_FIXUP_Verify_VirtualFunctionOverride |  0x34 | Generate a runtime check to ensure that virtual function resolution has equivalent behavior at runtime as at compile time. If not equivalent, generate runtime failure. See [Virtual override signatures](virtual-override-signatures) for details of the signature used.
+| READYTORUN_FIXUP_Check_IL_Body                  |  0x35 | Check to see if an IL method is defined the same at runtime as at compile time. A failed match will cause code not to be used. See[IL Body signatures](il-body-signatures) for details.
+| READYTORUN_FIXUP_Verify_IL_Body                 |  0x36 | Verify an IL body is defined the same at compile time and runtime. A failed match will cause a hard runtime failure. See[IL Body signatures](il-body-signatures) for details.
+| READYTORUN_FIXUP_ContinuationLayout             |  0x37 | Layout of an async method continuation type, followed by typespec signature
+| READYTORUN_FIXUP_ResumptionStubEntryPoint       |  0x38 | Entry point of an async method resumption stub
+| READYTORUN_FIXUP_InjectStringThunks             |  0x39 | Inject pregenerated string-to-code thunk mappings. See [InjectStringThunks signatures](#injectstringthunks-signatures) for details.
+| READYTORUN_FIXUP_StoreMultiCallableAddrOfCode   |  0x3A | Store the runtime multi-callable code address of a method into a location embedded in the R2R image. See [StoreMultiCallableAddrOfCode signatures](#storemulticallableaddrofcode-signatures) for details.
+| READYTORUN_FIXUP_ModuleOverride                 |  0x80 | When or-ed to the fixup ID, the fixup byte in the signature is followed by an encoded uint with assemblyref index, either within the MSIL metadata of the master context module for the signature or within the manifest metadata R2R header table (used in cases inlining brings in references to assemblies not seen in the input MSIL).
 
 #### Method Signatures
 
@@ -265,6 +310,8 @@ token, and additional data determined by the flags.
 | READYTORUN_METHOD_SIG_MemberRefToken      |  0x10 | If set, the token is memberref token. If not set, the token is methoddef token.
 | READYTORUN_METHOD_SIG_Constrained         |  0x20 | Constrained type for method resolution. Typespec appended as additional data.
 | READYTORUN_METHOD_SIG_OwnerType           |  0x40 | Method type. Typespec appended as additional data.
+| READYTORUN_METHOD_SIG_UpdateContext       |  0x80 | If set, update the module which is used to parse tokens before performing any token processing. A uint index into the modules table immediately follows the flags
+| READYTORUN_METHOD_SIG_AsyncVariant        | 0x100 | If set, the method signature refers to the runtime-async variant of the method.
 
 #### Field Signatures
 
@@ -278,10 +325,53 @@ additional data determined by the flags.
 | READYTORUN_FIELD_SIG_MemberRefToken      |  0x10 | If set, the token is memberref token. If not set, the token is fielddef token.
 | READYTORUN_FIELD_SIG_OwnerType           |  0x40 | Field type. Typespec appended as additional data.
 
+#### Virtual override signatures
+
+ECMA 335 does not have a natural encoding for describing an overridden method. These signatures are encoded as a ReadyToRunVirtualFunctionOverrideFlags byte, followed by a method signature representing the declaration method, a type signature representing the type which is being devirtualized, and (optionally) a method signature indicating the implementation method.
+
+| ReadyToRunVirtualFunctionOverrideFlags                | Value | Description
+|:------------------------------------------------------|------:|:-----------
+| READYTORUN_VIRTUAL_OVERRIDE_None                      |  0x00 | No flags are set
+| READYTORUN_VIRTUAL_OVERRIDE_VirtualFunctionOverridden  |  0x01 | If set, then the virtual function has an implementation, which is encoded in the optional method implementation signature.
+
+#### IL Body signatures
+
+ECMA 335 does not define a format that can represent the exact implementation of a method by itself. This signature holds all of the IL of the method, the EH table, the locals table, and each token (other than type references) in those tables is replaced with an index into a local stream of signatures. Those signatures are simply verbatim copies of the needed metadata to describe MemberRefs, TypeSpecs, MethodSpecs, StandaloneSignatures and strings. All of that is bundled into a large byte array. In addition, a series of TypeSignatures follows which allow the type references to be resolved, as well as a methodreference to the uninstantiated method. Assuming all of this matches with the data that is present at runtime, the fixup is considered to be satisfied. See ReadyToRunStandaloneMetadata.cs for the exact details of the format.
+
+#### InjectStringThunks signatures
+
+The `READYTORUN_FIXUP_InjectStringThunks` fixup is placed in an eager import section and is processed at R2R module load time. There is at most one such fixup per compilation. It encodes a mapping from UTF-8 strings to pregenerated code thunks embedded in the R2R image.
+
+The signature following the fixup kind byte is a series of elements:
+
+| Field | Size | Description
+|:------|-----:|:-----------
+| LookupString | variable | A null-terminated UTF-8 string (the lookup key)
+| ThunkRVA | 4 bytes | An RVA into the module indicating the location of the thunk code. On WebAssembly platforms, this is an I32 function table index instead.
+
+The series terminates when the null-terminated string is the empty string (a single `0x00` byte). There is no trailing RVA after the terminal empty string.
+
+At runtime, the entries are merged into a global hash table. Strings already present in the table from previously loaded modules take precedence over new entries. The table can be queried via `LookupPregeneratedThunkByString`.
+
+#### StoreMultiCallableAddrOfCode signatures
+
+The `READYTORUN_FIXUP_StoreMultiCallableAddrOfCode` fixup is placed in a precode import section and is processed at method load time (when the fixups for the associated method are resolved). It records the runtime multi-callable code address of a target method into a location embedded in the R2R image (for example, a slot in a compiled method's read-only data blob). This is required on platforms where a callable code pointer is not simply `imageBase + RVA` and is therefore only known at runtime (such as WebAssembly, where a callable pointer is a runtime-allocated portable entry point rather than a compile-time function table index).
+
+The signature following the fixup kind byte is:
+
+| Field | Size | Description
+|:------|-----:|:-----------
+| TargetCodeRVA | 4 bytes | An RVA identifying the target method's code. On WebAssembly platforms, this is an I32 function table index instead. This is encoded identically to the target of a `READYTORUN_FIXUP_ResumptionStubEntryPoint` fixup so the resulting entry point value matches the one that fixup registers.
+| LocationRVA | 4 bytes | An `IMAGE_REL_BASED_ADDR32NB` RVA identifying the location within the R2R image where the resolved code address is to be stored.
+
+At runtime, the fixup resolves the target entry point to its `MethodDesc` (using the entry-point-to-`MethodDesc` mapping populated by the `READYTORUN_FIXUP_ResumptionStubEntryPoint` fixup), computes `GetMultiCallableAddrOfCode`, and stores the resulting pointer at the location identified by `LocationRVA`.
+
+Because this fixup depends on the target entry point already being registered, it must be ordered after the corresponding `READYTORUN_FIXUP_ResumptionStubEntryPoint` fixup within the method's precode fixup list.
+
 ### READYTORUN_IMPORT_SECTIONS::AuxiliaryData
 
 For slots resolved lazily via `READYTORUN_HELPER_DelayLoad_MethodCall` helper, auxiliary data are
-compressed argument maps that allow precise GC stack scanning while the helper is running. The CoreCLR runtime class [`GCRefMapDecoder`](https://github.com/dotnet/runtime/blob/8c6b1314c95857b9e2f5c222a10f2f089ee02dfe/src/coreclr/src/inc/gcrefmap.h#L157) is used to parse this information. This data would not be required for runtimes that allow conservative stack scanning.
+compressed argument maps that allow precise GC stack scanning while the helper is running. The CoreCLR runtime class [`GCRefMapDecoder`](https://github.com/dotnet/runtime/blob/69e114c1abf91241a0eeecf1ecceab4711b8aa62/src/coreclr/inc/gcrefmap.h#L158) is used to parse this information. This data would not be required for runtimes that allow conservative stack scanning.
 
 The auxiliary data table contains the exact same number of GC ref map records as there are method entries in the import section. To accelerate GC ref map lookup, the auxiliary data section starts with a lookup table holding the offset of every 1024-th method in the runtime function table within the linearized GC ref map.
 
@@ -294,7 +384,7 @@ The auxiliary data table contains the exact same number of GC ref map records as
 | 4 * (MethodCount / 1024 + 1) |  ... | Serialized GC ref map info
 
 The GCRef map is used to encode GC type of arguments for callsites. Logically, it is a sequence `<pos, token>` where `pos` is
-position of the reference in the stack frame and `token` is type of GC reference (one of [`GCREFMAP_XXX`](https://github.com/dotnet/runtime/blob/8c6b1314c95857b9e2f5c222a10f2f089ee02dfe/src/coreclr/src/inc/corcompile.h#L627) values):
+position of the reference in the stack frame and `token` is type of GC reference (one of [`GCREFMAP_XXX`](https://github.com/dotnet/runtime/blob/69e114c1abf91241a0eeecf1ecceab4711b8aa62/src/coreclr/inc/corcompile.h#L633) values):
 
 | CORCOMPILE_GCREFMAP_TOKENS | Value | Stack frame entry interpretation
 |:---------------------------|------:|:--------------------------------
@@ -341,6 +431,36 @@ which encodes an extra 4-byte representing the end RVA of the unwind info blob.
 |      0 |    4 | Unwind info start RVA
 |      4 |    4 | Unwind info end RVA (1 plus RVA of last byte)
 |      8 |    4 | GC info start RVA
+
+### RUNTIME_FUNCTION (wasm, size = 8 bytes)
+
+On WebAssembly, the `RUNTIME_FUNCTION` uses a virtual IP as the `BeginAddress` rather than an RVA
+into the image. The high bit of the `BeginAddress` field indicates whether the entry represents a
+funclet (1) or a main method body (0). The remaining 31 bits encode the virtual IP of the start of
+the function or funclet.
+
+| Offset | Size | Value
+|-------:|-----:|:-----
+|      0 |    4 | Virtual IP (bits 30:0) &#124; IsFunclet flag (bit 31)
+|      4 |    4 | UnwindData RVA (GC info follows immediately after the unwind blob)
+
+The table is terminated by a sentinel entry with all bits set (`0xFFFFFFFF`), followed by a 4-byte
+value containing the minimum WebAssembly function table index for the image.
+
+### UnwindInfo (wasm)
+
+On WebAssembly, the unwind info blob associated with each `RUNTIME_FUNCTION` entry is encoded as
+two consecutive ULEB128 values:
+
+| Order | Encoding | Value
+|------:|:---------|:-----
+|     1 | ULEB128  | Frame size in bytes (the number of bytes to unwind from the stack)
+|     2 | ULEB128  | Virtual IP count divided by 2 (the number of virtual IPs logically present in the function, halved)
+
+The virtual IP count (after multiplying by 2) gives the span of virtual IPs covered by this
+function or funclet. All virtual IPs are forced to even numbers so that the runtime can force all virtual
+ips to have odd numbers and fit into the address space in a manner which cannot conflict with either interpreter
+IPs or PortableEntryPoint structures.
 
 ## ReadyToRunSectionType.MethodDefEntryPoints
 
@@ -440,7 +560,7 @@ This section contains a native hashtable of all defined & export types within th
 |         1 | exported type
 
 The version-resilient hashing algorithm used for hashing the type names is implemented in
-[vm/versionresilienthashcode.cpp](https://github.com/dotnet/runtime/blob/8c6b1314c95857b9e2f5c222a10f2f089ee02dfe/src/coreclr/src/vm/versionresilienthashcode.cpp#L75).
+[vm/versionresilienthashcode.cpp](https://github.com/dotnet/runtime/blob/69e114c1abf91241a0eeecf1ecceab4711b8aa62/src/coreclr/vm/versionresilienthashcode.cpp#L74).
 
 **Note:** This is a per-assembly section. In single-file R2R files, it is pointed to directly by the
 main R2R header; in composite R2R files, each component module has its own available type section pointed to
@@ -451,7 +571,7 @@ by the `READYTORUN_SECTION_ASSEMBLIES_ENTRY` core header structure.
 This section contains a native hashtable of all generic method instantiations compiled into
 the R2R executable. The key is the method instance signature; the appropriate version-resilient
 hash code calculation is implemented in
-[vm/versionresilienthashcode.cpp](https://github.com/dotnet/runtime/blob/master/src/coreclr/src/vm/versionresilienthashcode.cpp#L127);
+[vm/versionresilienthashcode.cpp](https://github.com/dotnet/runtime/blob/69e114c1abf91241a0eeecf1ecceab4711b8aa62/src/coreclr/vm/versionresilienthashcode.cpp#L126);
 the value, represented by the `EntryPointWithBlobVertex` class, stores the method index in the
 runtime function table, the fixups blob and a blob encoding the method signature.
 
@@ -459,6 +579,14 @@ runtime function table, the fixups blob and a blob encoding the method signature
 composite R2R images. It represents all generics needed by all assemblies within the composite
 executable. As mentioned elsewhere in this document, CoreCLR runtime requires changes to
 properly look up methods stored in this section in the composite R2R case.
+
+**Note:** Generic methods and non-generic methods on generic types are encoded into this table
+and the runtime is expected to lookup into this table in potentially multiple modules. First the
+runtime is expected to lookup into this table for the module which defines the method, then it is
+expected to use the "alternate" generics location which is defined as the module which is NOT the
+defining module which is the defining module of one of the generic arguments to the method. This
+alternate lookup is not currently a deeply nested algorithm. If that lookup fails, then lookup
+will proceed to every module which specified `READYTORUN_FLAG_UNRELATED_R2R_CODE` as a flag.
 
 ## ReadyToRunSectionType.InliningInfo (v2.1+)
 
@@ -468,7 +596,7 @@ properly look up methods stored in this section in the composite R2R case.
 
 **TODO**: document profile data encoding
 
-## ReadyToRunSectionType.ManifestMetadata (v2.3+)
+## ReadyToRunSectionType.ManifestMetadata (v2.3+ with changes for v6.3+)
 
 Manifest metadata is an [ECMA-335] metadata blob containing extra reference assemblies within
 the version bubble introduced by inlining on top of assembly references stored in the input MSIL.
@@ -477,11 +605,15 @@ translate module override indices in signatures to the actual reference modules 
 the `READYTORUN_FIXUP_ModuleOverride` bit flag on the signature fixup byte or the
 `ELEMENT_TYPE_MODULE_ZAPSIG` COR element type).
 
-**Note:** It doesn't make sense to store references to assemblies external to the version bubble
-in the manifest metadata as there's no guarantee that their metadata token values remain
-constant; thus we cannot encode signatures relative to them.
+**Note:** It doesn't make sense to use references to assemblies external to the version bubble
+in the manifest metadata via the `READYTORUN_FIXUP_ModuleOverride` or `ELEMENT_TYPE_MODULE_ZAPSIG` concept
+as there's no guarantee that their metadata token values remain constant; thus we cannot encode signatures relative to them.
+However, as of R2R version 6.3, the native manifest metadata may contain tokens to be further resolved to actual
+implementation assemblies.
 
 The module override index translation algorithm is as follows (**ILAR** = *the number of `AssemblyRef` rows in the input MSIL*):
+
+For R2R version 6.2 and below
 
 | Module override index (*i*) | Reference assembly
 |:----------------------------|:------------------
@@ -490,6 +622,16 @@ The module override index translation algorithm is as follows (**ILAR** = *the n
 | *i* > **ILAR**              | *i* - **ILAR** - 1 is the zero-based index into the `AssemblyRef` table in the manifest metadata
 
 **Note:** This means that the entry corresponding to *i* = **ILAR** + 1 is actually undefined as it corresponds to the `NULL` entry (ROWID #0) in the manifest metadata AssemblyRef table. The first meaningful index into the manifest metadata, *i* = **ILAR** + 2, corresponding to ROWID #1, is historically filled in by Crossgen with the input assembly info but this shouldn't be depended upon, in fact the input assembly is useless in the manifest metadata as the module override to it can be encoded by using the special index 0.
+
+For R2R version 6.3 and above
+| Module override index (*i*) | Reference assembly
+|:----------------------------|:------------------
+| *i* = 0                     | Global context - assembly containing the signature
+| 1 <= *i* <= **ILAR**        | *i* is the index into the MSIL `AssemblyRef` table
+| *i* = **ILAR** + 1          | *i* is the index which refers to the Manifest metadata itself
+| *i* > **ILAR** + 1          | *i* - **ILAR** - 2 is the zero-based index into the `AssemblyRef` table in the manifest metadata
+
+In addition, a ModuleRef within the module which refers to `System.Private.CoreLib` may be used to serve as the *ResolutionContext* of a *TypeRef* within the manifest metadata. This will always refer to the module which contains the `System.Object` type.
 
 ## ReadyToRunSectionType.AttributePresence (v3.1+)
 
@@ -511,6 +653,15 @@ The entry of the hashtable is a counted sequence of compressed unsigned integers
 * RIDs of the inliners follow. They are encoded similarly to the way the inlinee is encoded (shifted left with the lowest bit indicating foreign RID). Instead of encoding the RID directly, RID delta (the difference between the previous RID and the current RID) is encoded. This allows better integer compression.
 
 Foreign RIDs are only present if a fragile inlining was allowed at compile time.
+
+**Note:** In single-file (non-composite) R2R files, this section is image-wide and is
+referenced directly by the main R2R header. In composite R2R files (v6.3+), this section
+is instead emitted per component assembly and is referenced by the
+`READYTORUN_SECTION_ASSEMBLIES_ENTRY` core header of each component; inlinee/inliner RIDs
+without a module override flag refer to methods in the owning component assembly. The
+image-wide [`CrossModuleInlineInfo`](#readytorunsectiontypecrossmoduleinlineinfo-v63)
+section supersedes the image-wide use of `InliningInfo2` for cross-module inlines in
+composite images and may be emitted alongside the per-assembly `InliningInfo2` sections.
 
 **TODO:** It remains to be seen whether `DelayLoadMethodCallThunks` and / or
 `InliningInfo` also require changes specific to the composite R2R file format.
@@ -540,6 +691,156 @@ the `OwnerCompositeExecutable` section that contains a UTF-8 string encoding the
 composite R2R executable this MSIL belongs to with extension (without path). Runtime uses this
 information to locate the composite R2R executable with the compiled native code when loading the MSIL.
 
+## ReadyToRunSectionType.PgoInstrumentationData (v5.2+)
+
+**TODO**: document PGO instrumentation data
+
+## ReadyToRunSectionType.ManifestAssemblyMvids (v5.3+)
+
+This section is a binary array of 16-byte MVID records, one for each assembly in the manifest metadata.
+Number of assemblies stored in the manifest metadata is equal to the number of MVID records in the array.
+MVID records are used at runtime to verify that the assemblies loaded match those referenced by the
+manifest metadata representing the versioning bubble.
+
+## ReadyToRunSectionType.CrossModuleInlineInfo (v6.3+)
+The inlining information section captures what methods got inlined into other methods. It consists of a single _Native Format Hashtable_ (described below).
+
+The entries in the hashtable are lists of inliners for each inlinee. One entry in the hashtable corresponds to one inlinee. The hashtable is hashed with the version resilient hashcode of the uninstantiated methoddef inlinee.
+
+The entry of the hashtable is a counted sequence of compressed unsigned integers which begins with an InlineeIndex which combines a 30 bit index with 2 bits of flags which how the sequence of inliners shall be parsed and what table is to be indexed into to find the inlinee.
+
+* InlineeIndex
+  * Index with 2 flags field in lowest 2 bits to define the inlinee
+    - If (flags & 1) == 0 then index is a MethodDef RID, and if the module is a composite image, a module index of the method follows
+    - If (flags & 1) == 1, then index is an index into the ILBody import section
+    - If (flags & 2) == 0 then inliner list is:
+      - Inliner RID deltas - See definition below
+    - if (flags & 2) == 2 then what follows is:
+      - count of delta encoded indices into the ILBody import section
+      - the sequence of delta encoded indices into the first import section with a type of READYTORUN_IMPORT_SECTION_TYPE_ILBODYFIXUPS
+      - Inliner RID deltas - See definition below
+
+* Inliner RID deltas (for multi-module version bubble images specified by the module having the READYTORUN_FLAG_MULTIMODULE_VERSION_BUBBLE flag set)
+  - a sequence of inliner RID deltas with flag in the lowest bit
+  - if flag is set, the inliner RID is followed by a module ID
+  - otherwise the module is the same as the module of the inlinee method
+* Inliner RID deltas (for single module version bubble images)
+  - a sequence of inliner RID deltas
+
+This section may be included in addition to a InliningInfo2 section.
+
+## ReadyToRunSectionType.HotColdMap (v8.0+)
+In ReadyToRun 8.0+, the format supports splitting a method into hot and cold parts so that they are not located together. This hot-cold map section captures the information about how methods are split so that the runtime can locate them for various services.
+
+For every method that is split, there is a single entry in the section. Each entry has two unsigned 32-bit integers. The first integer is the runtime function index of the cold part and the second integer is the runtime function index of the hot part.
+
+The methods in this table are sorted by their hot part runtime function indices, which are also sorted by their cold part runtime function indices because we always emit the cold part in the same order as the hot parts, or by their RVAs because the runtime function table itself is sorted by the RVAs.
+
+This section may not exist if no method is split - this happens when the `--hot-cold-splitting` flag is not specified during compilation, or the compiler decides it should not split any methods.
+
+## ReadyToRunSectionType.MethodIsGenericMap (v9.0+)
+This optional section holds a bit vector to indicate if the MethodDefs contained within the assembly have generic parameters or not. This allows determining if a method is generic or not by querying a bit vector (which is fast, and efficient) as opposed to examining the GenericParameter table, or the signature of the Method.
+
+The section begins with a single 32 bit integer indicating the number of bits in the bit vector. Following that integer is the actual bit vector of all of the data. The data is grouped into 8 bit bytes, where the least significant bit of the byte is the bit which represents the lowest MethodDef.
+
+For instance, the first byte in the bit vector represents the MethodDefs 06000001 to 06000008, and the least signficant bit of that first byte is the bit representing the IsGeneric bit for MethodDef 06000001.
+
+## ReadyToRunSectionType.EnclosingTypeMap (v9.0+)
+
+This optional section allows for efficient O(1) lookup from the enclosed type to the type which encloses it without requiring the binary search that is necessary if using the ECMA 335 defined NestedClass table (which encodes exactly the same information). This section may only be included in the assembly if the assembly has fewer than 0xFFFE types defined within it.
+
+The structure of this section is:
+A single 16 bit unsigned integer listing the count of entries in the map.
+This count is followed by a 16 bit unsigned integer for each TypeDef defined in the assembly. This typedef is the RID of the enclosing type, or 0 if the typedef is not enclosed by another type.
+
+## ReadyToRunSectionType.TypeGenericInfoMap (v9.0+)
+This optional section represents a condensed view of some generic details about types. This can make it more efficient to load types.
+
+The structure of this section is:
+A single 32 bit integer representing the number of entries in the map followed by a series of 4 bit entries, one per type. These 4 bit entries are grouped into bytes, where each byte holds 2 entries, and the entry in the most significant 4 bits of the byte is the entry representing a lower TypeDef RID.
+
+TypeGenericInfoMap entries have 4 bits representing 3 different sets of information.
+
+1. What is the count of generic parameters (0, 1, 2, MoreThanTwo) (This is represented in the least significant 2 bits of the TypeGenericInfoMap entry)
+2. Are there any constraints on the generic parameters? (This is the 3rd bit of the entry)
+3. Do any of the generic parameters have co or contra variance? (This is the 4th bit of the entry)
+
+## ReadyToRunSectionType.ExternalTypeMaps (v18.3+)
+
+This optional section contains precomputed external type maps. It is a native hashtable keyed by the version-resilient hash code of the type map group. Each value has the following layout:
+
+```text
+GroupTypeFixup
+State
+[ExternalTypeMapHashtable]
+[NamedEntries]
+```
+
+`GroupTypeFixup` is a fixup reference encoded as the import section index followed by the fixup row index. `State` is a compressed unsigned integer with one of these values:
+
+| State | Name | Remaining layout |
+|------:|:-----|:-----------------|
+| 0 | Runtime attribute fallback | No precomputed map data. The runtime processes the type map attributes instead. |
+| 1 | Precomputed fixups | `ExternalTypeMapHashtable` only. |
+| 2 | Precomputed fixups and type names | `ExternalTypeMapHashtable` followed immediately by `NamedEntries`. Added in V28. |
+
+`ExternalTypeMapHashtable` is a native hashtable keyed by the name hash code of the external type map key. Each value contains:
+
+```text
+KeyString
+TargetTypeFixup
+```
+
+`TargetTypeFixup` has the same import-section-index and fixup-row-index encoding as `GroupTypeFixup`.
+
+In state 2, `NamedEntries` is a native sequence: a compressed unsigned count followed by that many inline pairs. Each pair contains:
+
+```text
+KeyString
+SerializedTargetTypeName
+```
+
+These entries represent target types that cannot be encoded as ReadyToRun fixups. The endpoint stored in the final bucket-offset cell of `ExternalTypeMapHashtable` identifies the start of `NamedEntries`; a hashtable lookup therefore does not enumerate the string sequence.
+
+## ReadyToRunSectionType.ProxyTypeMaps (v18.3+)
+
+This optional section contains precomputed proxy type maps. Its outer native hashtable and per-group `GroupTypeFixup` and `State` fields use the same layout as `ExternalTypeMaps`:
+
+```text
+GroupTypeFixup
+State
+[ProxyTypeMapHashtable]
+[NamedEntries]
+```
+
+`ProxyTypeMapHashtable` is keyed by the version-resilient hash code of the source type. Each value contains:
+
+```text
+SourceTypeFixup
+ProxyTypeFixup
+```
+
+In state 2, `NamedEntries` begins immediately after `ProxyTypeMapHashtable` and contains a compressed unsigned count followed by that many inline pairs:
+
+```text
+SerializedSourceTypeName
+SerializedProxyTypeName
+```
+
+If either type in a proxy mapping cannot be encoded as a ReadyToRun fixup, both types are represented by their serialized names in `NamedEntries`.
+
+## ReadyToRunSectionType.TypeMapAssemblyTargets (v18.3+)
+
+This optional section is a native hashtable keyed by the version-resilient hash code of the type map group. Each value contains the group type fixup followed by a native sequence of module fixups:
+
+```text
+GroupTypeFixup
+TargetModuleCount
+TargetModuleFixup[TargetModuleCount]
+```
+
+Each type or module fixup is encoded as an import section index followed by a fixup row index.
+
 # Native Format
 
 Native format is set of encoding patterns that allow persisting type system data in a binary format that is
@@ -568,22 +869,82 @@ the first byte of the encoding specify the number of following bytes as follows:
 
 ## Sparse Array
 
-**TODO**: Document native format sparse array
+The NativeArray provides O(1) indexed access while maintaining compact storage through null element compression (empty blocks share storage) and variable-sized offset encoding (adapts to data size).
+
+The array is made up of three parts, the header, block index, and the blocks.
+
+The header is a variable encoded value where:
+- Bits 0-1: Entry index size
+  - 0 = uint8 offsets
+  - 1 = uint16 offsets
+  - 2 = uint32 offsets
+- Bits 2-31: Number of elements in the array
+
+The block index immediately follows the header in memory and consists of one offset entry per block (dynamic size encoded in the header), where each entry points to the location of a data block relative to the start of the block index section. The array uses a maximum block size of 16 elements, the block index effectively maps every group of 16 consecutive array indices to their corresponding data blocks.
+
+The following the block index are the actual data blocks. These are made up of two types of nodes. Tree nodes and Data nodes.
+
+Tree nodes are made up of a variable length encoded uint where:
+- Bit 0: If set, the node has a lower index child
+- Bit 1: If set, the node has a higher index child
+- Bits 2-31: Shifted relative offset of higher index child
+
+Data nodes contain the user defined data.
+
+Since each block has at most 16 elements, they have a depth of `4`.
+
+### Lookup Algorithm Steps
+
+**Step 1: Read the Header**
+- Decode the variable-length encoded header value from the array
+- Extract the entry index size from bits 0-1 (0=uint8, 1=uint16, 2=uint32 offsets)
+- Extract the total number of elements from bits 2-31 by right-shifting the header value by 2 bits
+- Use this information to determine how to interpret the block index entries and validate array bounds
+
+**Step 2: Calculate Block Offset**
+- Determine the block index `blockIndex` containing the target element by dividing the index by the block size (16).
+- Calculate the memory location containing the block offset `pBlockOffset = baseOffset + entrySize * blockIndex` where `baseOffset` is the address immediately following the header and `entrySize` is determined by the low bits of the header.
+- Read the block offset `blockOffset` from the block index table using the calculated `pBlockOffset` and entry size determined by the header.
+- Add the `baseOffset` to convert the relative `blockOffset` to an absolute position.
+
+**Step 3: Initialize Tree Navigation**
+- Using the `blockOffset` calculated above, begin traversal at the root of the block's binary tree structure
+
+**Step 4: Navigate Binary Tree**
+For each level of the tree (iterating through bit positions 8, 4, 2, 1):
+
+**Step 4a: Read Node Descriptor**
+- Decode the current node's control value, which contains navigation flags and child offset information
+- Extract flags indicating the presence of left and right child nodes
+- Extract the relative offset to the right child node (if present)
+
+**Step 4b: Determine Navigation Direction**
+- Test the current bit position against the target index
+- If the bit is set in the target index, attempt to navigate to the right child
+- If the bit is clear in the target index, attempt to navigate to the left child
+
+**Step 4c: Follow Navigation Path**
+- If the desired child exists (indicated by the appropriate flag), update the current position
+- For right child navigation, add the encoded offset to the current position
+- For left child navigation, move to the position immediately following the current node
+- Continue to the next bit level if navigation was successful
+
+**Step 5: Return Element Location**
+- Upon successful traversal, return the final offset position which points to the stored data.
+- If traversal is not successful (child node does not exist), the element can not be found in the array and return a failure status.
 
 ## Hashtable
 
 Conceptually, a native hash table is a header that describe the dimensions of the table, a table that maps hash values of the keys to buckets followed with a list of buckets that store the values. These three things are stored consecutively in the format.
 
-To make look up fast, the number of buckets is always a power of 2. The table is simply a sequence of `(1 + number of buckets)` cells, for the first `(number of buckets)` cells, its stores the offset of the bucket list from the beginning of the whole native hash table. The last cell stores the offset to the end of the buckets.
-
-Each bucket is a sequence of entries. An entry has a hash code and an offset to the object stored. The entries are sorted by hash code.
+To make look up fast, the number of buckets is always a power of 2. The table is simply a sequence of `(1 + number of buckets)` cells, for the first `(number of buckets)` cells, its stores the offset of the bucket list from the beginning of the whole native hash table. The last cell stores the offset to the end of the buckets. Entries are mapped to buckets using `x` lowest bits of the hash not in the lowest byte where `2^x = (number of buckets)`. For example, if `x=2` the following bits marked with `X` would be used in a 32-bit hash `b00000000_00000000_000000XX_00000000`.
 
 Physically, the header is a single byte. The most significant six bits is used to store the number of buckets in its base-2 logarithm. The remaining two bits are used for storing the entry size, as explained below:
 
 Because the offsets to the bucket lists are often small numbers, the table cells are variable sized.
 It could be either 1 byte, 2 bytes or 4 bytes. The three cases are described with two bits. `00` means it is one byte, `01` means it is two bytes and `10` means it is four bytes.
 
-The remaining data are the entries. The entries has only the least significant byte of the hash code, followed by the offset to the actual object stored in the hash table.
+The remaining data are the entries. The entries has only the least significant byte of the hash code, followed by the offset to the actual object stored in the hash table. The entries are sorted by hash code.
 
 To perform a lookup, one starts with reading the header, computing the hash code, using the number of buckets to determine the number of bits to mask away from the hash code, look it up in the table using the right pointer size, find the bucket list, find the next bucket list (or the end of the table) so that we know where to stop, search the entries in that list and then we will find the object if we have a hit, or we have a miss.
 
@@ -596,23 +957,23 @@ To see this in action, we can take a look at the following example, with these o
 | P      | 0x1231   |
 | Q      | 0x1232   |
 | R      | 0x1234   |
-| S      | 0x1238   |
+| S      | 0x1338   |
 
-Suppose we decided to have only two buckets, then only the least signficant digit will be used to index the table, the whole hash table will look like this:
+Suppose we decided to have only two buckets, then only the 9th bit will be used to index the table, the whole hash table will look like this:
 
 | Part    | Offset | Content  | Meaning                                                                                                                                                                                   |
 |:--------|:-------|:--------:|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Header  | 0      | 0x04     | This is the header, the least signficant bit is `00`, therefore the table cell is just one byte. The most significant six bit represents 1, which means the number of buckets is 2^1 = 2. |
-| Table   | 1      | 0x08     | This is the representation of the unsigned integer 4, which correspond to the offset of the bucket correspond to hash code `0`.                                                           |
-| Table   | 2      | 0x14     | This is the representation of the unsigned integer 10, which correspond to the offset of the bucket correspond to hash code `1`.                                                          |
-| Table   | 3      | 0x18     | This is the representation of the unsigned integer 12, which correspond to the offset of the end of the whole hash table.                                                                 |
-| Bucket1 | 4      | 0x32     | This is the least significant byte of the hash code of P                                                                                                                                  |
+| Header  | 0      | 0x04     | This is the header, the least significant bit is `00`, therefore the table cell is just one byte. The most significant six bit represents 1, which means the number of buckets is 2^1 = 2. |
+| Table   | 1      | 0x04     | This is the representation of the unsigned integer 4, which correspond to the offset of the bucket correspond to hash code `0`.                                                           |
+| Table   | 2      | 0x0A     | This is the representation of the unsigned integer 10, which correspond to the offset of the bucket correspond to hash code `1`.                                                          |
+| Table   | 3      | 0x0C     | This is the representation of the unsigned integer 12, which correspond to the offset of the end of the whole hash table.                                                                 |
+| Bucket1 | 4      | 0x31     | This is the least significant byte of the hash code of P                                                                                                                                  |
 | Bucket1 | 5      | P        | This should be the offset to the object P                                                                                                                                                 |
-| Bucket1 | 6      | 0x34     | This is the least significant byte of the hash code of Q                                                                                                                                  |
+| Bucket1 | 6      | 0x32     | This is the least significant byte of the hash code of Q                                                                                                                                  |
 | Bucket1 | 7      | Q        | This should be the offset to the object Q                                                                                                                                                 |
-| Bucket1 | 8      | 0x38     | This is the least significant byte of the hash code of R                                                                                                                                  |
+| Bucket1 | 8      | 0x34     | This is the least significant byte of the hash code of R                                                                                                                                  |
 | Bucket1 | 9      | R        | This should be the offset to the object R                                                                                                                                                 |
-| Bucket2 | 10     | 0x31     | This is the least significant byte of the hash code of S                                                                                                                                  |
+| Bucket2 | 10     | 0x38     | This is the least significant byte of the hash code of S                                                                                                                                  |
 | Bucket2 | 11     | S        | This should be the offset to the object S                                                                                                                                                 |
 
 
@@ -653,11 +1014,12 @@ enum ReadyToRunHelper
     READYTORUN_HELPER_FailFast                  = 0x24,
     READYTORUN_HELPER_ThrowNullRef              = 0x25,
     READYTORUN_HELPER_ThrowDivZero              = 0x26,
+    READYTORUN_HELPER_ThrowExact                = 0x27,
 
     // Write barriers
     READYTORUN_HELPER_WriteBarrier              = 0x30,
     READYTORUN_HELPER_CheckedWriteBarrier       = 0x31,
-    READYTORUN_HELPER_ByRefWriteBarrier         = 0x32,
+    READYTORUN_HELPER_ByRefWriteBarrier         = 0x32, // Unused since READYTORUN_MAJOR_VERSION 19.0
 
     // Array helpers
     READYTORUN_HELPER_Stelem_Ref                = 0x38,
@@ -667,10 +1029,10 @@ enum ReadyToRunHelper
     READYTORUN_HELPER_MemCpy                    = 0x41,
 
     // Get string handle lazily
-    READYTORUN_HELPER_GetString                 = 0x50,
+    READYTORUN_HELPER_GetString                 = 0x50, // Unused since READYTORUN_MAJOR_VERSION 17.0
 
     // Used by /Tuning for Profile optimizations
-    READYTORUN_HELPER_LogMethodEnter            = 0x51,
+    READYTORUN_HELPER_LogMethodEnter            = 0x51, // Unused since READYTORUN_MAJOR_VERSION 10.0
 
     // Reflection helpers
     READYTORUN_HELPER_GetRuntimeTypeHandle      = 0x54,
@@ -682,7 +1044,6 @@ enum ReadyToRunHelper
     READYTORUN_HELPER_Unbox                     = 0x5A,
     READYTORUN_HELPER_Unbox_Nullable            = 0x5B,
     READYTORUN_HELPER_NewMultiDimArr            = 0x5C,
-    READYTORUN_HELPER_NewMultiDimArr_NonVarArg  = 0x5D,
 
     // Helpers used with generic handle lookup cases
     READYTORUN_HELPER_NewObject                 = 0x60,
@@ -694,6 +1055,9 @@ enum ReadyToRunHelper
     READYTORUN_HELPER_GenericGcTlsBase          = 0x66,
     READYTORUN_HELPER_GenericNonGcTlsBase       = 0x67,
     READYTORUN_HELPER_VirtualFuncPtr            = 0x68,
+    READYTORUN_HELPER_IsInstanceOfException     = 0x69,
+    READYTORUN_HELPER_NewMaybeFrozenArray       = 0x6A,
+    READYTORUN_HELPER_NewMaybeFrozenObject      = 0x6B,
 
     // Long mul/div/shift ops
     READYTORUN_HELPER_LMul                      = 0xC0,
@@ -716,23 +1080,25 @@ enum ReadyToRunHelper
     READYTORUN_HELPER_UMod                      = 0xCF,
 
     // Floating point conversions
-    READYTORUN_HELPER_Dbl2Int                   = 0xD0,
+    READYTORUN_HELPER_Dbl2Int                   = 0xD0, // Unused since READYTORUN_MAJOR_VERSION 15.0
     READYTORUN_HELPER_Dbl2IntOvf                = 0xD1,
     READYTORUN_HELPER_Dbl2Lng                   = 0xD2,
     READYTORUN_HELPER_Dbl2LngOvf                = 0xD3,
-    READYTORUN_HELPER_Dbl2UInt                  = 0xD4,
+    READYTORUN_HELPER_Dbl2UInt                  = 0xD4, // Unused since READYTORUN_MAJOR_VERSION 15.0
     READYTORUN_HELPER_Dbl2UIntOvf               = 0xD5,
     READYTORUN_HELPER_Dbl2ULng                  = 0xD6,
     READYTORUN_HELPER_Dbl2ULngOvf               = 0xD7,
+    READYTORUN_HELPER_Lng2Flt                   = 0xD8,
+    READYTORUN_HELPER_ULng2Flt                  = 0xD9,
 
     // Floating point ops
     READYTORUN_HELPER_DblRem                    = 0xE0,
     READYTORUN_HELPER_FltRem                    = 0xE1,
-    READYTORUN_HELPER_DblRound                  = 0xE2,
-    READYTORUN_HELPER_FltRound                  = 0xE3,
+    READYTORUN_HELPER_DblRound                  = 0xE2, // Unused since READYTORUN_MAJOR_VERSION 10.0
+    READYTORUN_HELPER_FltRound                  = 0xE3, // Unused since READYTORUN_MAJOR_VERSION 10.0
 
 #ifndef _TARGET_X86_
-    // Personality rountines
+    // Personality routines
     READYTORUN_HELPER_PersonalityRoutine        = 0xF0,
     READYTORUN_HELPER_PersonalityRoutineFilterFunclet = 0xF1,
 #endif
@@ -760,6 +1126,215 @@ enum ReadyToRunHelper
 };
 ```
 
+# Wasm Signature String Encoding
+
+Every managed method signature is encoded as a compact string that records the semantic
+details needed by interpreter transition and delay-load thunks. This encoding is shared
+across three codebases:
+
+- **crossgen2** (`WasmLowering.GetSignature`): reference implementation, produces the string
+  during R2R compilation.
+- **WasmAppBuilder** (`SignatureMapper`): MSBuild task that generates interpreter-to-native
+  thunk tables from reflection metadata.
+- **CoreCLR runtime** (`helpers.cpp`, `GetSignatureKey`): runtime signature computation for
+  calli and portable entrypoint thunks.
+
+The string format is:
+
+```
+<return> [<this>] [<hidden-params>...] <explicit-params>... [p]
+```
+
+Some string-discoverable Wasm stubs use a structural encoding that contains only the lowered
+Wasm result and parameter types.
+
+Virtual dispatch (`V`) thunk lookup uses a separate canonical form based only on the
+lowered Wasm function type:
+
+```
+V<wasm-return><wasm-params...>
+```
+
+The return is `v` for no Wasm result; otherwise each result and parameter is encoded as
+`i` (`i32`), `l` (`i64`), `f` (`f32`), `d` (`f64`), or `V` (`v128`). The parameter list
+includes the stack pointer, hidden parameters, indirect return or argument pointers, and
+the portable entrypoint parameter exactly as they appear in the Wasm function type. This
+allows one virtual dispatch thunk to serve managed signatures whose semantic encodings
+differ but whose Wasm calling conventions are identical, such as an indirect structure
+argument and an `i32` argument on Wasm32.
+
+**Return type** (first character):
+
+| Encoding | Meaning |
+|---|---|
+| `v` | void return, or empty struct return (no return buffer) |
+| `i` | returns `i32` |
+| `l` | returns `i64` |
+| `f` | returns `f32` |
+| `d` | returns `f64` |
+| `V` | returns `v128` (a `Vector128<T>`, or a 16-byte `Vector<T>`) |
+| `S<N>` | struct return via hidden buffer, `N` is the struct size in bytes |
+
+Struct returns always use `S<N>` regardless of alignment. The aligned form is valid only
+for parameters because their placement in the transition block depends on it.
+
+**This pointer** (if the method has a `this` parameter):
+
+| Encoding | Meaning |
+|---|---|
+| `T` | `this` pointer (managed instance methods) |
+
+**Hidden parameters** (inserted between `this` and explicit parameters, in order):
+
+1. **Generic context** (`i`): present when the method requires an inst method desc or
+   method table argument.
+2. **Async continuation** (`a`): present for async calls.
+
+Note: the hidden return buffer pointer is **not** encoded in the signature string. Its
+presence is implied by the return type being `S<N>` — when the caller sees a struct return,
+it knows a hidden retbuf pointer argument is present in the Wasm parameter list.
+
+**Explicit parameters** (one token per parameter, in declaration order):
+
+| Encoding | Meaning |
+|---|---|
+| `i` | `i32` parameter |
+| `l` | `i64` parameter |
+| `f` | `f32` parameter |
+| `d` | `f64` parameter |
+| `V` | `v128` parameter (a `Vector128<T>`, or a 16-byte `Vector<T>`, passed by value) |
+| `S<N>` | struct parameter passed by reference, `<N>` is the struct size in bytes and its alignment is at most 8 |
+| `A<N>` | struct parameter passed by reference, `<N>` is the struct size in bytes and its alignment exceeds 8 |
+| `e` | empty struct parameter — elided from Wasm args but present in the string |
+| `<slot><E>` | multi-slot parameter passed by value, see below |
+
+**Multi-slot parameters**: some types are passed by value across several Wasm parameters
+because no single Wasm value type can hold them, matching the Wasm C ABI. The slot
+character is followed by the factor by which the type's alignment is elevated above that
+slot's natural alignment:
+
+| Encoding | Slots | Alignment | Type |
+|---|---|---|---|
+| `l2` | 2 x `i64` | 16 (elevated 2x) | `Int128`, `UInt128`, `Decimal128` |
+| `V2` | 2 x `v128` | 32 (elevated 2x) | `Vector256<T>` |
+| `V4` | 4 x `v128` | 64 (elevated 4x) | `Vector512<T>` |
+
+A single-field struct wrapping one of these is passed the same way as the type it wraps,
+matching the treatment of a struct wrapping a `v128`.
+
+The digit is required. A repeated slot character without one — `ll`, `VV` — is not an
+aggregate: it is two independent scalar parameters, which is how every implementation
+reads it. So `ll2VV4` is `i64`, `Int128`, `Vector128<T>`, `Vector512<T>`. The grammar stays
+unambiguous because no other token places a digit after a slot character; struct tokens
+consume their own size.
+
+These types are still *returned* through a hidden buffer, encoded as `S<N>` like any other
+aggregate. Limitation: a single digit carries both the slot count and the elevation factor,
+so an aggregate whose elevation differs from its slot count has no spelling. That includes
+one whose alignment is merely natural for its slot type, which would need count `N` with
+elevation 1. No such type exists in the Wasm ABI today.
+
+WasmAppBuilder does not emit or consume multi-slot tokens: they do not appear in
+`InternalCall` or `PInvoke` signatures.
+
+A struct argument is placed at its own alignment clamped to `[8, 16]` in the transition
+block. Therefore `A<N>` covers every struct whose declared alignment exceeds 8: alignments
+of 16 or higher all require the same 16-byte transition-block placement.
+
+**Suffix**:
+
+| Encoding | Meaning |
+|---|---|
+| `p` | managed call with portable entrypoint (the `&pe` argument is implicit) |
+| *(absent)* | unmanaged callers only (reverse P/Invoke) |
+
+**Prefix** (applied by the caller, not part of the core encoding):
+
+When storing signature strings in thunk lookup tables, callers prepend a prefix to distinguish
+thunk categories:
+
+| Prefix | Meaning |
+|---|---|
+| `M` | Calli thunk or interpreter-to-native thunk |
+| `I` | Portable entrypoint-to-interpreter thunk |
+| `U` | Unboxing stub whose target does not require a generic context argument |
+| `UG` | Unboxing stub that passes the boxed object's MethodTable as the generic context argument |
+| `UM` | Unboxing stub that passes a target MethodDesc as the generic context argument |
+| `V` | Virtual dispatch thunk |
+
+A `V` thunk receives a dynamically allocated virtual-dispatch portable entrypoint as its final
+argument. The first call uses the signature-specific external-method thunk. When the runtime
+resolves a class virtual call, it dynamically looks up the corresponding `V` thunk and publishes
+a new portable entrypoint containing that thunk, the two packed vtable offsets, and the original
+portable entrypoint. Subsequent calls load the target method's portable entrypoint from the
+receiver's method table and forward the call using the same lowered Wasm signature. If that
+portable entrypoint does not yet have an actual code target, the `V` thunk redispatches through
+the original portable entrypoint so the runtime can resolve the receiver and prepare its target
+portable entrypoint for calls from R2R code.
+
+The 12-byte virtual-dispatch portable entrypoint has this layout:
+
+| Offset | Size | Field |
+|---:|---:|---|
+| 0 | 4 | `V` thunk table index |
+| 4 | 2 | Offset from the method table to the vtable indirection |
+| 6 | 2 | Offset from that indirection to the target slot |
+| 8 | 4 | Pointer to the original import portable entrypoint |
+
+Unboxing stub keys use only structural Wasm result and parameter types:
+
+```
+U[G|M]<result>[r]<parameters>
+```
+
+The `G` or `M` suffix is omitted for a normal `U` stub. For `UG` and `UM`, a lowercase `r`
+immediately after the result type indicates that the first parameter after `this` is a hidden
+return buffer. The `r` marker is not used for `U` stubs because those stubs do not insert a
+generic context argument. This distinction is required because a void-returning method with an
+explicit `i32` parameter can otherwise have the same structural Wasm type as a method returning
+a struct through a hidden buffer, but the generic context must be inserted at a different
+position.
+
+### Wasm unboxing stub portable entrypoints
+
+On browser Wasm, a MethodDesc for an R2R unboxing stub uses an
+`UnboxingStubPortableEntryPoint`. The address exposed as the method's portable entrypoint points
+to the embedded `PortableEntryPoint`; two pointer-sized fields are stored immediately before it:
+
+| Offset from portable entrypoint | Contents |
+|---:|---|
+| `-2 * sizeof(void*)` | Target MethodDesc |
+| `-sizeof(void*)` | Target method's portable entrypoint |
+| `0` | Embedded `PortableEntryPoint`, beginning with its actual-code field |
+
+For a `UM` stub, the target MethodDesc is the exact non-unboxing MethodDesc and is passed as the
+generic method context. The target portable entrypoint belongs to the method containing the actual
+shared code and is used for the indirect tail call. `U` and `UG` stubs do not consume the target
+MethodDesc field.
+
+The runtime initializes both fields before publishing the generated unboxing stub through the
+embedded portable entrypoint's actual-code field. A thread that observes the generated stub code
+therefore also observes the initialized target MethodDesc and target portable entrypoint.
+
+**Examples**:
+
+| Method | Signature string (no prefix) |
+|---|---|
+| `static void F()` | `vp` |
+| `static int F(int x)` | `iip` |
+| `void F(int x)` (instance) | `vTip` |
+| `static MyStruct F()` where `MyStruct` is 16 bytes | `S16p` |
+| `static void F(MyStruct s)` where `MyStruct` is 8 bytes | `vS8p` |
+| `static void F(long tag, MyStruct s, int t)` where `MyStruct` is 32 bytes and at least 16-byte aligned | `vlA32ip` |
+| `static int F(float x, double y)` | `ifdp` |
+| `static long F(long tag, Int128 v, int t)` | `lll2ip` |
+| `static int F(long tag, Vector512<int> v, int t)` | `ilV4ip` |
+| `[UnmanagedCallersOnly] static int F(int x)` | `ii` |
+
+**Slot sizing for structs**: When computing interpreter stack layout, struct parameters
+(`S<N>` and `A<N>`) consume `max((N + 7) / 8, 1)` interpreter stack slots, while all
+other parameter types consume exactly 1 slot.
+
 # References
 
-[ECMA-335](http://www.ecma-international.org/publications/standards/Ecma-335.htm)
+[ECMA-335](https://www.ecma-international.org/publications-and-standards/standards/ecma-335)

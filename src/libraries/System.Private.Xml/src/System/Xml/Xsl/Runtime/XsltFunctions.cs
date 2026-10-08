@@ -1,30 +1,26 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable disable
-using System.IO;
-using System.Text;
-using System.Reflection;
-using System.Diagnostics;
-using System.ComponentModel;
-using System.Globalization;
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Text;
 using System.Xml.Schema;
 using System.Xml.XPath;
 using System.Xml.Xsl.Xslt;
-using System.Runtime.InteropServices;
-using System.Runtime.Versioning;
 
 namespace System.Xml.Xsl.Runtime
 {
     [EditorBrowsable(EditorBrowsableState.Never)]
     public static class XsltFunctions
     {
-        private static readonly CompareInfo s_compareInfo = CultureInfo.InvariantCulture.CompareInfo;
-
-
         //------------------------------------------------
         // Xslt/XPath functions
         //------------------------------------------------
@@ -32,20 +28,20 @@ namespace System.Xml.Xsl.Runtime
         public static bool StartsWith(string s1, string s2)
         {
             //return collation.IsPrefix(s1, s2);
-            return s1.Length >= s2.Length && string.CompareOrdinal(s1, 0, s2, 0, s2.Length) == 0;
+            return s1.StartsWith(s2, StringComparison.Ordinal);
         }
 
         public static bool Contains(string s1, string s2)
         {
             //return collation.IndexOf(s1, s2) >= 0;
-            return s_compareInfo.IndexOf(s1, s2, CompareOptions.Ordinal) >= 0;
+            return s1.Contains(s2);
         }
 
         public static string SubstringBefore(string s1, string s2)
         {
             if (s2.Length == 0) { return s2; }
             //int idx = collation.IndexOf(s1, s2);
-            int idx = s_compareInfo.IndexOf(s1, s2, CompareOptions.Ordinal);
+            int idx = s1.AsSpan().IndexOf(s2);
             return (idx < 1) ? string.Empty : s1.Substring(0, idx);
         }
 
@@ -53,7 +49,7 @@ namespace System.Xml.Xsl.Runtime
         {
             if (s2.Length == 0) { return s1; }
             //int idx = collation.IndexOf(s1, s2);
-            int idx = s_compareInfo.IndexOf(s1, s2, CompareOptions.Ordinal);
+            int idx = s1.AsSpan().IndexOf(s2);
             return (idx < 0) ? string.Empty : s1.Substring(idx + s2.Length);
         }
 
@@ -104,13 +100,12 @@ namespace System.Xml.Xsl.Runtime
 
         public static string NormalizeSpace(string value)
         {
-            XmlCharType xmlCharType = XmlCharType.Instance;
-            StringBuilder sb = null;
+            StringBuilder? sb = null;
             int idx, idxStart = 0, idxSpace = 0;
 
             for (idx = 0; idx < value.Length; idx++)
             {
-                if (xmlCharType.IsWhiteSpace(value[idx]))
+                if (XmlCharType.IsWhiteSpace(value[idx]))
                 {
                     if (idx == idxStart)
                     {
@@ -121,15 +116,16 @@ namespace System.Xml.Xsl.Runtime
                     {
                         // Space was previous character or this is a non-space character
                         if (sb == null)
+                        {
                             sb = new StringBuilder(value.Length);
+                        }
                         else
+                        {
                             sb.Append(' ');
+                        }
 
                         // Copy non-space characters into string builder
-                        if (idxSpace == idx)
-                            sb.Append(value, idxStart, idx - idxStart - 1);
-                        else
-                            sb.Append(value, idxStart, idx - idxStart);
+                        sb.Append(value, idxStart, idxSpace == idx ? idx - idxStart - 1 : idx - idxStart);
 
                         idxStart = idx + 1;
                     }
@@ -248,7 +244,7 @@ namespace System.Xml.Xsl.Runtime
 
         public static string OuterXml(XPathNavigator navigator)
         {
-            RtfNavigator rtf = navigator as RtfNavigator;
+            RtfNavigator? rtf = navigator as RtfNavigator;
             if (rtf == null)
             {
                 return navigator.OuterXml;
@@ -303,7 +299,7 @@ namespace System.Xml.Xsl.Runtime
             }
             else
             {
-                Debug.Fail("Unexpected type: " + o.GetType().ToString());
+                Debug.Fail($"Unexpected type: {o.GetType()}");
                 return "external";
             }
         }
@@ -331,17 +327,17 @@ namespace System.Xml.Xsl.Runtime
             else
             {
                 Type itemType = item.ValueType;
-                if (itemType == XsltConvert.StringType)
+                if (itemType == typeof(string))
                 {
                     stringValue = item.Value;
                 }
-                else if (itemType == XsltConvert.DoubleType)
+                else if (itemType == typeof(double))
                 {
                     return item.ValueAsDouble;
                 }
                 else
                 {
-                    Debug.Assert(itemType == XsltConvert.BooleanType, "Unexpected type of atomic value " + itemType.ToString());
+                    Debug.Assert(itemType == typeof(bool), $"Unexpected type of atomic value {itemType}");
                     return item.ValueAsBoolean ? 1d : 0d;
                 }
             }
@@ -370,7 +366,7 @@ namespace System.Xml.Xsl.Runtime
         {
             try
             {
-                string locale = GetCultureInfo(lang).Name;
+                CultureInfo ci = GetCultureInfo(lang);
 
                 XsdDateTime xdt;
                 if (!XsdDateTime.TryParse(dateTime, XsdDateTimeFlags.AllXsd | XsdDateTimeFlags.XdrDateTime | XsdDateTimeFlags.XdrTimeNoTz, out xdt))
@@ -379,12 +375,13 @@ namespace System.Xml.Xsl.Runtime
                 }
                 DateTime dt = xdt.ToZulu();
 
-                // If format is the empty string or not specified, use the default format for the given locale
+                // If format is the empty string or not specified, use the default date or time format for the given locale
                 if (format.Length == 0)
                 {
-                    format = null;
+                    format = isDate ? "d" : "T";
                 }
-                return dt.ToString(format, new CultureInfo(locale));
+
+                return dt.ToString(format, ci);
             }
             catch (ArgumentException)
             { // Operations with DateTime can throw this exception eventualy
@@ -517,7 +514,7 @@ namespace System.Xml.Xsl.Runtime
             {
                 return string.Empty;
             }
-            string ns = currentNode.LookupNamespace(prefix);
+            string? ns = currentNode.LookupNamespace(prefix);
             if (ns != null)
             {
                 return ns;

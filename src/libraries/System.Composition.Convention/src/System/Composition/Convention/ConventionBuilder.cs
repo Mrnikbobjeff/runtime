@@ -47,10 +47,7 @@ namespace System.Composition.Convention
         /// <returns>A <see cref="PartConventionBuilder"/> that must be used to specify the rule.</returns>
         public PartConventionBuilder ForTypesDerivedFrom(Type type)
         {
-            if (type == null)
-            {
-                throw new ArgumentNullException(nameof(type));
-            }
+            ArgumentNullException.ThrowIfNull(type);
 
             var partBuilder = new PartConventionBuilder((t) => IsDescendentOf(t, type));
             _conventions.Add(partBuilder);
@@ -76,10 +73,7 @@ namespace System.Composition.Convention
         /// <returns>A <see cref="PartConventionBuilder"/> that must be used to specify the rule.</returns>
         public PartConventionBuilder ForType(Type type)
         {
-            if (type == null)
-            {
-                throw new ArgumentNullException(nameof(type));
-            }
+            ArgumentNullException.ThrowIfNull(type);
 
             var partBuilder = new PartConventionBuilder((t) => t == type);
             _conventions.Add(partBuilder);
@@ -95,10 +89,7 @@ namespace System.Composition.Convention
         /// <returns>A <see cref="PartConventionBuilder{T}"/> that must be used to specify the rule.</returns>
         public PartConventionBuilder<T> ForTypesMatching<T>(Predicate<Type> typeFilter)
         {
-            if (typeFilter == null)
-            {
-                throw new ArgumentNullException(nameof(typeFilter));
-            }
+            ArgumentNullException.ThrowIfNull(typeFilter);
 
             var partBuilder = new PartConventionBuilder<T>(typeFilter);
             _conventions.Add(partBuilder);
@@ -113,17 +104,14 @@ namespace System.Composition.Convention
         /// <returns>A <see cref="PartConventionBuilder{T}"/> that must be used to specify the rule.</returns>
         public PartConventionBuilder ForTypesMatching(Predicate<Type> typeFilter)
         {
-            if (typeFilter == null)
-            {
-                throw new ArgumentNullException(nameof(typeFilter));
-            }
+            ArgumentNullException.ThrowIfNull(typeFilter);
 
             var partBuilder = new PartConventionBuilder(typeFilter);
             _conventions.Add(partBuilder);
             return partBuilder;
         }
 
-        private IEnumerable<Tuple<object, List<Attribute>>> EvaluateThisTypeInfoAgainstTheConvention(TypeInfo typeInfo)
+        private List<Tuple<object, List<Attribute>>> EvaluateThisTypeInfoAgainstTheConvention(TypeInfo typeInfo)
         {
             List<Attribute> attributes = new List<Attribute>();
             var configuredMembers = new List<Tuple<object, List<Attribute>>>();
@@ -158,10 +146,7 @@ namespace System.Composition.Convention
         /// <returns>The list of applied attributes.</returns>
         public override IEnumerable<Attribute> GetCustomAttributes(Type reflectedType, System.Reflection.MemberInfo member)
         {
-            if (member == null)
-            {
-                throw new ArgumentNullException(nameof(member));
-            }
+            ArgumentNullException.ThrowIfNull(member);
 
             // Now edit the attributes returned from the base type
             List<Attribute> cachedAttributes = null;
@@ -298,10 +283,7 @@ namespace System.Composition.Convention
         /// <returns>The list of applied attributes.</returns>
         public override IEnumerable<Attribute> GetCustomAttributes(Type reflectedType, System.Reflection.ParameterInfo parameter)
         {
-            if (parameter == null)
-            {
-                throw new ArgumentNullException(nameof(parameter));
-            }
+            ArgumentNullException.ThrowIfNull(parameter);
 
             IEnumerable<Attribute> attributes = parameter.GetCustomAttributes<Attribute>(false);
             List<Attribute> cachedAttributes = ReadParameterCustomAttributes(reflectedType, parameter);

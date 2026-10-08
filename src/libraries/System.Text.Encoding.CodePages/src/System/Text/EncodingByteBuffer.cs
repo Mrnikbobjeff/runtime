@@ -5,7 +5,7 @@ using System.Diagnostics;
 
 namespace System.Text
 {
-    internal class EncodingByteBuffer
+    internal sealed class EncodingByteBuffer
     {
         private unsafe byte* _bytes;
         private readonly unsafe byte* _byteStart;
@@ -63,34 +63,34 @@ namespace System.Text
             return true;
         }
 
-        internal unsafe bool AddByte(byte b1)
+        internal bool AddByte(byte b1)
         {
             return (AddByte(b1, 0));
         }
 
-        internal unsafe bool AddByte(byte b1, byte b2)
+        internal bool AddByte(byte b1, byte b2)
         {
             return (AddByte(b1, b2, 0));
         }
 
-        internal unsafe bool AddByte(byte b1, byte b2, int moreBytesExpected)
+        internal bool AddByte(byte b1, byte b2, int moreBytesExpected)
         {
             return (AddByte(b1, 1 + moreBytesExpected) && AddByte(b2, moreBytesExpected));
         }
 
-        internal unsafe bool AddByte(byte b1, byte b2, byte b3)
+        internal bool AddByte(byte b1, byte b2, byte b3)
         {
             return AddByte(b1, b2, b3, (int)0);
         }
 
-        internal unsafe bool AddByte(byte b1, byte b2, byte b3, int moreBytesExpected)
+        internal bool AddByte(byte b1, byte b2, byte b3, int moreBytesExpected)
         {
             return (AddByte(b1, 2 + moreBytesExpected) &&
                     AddByte(b2, 1 + moreBytesExpected) &&
                     AddByte(b3, moreBytesExpected));
         }
 
-        internal unsafe bool AddByte(byte b1, byte b2, byte b3, byte b4)
+        internal bool AddByte(byte b1, byte b2, byte b3, byte b4)
         {
             return (AddByte(b1, 3) &&
                     AddByte(b2, 2) &&
@@ -104,8 +104,7 @@ namespace System.Text
                 fallbackBuffer.MovePrevious();                      // don't use last fallback
             else
             {
-                Debug.Assert(_chars > _charStart ||
-                    ((bThrow == true) && (_bytes == _byteStart)),
+                Debug.Assert(_chars > _charStart || (bThrow && (_bytes == _byteStart)),
                     "[EncodingByteBuffer.MovePrevious]expected previous data or throw");
                 if (_chars > _charStart)
                     _chars--;                                        // don't use last char
@@ -153,7 +152,7 @@ namespace System.Text
             }
         }
 
-        internal unsafe int Count
+        internal int Count
         {
             get
             {

@@ -1,24 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#if USE_MDT_EVENTSOURCE
-using Microsoft.Diagnostics.Tracing;
-#else
 using System.Diagnostics.Tracing;
-#endif
 using System.Diagnostics;
-using Xunit;
-using System;
 using System.Collections.Generic;
+using Xunit;
 
 namespace BasicEventSourceTests
 {
     internal class TestUtilities
     {
-        // Specifies whether the process is elevated or not.
-        private static readonly Lazy<bool> s_isElevated = new Lazy<bool>(() => AdminHelpers.IsProcessElevated());
-        internal static bool IsProcessElevated => s_isElevated.Value;
-
         /// <summary>
         /// Confirms that there are no EventSources running.
         /// </summary>
@@ -39,7 +30,18 @@ namespace BasicEventSourceTests
                     eventSource.Name != "System.Runtime.InteropServices.InteropEventProvider" &&
                     eventSource.Name != "System.Reflection.Runtime.Tracing" &&
                     eventSource.Name != "Microsoft-Windows-DotNETRuntime" &&
-                    eventSource.Name != "System.Runtime"
+                    eventSource.Name != "System.Runtime" &&
+                    eventSource.Name != "System.Diagnostics.Metrics" &&
+                    eventSource.Name != "Microsoft-Diagnostics-DiagnosticSource" &&
+                    eventSource.Name != "System.Runtime.CompilerServices.AsyncProfilerEventSource" &&
+
+                    // event source from xunit runner
+                    eventSource.Name != "xUnit.TestEventSource" &&
+
+                    // These event sources show up when hosted in the VS test runner
+                    eventSource.Name != "System.Net.Sockets" &&
+                    eventSource.Name != "Private.InternalDiagnostics.System.Net.Sockets" &&
+                    eventSource.Name != "TestPlatform"
                     )
                 {
                     eventSourceNames += eventSource.Name + " ";

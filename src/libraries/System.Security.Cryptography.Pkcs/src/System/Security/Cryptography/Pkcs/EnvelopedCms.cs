@@ -9,7 +9,7 @@ using Internal.Cryptography;
 
 namespace System.Security.Cryptography.Pkcs
 {
-    public sealed class EnvelopedCms
+    public sealed partial class EnvelopedCms
     {
         //
         // Constructors
@@ -27,10 +27,8 @@ namespace System.Security.Cryptography.Pkcs
 
         public EnvelopedCms(ContentInfo contentInfo, AlgorithmIdentifier encryptionAlgorithm)
         {
-            if (contentInfo == null)
-                throw new ArgumentNullException(nameof(contentInfo));
-            if (encryptionAlgorithm == null)
-                throw new ArgumentNullException(nameof(encryptionAlgorithm));
+            ArgumentNullException.ThrowIfNull(contentInfo);
+            ArgumentNullException.ThrowIfNull(encryptionAlgorithm);
 
             Version = 0;  // It makes little sense to ask for a version before you've decoded, but since the .NET Framework returns 0 in that case, we will too.
             ContentInfo = contentInfo;
@@ -86,16 +84,14 @@ namespace System.Security.Cryptography.Pkcs
         //
         public void Encrypt(CmsRecipient recipient)
         {
-            if (recipient == null)
-                throw new ArgumentNullException(nameof(recipient));
+            ArgumentNullException.ThrowIfNull(recipient);
 
             Encrypt(new CmsRecipientCollection(recipient));
         }
 
         public void Encrypt(CmsRecipientCollection recipients)
         {
-            if (recipients == null)
-                throw new ArgumentNullException(nameof(recipients));
+            ArgumentNullException.ThrowIfNull(recipients);
 
             // .NET Framework compat note: Unlike the desktop, we don't provide a free UI to select the recipient. The app must give it to us programmatically.
             if (recipients.Count == 0)
@@ -126,8 +122,7 @@ namespace System.Security.Cryptography.Pkcs
         //
         public void Decode(byte[] encodedMessage)
         {
-            if (encodedMessage == null)
-                throw new ArgumentNullException(nameof(encodedMessage));
+            ArgumentNullException.ThrowIfNull(encodedMessage);
 
             Decode(new ReadOnlySpan<byte>(encodedMessage));
         }
@@ -141,7 +136,12 @@ namespace System.Security.Cryptography.Pkcs
         /// <exception cref="CryptographicException">
         ///   The <paramref name="encodedMessage"/> parameter was not successfully decoded.
         /// </exception>
-        public void Decode(ReadOnlySpan<byte> encodedMessage)
+#if NET || NETSTANDARD2_1
+        public
+#else
+        internal
+#endif
+        void Decode(ReadOnlySpan<byte> encodedMessage)
         {
             if (_decryptorPal != null)
             {
@@ -177,36 +177,48 @@ namespace System.Security.Cryptography.Pkcs
 
         public void Decrypt(RecipientInfo recipientInfo)
         {
-            if (recipientInfo == null)
-                throw new ArgumentNullException(nameof(recipientInfo));
+            ArgumentNullException.ThrowIfNull(recipientInfo);
 
             DecryptContent(new RecipientInfoCollection(recipientInfo), null);
         }
 
         public void Decrypt(RecipientInfo recipientInfo, X509Certificate2Collection extraStore)
         {
-            if (recipientInfo == null)
-                throw new ArgumentNullException(nameof(recipientInfo));
-
-            if (extraStore == null)
-                throw new ArgumentNullException(nameof(extraStore));
+            ArgumentNullException.ThrowIfNull(recipientInfo);
+            ArgumentNullException.ThrowIfNull(extraStore);
 
             DecryptContent(new RecipientInfoCollection(recipientInfo), extraStore);
         }
 
         public void Decrypt(X509Certificate2Collection extraStore)
         {
-            if (extraStore == null)
-                throw new ArgumentNullException(nameof(extraStore));
+            ArgumentNullException.ThrowIfNull(extraStore);
 
             DecryptContent(RecipientInfos, extraStore);
         }
 
-        public void Decrypt(RecipientInfo recipientInfo, AsymmetricAlgorithm? privateKey)
+#if NET || NETSTANDARD2_1
+        public
+#else
+        internal
+#endif
+        void Decrypt(RecipientInfo recipientInfo, AsymmetricAlgorithm? privateKey)
         {
-            if (recipientInfo == null)
-                throw new ArgumentNullException(nameof(recipientInfo));
+            ArgumentNullException.ThrowIfNull(recipientInfo);
 
+            if (privateKey is not null and not RSA)
+            {
+                CheckStateForDecryption();
+                throw new CryptographicException(SR.Cryptography_Cms_Ktri_RSARequired);
+            }
+
+            DecryptWithKey(
+                recipientInfo,
+                privateKey is RSA rsa ? rsa : EnvelopedCmsKey.None.Instance);
+        }
+
+        private void DecryptWithKey(RecipientInfo recipientInfo, EnvelopedCmsKey privateKey)
+        {
             CheckStateForDecryption();
 
             X509Certificate2Collection extraStore = new X509Certificate2Collection();
@@ -227,7 +239,7 @@ namespace System.Security.Cryptography.Pkcs
         private void DecryptContent(RecipientInfoCollection recipientInfos, X509Certificate2Collection? extraStore)
         {
             CheckStateForDecryption();
-            extraStore = extraStore ?? new X509Certificate2Collection();
+            extraStore ??= new X509Certificate2Collection();
 
             X509Certificate2Collection certs = new X509Certificate2Collection();
             PkcsPal.Instance.AddCertsFromStoreForDecryption(certs);
@@ -249,7 +261,7 @@ namespace System.Security.Cryptography.Pkcs
                 newContentInfo = _decryptorPal!.TryDecrypt(
                     recipientInfo,
                     cert,
-                    null,
+                    EnvelopedCmsKey.None.Instance,
                     originatorCerts,
                     extraStore,
                     out exception);

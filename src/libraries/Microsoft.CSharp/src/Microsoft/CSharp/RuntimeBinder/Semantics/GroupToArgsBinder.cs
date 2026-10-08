@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.CSharp.RuntimeBinder.Errors;
 using Microsoft.CSharp.RuntimeBinder.Syntax;
 
@@ -16,6 +17,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
 
     internal readonly partial struct ExpressionBinder
     {
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         internal sealed class GroupToArgsBinder
         {
             private enum Result
@@ -86,6 +88,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
             // This method does the actual binding.
             // ----------------------------------------------------------------------------
 
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
             public void Bind()
             {
                 Debug.Assert(_pGroup.SymKind == SYMKIND.SK_MethodSymbol || _pGroup.SymKind == SYMKIND.SK_PropertySymbol && 0 != (_pGroup.Flags & EXPRFLAG.EXF_INDEXER));
@@ -106,6 +109,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
                 return (pGroup.Flags & EXPRFLAG.EXF_CTOR) != 0 ? pGroup.ParentType : pGroup.OptionalObject?.Type;
             }
 
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
             private void LookForCandidates()
             {
                 bool fExpanded = false;
@@ -303,6 +307,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
                 }
             }
 
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
             private bool GetResultOfBind()
             {
                 // We looked at all the evidence, and we come to render the verdict:
@@ -343,10 +348,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
 
                     // Record our best match in the memgroup as well. This is temporary.
 
-                    if (true)
-                    {
-                        ReportErrorsOnSuccess();
-                    }
+                    ReportErrorsOnSuccess();
 
                     return true;
                 }
@@ -363,6 +365,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
             // we can find matching parameters for each named arguments, and all parameters
             // that do not have a matching argument are optional parameters.
 
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
             private bool ReOrderArgsForNamedArguments()
             {
                 // First we need to find the method that we're actually trying to call.
@@ -391,6 +394,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
                 return _bArgumentsChangedForNamedOrOptionalArguments;
             }
 
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
             internal static bool ReOrderArgsForNamedArguments(
                 MethodOrPropertySymbol methprop, TypeArray pCurrentParameters, AggregateType pCurrentType, ExprMemberGroup pGroup, ArgInfos pArguments)
             {
@@ -480,6 +484,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
 
             /////////////////////////////////////////////////////////////////////////////////
 
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
             private static Expr GenerateOptionalArgument(MethodOrPropertySymbol methprop, CType type, int index)
             {
                 CType pParamType = type;
@@ -657,6 +662,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
             // Returns true if we can either add enough optional parameters to make the
             // argument list match, or if we don't need to at all.
 
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
             private bool AddArgumentsForOptionalParameters()
             {
                 if (_pCurrentParameters.Count <= _pArguments.carg)
@@ -750,27 +756,18 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
                     Name name = named.Name;
                     if (!methprop.ParameterNames.Contains(name))
                     {
-                        if (_pInvalidSpecifiedName == null)
-                        {
-                            _pInvalidSpecifiedName = name;
-                        }
+                        _pInvalidSpecifiedName ??= name;
                         return false;
                     }
                     else if (!currentPosition.Contains(name))
                     {
-                        if (_pNameUsedInPositionalArgument == null)
-                        {
-                            _pNameUsedInPositionalArgument = name;
-                        }
+                        _pNameUsedInPositionalArgument ??= name;
                         return false;
                     }
 
                     if (!names.Add(name))
                     {
-                        if (_pDuplicateSpecifiedName == null)
-                        {
-                            _pDuplicateSpecifiedName = name;
-                        }
+                        _pDuplicateSpecifiedName ??= name;
                         return false;
                     }
                 }
@@ -808,7 +805,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
                 while (_HiddenTypes.Contains(_pCurrentType))
                 {
                     // Move through this type and get the next one.
-                    for (; iterator.CurrentType == _pCurrentType; iterator.MoveNext());
+                    for (; iterator.CurrentType == _pCurrentType; iterator.MoveNext()) ;
                     _pCurrentSym = iterator.CurrentSymbol;
                     _pCurrentType = iterator.CurrentType;
 
@@ -858,6 +855,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
                 return TryGetExpandedParams(_pCurrentSym.Params, _pArguments.carg, out _pCurrentParameters);
             }
 
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
             private Result DetermineCurrentTypeArgs()
             {
                 TypeArray typeArgs = _pGroup.TypeArgs;
@@ -908,6 +906,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
                 return Result.Success;
             }
 
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
             private bool ArgumentsAreConvertible()
             {
                 bool containsErrorSym = false;
@@ -992,6 +991,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
                 return true;
             }
 
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
             private void UpdateArguments()
             {
                 // Parameter types might have changed as a result of
@@ -1070,6 +1070,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
 
             // ----------------------------------------------------------------------------
 
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
             private void ReportErrorsOnSuccess()
             {
                 // used for Methods and Indexers
@@ -1089,6 +1090,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
                 }
             }
 
+            [RequiresUnreferencedCode(Binder.TrimmerWarning)]
             private RuntimeBinderException ReportErrorsOnFailure()
             {
                 // First and foremost, report if the user specified a name more than once.

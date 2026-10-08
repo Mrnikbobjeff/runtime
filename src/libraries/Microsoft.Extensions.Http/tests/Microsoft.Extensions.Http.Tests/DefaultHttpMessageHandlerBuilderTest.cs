@@ -21,18 +21,27 @@ namespace Microsoft.Extensions.Http
         // Testing this because it's an important design detail. If someone wants to globally replace the handler
         // they can do so by replacing this service. It's important that the Factory isn't the one to instantiate
         // the handler. The factory has no defaults - it only applies options.
-        [Fact] 
+        [Fact]
         public void Ctor_SetsPrimaryHandler()
         {
             // Arrange & Act
             var builder = new DefaultHttpMessageHandlerBuilder(Services);
 
             // Act
-            Assert.IsType<HttpClientHandler>(builder.PrimaryHandler);
+#if NET
+            if (SocketsHttpHandler.IsSupported)
+            {
+                Assert.IsType<SocketsHttpHandler>(builder.PrimaryHandler);
+            }
+            else
+#endif
+            {
+                Assert.IsType<HttpClientHandler>(builder.PrimaryHandler);
+            }
         }
 
-
-        [Fact]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         public void Build_NoAdditionalHandlers_ReturnsPrimaryHandler()
         {
             // Arrange
@@ -48,7 +57,8 @@ namespace Microsoft.Extensions.Http
             Assert.Same(builder.PrimaryHandler, handler);
         }
 
-        [Fact]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         public void Build_SomeAdditionalHandlers_PutsTogetherDelegatingHandlers()
         {
             // Arrange
@@ -76,7 +86,7 @@ namespace Microsoft.Extensions.Http
         }
 
         [Fact]
-        public void Build_PrimaryHandlerIsNull_ThrowsException()
+        public void Build_PrimaryHandlerIsNull_UsesDefault()
         {
             // Arrange
             var builder = new DefaultHttpMessageHandlerBuilder(Services)
@@ -85,8 +95,8 @@ namespace Microsoft.Extensions.Http
             };
 
             // Act & Assert
-            var exception = Assert.Throws<InvalidOperationException>(() => builder.Build());
-            Assert.Equal("The 'PrimaryHandler' must not be null.", exception.Message);
+            var handler = builder.Build();
+            Assert.NotNull(handler);
         }
 
         [Fact]
@@ -106,7 +116,8 @@ namespace Microsoft.Extensions.Http
             Assert.Equal("The 'additionalHandlers' must not contain a null entry.", exception.Message);
         }
 
-        [Fact]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         public void Build_AdditionalHandlerHasNonNullInnerHandler_ThrowsException()
         {
             // Arrange

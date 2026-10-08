@@ -3,9 +3,10 @@
 //
 
 using System;
-namespace A
+using Xunit;
+namespace JitTest_Directed_UnrollLoop_loop1
 {
-    internal class B
+    public class B
     {
         public static int downBy1ge(int amount)
         {
@@ -161,7 +162,9 @@ namespace A
             return sum + i;
         }
 
-        public static int Main(String[] args)
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             bool failed = false;
 
@@ -248,4 +251,3 @@ namespace A
         }
     }
 }
-

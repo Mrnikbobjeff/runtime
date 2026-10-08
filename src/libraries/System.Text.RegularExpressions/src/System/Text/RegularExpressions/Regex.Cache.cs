@@ -12,6 +12,26 @@ namespace System.Text.RegularExpressions
 {
     public partial class Regex
     {
+        /// <summary>
+        /// Gets or sets the maximum number of entries in the current static cache of regular expression
+        /// instances.
+        /// </summary>
+        /// <value>The maximum number of entries in the static cache.</value>
+        /// <remarks>
+        /// <para>
+        /// The <see cref="Regex"/> class maintains an internal cache of regular expression instances used in
+        /// static <see cref="Regex"/> method calls, such as <see cref="Regex.Match(string, string)"/> or
+        /// <see cref="Regex.Replace(string, string, string)"/>. If the value specified in a set operation is
+        /// less than the current cache size, cache entries are discarded until the cache size is equal to the
+        /// specified value.
+        /// </para>
+        /// <para>
+        /// By default, the cache holds 15 static regular expression instances. Your application typically
+        /// will not have to modify the size of the cache. Use the <see cref="CacheSize"/> property only when
+        /// you want to turn off caching or when you have an unusually large cache.
+        /// </para>
+        /// </remarks>
+        /// <exception cref="ArgumentOutOfRangeException">The value in a set operation is less than zero.</exception>
         public static int CacheSize
         {
             get => RegexCache.MaxCacheSize;
@@ -64,7 +84,13 @@ namespace System.Text.RegularExpressions
         /// <summary>Gets or sets the maximum size of the cache.</summary>
         public static int MaxCacheSize
         {
-            get => s_maxCacheSize;
+            get
+            {
+                lock (SyncObj)
+                {
+                    return s_maxCacheSize;
+                }
+            }
             set
             {
                 Debug.Assert(value >= 0);
@@ -84,9 +110,10 @@ namespace System.Text.RegularExpressions
                     else if (value < s_cacheList.Count)
                     {
                         // If the value is being changed to less than the number of items we're currently storing,
-                        // sort the entries descending by last access stamp, and remove the excess.  This is expensive, but
-                        // this should be exceedingly rare, as CacheSize is generally set once (if at all) and then left unchanged.
-                        s_cacheList.Sort((n1, n2) => Volatile.Read(ref n2.LastAccessStamp).CompareTo(Volatile.Read(ref n1.LastAccessStamp)));
+                        // just trim off the excess.  This is almost never done in practice (if Regex.CacheSize is set
+                        // at all, it's almost always done once towards the beginning of the process, and when it is done,
+                        // it's typically to either 0 or to a larger value than the current limit), so we're not concerned
+                        // with ensuring the actual oldest items are trimmed away.
                         s_lastAccessed = s_cacheList[0];
                         for (int i = value; i < s_cacheList.Count; i++)
                         {
@@ -105,14 +132,15 @@ namespace System.Text.RegularExpressions
         {
             // Does not delegate to GetOrAdd(..., RegexOptions, ...) in order to avoid having
             // a statically-reachable path to the 'new Regex(..., RegexOptions, ...)', which
-            // will force the Regex compiler to be reachable and thus rooted for the linker.
+            // will force the Regex compiler to be reachable and thus rooted for trimming.
 
             Regex.ValidatePattern(pattern);
 
             CultureInfo culture = CultureInfo.CurrentCulture;
-            Key key = new Key(pattern, culture.ToString(), RegexOptions.None, hasTimeout: false);
+            Key key = new Key(pattern, culture.ToString(), RegexOptions.None, Regex.s_defaultMatchTimeout);
 
-            if (!TryGet(key, out Regex? regex))
+            Regex? regex = Get(key);
+            if (regex is null)
             {
                 regex = new Regex(pattern, culture);
                 Add(key, regex);
@@ -127,10 +155,11 @@ namespace System.Text.RegularExpressions
             Regex.ValidateOptions(options);
             Regex.ValidateMatchTimeout(matchTimeout);
 
-            CultureInfo culture = (options & RegexOptions.CultureInvariant) != 0 ? CultureInfo.InvariantCulture : CultureInfo.CurrentCulture;
-            Key key = new Key(pattern, culture.ToString(), options, matchTimeout != Regex.InfiniteMatchTimeout);
+            CultureInfo culture = RegexParser.GetTargetCulture(options);
+            Key key = new Key(pattern, culture.ToString(), options, matchTimeout);
 
-            if (!TryGet(key, out Regex? regex))
+            Regex? regex = Get(key);
+            if (regex is null)
             {
                 regex = new Regex(pattern, options, matchTimeout, culture);
                 Add(key, regex);
@@ -139,20 +168,18 @@ namespace System.Text.RegularExpressions
             return regex;
         }
 
-        private static bool TryGet(Key key, [NotNullWhen(true)] out Regex? regex)
+        private static Regex? Get(Key key)
         {
             long lastAccessedStamp = 0;
 
             // We optimize for repeated usage of the same regular expression over and over,
             // by having a fast-path that stores the most recently used instance.  Check
             // to see if that instance is the one we want; if it is, we're done.
-            Node? lastAccessed = s_lastAccessed;
-            if (lastAccessed != null)
+            if (s_lastAccessed is Node lastAccessed)
             {
-                if (lastAccessed.Key.Equals(key))
+                if (key.Equals(lastAccessed.Key))
                 {
-                    regex = lastAccessed.Regex;
-                    return true;
+                    return lastAccessed.Regex;
                 }
 
                 // We had a last accessed item, but it didn't match the one being requested.
@@ -174,17 +201,15 @@ namespace System.Text.RegularExpressions
                 // that another thread subsequently sees this updated value.
                 Volatile.Write(ref node.LastAccessStamp, lastAccessedStamp + 1);
 
-                //  Update our fast-path single-field cache.
+                // Update our fast-path single-field cache.
                 s_lastAccessed = node;
 
                 // Return the cached regex.
-                regex = node.Regex;
-                return true;
+                return node.Regex;
             }
 
             // Not in the cache.
-            regex = null;
-            return false;
+            return null;
         }
 
         private static void Add(Key key, Regex regex)
@@ -243,13 +268,22 @@ namespace System.Text.RegularExpressions
                         }
                     }
 
-                    // Remove the key found to have the smallest access stamp.
+                    // Remove the key found to have the smallest access stamp. List ordering isn't important, so rather than
+                    // just removing the element at minListIndex, which would result in an O(N) shift down, we copy the last
+                    // element to minListIndex, and then remove the last. (If minListIndex is the last, this is a no-op.)
                     s_cacheDictionary.TryRemove(s_cacheList[minListIndex].Key, out _);
-                    s_cacheList.RemoveAt(minListIndex);
+                    s_cacheList[minListIndex] = s_cacheList[^1];
+                    s_cacheList.RemoveAt(s_cacheList.Count - 1);
                 }
 
                 // Finally add the regex.
                 var node = new Node(key, regex);
+
+                if (s_lastAccessed is { } lastAccessed)
+                {
+                    node.LastAccessStamp = Volatile.Read(ref lastAccessed.LastAccessStamp) + 1;
+                }
+
                 s_lastAccessed = node;
                 s_cacheList.Add(node);
                 s_cacheDictionary.TryAdd(key, node);
@@ -265,9 +299,9 @@ namespace System.Text.RegularExpressions
             private readonly string _pattern;
             private readonly string _culture;
             private readonly RegexOptions _options;
-            private readonly bool _hasTimeout;
+            private readonly TimeSpan _matchTimeout;
 
-            public Key(string pattern, string culture, RegexOptions options, bool hasTimeout)
+            public Key(string pattern, string culture, RegexOptions options, TimeSpan matchTimeout)
             {
                 Debug.Assert(pattern != null, "Pattern must be provided");
                 Debug.Assert(culture != null, "Culture must be provided");
@@ -275,46 +309,33 @@ namespace System.Text.RegularExpressions
                 _pattern = pattern;
                 _culture = culture;
                 _options = options;
-                _hasTimeout = hasTimeout;
+                _matchTimeout = matchTimeout;
             }
 
-            public override bool Equals(object? obj) =>
+            public override bool Equals([NotNullWhen(true)] object? obj) =>
                 obj is Key other && Equals(other);
 
             public bool Equals(Key other) =>
                 _pattern.Equals(other._pattern) &&
                 _culture.Equals(other._culture) &&
                 _options == other._options &&
-                _hasTimeout == other._hasTimeout;
-
-            public static bool operator ==(Key left, Key right) =>
-                left.Equals(right);
-
-            public static bool operator !=(Key left, Key right) =>
-                !left.Equals(right);
+                _matchTimeout == other._matchTimeout;
 
             public override int GetHashCode() =>
-                _pattern.GetHashCode() ^
-                _culture.GetHashCode() ^
-                ((int)_options);
-                // no need to include timeout in the hashcode; it'll almost always be the same
+                // Hash code only factors in pattern and options, as regex instances are unlikely to have
+                // the same pattern and options but different culture and timeout.
+                _pattern.GetHashCode() ^ (int)_options;
         }
 
         /// <summary>Node for a cached Regex instance.</summary>
-        private sealed class Node
+        private sealed class Node(Key key, Regex regex)
         {
             /// <summary>The key associated with this cached instance.</summary>
-            public readonly Key Key;
+            public readonly Key Key = key;
             /// <summary>The cached Regex instance.</summary>
-            public readonly Regex Regex;
+            public readonly Regex Regex = regex;
             /// <summary>A "time" stamp representing the approximate last access time for this Regex.</summary>
             public long LastAccessStamp;
-
-            public Node(Key key, Regex regex)
-            {
-                Key = key;
-                Regex = regex;
-            }
         }
     }
 }

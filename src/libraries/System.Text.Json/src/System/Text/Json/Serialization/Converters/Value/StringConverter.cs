@@ -1,9 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics;
+using System.Text.Json.Nodes;
+using System.Text.Json.Schema;
+
 namespace System.Text.Json.Serialization.Converters
 {
-    internal sealed class StringConverter : JsonConverter<string>
+    internal sealed class StringConverter : JsonPrimitiveConverter<string?>
     {
         public override string? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
@@ -13,7 +17,7 @@ namespace System.Text.Json.Serialization.Converters
         public override void Write(Utf8JsonWriter writer, string? value, JsonSerializerOptions options)
         {
             // For performance, lift up the writer implementation.
-            if (value == null)
+            if (value is null)
             {
                 writer.WriteNullValue();
             }
@@ -23,18 +27,21 @@ namespace System.Text.Json.Serialization.Converters
             }
         }
 
-        internal override string ReadWithQuotes(ref Utf8JsonReader reader)
+        internal override string ReadAsPropertyNameCore(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
+            Debug.Assert(reader.TokenType == JsonTokenType.PropertyName);
             return reader.GetString()!;
         }
 
-        internal override void WriteWithQuotes(Utf8JsonWriter writer, string value, JsonSerializerOptions options, ref WriteStack state)
+        internal override void WriteAsPropertyNameCore(Utf8JsonWriter writer, string value, JsonSerializerOptions options, bool isWritingExtensionDataProperty)
         {
-            if (options.DictionaryKeyPolicy != null && !state.Current.IgnoreDictionaryKeyPolicy)
+            ArgumentNullException.ThrowIfNull(value);
+
+            if (options.DictionaryKeyPolicy is not null && !isWritingExtensionDataProperty)
             {
                 value = options.DictionaryKeyPolicy.ConvertName(value);
 
-                if (value == null)
+                if (value is null)
                 {
                     ThrowHelper.ThrowInvalidOperationException_NamingPolicyReturnNull(options.DictionaryKeyPolicy);
                 }
@@ -42,5 +49,9 @@ namespace System.Text.Json.Serialization.Converters
 
             writer.WritePropertyName(value);
         }
+
+        internal override JsonSchema? GetSchema(JsonNumberHandling _) => new() { Type = JsonSchemaType.String };
+
+        internal override JsonValueType GetSupportedJsonValueTypes(JsonNumberHandling _) => JsonValueType.String;
     }
 }

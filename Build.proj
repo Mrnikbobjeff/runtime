@@ -1,47 +1,48 @@
 <Project Sdk="Microsoft.Build.Traversal">
 
-  <PropertyGroup>
-    <TraversalGlobalProperties Condition="'$(BuildAllConfigurations)' != 'true'">BuildTargetFramework=$([MSBuild]::ValueOrDefault('$(BuildTargetFramework)', '$(NetCoreAppCurrent)'))</TraversalGlobalProperties>
-  </PropertyGroup>
-
-  <!--
-    Subsets are already imported by Directory.Build.props.
-    Reference the projects for traversal build. Ordering matters here.
-  -->
   <ItemGroup>
+    <ProjectReference Include="$(RepoTasksDir)tasks.proj" BuildInParallel="false" />
+    <!-- Subsets.props which defines @(ProjectToBuild) is already imported in Directory.Build.props. -->
     <ProjectReference Include="@(ProjectToBuild)" />
   </ItemGroup>
 
-  <!--
-    Exclude installer depproj and pkgproj from static graph restore. We restore them below.
-    Remove when https://github.com/NuGet/Home/issues/9398 is fixed.
-  -->
-  <ItemGroup Condition="'$(MSBuildRestoreSessionId)' != ''">
-    <ProjectReference Remove="@(DepprojProjectToBuild)"  />
-    <ProjectReference Remove="@(PkgprojProjectToBuild)" />
-    <ProjectReference Remove="@(BundleProjectToBuild)" />
-  </ItemGroup>
-
-  <!-- Custom arcade target which isn't available in Microsoft.Build.Traversal. -->
-  <Target Name="Rebuild" DependsOnTargets="Clean;Build" />
-
   <Import Project="$(RepositoryEngineeringDir)SubsetValidation.targets" />
+  <Import Project="$(RepositoryEngineeringDir)restore\optimizationData.targets" Condition="'$(DotNetBuildSourceOnly)' != 'true'" />
 
-  <!-- Upfront restore hooks -->
-  <Import Project="$(RepositoryEngineeringDir)restore\docs.targets" Condition="'$(DotNetBuildFromSource)' != 'true'" />
-  <Import Project="$(RepositoryEngineeringDir)restore\optimizationData.targets" Condition="'$(DotNetBuildFromSource)' != 'true' and '$(EnableNgenOptimization)' == 'true'" />
+  <Target Name="SetupBootstrapLayout"
+          AfterTargets="Build"
+          Condition="'$(Subset)' == 'bootstrap'">
+    <ItemGroup>
+      <AotSdkFile
+        Include="$(CoreCLRAotSdkDir)/*"
+        Condition="'$(UseNativeAotForComponents)' == 'true'" />
+      <AppHostFile
+        Include="$([MSBuild]::NormalizePath('$(DotNetHostBinDir)', 'apphost$(ExeSuffix)'))" />
+      <AppHostFile
+        Include="$([MSBuild]::NormalizePath('$(CoreCLRArtifactsPath)', 'corehost', 'singlefilehost$(ExeSuffix)'))"
+        Condition="'$(UseNativeAotForComponents)' != 'true'" />
+      <RefPackFile Include="$(MicrosoftNetCoreAppRefPackDir)/**/*" />
+      <RuntimePackFile Include="$(MicrosoftNetCoreAppRuntimePackDir)/**/*" />
+      <RidGraphFile Include="$(ArtifactsBinDir)Microsoft.NETCore.Platforms/*.json" />
 
-  <Target Name="BuildLocalTasks"
-          BeforeTargets="Restore">
-    <MSBuild Projects="$(RepoTasksDir)tasks.proj"
-             Targets="BuildAndRestoreIncrementally"/>
-  </Target>
+      <AotSdkFile
+        DestinationPath="$(BootstrapAotSdkDir)/%(Filename)%(Extension)" />
+      <AppHostFile
+        DestinationPath="$(BootstrapHostDir)/%(Filename)%(Extension)" />
+      <RefPackFile
+        DestinationPath="$(BootstrapRefPackDir)/%(RecursiveDir)%(Filename)%(Extension)" />
+      <RuntimePackFile
+        DestinationPath="$(BootstrapRuntimePackDir)/%(RecursiveDir)%(Filename)%(Extension)" />
+      <RidGraphFile
+        DestinationPath="$(BootstrapRidGraphDir)/%(RecursiveDir)%(Filename)%(Extension)" />
+      <BootstrapFile Include="@(AotSdkFile);@(AppHostFile);@(RefPackFile);@(RuntimePackFile);@(RidGraphFile)" />
+    </ItemGroup>
 
-  <Target Name="RestoreWithoutStaticGraph"
-          BeforeTargets="Restore">
-    <MSBuild Projects="@(DepprojProjectToBuild);@(PkgprojProjectToBuild);@(BundleProjectToBuild)"
-             Properties="MSBuildRestoreSessionId=$([System.Guid]::NewGuid());RestoreUseStaticGraphEvaluation=false"
-             Targets="Restore" />
+    <Copy
+      SourceFiles="@(BootstrapFile)"
+      DestinationFiles="@(BootstrapFile->Metadata('DestinationPath'))"
+      SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="Bootstrap files copied to $(ArtifactsDir)bootstrap" />
   </Target>
 
 </Project>

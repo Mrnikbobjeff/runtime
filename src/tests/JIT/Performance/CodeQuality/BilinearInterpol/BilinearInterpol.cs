@@ -12,6 +12,8 @@ using System.Numerics;
 using System.Runtime.Intrinsics;
 using System.Runtime.Intrinsics.X86;
 using System.Diagnostics;
+using Xunit;
+using TestLibrary;
 
 public class BilinearTest
 {
@@ -34,10 +36,10 @@ public class BilinearTest
     const int lengthB = 500;
     const double deltaB = (maxXB - minXB) / (double)(lengthB - 1);
 
-    //ref values 
+    //ref values
     double[] A, B, input, output;
 
-    public void Setup()
+    internal void Setup()
     {
         A = new double[lengthA];
         B = new double[lengthB];
@@ -228,7 +230,7 @@ public class BilinearTest
 
             Vector128<int> ALengthMinusOne = Vector128.Create(A.Length - 1);
             Vector128<int> BLengthMinusOne = Vector128.Create(B.Length - 1);
-            Vector128<int> One = Vector128.Create(1);
+            Vector128<int> One = Vector128<int>.One;
 
             for (var i = 0; i < x.Length; i += Vector256<double>.Count)
             {
@@ -288,7 +290,7 @@ public class BilinearTest
         return true;
     }
 
-    public void RunTests()
+    internal void RunTests()
     {
         Setup();
 
@@ -337,7 +339,10 @@ public class BilinearTest
             }
         }
     }
-    public static int Main()
+    [ActiveIssue("needs triage", TestRuntimes.Mono)]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         BilinearTest test = new BilinearTest();
         test.RunTests();

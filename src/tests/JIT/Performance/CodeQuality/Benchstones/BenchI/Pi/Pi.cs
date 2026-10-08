@@ -2,12 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using Microsoft.Xunit.Performance;
 using System;
 using System.Runtime.CompilerServices;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
+using TestLibrary;
 
 namespace Benchstone.BenchI
 {
@@ -58,18 +56,6 @@ public static class Pi
         return (digits[0] == 3 && digits[1] == 1415 && digits[2] == 9265 && digits[250] == 1989);
     }
 
-    [Benchmark]
-    public static void Test() {
-        int[] a = new int[3340];
-        foreach (var iteration in Benchmark.Iterations) {
-            using (iteration.StartMeasurement()) {
-                for (int i = 0; i < Iterations; i++) {
-                    Bench(a);
-                }
-            }
-        }
-    }
-
     static bool TestBase() {
         bool result = true;
         int[] a = new int[3340];
@@ -79,7 +65,9 @@ public static class Pi
         return result;
     }
 
-    public static int Main() {
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [Fact]
+    public static int TestEntryPoint() {
         bool result = TestBase();
         return (result ? 100 : -1);
     }

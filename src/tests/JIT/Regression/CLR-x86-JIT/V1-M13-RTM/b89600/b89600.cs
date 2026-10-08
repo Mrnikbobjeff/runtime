@@ -2,7 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b89600;
+
 using System;
+using Xunit;
 
 public class AA
 {
@@ -22,10 +26,11 @@ public class AA
         }
     }
 
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         Main1();
-        return 100;
     }
 
     static void Main1()

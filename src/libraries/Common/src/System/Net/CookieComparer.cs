@@ -5,23 +5,26 @@ namespace System.Net
 {
     internal static class CookieComparer
     {
-        internal static int Compare(Cookie left, Cookie right)
+        internal static bool Equals(Cookie left, Cookie right)
         {
-            int result;
-
-            if ((result = string.Compare(left.Name, right.Name, StringComparison.OrdinalIgnoreCase)) != 0)
+            if (!string.Equals(left.Name, right.Name, StringComparison.OrdinalIgnoreCase))
             {
-                return result;
+                return false;
             }
 
-            if ((result = string.Compare(left.Domain, right.Domain, StringComparison.OrdinalIgnoreCase)) != 0)
+            if (!EqualDomains(left.Domain, right.Domain))
             {
-                return result;
+                return false;
             }
 
             // NB: Only the path is case sensitive as per spec. However, many Windows applications assume
             //     case-insensitivity.
-            return string.Compare(left.Path, right.Path, StringComparison.Ordinal);
+            return string.Equals(left.Path, right.Path, StringComparison.Ordinal);
         }
+
+        internal static bool EqualDomains(ReadOnlySpan<char> left, ReadOnlySpan<char> right)
+            => StripLeadingDot(left).Equals(StripLeadingDot(right), StringComparison.OrdinalIgnoreCase);
+
+        internal static ReadOnlySpan<char> StripLeadingDot(ReadOnlySpan<char> s) => s.StartsWith('.') ? s[1..] : s;
     }
 }

@@ -7,6 +7,7 @@
 // Best-scoring C# .NET Core version as of 2017-09-01
 
 /* The Computer Language Benchmarks Game
+using TestLibrary;
    http://benchmarksgame.alioth.debian.org/
 
    contributed by Isaac Gouy, transliterated from Oleg Mazurov's Java program
@@ -17,14 +18,11 @@
 using System;
 using System.Threading;
 using System.Runtime.CompilerServices;
-using Microsoft.Xunit.Performance;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
 
 namespace BenchmarksGame
 {
-    public static class FannkuchRedux_5
+    public class FannkuchRedux_5
     {
         static int[] fact, chkSums, maxFlips;
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -102,26 +100,25 @@ namespace BenchmarksGame
             maxFlips[taskId] = maxflips;
         }
 
-        public static int Main(string[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/52781", TestPlatforms.Android)]
+        [ActiveIssue("((null) error) * Assertion at runtime/src/mono/mono/metadata/assembly.c:2049, condition `is_ok (error)' not met, function:mono_assembly_load_friends, Could not load file or assembly 'xunit.performance.core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67066efe964d3b03' or one of its dependencies.", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [Fact]
+        public static int TestEntryPoint()
         {
-            int n = args.Length > 0 ? int.Parse(args[0]) : 7;
+            return Test(null);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        static int Test(int? arg)
+        {
+            int n = arg ?? 7;
             int sum = Bench(n, true);
 
             int expected = 16;
 
             // Return 100 on success, anything else on failure.
             return sum - expected + 100;
-        }
-
-        [Benchmark(InnerIterationCount = 20)]
-        [InlineData(10, 38)]
-        public static void RunBench(int n, int expectedSum)
-        {
-            Benchmark.Iterate(() =>
-            {
-                int sum = Bench(n, false);
-                Assert.Equal(expectedSum, sum);
-            });
         }
 
         static int Bench(int n, bool verbose)
@@ -131,7 +128,11 @@ namespace BenchmarksGame
             var factn = 1;
             for (int i = 1; i < fact.Length; i++) { fact[i] = factn *= i; }
 
-            int nTasks = Environment.ProcessorCount;
+            // For n == 7 and nTasks > 8, the algorithm returns chkSum != 228
+            // Hence, we restrict the processor count to 8 to get consistency on
+            // all the hardwares.
+            // See https://github.com/dotnet/runtime/issues/67157
+            int nTasks = Math.Min(Environment.ProcessorCount, 8);
             chkSums = new int[nTasks];
             maxFlips = new int[nTasks];
             int taskSize = factn / nTasks;

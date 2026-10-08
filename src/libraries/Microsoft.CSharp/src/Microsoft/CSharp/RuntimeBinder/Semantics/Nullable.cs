@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace Microsoft.CSharp.RuntimeBinder.Semantics
 {
@@ -34,6 +35,8 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
         }
 
         // Create an expr for exprSrc.Value where exprSrc.type is a NullableType.
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private static Expr BindNubValue(Expr exprSrc)
         {
             Debug.Assert(exprSrc != null && exprSrc.Type is NullableType);
@@ -57,6 +60,8 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
         }
 
         // Create an expr for new T?(exprSrc) where T is exprSrc.type.
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
+        [RequiresDynamicCode(Binder.DynamicCodeWarning)]
         private static ExprCall BindNubNew(Expr exprSrc)
         {
             Debug.Assert(exprSrc != null);

@@ -98,11 +98,8 @@ namespace System.IO.Packaging
                                 string? contentType,
                                 CompressionOption compressionOption)
         {
-            if (package == null)
-                throw new ArgumentNullException(nameof(package));
-
-            if (partUri == null)
-                throw new ArgumentNullException(nameof(partUri));
+            ArgumentNullException.ThrowIfNull(package);
+            ArgumentNullException.ThrowIfNull(partUri);
 
             Package.ThrowIfCompressionOptionInvalid(compressionOption);
 
@@ -110,9 +107,13 @@ namespace System.IO.Packaging
             _container = package;
 
             if (contentType == null)
+            {
                 _contentType = null;
+            }
             else
+            {
                 _contentType = new ContentType(contentType);
+            }
 
             _requestedStreams = null;
             _compressionOption = compressionOption;
@@ -330,8 +331,7 @@ namespace System.IO.Packaging
             Debug.Assert(!IsStreamClosed(s));
 
             //Lazy init
-            if (_requestedStreams == null)
-                _requestedStreams = new List<Stream>(); //Default capacity is 4
+            _requestedStreams ??= new List<Stream>(); //Default capacity is 4
 
             //Delete all the closed streams from the _requestedStreams list.
             //Each time a new stream is handed out, we go through the list
@@ -572,15 +572,14 @@ namespace System.IO.Packaging
         //Delete all the relationships for this part
         internal void ClearRelationships()
         {
-            if (_relationships != null)
-                _relationships.Clear();
+            _relationships?.Clear();
         }
 
         //Flush all the streams that are currently opened for this part and the relationships for this part
         //Note: This method is never be called on a deleted part
         internal void Flush()
         {
-            Debug.Assert(_deleted != true, "PackagePart.Flush should never be called on a deleted part");
+            Debug.Assert(!_deleted, "PackagePart.Flush should never be called on a deleted part");
 
             if (_requestedStreams != null)
             {
@@ -648,7 +647,7 @@ namespace System.IO.Packaging
         /// </remarks>
         internal void FlushRelationships()
         {
-            Debug.Assert(_deleted != true, "PackagePart.FlushRelationsips should never be called on a deleted part");
+            Debug.Assert(!_deleted, "PackagePart.FlushRelationsips should never be called on a deleted part");
 
             // flush relationships
             if (_relationships != null && _container.FileOpenAccess != FileAccess.Read)
@@ -719,7 +718,7 @@ namespace System.IO.Packaging
         //If the part has been deleted then we throw
         private void ThrowIfPackagePartDeleted()
         {
-            if (_deleted == true)
+            if (_deleted)
                 throw new InvalidOperationException(SR.PackagePartDeleted);
         }
 
@@ -782,7 +781,7 @@ namespace System.IO.Packaging
         //return false. These properties do not throw ObjectDisposedException.
         //So we rely on the values of these properties to determine if a stream
         //has been closed.
-        private bool IsStreamClosed(Stream s)
+        private static bool IsStreamClosed(Stream s)
         {
             return !s.CanRead && !s.CanSeek && !s.CanWrite;
         }

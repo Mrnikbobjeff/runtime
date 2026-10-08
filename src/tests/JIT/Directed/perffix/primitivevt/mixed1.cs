@@ -1,7 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+namespace JitTest_Directed_perffix_primitivevt_mixed1;
+
 using System;
-unsafe class testout1
+using Xunit;
+public unsafe class testout1
 {
 
 	public  struct VT_0_4_4_4
@@ -1693,7 +1696,8 @@ if ((((Convert.ToDouble(-4194304L*0.5))+(asgop1/(Convert.ToDouble(64UL*-0.015617
 	return retval_0;
 	}
 
-	public static int Main()
+	[Fact]
+	public static int TestEntryPoint()
 	{
 
 	arr1d_0[0] = -0.0224609375;

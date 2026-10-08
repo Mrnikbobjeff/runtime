@@ -1,8 +1,8 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.Win32.SafeHandles;
 using System.Diagnostics;
+using Microsoft.Win32.SafeHandles;
 
 namespace System.IO.MemoryMappedFiles
 {
@@ -34,7 +34,7 @@ namespace System.IO.MemoryMappedFiles
             {
                 // Explicitly flush the changes.  The OS will do this for us anyway, but not until after the
                 // MemoryMappedFile object itself is closed.
-                if (disposing && !_view.IsClosed)
+                if (disposing && !_view.IsClosed && CanWrite)
                 {
                     Flush();
                 }
@@ -64,10 +64,7 @@ namespace System.IO.MemoryMappedFiles
                 throw new ObjectDisposedException(nameof(MemoryMappedViewAccessor), SR.ObjectDisposed_ViewAccessorClosed);
             }
 
-            unsafe
-            {
-                _view.Flush((UIntPtr)Capacity);
-            }
+            _view.Flush((UIntPtr)Capacity);
         }
     }
 }

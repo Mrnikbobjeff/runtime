@@ -204,6 +204,32 @@ namespace System.IO.Pipelines.Tests
         }
 
         [Fact]
+        public async Task ReadAtLeastAsyncUnblocksWriterIfMinimumlowerThanResumeThreshold()
+        {
+            PipeWriter writableBuffer = _pipe.Writer.WriteEmpty(PauseWriterThreshold);
+            ValueTask<FlushResult> flushAsync = writableBuffer.FlushAsync();
+            Assert.False(flushAsync.IsCompleted);
+
+            ValueTask<ReadResult> readAsync = _pipe.Reader.ReadAtLeastAsync(PauseWriterThreshold * 3);
+
+            Assert.False(readAsync.IsCompleted);
+
+            // This should unblock the flush
+            Assert.True(flushAsync.IsCompleted);
+
+            for (int i = 0; i < 2; i++)
+            {
+                writableBuffer = _pipe.Writer.WriteEmpty(PauseWriterThreshold);
+                flushAsync = writableBuffer.FlushAsync();
+                Assert.True(flushAsync.IsCompleted);
+            }
+
+            var result = await readAsync;
+            Assert.Equal(PauseWriterThreshold * 3, result.Buffer.Length);
+            _pipe.Reader.AdvanceTo(result.Buffer.End);
+        }
+
+        [Fact]
         public async Task FlushAsyncThrowsIfReaderCompletedWithException()
         {
             _pipe.Reader.Complete(new InvalidOperationException("Reader failed"));
@@ -214,6 +240,34 @@ namespace System.IO.Pipelines.Tests
             Assert.Equal("Reader failed", invalidOperationException.Message);
             invalidOperationException = await Assert.ThrowsAsync<InvalidOperationException>(async () => await writableBuffer.FlushAsync());
             Assert.Equal("Reader failed", invalidOperationException.Message);
+        }
+
+        [Fact]
+        public void FlushAsyncAwaitableDoesNotCompleteWhenReaderUnexamines()
+        {
+            PipeWriter writableBuffer = _pipe.Writer.WriteEmpty(PauseWriterThreshold);
+            ValueTask<FlushResult> flushAsync = writableBuffer.FlushAsync();
+
+            ReadResult result = _pipe.Reader.ReadAsync().GetAwaiter().GetResult();
+            SequencePosition examined = result.Buffer.GetPosition(2);
+            // Examine 2, don't advance consumed
+            _pipe.Reader.AdvanceTo(result.Buffer.Start, examined);
+
+            Assert.False(flushAsync.IsCompleted);
+
+            result = _pipe.Reader.ReadAsync().GetAwaiter().GetResult();
+            // Examine 1 which is less than the previous examined index of 2
+            examined = result.Buffer.GetPosition(1);
+            _pipe.Reader.AdvanceTo(result.Buffer.Start, examined);
+
+            Assert.False(flushAsync.IsCompleted);
+
+            // Just make sure we can still release backpressure
+            result = _pipe.Reader.ReadAsync().GetAwaiter().GetResult();
+            examined = result.Buffer.GetPosition(ResumeWriterThreshold + 1);
+            _pipe.Reader.AdvanceTo(examined, examined);
+
+            Assert.True(flushAsync.IsCompleted);
         }
     }
 }

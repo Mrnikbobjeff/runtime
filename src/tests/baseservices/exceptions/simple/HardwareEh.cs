@@ -6,6 +6,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using Xunit;
 
 // DataMisalignment
 // NullRef (generic, nullable, object)
@@ -22,7 +23,72 @@ public class HardwareEh
 	public const long c_VALUE = 34252;
 	public delegate bool TestDelegate();
 
-	public static int Main()
+    [Theory]
+    [InlineData(0, typeof(DivideByZeroException))]
+    [InlineData(1, typeof(OverflowException))]
+    [InlineData(2, typeof(NullReferenceException))]
+    public static void NestedHardwareExceptions(int operation, Type exceptionType)
+    {
+        int finallyCount = 0;
+
+        for (int i = 0; i < 16; i++)
+        {
+            bool caught = false;
+
+            try
+            {
+                try
+                {
+                    TriggerHardwareException(operation);
+                }
+                finally
+                {
+                    Assert.Throws<NullReferenceException>(() => TriggerHardwareException(2));
+                    finallyCount++;
+                }
+            }
+            catch (Exception ex) when (FilterHardwareException(ex, exceptionType))
+            {
+                caught = true;
+            }
+
+            Assert.True(caught);
+            Assert.Equal(i + 1, finallyCount);
+        }
+    }
+
+    private static bool FilterHardwareException(Exception exception, Type exceptionType)
+    {
+        Assert.Throws<DivideByZeroException>(() => TriggerHardwareException(0));
+        return exception.GetType() == exceptionType;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int Divide(int dividend, int divisor)
+    {
+        return dividend / divisor;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static void TriggerHardwareException(int operation)
+    {
+        switch (operation)
+        {
+            case 0:
+                Divide(1, 0);
+                break;
+            case 1:
+                Divide(int.MinValue, -1);
+                break;
+            case 2:
+                int[] values = null;
+                GC.KeepAlive(values[0]);
+                break;
+        }
+    }
+
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		HardwareEh e = new HardwareEh();
 
@@ -46,7 +112,7 @@ public class HardwareEh
 	{
 		bool retVal = true;
 
-		TestLibrary.TestFramework.LogInformation("[Postive]");
+		TestLibrary.TestFramework.LogInformation("[Positive]");
 		retVal = PosTest1() && retVal;
 		retVal = PosTest2() && retVal;
 		retVal = PosTest3() && retVal;
@@ -74,28 +140,28 @@ public class HardwareEh
 
 	public bool PosTest1() { return DataMisalign(1, false); }
 	public bool PosTest2() { return DataMisalign(2, true); }
-	public bool PosTest3() { return ExceptionTest(3, "NullReference", typeof(NullReferenceException), 
+	public bool PosTest3() { return ExceptionTest(3, "NullReference", typeof(NullReferenceException),
 								delegate()
 								{
 									object o = null;
 									o.ToString();
 									return true;
 								} ); }
-	public bool PosTest4() { return ExceptionTest(4, "NullReference (generic)", typeof(NullReferenceException), 
+	public bool PosTest4() { return ExceptionTest(4, "NullReference (generic)", typeof(NullReferenceException),
 								delegate()
 								{
 									List<int> l = null;
 									l.ToString();
 									return true;
 								} ); }
-	public bool PosTest5() { return ExceptionTest(5, "NullReference (nullable)", typeof(InvalidOperationException),  
+	public bool PosTest5() { return ExceptionTest(5, "NullReference (nullable)", typeof(InvalidOperationException),
 								delegate()
 								{
 									int? i = null;
 									i.Value.ToString();
 									return true;
 								} ); }
-	public bool PosTest6() { return ExceptionTest(6, "DivideByZero (int64)", typeof(DivideByZeroException),  
+	public bool PosTest6() { return ExceptionTest(6, "DivideByZero (int64)", typeof(DivideByZeroException),
 								delegate()
 								{
 									Int64 i = 10;
@@ -103,7 +169,7 @@ public class HardwareEh
 									Int64 k = i / j;
 									return true;
 								} ); }
-	public bool PosTest7() { return ExceptionTest(7, "DivideByZero (int32)", typeof(DivideByZeroException),  
+	public bool PosTest7() { return ExceptionTest(7, "DivideByZero (int32)", typeof(DivideByZeroException),
 								delegate()
 								{
 									Int32 i = 10;
@@ -114,7 +180,7 @@ public class HardwareEh
 	public bool PosTest8() { return ExceptionTest(8, "OverflowException (int64)", typeof(OverflowException), new TestDelegate(ILHelper.Int64Overflow) ); }
 	public bool PosTest9() { return ExceptionTest(9, "OverflowException (int32)", typeof(OverflowException), new TestDelegate(ILHelper.Int32Overflow) ); }
 //	public bool PosTest10() { return ExceptionTest(10, "StackOverflow", typeof(StackOverflowException),  new TestDelegate( GobbleStack )); }
-/*	public bool PosTest11() { return ExceptionTest(11, "OutOfMemory", typeof(OutOfMemoryException),  
+/*	public bool PosTest11() { return ExceptionTest(11, "OutOfMemory", typeof(OutOfMemoryException),
 								delegate()
 								{
                                     List<object> list;
@@ -125,7 +191,7 @@ public class HardwareEh
 										list.Add( new byte[8388608]);
 									}
 								} ); } */
-	public bool PosTest12() { return ExceptionTest(12, "IndexOutOfRange (single dim [less than])", typeof(IndexOutOfRangeException),  
+	public bool PosTest12() { return ExceptionTest(12, "IndexOutOfRange (single dim [less than])", typeof(IndexOutOfRangeException),
 								delegate()
 								{
 									int[] arr = new int[10];
@@ -133,7 +199,7 @@ public class HardwareEh
 									arr[index] = 0;
 									return true;
 								} ); }
-	public bool PosTest13() { return ExceptionTest(13, "IndexOutOfRange (single dim [greater than])", typeof(IndexOutOfRangeException),  
+	public bool PosTest13() { return ExceptionTest(13, "IndexOutOfRange (single dim [greater than])", typeof(IndexOutOfRangeException),
 								delegate()
 								{
 									int[] arr = new int[10];
@@ -141,7 +207,7 @@ public class HardwareEh
 									arr[index] = 0;
 									return true;
 								} ); }
-	public bool PosTest14() { return ExceptionTest(14, "IndexOutOfRange (multi dim [less than])", typeof(IndexOutOfRangeException),  
+	public bool PosTest14() { return ExceptionTest(14, "IndexOutOfRange (multi dim [less than])", typeof(IndexOutOfRangeException),
 								delegate()
 								{
 									int[,] arr = new int[10,10];
@@ -149,7 +215,7 @@ public class HardwareEh
 									arr[0,index] = 0;
 									return true;
 								} ); }
-	public bool PosTest15() { return ExceptionTest(15, "IndexOutOfRange (multi dim [greater than])", typeof(IndexOutOfRangeException),  
+	public bool PosTest15() { return ExceptionTest(15, "IndexOutOfRange (multi dim [greater than])", typeof(IndexOutOfRangeException),
 								delegate()
 								{
 									int[,] arr = new int[10,10];
@@ -157,7 +223,7 @@ public class HardwareEh
 									arr[index,0] = 0;
 									return true;
 								} ); }
-	public bool PosTest16() { return ExceptionTest(16, "IndexOutOfRange (jagged [less than])", typeof(IndexOutOfRangeException),  
+	public bool PosTest16() { return ExceptionTest(16, "IndexOutOfRange (jagged [less than])", typeof(IndexOutOfRangeException),
 								delegate()
 								{
 									int[][] arr = new int[10][];
@@ -166,7 +232,7 @@ public class HardwareEh
 									arr[0][index] = 0;
 									return true;
 								} ); }
-	public bool PosTest17() { return ExceptionTest(17, "IndexOutOfRange (jagged [greater than])", typeof(IndexOutOfRangeException),  
+	public bool PosTest17() { return ExceptionTest(17, "IndexOutOfRange (jagged [greater than])", typeof(IndexOutOfRangeException),
 								delegate()
 								{
 									int[][] arr = new int[10][];
@@ -174,7 +240,7 @@ public class HardwareEh
 									arr[index] = new int[10];
 									return true;
 								} ); }
-	public bool PosTest18() { return ExceptionTest(18, "NullReference (single dim)", typeof(NullReferenceException),  
+	public bool PosTest18() { return ExceptionTest(18, "NullReference (single dim)", typeof(NullReferenceException),
 								delegate()
 								{
 									int[] arr = null;
@@ -182,7 +248,7 @@ public class HardwareEh
 									arr[index] = 0;
 									return true;
 								} ); }
-	public bool PosTest19() { return ExceptionTest(19, "NullReference (multi dim)", typeof(NullReferenceException),  
+	public bool PosTest19() { return ExceptionTest(19, "NullReference (multi dim)", typeof(NullReferenceException),
 								delegate()
 								{
 									int[,] arr = null;
@@ -190,7 +256,7 @@ public class HardwareEh
 									arr[index,0] = 0;
 									return true;
 								} ); }
-	public bool PosTest20() { return ExceptionTest(20, "NullReference (jagged)", typeof(NullReferenceException),  
+	public bool PosTest20() { return ExceptionTest(20, "NullReference (jagged)", typeof(NullReferenceException),
 								delegate()
 								{
 									int[][] arr = new int[10][];
@@ -288,7 +354,7 @@ public class HardwareEh
 	}
 
 	public volatile static int volatileReadWrite = 0;
-	
+
 	[MethodImpl(MethodImplOptions.NoInlining)]
 	public static bool GobbleStack()
 	{

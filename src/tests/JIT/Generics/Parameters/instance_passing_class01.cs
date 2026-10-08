@@ -2,7 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Generics_Parameters_instance_passing_class01;
+
 using System;
+using Xunit;
 
 public struct ValX0 { }
 public struct ValY0 { }
@@ -44,16 +47,16 @@ public class Gen<T>
     {
         T temp = t1;
 
-        Test.Eval(t1.Equals(PassAsIn(temp)));
-        Test.Eval(t1.Equals(PassAsRef(ref temp, t2)));
-        Test.Eval(t2.Equals(temp));
+        Test_instance_passing_class01.Eval(t1.Equals(PassAsIn(temp)));
+        Test_instance_passing_class01.Eval(t1.Equals(PassAsRef(ref temp, t2)));
+        Test_instance_passing_class01.Eval(t2.Equals(temp));
         temp = t1;
         PassAsOut(out temp, t2);
-        Test.Eval(t2.Equals(temp));
+        Test_instance_passing_class01.Eval(t2.Equals(temp));
     }
 }
 
-public class Test
+public class Test_instance_passing_class01
 {
     public static int counter = 0;
     public static bool result = true;
@@ -68,7 +71,9 @@ public class Test
 
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
 
         int _int1 = 1;

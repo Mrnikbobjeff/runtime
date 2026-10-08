@@ -6,6 +6,7 @@ using Xunit;
 
 namespace System.Threading.Tests
 {
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
     public static class CountdownEventCancellationTests
     {
         [Fact]
@@ -25,13 +26,13 @@ namespace System.Threading.Tests
             countdownEvent.Dispose();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [Fact]
         public static void CancelAfterWait()
         {
             CancellationTokenSource cancellationTokenSource = new CancellationTokenSource();
             CancellationToken cancellationToken = cancellationTokenSource.Token;
 
-            CountdownEvent countdownEvent = new CountdownEvent(2); ;  // countdownEvent that will block all waiters
+            CountdownEvent countdownEvent = new CountdownEvent(2); // countdownEvent that will block all waiters
 
             Task.Run(() =>
             {

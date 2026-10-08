@@ -6,30 +6,31 @@ namespace NetClient
     using System;
     using System.Drawing;
     using System.Runtime.InteropServices;
-    using TestLibrary;
+    using Xunit;
 
     class ColorTests
     {
         private readonly Server.Contract.Servers.ColorTesting server;
         public ColorTests()
         {
-            this.server = (Server.Contract.Servers.ColorTesting)new Server.Contract.Servers.ColorTestingClass();
+            this.server = new Server.Contract.Servers.ColorTesting();
         }
 
         public void Run()
         {
+            Console.WriteLine(nameof(ColorTests));
             this.VerifyColorMarshalling();
             this.VerifyGetRed();
         }
 
         private void VerifyColorMarshalling()
         {
-            Assert.IsTrue(server.AreColorsEqual(Color.Green, ColorTranslator.ToOle(Color.Green)));
+            Assert.True(server.AreColorsEqual(Color.Green, ColorTranslator.ToOle(Color.Green)));
         }
 
         private void VerifyGetRed()
         {
-            Assert.AreEqual(Color.Red, server.GetRed());
+            Assert.Equal(Color.Red, server.GetRed());
         }
     }
 }

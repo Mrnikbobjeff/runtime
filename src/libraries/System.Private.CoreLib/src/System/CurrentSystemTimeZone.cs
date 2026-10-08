@@ -1,28 +1,16 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*============================================================
-**
-**
-**
-** Purpose:
-** This class represents the current system timezone.  It is
-** the only meaningful implementation of the TimeZone class
-** available in this version.
-**
-** The only TimeZone that we support in version 1 is the
-** CurrentTimeZone as determined by the system timezone.
-**
-**
-============================================================*/
-
-using System.Collections;
+using System.Collections.Concurrent;
 using System.Globalization;
 
 namespace System
 {
-    [Obsolete("System.CurrentSystemTimeZone has been deprecated.  Please investigate the use of System.TimeZoneInfo.Local instead.")]
-    internal class CurrentSystemTimeZone : TimeZone
+    /// <summary>
+    /// Represents the current system timezone.
+    /// </summary>
+    [Obsolete("System.CurrentSystemTimeZone has been deprecated. Investigate the use of System.TimeZoneInfo.Local instead.")]
+    internal sealed class CurrentSystemTimeZone : TimeZone
     {
         // Standard offset in ticks to the Universal time if
         // no daylight saving is in used.
@@ -164,31 +152,15 @@ namespace System
             }
             else
             {
-                return new TimeSpan(TimeZone.CalculateUtcOffset(time, GetDaylightChanges(time.Year)).Ticks + m_ticksOffset);
+                return new TimeSpan(CalculateUtcOffset(time, GetDaylightChanges(time.Year)).Ticks + m_ticksOffset);
             }
         }
 
-        private DaylightTime GetCachedDaylightChanges(int year)
-        {
-            object objYear = (object)year;
-
-            if (!m_CachedDaylightChanges.Contains(objYear))
-            {
-                DaylightTime currentDaylightChanges = CreateDaylightChanges(year);
-                lock (m_CachedDaylightChanges)
-                {
-                    if (!m_CachedDaylightChanges.Contains(objYear))
-                    {
-                        m_CachedDaylightChanges.Add(objYear, currentDaylightChanges);
-                    }
-                }
-            }
-
-            return (DaylightTime)m_CachedDaylightChanges[objYear]!;
-        }
+        private DaylightTime GetCachedDaylightChanges(int year) =>
+            m_CachedDaylightChanges.GetOrAdd(year, CreateDaylightChanges);
 
         // The per-year information is cached in this instance value. As a result it can
         // be cleaned up by CultureInfo.ClearCachedData, which will clear the instance of this object
-        private readonly Hashtable m_CachedDaylightChanges = new Hashtable();
+        private readonly ConcurrentDictionary<int, DaylightTime> m_CachedDaylightChanges = [];
     } // class CurrentSystemTimeZone
 }

@@ -9,10 +9,11 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using TestLibrary;
+using Xunit;
 
-public class Test
+public class Test_Finalizer
 {
-    ~Test()
+    ~Test_Finalizer()
     {
         TestFramework.LogInformation("First Alloc in Finalizer");
         GCUtil.Alloc2(1024 * 512, 30);
@@ -29,10 +30,12 @@ public class Test
     [MethodImpl(MethodImplOptions.NoInlining)]
     private static void CreateAndReleaseFinalizable()
     {
-        var t = new Test();
+        var t = new Test_Finalizer();
     }
 
-    public static int Main()
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static void TestEntryPoint()
     {
         CreateAndReleaseFinalizable();
         TestFramework.LogInformation("First Alloc");
@@ -44,6 +47,5 @@ public class Test
         GCUtil.FreePins();
 
         TestFramework.LogInformation("Test passed");
-        return 100;
     }
 }

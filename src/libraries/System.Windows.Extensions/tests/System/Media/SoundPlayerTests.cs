@@ -67,7 +67,7 @@ namespace System.Media.Test
         [Theory]
         [InlineData(null)]
         [InlineData("")]
-        public void Ctor_NullOrEmptyString_ThrowsArgumentException(string soundLocation)
+        public void Ctor_NullOrEmptyString_ThrowsArgumentException(string? soundLocation)
         {
             AssertExtensions.Throws<ArgumentException>("path", null, () => new SoundPlayer(soundLocation));
         }
@@ -293,6 +293,22 @@ namespace System.Media.Test
             player.PlayLooping();
         }
 
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsSoundPlaySupported))]
+        [MemberData(nameof(Play_String_TestData))]
+        [OuterLoop]
+        public void PlaySync_TrickledData_Success(string sourceLocation)
+        {
+            using var player = new SoundPlayer();
+            player.Stream = new TrickleStream(File.ReadAllBytes(sourceLocation.Replace("file://", "")));
+            player.PlaySync();
+        }
+
+        private sealed class TrickleStream : MemoryStream
+        {
+            public TrickleStream(byte[] bytes) : base(bytes) { }
+            public override int Read(byte[] buffer, int offset, int count) => base.Read(buffer, offset, Math.Min(count, 1));
+        }
+
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsSoundPlaySupported))]
         [OuterLoop]
         public void PlaySync_NullStream_Success()
@@ -356,7 +372,7 @@ namespace System.Media.Test
         [Theory]
         [InlineData(null)]
         [InlineData("")]
-        public void SoundLocation_SetNullOrEmpty_ThrowsArgumentException(string soundLocation)
+        public void SoundLocation_SetNullOrEmpty_ThrowsArgumentException(string? soundLocation)
         {
             var player = new SoundPlayer() { SoundLocation = soundLocation };
             Assert.Equal("", player.SoundLocation);
@@ -407,7 +423,7 @@ namespace System.Media.Test
         [Theory]
         [InlineData(null)]
         [InlineData("tag")]
-        public void Tag_Set_GetReturnsExpected(object value)
+        public void Tag_Set_GetReturnsExpected(object? value)
         {
             var player = new SoundPlayer { Tag = value };
             Assert.Equal(value, player.Tag);
@@ -457,7 +473,6 @@ namespace System.Media.Test
             }
         }
 
-        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "netfx aborts a worker thread and never signals operation completion")]
         [Theory]
         [InlineData(0)]
         [InlineData(1)]
@@ -494,7 +509,6 @@ namespace System.Media.Test
             Assert.Null(ea.UserState);
         }
 
-        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "netfx hangs")]
         [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsSoundPlaySupported))]
         [MemberData(nameof(Play_String_TestData))]
         [OuterLoop]

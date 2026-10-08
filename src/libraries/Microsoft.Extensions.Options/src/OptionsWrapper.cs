@@ -6,15 +6,15 @@ using System.Diagnostics.CodeAnalysis;
 namespace Microsoft.Extensions.Options
 {
     /// <summary>
-    /// <see cref="IOptions{TOptions}"/> wrapper that returns the options instance.
+    /// Wraps the options instance.
     /// </summary>
-    /// <typeparam name="TOptions">Options type.</typeparam>
+    /// <typeparam name="TOptions">The options type.</typeparam>
     public class OptionsWrapper<[DynamicallyAccessedMembers(Options.DynamicallyAccessedMembers)] TOptions> :
         IOptions<TOptions>
         where TOptions : class
     {
         /// <summary>
-        /// Intializes the wrapper with the options instance to return.
+        /// Initializes the wrapper with the options instance to return.
         /// </summary>
         /// <param name="options">The options instance to return.</param>
         public OptionsWrapper(TOptions options)
@@ -23,7 +23,7 @@ namespace Microsoft.Extensions.Options
         }
 
         /// <summary>
-        /// The options instance.
+        /// Gets the options instance.
         /// </summary>
         public TOptions Value { get; }
     }

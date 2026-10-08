@@ -3,6 +3,9 @@
 using System.Security;
 using System;
 using System.Runtime.InteropServices; // For SafeHandle
+using Xunit;
+
+namespace SafeHandleDangerousReleaseTest;
 
 /// <summary>
 /// DangerousRelease
@@ -375,7 +378,9 @@ public class SafeHandleDangerousRelease
 
 
     [SecuritySafeCritical]
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         SafeHandleDangerousRelease test = new SafeHandleDangerousRelease();
 

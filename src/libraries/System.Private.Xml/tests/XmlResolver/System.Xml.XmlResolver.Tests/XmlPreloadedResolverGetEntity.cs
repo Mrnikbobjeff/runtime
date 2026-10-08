@@ -1,15 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Xml.Resolvers;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
-using Xunit;
 using System.Threading.Tasks;
+using System.Xml.Resolvers;
+using Xunit;
 
-namespace System.Xml.XmlResolver.Tests
+namespace System.Xml.XmlResolverTests
 {
     public class XmlPreloadedResolverGetEntity
     {
@@ -89,26 +89,26 @@ namespace System.Xml.XmlResolver.Tests
         }
 
         [Fact]
-        public void XmlResolverGetEntityAsyncWithInvalidData()
+        public async Task XmlResolverGetEntityAsyncWithInvalidData()
         {
             var xmlResolver = new XmlPreloadedResolver(XmlKnownDtds.Xhtml10);
-            Assert.ThrowsAsync<ArgumentNullException>(() => xmlResolver.GetEntityAsync(null, null, null));
-            Assert.ThrowsAsync<XmlException>(() => xmlResolver.GetEntityAsync(new Uri("https://DummyUri"), null, null));
-            Assert.ThrowsAsync<XmlException>(() =>
+            await Assert.ThrowsAsync<ArgumentNullException>(() => xmlResolver.GetEntityAsync(null, null, null));
+            await Assert.ThrowsAsync<XmlException>(() => xmlResolver.GetEntityAsync(new Uri("https://DummyUri"), null, null));
+            await Assert.ThrowsAsync<XmlException>(() =>
                 xmlResolver.GetEntityAsync(new Uri("-//W3C//ENTITIES Latin 1 for XHTML//EN", UriKind.RelativeOrAbsolute), null, typeof(string)));
 
             xmlResolver = new XmlPreloadedResolver(new XmlPreloadedResolver(), XmlKnownDtds.Xhtml10);
-            Assert.ThrowsAsync<XmlException>(() =>
+            await Assert.ThrowsAsync<XmlException>(() =>
                 xmlResolver.GetEntityAsync(new Uri("https://DummyUri", UriKind.RelativeOrAbsolute), null, typeof(string)));
 
-            Assert.ThrowsAsync<XmlException>(() =>
+            await Assert.ThrowsAsync<XmlException>(() =>
                 xmlResolver.GetEntityAsync(new Uri("-//W3C//ENTITIES Latin 1 for XHTML//EN", UriKind.RelativeOrAbsolute), null, typeof(TextReader)));
         }
 
         [Fact]
         public void XmlResolverGetEntityAsyncWithValidUserSuppliedData()
         {
-            byte[] inpData = Encoding.ASCII.GetBytes("hello world");
+            byte[] inpData = "hello world"u8.ToArray();
             var xmlResolver = new XmlPreloadedResolver(XmlKnownDtds.Xhtml10);
             xmlResolver.Add(new Uri("-//W3C//DTD FAKE 1.0 Not Real//EN", UriKind.RelativeOrAbsolute), inpData);
             Task<object> output = xmlResolver.GetEntityAsync(new Uri("-//W3C//DTD FAKE 1.0 Not Real//EN",

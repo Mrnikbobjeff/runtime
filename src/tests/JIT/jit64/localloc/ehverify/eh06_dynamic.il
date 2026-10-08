@@ -6,12 +6,14 @@
   .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )
   .ver 4:0:0:0
 }
+.assembly extern xunit.core {}
 
 .assembly extern mscorlib{}
-.assembly extern common{}
-.assembly eh05{}
+.assembly extern localloc_common{}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly 'eh06_dynamic'{}
 
-.class private auto ansi beforefieldinit LocallocTest
+.class public auto ansi beforefieldinit LocallocTest
        extends [mscorlib]System.Object
 {
   .method private hidebysig static void  func() cil managed
@@ -26,7 +28,7 @@
 	finally
 	{
     IL_0000:  ldc.i4.4
-    IL_0001:  ldsfld     int32 [common]LocallocTesting.Global::stackAllocSize
+    IL_0001:  ldsfld     int32 [localloc_common]LocallocTesting.Global::stackAllocSize
     IL_0006:  mul
     IL_0007:  localloc
     IL_0009:  stloc.0
@@ -37,6 +39,13 @@
 
   .method public hidebysig static int32  Main() cil managed
   {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
+    .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, valuetype [Microsoft.DotNet.XUnitExtensions]Xunit.TestRuntimes) = {
+        string('Needs triage')
+        int32(0x2) // Mono
+    }
     .entrypoint
     .maxstack  1
     .locals init (int32 retValue)
@@ -46,7 +55,7 @@
       IL_0005:  leave.s    IL_002d
 
     }  // end .try
-    catch [mscorlib]System.InvalidProgramException 
+    catch [mscorlib]System.InvalidProgramException
     {
       IL_0007:  pop
       IL_0008:  ldstr      "InvalidProgramException was caught."
@@ -54,7 +63,7 @@
       IL_0012:  leave.s    IL_003b
 
     }  // end handler
-    catch [mscorlib]System.Security.VerificationException 
+    catch [mscorlib]System.Security.VerificationException
     {
       IL_0014:  pop
       IL_0015:  ldstr      "Security.VerificationException was caught."
@@ -62,14 +71,14 @@
       IL_001f:  leave.s    IL_003b
 
     }  // end handler
-    catch [mscorlib]System.Exception 
+    catch [mscorlib]System.Exception
     {
       IL_0021:  callvirt   instance string [mscorlib]System.Exception::ToString()
       IL_0026:  call       void [System.Console]System.Console::WriteLine(string)
       IL_002b:  leave.s    IL_002d
 
     }  // end handler
-    
+
     IL_002d:  ldstr      "Failed"
     IL_0032:  call       void [System.Console]System.Console::WriteLine(string)
     IL_0037:  ldc.i4.1
@@ -86,7 +95,7 @@
     IL_004b:  ret
   } // end of method LocallocTest::Main
 
-  .method public hidebysig specialname rtspecialname 
+  .method public hidebysig specialname rtspecialname
           instance void  .ctor() cil managed
   {
     .maxstack  8

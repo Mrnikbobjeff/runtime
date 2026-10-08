@@ -26,7 +26,7 @@ namespace System.IO.Ports.Tests
 
         #region Test Cases
         [KnownFailure] // either hanging or really slow
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(BaudRate_Property), nameof(HasNullModem))]
         public void BaudRate_Default()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -48,7 +48,7 @@ namespace System.IO.Ports.Tests
         }
 
         [KnownFailure] // currently not supported on linux (can be emulated)
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(BaudRate_Property), nameof(HasNullModem))]
         public void BaudRate_14400()
         {
             Debug.WriteLine("Verifying 14400 BaudRate");
@@ -56,14 +56,14 @@ namespace System.IO.Ports.Tests
         }
 
         [KnownFailure] // currently not supported on linux (can be emulated)
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(BaudRate_Property), nameof(HasNullModem))]
         public void BaudRate_28800()
         {
             Debug.WriteLine("Verifying 28800 BaudRate");
             VerifyBaudRate(28800);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(BaudRate_Property), nameof(HasNullModem))]
         public void BaudRate_1200()
         {
             Debug.WriteLine("Verifying 1200 BaudRate");
@@ -71,35 +71,35 @@ namespace System.IO.Ports.Tests
         }
 
         [KnownFailure] // either hanging or really slow
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(BaudRate_Property), nameof(HasNullModem))]
         public void BaudRate_115200()
         {
             Debug.WriteLine("Verifying 115200 BaudRate");
             VerifyBaudRate(115200);
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(BaudRate_Property), nameof(HasOneSerialPort))]
         public void BaudRate_MinValue()
         {
             Debug.WriteLine("Verifying Int32.MinValue BaudRate");
             VerifyException(int.MinValue, ThrowAt.Set, typeof(ArgumentOutOfRangeException));
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(BaudRate_Property), nameof(HasOneSerialPort))]
         public void BaudRate_Neg1()
         {
             Debug.WriteLine("Verifying -1 BaudRate");
             VerifyException(-1, ThrowAt.Set, typeof(ArgumentOutOfRangeException));
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(BaudRate_Property), nameof(HasOneSerialPort))]
         public void BaudRate_Zero()
         {
             Debug.WriteLine("Verifying 0 BaudRate");
             VerifyException(0, ThrowAt.Set, typeof(ArgumentOutOfRangeException));
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(BaudRate_Property), nameof(HasOneSerialPort))]
         public void BaudRate_MaxValue()
         {
             Debug.WriteLine("Verifying Int32.MaxValue BaudRate");
@@ -150,18 +150,18 @@ namespace System.IO.Ports.Tests
 
                 if (null != expectedException)
                 {
-                    Assert.True(false, $"ERROR!!! Expected Open() to throw {expectedException} and nothing was thrown");
+                    Assert.Fail($"ERROR!!! Expected Open() to throw {expectedException} and nothing was thrown");
                 }
             }
             catch (Exception e)
             {
                 if (null == expectedException)
                 {
-                    Assert.True(false, $"ERROR!!! Expected Open() NOT to throw an exception and {e.GetType()} was thrown");
+                    Assert.Fail($"ERROR!!! Expected Open() NOT to throw an exception and {e.GetType()} was thrown");
                 }
                 else if (e.GetType() != expectedException)
                 {
-                    Assert.True(false, $"ERROR!!! Expected Open() throw {expectedException} and {e.GetType()} was thrown: {e}");
+                    Assert.Fail($"ERROR!!! Expected Open() throw {expectedException} and {e.GetType()} was thrown: {e}");
                 }
             }
 
@@ -183,7 +183,7 @@ namespace System.IO.Ports.Tests
                 com.BaudRate = baudRate;
                 if (null != expectedException)
                 {
-                    Assert.True(false, $"ERROR!!! Expected setting the BaudRate after Open() to throw {expectedException} and nothing was thrown");
+                    Assert.Fail($"ERROR!!! Expected setting the BaudRate after Open() to throw {expectedException} and nothing was thrown");
                 }
                 else
                 {
@@ -194,11 +194,11 @@ namespace System.IO.Ports.Tests
             {
                 if (null == expectedException)
                 {
-                    Assert.True(false, $"ERROR!!! Expected setting the BaudRate after Open() NOT to throw an exception and {e.GetType()} was thrown");
+                    Assert.Fail($"ERROR!!! Expected setting the BaudRate after Open() NOT to throw an exception and {e.GetType()} was thrown");
                 }
                 else if (e.GetType() != expectedException)
                 {
-                    Assert.True(false, $"ERROR!!! Expected setting the BaudRate after Open() throw {expectedException} and {e.GetType()} was thrown");
+                    Assert.Fail($"ERROR!!! Expected setting the BaudRate after Open() throw {expectedException} and {e.GetType()} was thrown");
                 }
             }
 
@@ -314,7 +314,7 @@ namespace System.IO.Ports.Tests
                 //then the expected baud rate must not have been used and we should report an error
                 if (MAX_ACCEPTABLE_PERCENTAGE_DIFFERENCE < percentageDifference)
                 {
-                    Assert.True(false, string.Format("ERROR!!! BuadRate not used Expected time:{0}, actual time:{1} percentageDifference:{2}",
+                    Assert.Fail(string.Format("ERROR!!! BuadRate not used Expected time:{0}, actual time:{1} percentageDifference:{2}",
                         expectedTime, actualTime, percentageDifference));
                 }
 

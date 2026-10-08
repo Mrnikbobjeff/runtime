@@ -5,8 +5,11 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using Xunit;
+using TestLibrary;
 
-class Test
+[ActiveIssue("https://github.com/dotnet/runtime/issues/91388", typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.PlatformDoesNotSupportNativeTestAssets))]
+public class Test
 {
     private const string RelativeSubdirectoryName = "RelativeNative";
     private const string PathEnvSubdirectoryName = "Subdirectory";
@@ -18,7 +21,7 @@ class Test
     private const string RelativePath1Unix =  @"./RelativeNative/../libDllImportPath_Relative";
     private const string RelativePath3Unix = @"../DllImportPathTest/libDllImportPath_Relative";
 
-    private const string UnicodeFileName = "DllImportPath_Unicode✔";
+    private const string UnicodeFileName = "DllImportPath_Unicode\u2714";
 
     [DllImport(@"DllImportPath_Local", EntryPoint = "GetZero")]
     private static extern int GetZero_Local1();
@@ -52,7 +55,7 @@ class Test
 
     [DllImport(UnicodeFileName, EntryPoint = "GetZero")]
     private static extern int GetZero_Unicode();
-    
+
     [DllImport(PathEnvFileName, EntryPoint = "GetZero")]
     private static extern int GetZero_PathEnv();
 
@@ -66,7 +69,7 @@ class Test
 
         GetZero_Local1();
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (OperatingSystem.IsWindows())
         {
             GetZero_Local2();
 
@@ -80,10 +83,10 @@ class Test
     {
         string strManaged = "Managed";
         string native = " Native";
-        bool isWindows = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        bool isWindows = OperatingSystem.IsWindows();
 
         if (!isWindows) // We need to ensure that the subdirectory exists for off-Windows.
-        {        
+        {
             var currentDirectory = Directory.GetCurrentDirectory();
             var info = new DirectoryInfo(currentDirectory);
             info.CreateSubdirectory(RelativeSubdirectoryName);
@@ -97,12 +100,12 @@ class Test
         {
             GetZero_Relative1Unix();
         }
-        
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+
+        if (OperatingSystem.IsWindows())
         {
             GetZero_Relative2();
         }
-        
+
         if (isWindows)
         {
             GetZero_Relative3Windows();
@@ -112,7 +115,7 @@ class Test
             GetZero_Relative3Unix();
         }
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (OperatingSystem.IsWindows())
         {
             GetZero_Relative4();
         }
@@ -150,7 +153,7 @@ class Test
                             localFile.Extension == ".dll"
                             || localFile.Extension == ".so"
                             || localFile.Extension == ".dylib");
-        
+
         var unicodeFileLocation = file.FullName.Replace("DllImportPath_Local", UnicodeFileName);
 
         file.CopyTo(unicodeFileLocation, true);
@@ -168,18 +171,24 @@ class Test
         GetZero_Exe();
     }
 
-    public static int Main(string[] args)
+    [ActiveIssue("needs triage", TestRuntimes.Mono)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {
             TestNativeLibraryProbingOnLocalPath();
             TestNativeLibraryProbingOnRelativePath();
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) // This test fails due to a bug in OSX 10.12 combined with the weird way that HFS+ handles unicode file names
+            if (!OperatingSystem.IsMacOS()) // This test fails due to a bug in OSX 10.12 combined with the weird way that HFS+ handles unicode file names
             {
                 TestNativeLibraryProbingUnicode();
             }
-            TestNativeLibraryProbingOnPathEnv();
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            // Setting LD_LIBRARY_PATH/DYLD_LIBRARY_PATH may not be allowed on Mac
+            if (!OperatingSystem.IsMacOS())
+            {
+                TestNativeLibraryProbingOnPathEnv();
+            }
+            if (OperatingSystem.IsWindows())
             {
                 TestNativeExeProbing();
             }

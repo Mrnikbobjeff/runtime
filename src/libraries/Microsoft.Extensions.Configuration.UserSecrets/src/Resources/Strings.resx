@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <root>
   <!--
     Microsoft ResX Schema
@@ -127,5 +127,8 @@
     <value>Could not find 'UserSecretsIdAttribute' on assembly '{0}'.
 Check that the project for '{0}' has set the 'UserSecretsId' build property.
 If the 'UserSecretsId' property is already set then add a reference to the Microsoft.Extensions.Configuration.UserSecrets package.</value>
+  </data>
+  <data name="Error_Missing_UserSecretsLocation" xml:space="preserve">
+    <value>Could not determine an appropriate location for storing user secrets. Set the {0} environment variable to a folder where user secrets should be stored.</value>
   </data>
 </root>

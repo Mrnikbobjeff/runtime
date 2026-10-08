@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 
 namespace System.Diagnostics
 {
@@ -20,27 +21,79 @@ namespace System.Diagnostics
             return Interop.libproc.proc_pidpath(processId);
         }
 
-        private static ProcessInfo CreateProcessInfo(int pid)
+        internal static string? GetProcessName(int processId, string _ /* machineName */, bool __ /* isRemoteMachine */, ref ProcessInfo? processInfo)
+        {
+            if (processInfo is not null)
+            {
+                return processInfo.ProcessName;
+            }
+            // Return empty string rather than null when the process name can't be determined
+            // to preserve existing macOS behavior where the name defaults to "".
+            return GetProcessName(processId) ?? "";
+        }
+
+        internal static string? GetProcessName(int pid)
+            => GetProcessName(pid, out _);
+
+        private static string? GetProcessName(int pid, out Interop.libproc.proc_taskallinfo? taskInfo, bool getInfo = false)
         {
             // Negative PIDs aren't valid
-            if (pid < 0)
+            ArgumentOutOfRangeException.ThrowIfNegative(pid);
+
+            string? processName = null;
+
+            try
             {
-                throw new ArgumentOutOfRangeException(nameof(pid));
+                // Extract the process name from its path, because other alternatives such as
+                // reading proc_taskallinfo.pbsd.pbi_comm are limited in length
+                string processPath = GetProcPath(pid);
+                processName = Path.GetFileName(processPath);
+            }
+            catch
+            {
+                // Ignored
             }
 
-            ProcessInfo procInfo = new ProcessInfo()
+            if (string.IsNullOrEmpty(processName) || getInfo)
             {
-                ProcessId = pid
+                // Try to get the task info. This can fail if the user permissions don't permit
+                // this user context to query the specified process
+                taskInfo = Interop.libproc.GetProcessInfoById(pid);
+
+                if (taskInfo.HasValue && string.IsNullOrEmpty(processName))
+                {
+                    Interop.libproc.proc_taskallinfo temp = taskInfo.Value;
+                    unsafe { processName = Utf8StringMarshaller.ConvertToManaged(temp.pbsd.pbi_comm); }
+                }
+            }
+            else
+            {
+                taskInfo = default;
+            }
+
+            return processName;
+        }
+
+        internal static unsafe ProcessInfo? CreateProcessInfo(int pid, string? processNameFilter = null)
+        {
+            Interop.libproc.proc_taskallinfo? info;
+            string processName = GetProcessName(pid, out info, getInfo: true) ?? "";
+
+            if (processNameFilter != null && !processNameFilter.Equals(processName, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+
+            var procInfo = new ProcessInfo()
+            {
+                ProcessId = pid,
+                ProcessName = processName,
             };
 
-            // Try to get the task info. This can fail if the user permissions don't permit
-            // this user context to query the specified process
-            Interop.libproc.proc_taskallinfo? info = Interop.libproc.GetProcessInfoById(pid);
             if (info.HasValue)
             {
                 // Set the values we have; all the other values don't have meaning or don't exist on OSX
                 Interop.libproc.proc_taskallinfo temp = info.Value;
-                unsafe { procInfo.ProcessName = Marshal.PtrToStringAnsi(new IntPtr(temp.pbsd.pbi_comm))!; }
                 procInfo.BasePriority = temp.pbsd.pbi_nice;
                 procInfo.VirtualBytes = (long)temp.ptinfo.pti_virtual_size;
                 procInfo.WorkingSet = (long)temp.ptinfo.pti_resident_size;
@@ -49,7 +102,19 @@ namespace System.Diagnostics
             // Get the sessionId for the given pid, getsid returns -1 on error
             int sessionId = Interop.Sys.GetSid(pid);
             if (sessionId != -1)
+            {
                 procInfo.SessionId = sessionId;
+            }
+
+            // Get the process's physical memory footprint - an accounting-based measurement (the same value
+            // shown in Activity Monitor's Memory column), not a strict count of unique/private pages. This can
+            // fail for several reasons - e.g. lacking permission to query a process owned by another user, or
+            // the process having exited since it was enumerated - in which case PrivateBytes is left at its
+            // default of 0, matching prior (unset) behavior for this field on macOS.
+            if (Interop.libproc.TryGetProcessPhysicalFootprint(pid, out ulong physicalFootprint))
+            {
+                procInfo.PrivateBytes = physicalFootprint > long.MaxValue ? long.MaxValue : (long)physicalFootprint;
+            }
 
             // Create a threadinfo for each thread in the process
             List<KeyValuePair<ulong, Interop.libproc.proc_threadinfo?>> lstThreads = Interop.libproc.GetAllThreadsInProcess(pid);
@@ -60,7 +125,7 @@ namespace System.Diagnostics
                     _processId = pid,
                     _threadId = t.Key,
                     _basePriority = procInfo.BasePriority,
-                    _startAddress = IntPtr.Zero
+                    _startAddress = null
                 };
 
                 // Fill in additional info if we were able to retrieve such data about the thread
@@ -86,15 +151,15 @@ namespace System.Diagnostics
             switch (state)
             {
                 case Interop.libproc.ThreadRunState.TH_STATE_RUNNING:
-                    return System.Diagnostics.ThreadState.Running;
+                    return ThreadState.Running;
                 case Interop.libproc.ThreadRunState.TH_STATE_STOPPED:
-                    return System.Diagnostics.ThreadState.Terminated;
+                    return ThreadState.Terminated;
                 case Interop.libproc.ThreadRunState.TH_STATE_HALTED:
-                    return System.Diagnostics.ThreadState.Wait;
+                    return ThreadState.Wait;
                 case Interop.libproc.ThreadRunState.TH_STATE_UNINTERRUPTIBLE:
-                    return System.Diagnostics.ThreadState.Running;
+                    return ThreadState.Running;
                 case Interop.libproc.ThreadRunState.TH_STATE_WAITING:
-                    return System.Diagnostics.ThreadState.Standby;
+                    return ThreadState.Standby;
                 default:
                     throw new ArgumentOutOfRangeException(nameof(state));
             }
@@ -104,9 +169,9 @@ namespace System.Diagnostics
         {
             // Since ThreadWaitReason isn't a flag, we have to do a mapping and will lose some information.
             if ((flags & Interop.libproc.ThreadFlags.TH_FLAGS_SWAPPED) == Interop.libproc.ThreadFlags.TH_FLAGS_SWAPPED)
-                return System.Diagnostics.ThreadWaitReason.PageOut;
+                return ThreadWaitReason.PageOut;
             else
-                return System.Diagnostics.ThreadWaitReason.Unknown; // There isn't a good mapping for anything else
+                return ThreadWaitReason.Unknown; // There isn't a good mapping for anything else
         }
     }
 }

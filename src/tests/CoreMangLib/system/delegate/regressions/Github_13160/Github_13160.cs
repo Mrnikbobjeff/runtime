@@ -1,8 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
+using Xunit;
 
-class Program
+public class Github_13160
 {
     public virtual void VirtualMethod()
     {
@@ -12,9 +13,11 @@ class Program
     {
     }
 
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
-        Program p = new Program();
+        Github_13160 p = new Github_13160();
 
         Action d1 = p.VirtualMethod;
         Action d2 = p.VirtualMethod;

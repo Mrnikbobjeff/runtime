@@ -19,7 +19,7 @@ namespace Microsoft.Extensions.Logging.Abstractions
         /// <param name="state">The state for which log is being written.</param>
         /// <param name="exception">The log exception.</param>
         /// <param name="formatter">The formatter.</param>
-        public LogEntry(LogLevel logLevel, string category, EventId eventId, TState state, Exception exception, Func<TState, Exception, string> formatter)
+        public LogEntry(LogLevel logLevel, string category, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             LogLevel = logLevel;
             Category = category;
@@ -30,33 +30,33 @@ namespace Microsoft.Extensions.Logging.Abstractions
         }
 
         /// <summary>
-        /// Gets the LogLevel
+        /// Gets the log level.
         /// </summary>
         public LogLevel LogLevel { get; }
 
         /// <summary>
-        /// Gets the log category
+        /// Gets the log category.
         /// </summary>
         public string Category { get; }
 
         /// <summary>
-        /// Gets the log EventId
+        /// Gets the log event ID.
         /// </summary>
         public EventId EventId { get; }
 
         /// <summary>
-        /// Gets the TState
+        /// Gets the state.
         /// </summary>
         public TState State { get; }
 
         /// <summary>
-        /// Gets the log exception
+        /// Gets the log exception.
         /// </summary>
-        public Exception Exception { get; }
+        public Exception? Exception { get; }
 
         /// <summary>
-        /// Gets the formatter
+        /// Gets the formatter.
         /// </summary>
-        public Func<TState, Exception, string> Formatter { get; }
+        public Func<TState, Exception?, string> Formatter { get; }
     }
 }

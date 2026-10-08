@@ -3,7 +3,9 @@
 
 using System;
 using System.IO;
+using Xunit;
 
+namespace JIT.Methodical.eh.generics.trycatchsimpletype;
 
 public class GenException<T> : Exception
 {
@@ -31,11 +33,11 @@ public class Gen<T> : IGen
     }
 }
 
-public class Test
+public class Test_trycatchsimpletype
 {
     private static TestUtil.TestLog testLog;
 
-    static Test()
+    static Test_trycatchsimpletype()
     {
         // Create test writer object to hold expected output
         StringWriter expectedOut = new StringWriter();
@@ -60,7 +62,8 @@ public class Test
 
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         //Start recording
         testLog.StartRecording();

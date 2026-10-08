@@ -5,7 +5,7 @@ using System.Security.Permissions;
 
 namespace System.Drawing.Printing
 {
-#if NET50_OBSOLETIONS
+#if NET
     [Obsolete(Obsoletions.CodeAccessSecurityMessage, DiagnosticId = Obsoletions.CodeAccessSecurityDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
 #endif
     [AttributeUsage(AttributeTargets.All, AllowMultiple = true)]

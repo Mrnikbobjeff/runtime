@@ -1,26 +1,22 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
-using System.IO;
-using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
-using System.Security;
 using System.Threading;
 
 using static Interop.Advapi32;
 
 namespace System.ServiceProcess
 {
-    /// <devdoc>
+    /// <summary>
     /// <para>Provides a base class for a service that will exist as part of a service application. <see cref='System.ServiceProcess.ServiceBase'/>
     /// must be derived when creating a new service class.</para>
-    /// </devdoc>
+    /// </summary>
     public class ServiceBase : Component
     {
         private SERVICE_STATUS _status;
@@ -35,30 +31,30 @@ namespace System.ServiceProcess
         private bool _commandPropsFrozen;  // set to true once we've use the Can... properties.
         private bool _disposed;
         private bool _initialized;
+        private object _stopLock = new object();
         private EventLog? _eventLog;
 
-        /// <devdoc>
-        ///    <para>
-        ///       Indicates the maximum size for a service name.
-        ///    </para>
-        /// </devdoc>
+        /// <summary>
+        /// Indicates the maximum size for a service name.
+        /// </summary>
         public const int MaxNameLength = 80;
 
-        /// <devdoc>
-        /// <para>Creates a new instance of the <see cref='System.ServiceProcess.ServiceBase()'/> class.</para>
-        /// </devdoc>
+        /// <summary>
+        /// Creates a new instance of the <see cref='System.ServiceProcess.ServiceBase()'/> class.
+        /// </summary>
         public ServiceBase()
         {
             _acceptedCommands = AcceptOptions.ACCEPT_STOP;
-            ServiceName = "";
+            ServiceName = string.Empty;
             AutoLog = true;
         }
 
-        /// <devdoc>
+        /// <summary>
         /// When this method is called from OnStart, OnStop, OnPause or OnContinue,
         /// the specified wait hint is passed to the
         /// Service Control Manager to avoid having the service marked as not responding.
-        /// </devdoc>
+        /// </summary>
+        /// <param name="milliseconds"></param>
         public unsafe void RequestAdditionalTime(int milliseconds)
         {
             fixed (SERVICE_STATUS* pStatus = &_status)
@@ -77,16 +73,36 @@ namespace System.ServiceProcess
             }
         }
 
-        /// <devdoc>
-        /// Indicates whether to report Start, Stop, Pause, and Continue commands in the event
-        /// </devdoc>
+#if NET
+        /// <summary>
+        /// When this method is called from OnStart, OnStop, OnPause or OnContinue,
+        /// the specified wait hint is passed to the
+        /// Service Control Manager to avoid having the service marked as not responding.
+        /// </summary>
+        /// <param name="time">The requested additional time</param>
+        public void RequestAdditionalTime(TimeSpan time) => RequestAdditionalTime(ToIntMilliseconds(time));
+
+        private static int ToIntMilliseconds(TimeSpan time)
+        {
+            long totalMilliseconds = (long)time.TotalMilliseconds;
+            if (totalMilliseconds < -1 || totalMilliseconds > int.MaxValue)
+            {
+                throw new ArgumentOutOfRangeException(nameof(time));
+            }
+            return (int)totalMilliseconds;
+        }
+#endif
+
+        /// <summary>
+        /// Indicates whether to report Start, Stop, Pause, and Continue commands in the event.
+        /// </summary>
         [DefaultValue(true)]
         public bool AutoLog { get; set; }
 
-        /// <devdoc>
+        /// <summary>
         /// The termination code for the service.  Set this to a non-zero value before
         /// stopping to indicate an error to the Service Control Manager.
-        /// </devdoc>
+        /// </summary>
         public int ExitCode
         {
             get
@@ -99,10 +115,10 @@ namespace System.ServiceProcess
             }
         }
 
-        /// <devdoc>
+        /// <summary>
         ///  Indicates whether the service can be handle notifications on
         ///  computer power status changes.
-        /// </devdoc>
+        /// </summary>
         [DefaultValue(false)]
         public bool CanHandlePowerEvent
         {
@@ -126,9 +142,9 @@ namespace System.ServiceProcess
             }
         }
 
-        /// <devdoc>
+        /// <summary>
         /// Indicates whether the service can handle Terminal Server session change events.
-        /// </devdoc>
+        /// </summary>
         [DefaultValue(false)]
         public bool CanHandleSessionChangeEvent
         {
@@ -152,10 +168,9 @@ namespace System.ServiceProcess
             }
         }
 
-        /// <devdoc>
-        ///    <para> Indicates whether the service can be paused
-        ///       and resumed.</para>
-        /// </devdoc>
+        /// <summary>
+        ///   Indicates whether the service can be paused and resumed.
+        /// </summary>
         [DefaultValue(false)]
         public bool CanPauseAndContinue
         {
@@ -179,10 +194,9 @@ namespace System.ServiceProcess
             }
         }
 
-        /// <devdoc>
-        ///    <para> Indicates whether the service should be notified when
-        ///       the system is shutting down.</para>
-        /// </devdoc>
+        /// <summary>
+        /// Indicates whether the service should be notified when the system is shutting down.
+        /// </summary>
         [DefaultValue(false)]
         public bool CanShutdown
         {
@@ -206,10 +220,9 @@ namespace System.ServiceProcess
             }
         }
 
-        /// <devdoc>
-        ///    <para> Indicates whether the service can be
-        ///       stopped once it has started.</para>
-        /// </devdoc>
+        /// <summary>
+        /// Indicates whether the service can be stopped once it has started.
+        /// </summary>
         [DefaultValue(true)]
         public bool CanStop
         {
@@ -233,23 +246,15 @@ namespace System.ServiceProcess
             }
         }
 
-        /// <devdoc>
+        /// <summary>
         /// can be used to write notification of service command calls, such as Start and Stop, to the Application event log. This property is read-only.
-        /// </devdoc>
+        /// </summary>
         [Browsable(false), DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
-        public virtual EventLog EventLog
-        {
-            get
+        public virtual EventLog EventLog =>
+            _eventLog ??= new EventLog("Application")
             {
-                if (_eventLog == null)
-                {
-                    _eventLog = new EventLog("Application");
-                    _eventLog.Source = ServiceName;
-                }
-
-                return _eventLog;
-            }
-        }
+                Source = ServiceName
+            };
 
         [EditorBrowsable(EditorBrowsableState.Advanced)]
         protected IntPtr ServiceHandle
@@ -260,9 +265,9 @@ namespace System.ServiceProcess
             }
         }
 
-        /// <devdoc>
-        ///    <para> Indicates the short name used to identify the service to the system.</para>
-        /// </devdoc>
+        /// <summary>
+        /// Indicates the short name used to identify the service to the system.
+        /// </summary>
         public string ServiceName
         {
             get
@@ -283,31 +288,17 @@ namespace System.ServiceProcess
             }
         }
 
-        internal static bool ValidServiceName(string serviceName)
-        {
-            if (serviceName == null)
-                return false;
+        internal static bool ValidServiceName(string serviceName) =>
+            !string.IsNullOrEmpty(serviceName) &&
+            serviceName.Length <= ServiceBase.MaxNameLength && // not too long
+            serviceName.AsSpan().IndexOfAny('\\', '/') < 0; // no slashes or backslash allowed
 
-            // not too long and check for empty name as well.
-            if (serviceName.Length > ServiceBase.MaxNameLength || serviceName.Length == 0)
-                return false;
-
-            // no slashes or backslash allowed
-            foreach (char c in serviceName)
-            {
-                if ((c == '\\') || (c == '/'))
-                    return false;
-            }
-
-            return true;
-        }
-
-        /// <devdoc>
+        /// <summary>
         ///    <para>Disposes of the resources (other than memory ) used by
         ///       the <see cref='System.ServiceProcess.ServiceBase'/>.</para>
         ///    This is called from <see cref="Run(ServiceBase[])"/> when all
         ///    services in the process have entered the SERVICE_STOPPED state.
-        /// </devdoc>
+        /// </summary>
         protected override void Dispose(bool disposing)
         {
             _nameFrozen = false;
@@ -316,60 +307,60 @@ namespace System.ServiceProcess
             base.Dispose(disposing);
         }
 
-        /// <devdoc>
+        /// <summary>
         ///    <para> When implemented in a
         ///       derived class,
         ///       executes when a Continue command is sent to the service
         ///       by the
         ///       Service Control Manager. Specifies the actions to take when a
         ///       service resumes normal functioning after being paused.</para>
-        /// </devdoc>
+        /// </summary>
         protected virtual void OnContinue()
         {
         }
 
-        /// <devdoc>
+        /// <summary>
         ///    <para> When implemented in a
         ///       derived class, executes when a Pause command is sent
         ///       to
         ///       the service by the Service Control Manager. Specifies the
         ///       actions to take when a service pauses.</para>
-        /// </devdoc>
+        /// </summary>
         protected virtual void OnPause()
         {
         }
 
-        /// <devdoc>
+        /// <summary>
         ///    <para>
         ///         When implemented in a derived class, executes when the computer's
         ///         power status has changed.
         ///    </para>
-        /// </devdoc>
+        /// </summary>
         protected virtual bool OnPowerEvent(PowerBroadcastStatus powerStatus)
         {
             return true;
         }
 
-        /// <devdoc>
+        /// <summary>
         ///    <para>When implemented in a derived class,
         ///       executes when a Terminal Server session change event is received.</para>
-        /// </devdoc>
+        /// </summary>
         protected virtual void OnSessionChange(SessionChangeDescription changeDescription)
         {
         }
 
-        /// <devdoc>
+        /// <summary>
         ///    <para>When implemented in a derived class,
         ///       executes when the system is shutting down.
         ///       Specifies what should
         ///       happen just prior
         ///       to the system shutting down.</para>
-        /// </devdoc>
+        /// </summary>
         protected virtual void OnShutdown()
         {
         }
 
-        /// <devdoc>
+        /// <summary>
         ///    <para> When implemented in a
         ///       derived class, executes when a Start command is sent
         ///       to the service by the Service
@@ -383,18 +374,18 @@ namespace System.ServiceProcess
         ///       OnStart never be called if you use the SCM to start the service? What about
         ///       services that start automatically at boot-up?
         ///    </note>
-        /// </devdoc>
+        /// </summary>
         protected virtual void OnStart(string[] args)
         {
         }
 
-        /// <devdoc>
+        /// <summary>
         ///    <para> When implemented in a
         ///       derived class, executes when a Stop command is sent to the
         ///       service by the Service Control Manager. Specifies the actions to take when a
         ///       service stops
         ///       running.</para>
-        /// </devdoc>
+        /// </summary>
         protected virtual void OnStop()
         {
         }
@@ -468,7 +459,7 @@ namespace System.ServiceProcess
             }
         }
 
-        private void DeferredPowerEvent(int eventType, IntPtr eventData)
+        private void DeferredPowerEvent(int eventType)
         {
             // Note: The eventData pointer might point to an invalid location
             // This might happen because, between the time the eventData ptr was
@@ -511,27 +502,34 @@ namespace System.ServiceProcess
         // This is a problem when multiple services are hosted in a single process.
         private unsafe void DeferredStop()
         {
-            fixed (SERVICE_STATUS* pStatus = &_status)
+            lock (_stopLock)
             {
-                int previousState = _status.currentState;
+                // never call SetServiceStatus again after STATE_STOPPED is set.
+                if (_status.currentState != ServiceControlStatus.STATE_STOPPED)
+                {
+                    fixed (SERVICE_STATUS* pStatus = &_status)
+                    {
+                        int previousState = _status.currentState;
 
-                _status.checkPoint = 0;
-                _status.waitHint = 0;
-                _status.currentState = ServiceControlStatus.STATE_STOP_PENDING;
-                SetServiceStatus(_statusHandle, pStatus);
-                try
-                {
-                    OnStop();
-                    WriteLogEntry(SR.StopSuccessful);
-                    _status.currentState = ServiceControlStatus.STATE_STOPPED;
-                    SetServiceStatus(_statusHandle, pStatus);
-                }
-                catch (Exception e)
-                {
-                    _status.currentState = previousState;
-                    SetServiceStatus(_statusHandle, pStatus);
-                    WriteLogEntry(SR.Format(SR.StopFailed, e), EventLogEntryType.Error);
-                    throw;
+                        _status.checkPoint = 0;
+                        _status.waitHint = 0;
+                        _status.currentState = ServiceControlStatus.STATE_STOP_PENDING;
+                        SetServiceStatus(_statusHandle, pStatus);
+                        try
+                        {
+                            OnStop();
+                            WriteLogEntry(SR.StopSuccessful);
+                            _status.currentState = ServiceControlStatus.STATE_STOPPED;
+                            SetServiceStatus(_statusHandle, pStatus);
+                        }
+                        catch (Exception e)
+                        {
+                            _status.currentState = previousState;
+                            SetServiceStatus(_statusHandle, pStatus);
+                            WriteLogEntry(SR.Format(SR.StopFailed, e), EventLogEntryType.Error);
+                            throw;
+                        }
+                    }
                 }
             }
         }
@@ -543,14 +541,17 @@ namespace System.ServiceProcess
                 OnShutdown();
                 WriteLogEntry(SR.ShutdownOK);
 
-                if (_status.currentState == ServiceControlStatus.STATE_PAUSED || _status.currentState == ServiceControlStatus.STATE_RUNNING)
+                lock (_stopLock)
                 {
-                    fixed (SERVICE_STATUS* pStatus = &_status)
+                    if (_status.currentState == ServiceControlStatus.STATE_PAUSED || _status.currentState == ServiceControlStatus.STATE_RUNNING)
                     {
-                        _status.checkPoint = 0;
-                        _status.waitHint = 0;
-                        _status.currentState = ServiceControlStatus.STATE_STOPPED;
-                        SetServiceStatus(_statusHandle, pStatus);
+                        fixed (SERVICE_STATUS* pStatus = &_status)
+                        {
+                            _status.checkPoint = 0;
+                            _status.waitHint = 0;
+                            _status.currentState = ServiceControlStatus.STATE_STOPPED;
+                            SetServiceStatus(_statusHandle, pStatus);
+                        }
                     }
                 }
             }
@@ -561,34 +562,20 @@ namespace System.ServiceProcess
             }
         }
 
-        /// <devdoc>
+        /// <summary>
         /// <para>When implemented in a derived class, <see cref='System.ServiceProcess.ServiceBase.OnCustomCommand'/>
-        /// executes when a custom command is passed to
-        /// the service. Specifies the actions to take when
+        /// executes when a custom command is passed to the service. Specifies the actions to take when
         /// a command with the specified parameter value occurs.</para>
-        /// <note type="rnotes">
-        ///    Previously had "Passed to the
-        ///    service by
-        ///    the SCM", but the SCM doesn't pass custom commands. Do we want to indicate an
-        ///    agent here? Would it be the ServiceController, or is there another way to pass
-        ///    the int into the service? I thought that the SCM did pass it in, but
-        ///    otherwise ignored it since it was an int it doesn't recognize. I was under the
-        ///    impression that the difference was that the SCM didn't have default processing, so
-        ///    it transmitted it without examining it or trying to performs its own
-        ///    default behavior on it. Please correct where my understanding is wrong in the
-        ///    second paragraph below--what, if any, contact does the SCM have with a
-        ///    custom command?
-        /// </note>
-        /// </devdoc>
+        /// </summary>
         protected virtual void OnCustomCommand(int command)
         {
         }
 
-        /// <devdoc>
+        /// <summary>
         ///    <para>Provides the main entry point for an executable that
         ///       contains multiple associated services. Loads the specified services into memory so they can be
         ///       started.</para>
-        /// </devdoc>
+        /// </summary>
         public static unsafe void Run(ServiceBase[] services)
         {
             if (services == null || services.Length == 0)
@@ -619,16 +606,13 @@ namespace System.ServiceProcess
 
                 foreach (ServiceBase service in services)
                 {
-                    if (service._startFailedException != null)
-                    {
-                        // Propagate exceptions throw during OnStart.
-                        // Note that this same exception is also thrown from ServiceMainCallback
-                        // (so SCM can see it as well).
-                        service._startFailedException.Throw();
-                    }
+                    // Propagate exceptions throw during OnStart.
+                    // Note that this same exception is also thrown from ServiceMainCallback
+                    // (so SCM can see it as well).
+                    service._startFailedException?.Throw();
                 }
 
-                string errorMessage = "";
+                string errorMessage = string.Empty;
 
                 if (!res)
                 {
@@ -658,12 +642,12 @@ namespace System.ServiceProcess
             }
         }
 
-        /// <devdoc>
+        /// <summary>
         ///    <para>Provides the main
         ///       entry point for an executable that contains a single
         ///       service. Loads the service into memory so it can be
         ///       started.</para>
-        /// </devdoc>
+        /// </summary>
         public static void Run(ServiceBase service)
         {
             if (service == null)
@@ -681,17 +665,17 @@ namespace System.ServiceProcess
         {
             if (!_initialized)
             {
-                //Cannot register the service with NT service manatger if the object has been disposed, since finalization has been suppressed.
+                //Cannot register the service with NT service manager if the object has been disposed, since finalization has been suppressed.
                 if (_disposed)
                     throw new ObjectDisposedException(GetType().Name);
 
                 if (!multipleServices)
                 {
-                    _status.serviceType = ServiceTypeOptions.SERVICE_TYPE_WIN32_OWN_PROCESS;
+                    _status.serviceType = ServiceTypeOptions.SERVICE_WIN32_OWN_PROCESS;
                 }
                 else
                 {
-                    _status.serviceType = ServiceTypeOptions.SERVICE_TYPE_WIN32_SHARE_PROCESS;
+                    _status.serviceType = ServiceTypeOptions.SERVICE_WIN32_SHARE_PROCESS;
                 }
 
                 _status.currentState = ServiceControlStatus.STATE_START_PENDING;
@@ -701,8 +685,8 @@ namespace System.ServiceProcess
                 _status.checkPoint = 0;
                 _status.waitHint = 0;
 
-                _mainCallback = new ServiceMainCallback(this.ServiceMainCallback);
-                _commandCallbackEx = new ServiceControlCallbackEx(this.ServiceCommandCallbackEx);
+                _mainCallback = ServiceMainCallback;
+                _commandCallbackEx = this.ServiceCommandCallbackEx;
 
                 _initialized = true;
             }
@@ -726,7 +710,7 @@ namespace System.ServiceProcess
             {
                 case ControlOptions.CONTROL_POWEREVENT:
                     {
-                        ThreadPool.QueueUserWorkItem(_ => DeferredPowerEvent(eventType, eventData));
+                        ThreadPool.QueueUserWorkItem(_ => DeferredPowerEvent(eventType));
                         break;
                     }
 
@@ -750,12 +734,12 @@ namespace System.ServiceProcess
             return 0;
         }
 
-        /// <devdoc>
+        /// <summary>
         ///     Command Handler callback is called by NT .
         ///     Need to take specific action in response to each
         ///     command message. There is usually no need to override this method.
         ///     Instead, override OnStart, OnStop, OnCustomCommand, etc.
-        /// </devdoc>
+        /// </summary>
         /// <internalonly/>
         private unsafe void ServiceCommandCallback(int command)
         {
@@ -859,11 +843,11 @@ namespace System.ServiceProcess
             _startCompletedSignal!.Set();
         }
 
-        /// <devdoc>
+        /// <summary>
         ///     ServiceMain callback is called by NT .
         ///     It is expected that we register the command handler,
         ///     and start the service at this point.
-        /// </devdoc>
+        /// </summary>
         /// <internalonly/>
         [EditorBrowsable(EditorBrowsableState.Never)]
         public unsafe void ServiceMainCallback(int argCount, IntPtr argPointer)
@@ -874,10 +858,15 @@ namespace System.ServiceProcess
 
                 if (argCount > 0)
                 {
-                    char** argsAsPtr = (char**)argPointer.ToPointer();
+                    char** argsAsPtr = (char**)argPointer;
 
-                    //Lets read the arguments
-                    // the first arg is always the service name. We don't want to pass that in.
+                    // The first arg is always the service name. We don't want to pass that in,
+                    // but we can use it to set the service name on ourselves if we don't already know it.
+                    if (string.IsNullOrEmpty(_serviceName))
+                    {
+                        _serviceName = Marshal.PtrToStringUni((IntPtr)(*argsAsPtr))!;
+                    }
+
                     args = new string[argCount - 1];
 
                     for (int index = 0; index < args.Length; ++index)
@@ -907,7 +896,7 @@ namespace System.ServiceProcess
                 _commandPropsFrozen = true;
                 if ((_status.controlsAccepted & AcceptOptions.ACCEPT_STOP) != 0)
                 {
-                    _status.controlsAccepted = _status.controlsAccepted | AcceptOptions.ACCEPT_SHUTDOWN;
+                    _status.controlsAccepted |= AcceptOptions.ACCEPT_SHUTDOWN;
                 }
 
                 _status.currentState = ServiceControlStatus.STATE_START_PENDING;
@@ -943,9 +932,16 @@ namespace System.ServiceProcess
                 statusOK = SetServiceStatus(_statusHandle, pStatus);
                 if (!statusOK)
                 {
-                    WriteLogEntry(SR.Format(SR.StartFailed, new Win32Exception().Message), EventLogEntryType.Error);
-                    _status.currentState = ServiceControlStatus.STATE_STOPPED;
-                    SetServiceStatus(_statusHandle, pStatus);
+                    string errorMessage = new Win32Exception().Message;
+                    WriteLogEntry(SR.Format(SR.StartFailed, errorMessage), EventLogEntryType.Error);
+                    lock (_stopLock)
+                    {
+                        if (_status.currentState != ServiceControlStatus.STATE_STOPPED)
+                        {
+                            _status.currentState = ServiceControlStatus.STATE_STOPPED;
+                            SetServiceStatus(_statusHandle, pStatus);
+                        }
+                    }
                 }
             }
         }

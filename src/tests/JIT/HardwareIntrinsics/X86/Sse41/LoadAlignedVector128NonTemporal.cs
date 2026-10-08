@@ -7,15 +7,16 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics.X86;
 using System.Runtime.Intrinsics;
+using Xunit;
+using TestLibrary;
 
-namespace IntelHardwareIntrinsicTest
+namespace IntelHardwareIntrinsicTest._Sse41
 {
-    class Program
+    public partial class Program
     {
-        const int Pass = 100;
-        const int Fail = 0;
-
-        static unsafe int Main(string[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/75767", typeof(PlatformDetection), nameof(PlatformDetection.IsMonoLLVMAOT))]
+        [Fact]
+        public static unsafe void LoadAlignedVector128NonTemporal()
         {
             int testResult = Pass;
 
@@ -214,17 +215,7 @@ namespace IntelHardwareIntrinsicTest
                 }
             }
 
-            return testResult;
-        }
-
-        static unsafe void* Align(byte* buffer, byte expectedAlignment)
-        {
-            // Compute how bad the misalignment is, which is at most (expectedAlignment - 1).
-            // Then subtract that from the expectedAlignment and add it to the original address
-            // to compute the aligned address.
-
-            var misalignment = expectedAlignment - ((ulong)(buffer) % expectedAlignment);
-            return (void*)(buffer + misalignment);
+            Assert.Equal(Pass, testResult);
         }
     }
 }

@@ -76,7 +76,7 @@ namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
             Assert.Equal(0, version);
         }
 
-        [ConditionalFact(nameof(SupportsDiffieHellman))]
+        [ConditionalFact(typeof(GeneralTests), nameof(SupportsDiffieHellman))]
         public static void DecodeRecipients3_RoundTrip()
         {
             ContentInfo contentInfo = new ContentInfo(new byte[] { 1, 2, 3 });
@@ -132,7 +132,7 @@ namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
             col.CopyTo(recipients, 0);
 
             string[] actualIssuers = recipients.Select(r => r.RecipientIdentifier.Value).Cast<X509IssuerSerial>().Select(xis => xis.IssuerName).OrderBy(s => s).ToArray();
-            Assert.Equal<string>(expectedIssuers, actualIssuers);
+            Assert.Equal(expectedIssuers, actualIssuers);
         }
 
         [Fact]
@@ -323,7 +323,7 @@ KoZIhvcNAwcECJ01qtX2EKx6oIAEEM7op+R2U3GQbYwlEj5X+h0AAAAAAAAAAAAA
             Assert.Equal<byte>(contentInfo.Content, ecms.ContentInfo.Content);
         }
 
-        [ConditionalFact(nameof(SupportsRsaOaepCerts))]
+        [ConditionalFact(typeof(GeneralTests), nameof(SupportsRsaOaepCerts))]
         [OuterLoop(/* Leaks key on disk if interrupted */)]
         public static void RsaOaepCertificate_NullParameters_Throws()
         {
@@ -336,21 +336,21 @@ KoZIhvcNAwcECJ01qtX2EKx6oIAEEM7op+R2U3GQbYwlEj5X+h0AAAAAAAAAAAAA
             }
         }
 
-        [ConditionalFact(nameof(SupportsRsaOaepCerts))]
+        [ConditionalFact(typeof(GeneralTests), nameof(SupportsRsaOaepCerts))]
         [OuterLoop(/* Leaks key on disk if interrupted */)]
         public static void RoundTrip_RsaOaepCertificate_Sha1KeyParameters()
         {
             Assert_Certificate_Roundtrip(Certificates.RsaOaep2048_Sha1Parameters);
         }
 
-        [ConditionalFact(nameof(SupportsRsaOaepCerts))]
+        [ConditionalFact(typeof(GeneralTests), nameof(SupportsRsaOaepCerts))]
         [OuterLoop(/* Leaks key on disk if interrupted */)]
         public static void RoundTrip_RsaOaepCertificate_Sha256KeyParameters()
         {
             Assert_Certificate_Roundtrip(Certificates.RsaOaep2048_Sha256Parameters);
         }
 
-        [ConditionalFact(nameof(SupportsRsaOaepCerts))]
+        [ConditionalFact(typeof(GeneralTests), nameof(SupportsRsaOaepCerts))]
         [OuterLoop(/* Leaks key on disk if interrupted */)]
         public static void RoundTrip_RsaOaepCertificate_NoParameters()
         {
@@ -380,10 +380,12 @@ KoZIhvcNAwcECJ01qtX2EKx6oIAEEM7op+R2U3GQbYwlEj5X+h0AAAAAAAAAAAAA
 
         [Fact]
         [OuterLoop(/* Leaks key on disk if interrupted */)]
-        [PlatformSpecific(~TestPlatforms.Windows)] /* Applies to managed PAL only. */
-        public static void FromManagedPal_CompatWithOctetStringWrappedContents_Decrypt()
+        public static void Decrypt_DoesNotAlterAsnOctetStringContent()
         {
-            byte[] expectedContent = new byte[] { 1, 2, 3 };
+            // The content in the message happens to be an ASN.1 OCTET STRING.
+            // We used to decode this for compatibility purposes, but that has
+            // been removed. Instead, test that the content remains untouched.
+            byte[] expectedContent = new byte[] { 4, 3, 1, 2, 3 };
             byte[] encodedMessage =
                 ("3082010C06092A864886F70D010703A081FE3081FB0201003181C83081C5020100302" +
                  "E301A311830160603550403130F5253414B65795472616E7366657231021031D935FB" +

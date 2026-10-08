@@ -6,6 +6,7 @@
   .publickeytoken = (B7 7A 5C 56 19 34 E0 89 )
   .ver 4:0:0:0
 }
+.assembly extern xunit.core {}
 
 .assembly extern System.Console
 {
@@ -13,11 +14,12 @@
   .ver 4:0:0:0
 }
 
+.assembly extern System.Diagnostics.StackTrace { }
+
 .assembly NegativeCases
 {
 }
 
-.module NegativeCases.exe
 
 .class public auto ansi beforefieldinit P
        extends [mscorlib]System.Object
@@ -34,8 +36,8 @@
     IL_0001:  newobj     instance void [mscorlib]System.Diagnostics.StackTrace::.ctor()
     IL_0006:  ldc.i4.0
     IL_0007:  callvirt   instance class [mscorlib]System.Diagnostics.StackFrame [mscorlib]System.Diagnostics.StackTrace::GetFrame(int32)
-    IL_000c:  callvirt   instance class [mscorlib]System.Reflection.MethodBase [mscorlib]System.Diagnostics.StackFrame::GetMethod()
-    IL_0011:  callvirt   instance string [mscorlib]System.Reflection.MemberInfo::get_Name()
+    IL_000c:  call       class [System.Diagnostics.StackTrace]System.Diagnostics.DiagnosticMethodInfo [System.Diagnostics.StackTrace]System.Diagnostics.DiagnosticMethodInfo::Create(class [mscorlib]System.Diagnostics.StackFrame)
+    IL_0011:  callvirt   instance string [System.Diagnostics.StackTrace]System.Diagnostics.DiagnosticMethodInfo::get_Name()
     IL_0016:  stloc.0
     .try
     {
@@ -67,6 +69,9 @@
 
   .method public hidebysig static int32  Main() cil managed
   {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
     .entrypoint
     // Code size       71 (0x47)
     .maxstack  2

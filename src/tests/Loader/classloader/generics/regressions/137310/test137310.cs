@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
+using TestLibrary;
 
 // test for classes
 public class A<T> {}
@@ -16,7 +18,7 @@ public class D : IB {}
   
                                        
 
-class Test
+public class Test_test137310
 {
 
 	public static void LoadC()
@@ -29,7 +31,9 @@ class Test
 		IA<D> d = new D();		
 	}
 
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
     	{
     		bool pass = true;
     		try

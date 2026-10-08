@@ -4,10 +4,11 @@
 using System.Collections;
 using System.IO;
 using System.Xml.Schema;
+using System.Xml.Tests;
 using Xunit;
 using Xunit.Abstractions;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlSchemaValidatorApiTests
 {
     // ===================== ValidateAttribute =====================
 
@@ -25,7 +26,7 @@ namespace System.Xml.Tests
         [Theory]
         [InlineData(null, "")]
         [InlineData("attr", null)]
-        public void PassNull_LocalName_Namespace__Invalid(string localName, string nameSpace)
+        public void PassNull_LocalName_Namespace__Invalid(string? localName, string? nameSpace)
         {
             XmlSchemaValidator val = CreateValidator(XSDFILE_VALIDATE_ATTRIBUTE);
             XmlSchemaInfo info = new XmlSchemaInfo();
@@ -41,7 +42,7 @@ namespace System.Xml.Tests
                 return;
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         [Fact]
@@ -61,14 +62,13 @@ namespace System.Xml.Tests
                 return;
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         [Fact]
         public void PassNullXmlSchemaInfo__Valid()
         {
             XmlSchemaValidator val = CreateValidator(XSDFILE_VALIDATE_ATTRIBUTE);
-            XmlSchemaInfo info = new XmlSchemaInfo();
 
             val.Initialize();
             val.ValidateElement("OneAttributeElement", "", null);
@@ -194,7 +194,7 @@ namespace System.Xml.Tests
                 return;
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
     }
 }

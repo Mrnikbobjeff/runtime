@@ -25,7 +25,7 @@ namespace System.Text.Json
             }
         }
 
-        public static byte[] EscapeValue(
+        public static unsafe byte[] EscapeValue(
             ReadOnlySpan<byte> utf8Value,
             int firstEscapeIndexVal,
             JavaScriptEncoder? encoder)
@@ -37,15 +37,15 @@ namespace System.Text.Json
 
             int length = JsonWriterHelper.GetMaxEscapedLength(utf8Value.Length, firstEscapeIndexVal);
 
-            Span<byte> escapedValue = length <= JsonConstants.StackallocThreshold ?
-                stackalloc byte[length] :
+            Span<byte> escapedValue = length <= JsonConstants.StackallocByteThreshold ?
+                stackalloc byte[JsonConstants.StackallocByteThreshold] :
                 (valueArray = ArrayPool<byte>.Shared.Rent(length));
 
             JsonWriterHelper.EscapeString(utf8Value, escapedValue, firstEscapeIndexVal, encoder, out int written);
 
             byte[] escapedString = escapedValue.Slice(0, written).ToArray();
 
-            if (valueArray != null)
+            if (valueArray is not null)
             {
                 ArrayPool<byte>.Shared.Return(valueArray);
             }
@@ -53,7 +53,7 @@ namespace System.Text.Json
             return escapedString;
         }
 
-        private static byte[] GetEscapedPropertyNameSection(
+        private static unsafe byte[] GetEscapedPropertyNameSection(
             ReadOnlySpan<byte> utf8Value,
             int firstEscapeIndexVal,
             JavaScriptEncoder? encoder)
@@ -65,15 +65,15 @@ namespace System.Text.Json
 
             int length = JsonWriterHelper.GetMaxEscapedLength(utf8Value.Length, firstEscapeIndexVal);
 
-            Span<byte> escapedValue = length <= JsonConstants.StackallocThreshold ?
-                stackalloc byte[length] :
+            Span<byte> escapedValue = length <= JsonConstants.StackallocByteThreshold ?
+                stackalloc byte[JsonConstants.StackallocByteThreshold] :
                 (valueArray = ArrayPool<byte>.Shared.Rent(length));
 
             JsonWriterHelper.EscapeString(utf8Value, escapedValue, firstEscapeIndexVal, encoder, out int written);
 
             byte[] propertySection = GetPropertyNameSection(escapedValue.Slice(0, written));
 
-            if (valueArray != null)
+            if (valueArray is not null)
             {
                 ArrayPool<byte>.Shared.Return(valueArray);
             }
@@ -89,7 +89,7 @@ namespace System.Text.Json
             propertySection[0] = JsonConstants.Quote;
             utf8Value.CopyTo(propertySection.AsSpan(1, length));
             propertySection[++length] = JsonConstants.Quote;
-            propertySection[++length] = JsonConstants.KeyValueSeperator;
+            propertySection[++length] = JsonConstants.KeyValueSeparator;
 
             return propertySection;
         }

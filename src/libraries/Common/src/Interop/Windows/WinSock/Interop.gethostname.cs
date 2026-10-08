@@ -8,7 +8,8 @@ internal static partial class Interop
 {
     internal static partial class Winsock
     {
-        [DllImport(Interop.Libraries.Ws2_32, SetLastError = true)]
-        internal static extern unsafe SocketError gethostname(byte* name, int namelen);
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [LibraryImport(Interop.Libraries.Ws2_32, SetLastError = true)]
+        internal static unsafe partial SocketError gethostname(byte* name, int namelen);
     }
 }

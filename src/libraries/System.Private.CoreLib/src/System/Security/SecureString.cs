@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -24,18 +25,10 @@ namespace System.Security
         [CLSCompliant(false)]
         public unsafe SecureString(char* value, int length)
         {
-            if (value == null)
-            {
-                throw new ArgumentNullException(nameof(value));
-            }
-            if (length < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_NeedNonNegNum);
-            }
-            if (length > MaxLength)
-            {
-                throw new ArgumentOutOfRangeException(nameof(length), SR.ArgumentOutOfRange_Length);
-            }
+            ArgumentNullException.ThrowIfNull(value);
+
+            ArgumentOutOfRangeException.ThrowIfNegative(length);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(length, MaxLength);
 
             Initialize(new ReadOnlySpan<char>(value, length));
         }
@@ -308,10 +301,7 @@ namespace System.Security
 
         private void EnsureNotDisposed()
         {
-            if (_buffer == null)
-            {
-                throw new ObjectDisposedException(GetType().Name);
-            }
+            ObjectDisposedException.ThrowIf(_buffer == null, this);
         }
 
         internal unsafe IntPtr MarshalToBSTR()
@@ -389,7 +379,7 @@ namespace System.Security
                     {
                         Span<char> resultSpan = new Span<char>((void*)ptr, byteLength / sizeof(char));
                         span.CopyTo(resultSpan);
-                        resultSpan[resultSpan.Length - 1] = '\0';
+                        resultSpan[^1] = '\0';
                     }
                     else
                     {
@@ -429,7 +419,9 @@ namespace System.Security
             // A local copy of byte length to be able to access it in ReleaseHandle without the risk of throwing exceptions
             private int _byteLength;
 
+#pragma warning disable CA1419 // not intended for use with P/Invoke
             private UnmanagedBuffer() : base(true) { }
+#pragma warning restore CA1419
 
             public static UnmanagedBuffer Allocate(int byteLength)
             {
@@ -447,6 +439,8 @@ namespace System.Security
                 {
                     return;
                 }
+
+                Debug.Assert(bytesLength <= destination.ByteLength);
 
                 byte* srcPtr = null, dstPtr = null;
                 try

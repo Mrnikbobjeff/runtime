@@ -1,48 +1,59 @@
 trigger: none
 
-pr: none
+pr:
+  branches:
+    include:
+    - '*'
+    exclude:
+    - release/*
+    - internal/release/*
+  paths:
+    include:
+    - src/coreclr/ilasm/*
+    - src/coreclr/ildasm/*
+    - src/tools/ilasm/*
 
 schedules:
 - cron: "0 19 * * 6"
   displayName: Sat at 11:00 AM (UTC-8:00)
   branches:
     include:
-    - master
+    - main
   always: true
 
-jobs:
-#
-# Checkout repository
-#
-- template: /eng/pipelines/common/checkout-job.yml
+variables:
+  - template: /eng/pipelines/common/variables.yml
+  - template: /eng/pipelines/helix-platforms.yml
 
-- template: /eng/pipelines/common/platform-matrix.yml
+extends:
+  template:  /eng/pipelines/coreclr/templates/jit-outerloop-pipeline.yml
   parameters:
-    jobTemplate: /eng/pipelines/common/build-coreclr-and-libraries-job.yml
-    buildConfig: checked
-    platformGroup: all
     platforms:
-    - CoreClrTestBuildHost # Either OSX_x64 or Linux_x64
-    jobParameters:
-      testGroup: ilasm
+    - osx_arm64
+    - osx_x64
+    - linux_arm
+    - linux_arm64
+    - linux_x64
+    - windows_x64
+    - windows_x86
+    - windows_arm64
+    testGroup: ilasm
 
-- template: /eng/pipelines/common/platform-matrix.yml
-  parameters:
-    jobTemplate: /eng/pipelines/common/templates/runtimes/build-test-job.yml
-    buildConfig: checked
-    platforms:
-    - CoreClrTestBuildHost # Either OSX_x64 or Linux_x64
-    jobParameters:
-      testGroup: ilasm
-      liveLibrariesBuildConfig: Release
-
-- template: /eng/pipelines/common/platform-matrix.yml
-  parameters:
-    jobTemplate: /eng/pipelines/common/templates/runtimes/run-test-job.yml
-    buildConfig: checked
-    platformGroup: all
-    helixQueueGroup: ci
-    helixQueuesTemplate: /eng/pipelines/coreclr/templates/helix-queues-setup.yml
-    jobParameters:
-      testGroup: ilasm
-      liveLibrariesBuildConfig: Release
+    stages:
+      - stage: Managed_ILAsm
+        displayName: Managed IL Assembler Tests
+        dependsOn: []
+        jobs:
+          - template: /eng/pipelines/common/platform-matrix.yml
+            parameters:
+              jobTemplate: /eng/pipelines/common/global-build-job.yml
+              buildConfig: Debug
+              platforms:
+              - windows_x64
+              jobParameters:
+                nameSuffix: ILAsm
+                buildArgs: -s tools.ilasm -c $(_BuildConfig) -test
+                timeoutInMinutes: 120
+                enablePublishTestResults: true
+                testResultsFormat: 'xunit'
+        condition: and(succeeded(), ne(variables['Build.Reason'], 'Schedule'))

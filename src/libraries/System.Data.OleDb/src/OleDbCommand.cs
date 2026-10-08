@@ -14,6 +14,7 @@ namespace System.Data.OleDb
 {
     [Designer("Microsoft.VSDesigner.Data.VS.OleDbCommandDesigner, Microsoft.VSDesigner, Version=10.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a")]
     [ToolboxItem(true)]
+    [RequiresDynamicCode(OleDbConnection.TrimWarning)]
     public sealed class OleDbCommand : DbCommand, ICloneable, IDbCommand
     {
         // command data
@@ -112,8 +113,7 @@ namespace System.Data.OleDb
         {
             get
             {
-                string? value = _commandText;
-                return ((null != value) ? value : string.Empty);
+                return _commandText ?? string.Empty;
             }
             set
             {
@@ -564,10 +564,7 @@ namespace System.Data.OleDb
             Debug.Assert(null != _connection, "no connection, CloseInternalParameters");
             Bindings? bindings = _dbBindings;
             _dbBindings = null;
-            if (null != bindings)
-            {
-                bindings.Dispose();
-            }
+            bindings?.Dispose();
         }
 
         public new OleDbParameter CreateParameter()
@@ -690,7 +687,7 @@ namespace System.Data.OleDb
                                 OleDbDataReader.GenerateSchemaTable(dataReader, _icommandText!, behavior);
                                 break;
                             default:
-                                Debug.Assert(false, "ExecuteReaderInternal: unknown result type");
+                                Debug.Fail("ExecuteReaderInternal: unknown result type");
                                 break;
                         }
                         executeResult = null;
@@ -792,7 +789,7 @@ namespace System.Data.OleDb
 
         private int ExecuteCommand(CommandBehavior behavior, out object? executeResult)
         {
-            if (InitializeCommand(behavior, false))
+            if (InitializeCommand(behavior))
             {
                 if (0 != (CommandBehavior.SchemaOnly & this.commandBehavior))
                 {
@@ -818,7 +815,6 @@ namespace System.Data.OleDb
             RuntimeHelpers.PrepareConstrainedRegions();
             try
             {
-                // TODO-NULLABLE: Code below seems to assume that bindings will always be non-null
                 if (null != bindings)
                 { // parameters may be suppressed
                     rowbinding = bindings.RowBinding();
@@ -862,7 +858,7 @@ namespace System.Data.OleDb
         {
             Debug.Assert(0 == (CommandBehavior.SingleRow & this.commandBehavior), "SingleRow implies SingleResult");
             OleDbHResult hr;
-            hr = _icommandText!.Execute(ADP.PtrZero, ref ODB.IID_IMultipleResults, dbParams, out _recordsAffected, out executeResult);
+            hr = _icommandText!.Execute(IntPtr.Zero, in ODB.IID_IMultipleResults, dbParams, out _recordsAffected, out executeResult);
 
             if (OleDbHResult.E_NOINTERFACE != hr)
             {
@@ -880,11 +876,11 @@ namespace System.Data.OleDb
             // (Microsoft.Jet.OLEDB.4.0 returns 0 for recordsAffected instead of -1)
             if (_executeQuery)
             {
-                hr = _icommandText!.Execute(ADP.PtrZero, ref ODB.IID_IRowset, dbParams, out _recordsAffected, out executeResult);
+                hr = _icommandText!.Execute(IntPtr.Zero, in ODB.IID_IRowset, dbParams, out _recordsAffected, out executeResult);
             }
             else
             {
-                hr = _icommandText!.Execute(ADP.PtrZero, ref ODB.IID_NULL, dbParams, out _recordsAffected, out executeResult);
+                hr = _icommandText!.Execute(IntPtr.Zero, in ODB.IID_NULL, dbParams, out _recordsAffected, out executeResult);
             }
             ExecuteCommandTextErrorHandling(hr);
             return ODB.ExecutedIRowset;
@@ -897,7 +893,7 @@ namespace System.Data.OleDb
             if (_connection!.SupportIRow(this))
             {
                 OleDbHResult hr;
-                hr = _icommandText!.Execute(ADP.PtrZero, ref ODB.IID_IRow, dbParams, out _recordsAffected, out executeResult);
+                hr = _icommandText!.Execute(IntPtr.Zero, in ODB.IID_IRow, dbParams, out _recordsAffected, out executeResult);
 
                 if (OleDbHResult.DB_E_NOTFOUND == hr)
                 {
@@ -916,7 +912,7 @@ namespace System.Data.OleDb
 
         private void ExecuteCommandTextErrorHandling(OleDbHResult hr)
         {
-            Exception? e = OleDbConnection.ProcessResults(hr, _connection, this);
+            Exception? e = OleDbConnection.ProcessResults(hr, _connection);
             if (null != e)
             {
                 e = ExecuteCommandTextSpecialErrorHandling(hr, e);
@@ -998,7 +994,7 @@ namespace System.Data.OleDb
                                 try
                                 {
                                     propSet.DangerousAddRef(ref mustRelease);
-                                    hr = iopenRowset.Value.OpenRowset(ADP.PtrZero, tableID, ADP.PtrZero, ref ODB.IID_IRowset, propSet.PropertySetCount, propSet.DangerousGetHandle(), out executeResult);
+                                    hr = iopenRowset.Value.OpenRowset(IntPtr.Zero, tableID, IntPtr.Zero, in ODB.IID_IRowset, propSet.PropertySetCount, propSet.DangerousGetHandle(), out executeResult);
                                 }
                                 finally
                                 {
@@ -1010,12 +1006,12 @@ namespace System.Data.OleDb
 
                                 if (OleDbHResult.DB_E_ERRORSOCCURRED == hr)
                                 {
-                                    hr = iopenRowset.Value.OpenRowset(ADP.PtrZero, tableID, ADP.PtrZero, ref ODB.IID_IRowset, 0, IntPtr.Zero, out executeResult);
+                                    hr = iopenRowset.Value.OpenRowset(IntPtr.Zero, tableID, IntPtr.Zero, in ODB.IID_IRowset, 0, IntPtr.Zero, out executeResult);
                                 }
                             }
                             else
                             {
-                                hr = iopenRowset.Value.OpenRowset(ADP.PtrZero, tableID, ADP.PtrZero, ref ODB.IID_IRowset, 0, IntPtr.Zero, out executeResult);
+                                hr = iopenRowset.Value.OpenRowset(IntPtr.Zero, tableID, IntPtr.Zero, in ODB.IID_IRowset, 0, IntPtr.Zero, out executeResult);
                             }
                         }
                     }
@@ -1094,7 +1090,7 @@ namespace System.Data.OleDb
             return builder.ToString();
         }
 
-        private string ExpandOdbcMinimumToText(string sproctext, int parameterCount)
+        private static string ExpandOdbcMinimumToText(string sproctext, int parameterCount)
         {
             //if ((0 < parameterCount) && (ParameterDirection.ReturnValue == Parameters[0].Direction)) {
             //    Debug.Assert("doesn't support ReturnValue parameters");
@@ -1127,14 +1123,10 @@ namespace System.Data.OleDb
 
         private void ParameterCleanup()
         {
-            Bindings? bindings = ParameterBindings;
-            if (null != bindings)
-            {
-                bindings.CleanupBindings();
-            }
+            ParameterBindings?.CleanupBindings();
         }
 
-        private bool InitializeCommand(CommandBehavior behavior, bool throwifnotsupported)
+        private bool InitializeCommand(CommandBehavior behavior)
         {
             Debug.Assert(null != _connection, "InitializeCommand: null OleDbConnection");
 
@@ -1172,7 +1164,7 @@ namespace System.Data.OleDb
 
                 string commandText = ExpandCommandText();
 
-                hr = _icommandText!.SetCommandText(ref ODB.DBGUID_DEFAULT, commandText);
+                hr = _icommandText!.SetCommandText(in ODB.DBGUID_DEFAULT, commandText);
 
                 if (hr < 0)
                 {
@@ -1200,7 +1192,7 @@ namespace System.Data.OleDb
                 _isPrepared = false;
                 if (CommandType.TableDirect != CommandType)
                 {
-                    InitializeCommand(0, true);
+                    InitializeCommand(0);
                     PrepareCommandText(1);
                 }
             }
@@ -1237,14 +1229,14 @@ namespace System.Data.OleDb
 
         private void ProcessResults(OleDbHResult hr)
         {
-            Exception? e = OleDbConnection.ProcessResults(hr, _connection, this);
+            Exception? e = OleDbConnection.ProcessResults(hr, _connection);
             if (null != e)
             { throw e; }
         }
 
-        private void ProcessResultsNoReset(OleDbHResult hr)
+        private static void ProcessResultsNoReset(OleDbHResult hr)
         {
-            Exception? e = OleDbConnection.ProcessResults(hr, null, this);
+            Exception? e = OleDbConnection.ProcessResults(hr, null);
             if (null != e)
             { throw e; }
         }

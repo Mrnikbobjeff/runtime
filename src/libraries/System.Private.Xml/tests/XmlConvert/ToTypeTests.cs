@@ -1,10 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using OLEDB.Test.ModuleCore;
 using System.Globalization;
+using OLEDB.Test.ModuleCore;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlConvertTests
 {
     /// <summary>
     ///     XmlConvert type conversion functions
@@ -543,10 +543,10 @@ namespace System.Xml.Tests
         public int ToType36()
         {
             // decimal
-            CError.Compare(XmlConvert.ToString((decimal)(-4582.24)), "-4582.24", "decimal");
-            CError.Compare(XmlConvert.ToString((decimal)0.00005), "0.00005", "decimal");
-            CError.Compare(XmlConvert.ToString((decimal)0.0000000000000000000000001), "0.0000000000000000000000001", "decimal");
-            CError.Compare(XmlConvert.ToString((decimal)145896.233422154), "145896.233422154", "decimal");
+            CError.Compare(XmlConvert.ToString(-4582.24m), "-4582.24", "decimal");
+            CError.Compare(XmlConvert.ToString(0.00005m), "0.00005", "decimal");
+            CError.Compare(XmlConvert.ToString(0.0000000000000000000000001m), "0.0000000000000000000000001", "decimal");
+            CError.Compare(XmlConvert.ToString(145896.233422154m), "145896.233422154", "decimal");
             CError.Compare(XmlConvert.ToString(Convert.ToDecimal("0.123456789012345678", CultureInfo.InvariantCulture)), "0.123456789012345678", "decimal");
             CError.Compare(XmlConvert.ToString((decimal)1234567890123456789), (1234567890123456789M).ToString(), "decimal");
             CError.Compare(XmlConvert.ToString((decimal)-0), "0", "decimal");
@@ -835,7 +835,7 @@ namespace System.Xml.Tests
             var param = (string)CurVariation.Param;
 
             object[] array0 = { "2002-12-30", "23:15:55", "2002-01-09T04:02:08", "2002-01-09T04:02:08Z", "2002-01-09Z", "2002-01-09T04:02:08-05:00", "0002-01", "2016-02-29", "9999", "9999Z", "9999-12-31T12:59:59+14:00", "9999-12-31T12:59:59-11:00", "9999-12-31T12:59:59-10:59", "9999-12-31T12:59:59+13:59", "9999-12-31T23:59:59-00:00", "9999-12-31T23:59:59+14:00", "9998-12-31T12:59:59+14:00", "9998-12-31T12:59:59-14:00", "0002", "0001Z", "0002-01-01T00:00:00-14:00", "0002-01-01T00:00:00-13:59", "0002-01-01T00:00:00+00:00", "0002-01-01T00:00:00-00:00", "2008-02-29T23:59:59-14:00", "2012-02-29T23:59:59+14:00" };
-            object[] array1 = { new DateTimeOffset(2002, 12, 30, 0, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2002, 12, 30))), new DateTimeOffset(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, 23, 15, 55, TimeZoneInfo.Local.GetUtcOffset(new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, 23, 15, 55))), (new DateTimeOffset(2002, 1, 9, 4, 2, 8, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2002, 1, 9)))).AddMilliseconds(0.1458925435), (new DateTimeOffset(2002, 1, 9, 4, 2, 8, TimeSpan.FromHours(0))).ToLocalTime(), (new DateTimeOffset(2002, 1, 9, 0, 0, 0, TimeSpan.FromHours(0))).ToLocalTime(), (new DateTimeOffset(2002, 1, 9, 4, 2, 8, new TimeSpan(-5, 0, 0))), new DateTimeOffset(2, 1, 1, 0, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2, 1, 1))), new DateTimeOffset(2016, 2, 29, 0, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2016, 2, 29))), new DateTimeOffset(9999, 1, 1, 0, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(9999, 1, 1))), new DateTimeOffset(9999, 1, 1, 0, 0, 0, TimeSpan.FromHours(0)), new DateTimeOffset(9999, 12, 31, 12, 59, 59, TimeSpan.FromHours(14.0)), new DateTimeOffset(9999, 12, 31, 12, 59, 59, TimeSpan.FromHours(-11.0)), new DateTimeOffset(9999, 12, 31, 12, 59, 59, TimeSpan.FromHours(-10) + TimeSpan.FromMinutes(-59)), new DateTimeOffset(9999, 12, 31, 12, 59, 59, new TimeSpan(13, 59, 0)), new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.Zero), new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.FromHours(14.0)), new DateTimeOffset(9998, 12, 31, 12, 59, 59, TimeSpan.FromHours(14.0)), new DateTimeOffset(9998, 12, 31, 12, 59, 59, TimeSpan.FromHours(-14.0)), new DateTimeOffset(2, 1, 1, 0, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2, 1, 1))), new DateTimeOffset(1, 1, 1, 0, 0, 0, TimeSpan.FromHours(0)), new DateTimeOffset(2, 1, 1, 0, 0, 0, TimeSpan.FromHours(-14.0)), new DateTimeOffset(2, 1, 1, 0, 0, 0, TimeSpan.FromHours(-13) + TimeSpan.FromMinutes(-59)), new DateTimeOffset(2, 1, 1, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2, 1, 1, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2008, 2, 29, 23, 59, 59, TimeSpan.FromHours(-14)), new DateTimeOffset(2012, 2, 29, 23, 59, 59, TimeSpan.FromHours(14)) };
+            object[] array1 = { new DateTimeOffset(2002, 12, 30, 0, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2002, 12, 30))), new DateTimeOffset(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, 23, 15, 55, TimeZoneInfo.Local.GetUtcOffset(new DateTime(DateTime.Now.Year, DateTime.Now.Month, DateTime.Now.Day, 23, 15, 55))), (new DateTimeOffset(2002, 1, 9, 4, 2, 8, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2002, 1, 9)))), (new DateTimeOffset(2002, 1, 9, 4, 2, 8, TimeSpan.FromHours(0))).ToLocalTime(), (new DateTimeOffset(2002, 1, 9, 0, 0, 0, TimeSpan.FromHours(0))).ToLocalTime(), (new DateTimeOffset(2002, 1, 9, 4, 2, 8, new TimeSpan(-5, 0, 0))), new DateTimeOffset(2, 1, 1, 0, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2, 1, 1))), new DateTimeOffset(2016, 2, 29, 0, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2016, 2, 29))), new DateTimeOffset(9999, 1, 1, 0, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(9999, 1, 1))), new DateTimeOffset(9999, 1, 1, 0, 0, 0, TimeSpan.FromHours(0)), new DateTimeOffset(9999, 12, 31, 12, 59, 59, TimeSpan.FromHours(14.0)), new DateTimeOffset(9999, 12, 31, 12, 59, 59, TimeSpan.FromHours(-11.0)), new DateTimeOffset(9999, 12, 31, 12, 59, 59, TimeSpan.FromHours(-10) + TimeSpan.FromMinutes(-59)), new DateTimeOffset(9999, 12, 31, 12, 59, 59, new TimeSpan(13, 59, 0)), new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.Zero), new DateTimeOffset(9999, 12, 31, 23, 59, 59, TimeSpan.FromHours(14.0)), new DateTimeOffset(9998, 12, 31, 12, 59, 59, TimeSpan.FromHours(14.0)), new DateTimeOffset(9998, 12, 31, 12, 59, 59, TimeSpan.FromHours(-14.0)), new DateTimeOffset(2, 1, 1, 0, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2, 1, 1))), new DateTimeOffset(1, 1, 1, 0, 0, 0, TimeSpan.FromHours(0)), new DateTimeOffset(2, 1, 1, 0, 0, 0, TimeSpan.FromHours(-14.0)), new DateTimeOffset(2, 1, 1, 0, 0, 0, TimeSpan.FromHours(-13) + TimeSpan.FromMinutes(-59)), new DateTimeOffset(2, 1, 1, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2, 1, 1, 0, 0, 0, TimeSpan.Zero), new DateTimeOffset(2008, 2, 29, 23, 59, 59, TimeSpan.FromHours(-14)), new DateTimeOffset(2012, 2, 29, 23, 59, 59, TimeSpan.FromHours(14)) };
             string[] format = { "yyyy-MM-dd", "HH:mm:ss", "yyyy-MM-ddTHH:mm:ss", "yyyy-MM-ddTHH:mm:ssZ", "yyyy-MM-ddZ", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM", "yyyy-MM-dd", "yyyy", "yyyyZ", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy", "yyyyZ", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM-ddTHH:mm:sszzzzzz", "yyyy-MM-ddTHH:mm:sszzzzzz" };
             return TestValid(array0, array1, param, format);
         }
@@ -1117,7 +1117,7 @@ namespace System.Xml.Tests
         public int ToType9()
         {
             object[] array0 = { "145896.2334", "-1.23", "  -458.238", "145896.233422154", "0.123456789012345678", "1234567890123456789", "100.0", "100." };
-            object[] array1 = { (decimal)145896.2334, (decimal)-1.23, (decimal)-458.238, (decimal)145896.233422154, Convert.ToDecimal("0.123456789012345678", CultureInfo.InvariantCulture), (decimal)1234567890123456789, (decimal)100, (decimal)100 };
+            object[] array1 = { 145896.2334m, -1.23m, -458.238m, 145896.233422154m, Convert.ToDecimal("0.123456789012345678", CultureInfo.InvariantCulture), (decimal)1234567890123456789, (decimal)100, (decimal)100 };
             return TestValid(array0, array1, "decimal");
         }
 

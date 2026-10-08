@@ -13,7 +13,7 @@ namespace System.Net
 
         internal static IOCompletionCallback IOCallback => s_ioCallback;
 
-        internal ListenerAsyncResult(HttpListenerSession session, object userState, AsyncCallback callback) :
+        internal ListenerAsyncResult(HttpListenerSession session, object? userState, AsyncCallback? callback) :
             base(session, userState, callback)
         {
             _requestContext = new AsyncRequestContext(session.RequestQueueBoundHandle, this);
@@ -106,7 +106,7 @@ namespace System.Net
             while (true)
             {
                 Debug.Assert(_requestContext != null);
-                if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"Calling Interop.HttpApi.HttpReceiveHttpRequest RequestId: {_requestContext.RequestBlob->RequestId}Buffer:0x {((IntPtr)_requestContext.RequestBlob).ToString("x")} Size: {_requestContext.Size}");
+                if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"Calling Interop.HttpApi.HttpReceiveHttpRequest RequestId: {_requestContext.RequestBlob->RequestId} Buffer: 0x{(IntPtr)_requestContext.RequestBlob:x} Size: {_requestContext.Size}");
                 uint bytesTransferred = 0;
                 Debug.Assert(AsyncObject != null);
                 HttpListenerSession listenerSession = (HttpListenerSession)AsyncObject!;

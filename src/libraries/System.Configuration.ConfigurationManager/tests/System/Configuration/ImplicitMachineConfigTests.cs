@@ -5,6 +5,8 @@ using System;
 using System.Configuration;
 using System.Configuration.Internal;
 using System.IO;
+using Microsoft.DotNet.RemoteExecutor;
+
 using Xunit;
 
 namespace System.ConfigurationTests
@@ -16,6 +18,30 @@ namespace System.ConfigurationTests
         {
             var appSettings = ConfigurationManager.AppSettings;
             Assert.NotNull(appSettings);
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void RuntimeAppSettingsSystemRuntimeRemotingSectionIsSupported()
+        {
+            using (var temp = new TempConfig(TestData.SystemRuntimeRemotingSectionConfig))
+            {
+                RemoteExecutor.Invoke((string configFilePath) => {
+                    AppDomain.CurrentDomain.SetData("APP_CONFIG_FILE", configFilePath);
+                    Assert.NotNull(ConfigurationManager.GetSection("system.runtime.remoting"));
+                }, temp.ConfigPath).Dispose();
+            }
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void RuntimeAppSettingsWindowsSectionIsSupported()
+        {
+            using (var temp = new TempConfig(TestData.WindowsSectionConfig))
+            {
+                RemoteExecutor.Invoke((string configFilePath) => {
+                    AppDomain.CurrentDomain.SetData("APP_CONFIG_FILE", configFilePath);
+                    Assert.NotNull(ConfigurationManager.GetSection("windows"));
+                }, temp.ConfigPath).Dispose();
+            }
         }
 
         [Fact]
@@ -69,7 +95,7 @@ namespace System.ConfigurationTests
             string assemblyName = PlatformDetection.IsNetFramework ? "System.Configuration, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b03f5f7f11d50a3a" : "System.Configuration.ConfigurationManager";
 
             // InternalConfigFactory allows you to specify your own host / hostInitParams
-            // Ensure ImplictMachineConfigHost can init within this process and not throw an Invalid cast exception
+            // Ensure ImplicitMachineConfigHost can init within this process and not throw an Invalid cast exception
             using (var temp = new TempConfig(TestData.EmptyConfig))
             {
                 string typeName = "System.Configuration.Internal.InternalConfigConfigurationFactory, " + assemblyName;

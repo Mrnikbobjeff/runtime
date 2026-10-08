@@ -2,16 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b27824
 {
     using System;
 
-    class AA
+    public class AA
     {
         static AA[] m_axForward3;
         static void GoToEnd() { throw new Exception(); }
 
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             bool param1 = false;
             bool[] local2 = new bool[7];
@@ -42,7 +45,6 @@ namespace Test
             catch (Exception)
             {
             }
-            return 100;
         }
     }
 }

@@ -14,9 +14,10 @@ namespace System.IO.Pipes.Tests
     public sealed class NamedPipeTest_CrossProcess
     {
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [SkipOnPlatform(TestPlatforms.LinuxBionic, "SElinux blocks UNIX sockets in our CI environment")]
         public void InheritHandles_AvailableInChildProcess()
         {
-            string pipeName = GetUniquePipeName();
+            string pipeName = PipeStreamConformanceTests.GetUniquePipeName();
 
             using (var server = new NamedPipeServerStream(pipeName, PipeDirection.In))
             using (var client = new NamedPipeClientStream(".", pipeName, PipeDirection.Out, PipeOptions.None, TokenImpersonationLevel.None, HandleInheritability.Inheritable))
@@ -34,7 +35,7 @@ namespace System.IO.Pipes.Tests
 
             void ChildFunc(string handle)
             {
-                using (var childClient = new NamedPipeClientStream(PipeDirection.Out, isAsync: false, isConnected: true, new SafePipeHandle((IntPtr)long.Parse(handle, CultureInfo.InvariantCulture), ownsHandle: true)))
+                using (var childClient = new NamedPipeClientStream(PipeDirection.Out, isAsync: false, new SafePipeHandle((IntPtr)long.Parse(handle, CultureInfo.InvariantCulture), ownsHandle: true)))
                 {
                     for (int i = 0; i < 5; i++)
                     {
@@ -45,11 +46,12 @@ namespace System.IO.Pipes.Tests
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [SkipOnPlatform(TestPlatforms.LinuxBionic, "SElinux blocks UNIX sockets in our CI environment")]
         public void PingPong_Sync()
         {
             // Create names for two pipes
-            string outName = GetUniquePipeName();
-            string inName = GetUniquePipeName();
+            string outName = PipeStreamConformanceTests.GetUniquePipeName();
+            string inName = PipeStreamConformanceTests.GetUniquePipeName();
 
             // Create the two named pipes, one for each direction, then create
             // another process with which to communicate
@@ -71,11 +73,12 @@ namespace System.IO.Pipes.Tests
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [SkipOnPlatform(TestPlatforms.LinuxBionic, "SElinux blocks UNIX sockets in our CI environment")]
         public async Task PingPong_Async()
         {
             // Create names for two pipes
-            string outName = GetUniquePipeName();
-            string inName = GetUniquePipeName();
+            string outName = PipeStreamConformanceTests.GetUniquePipeName();
+            string inName = PipeStreamConformanceTests.GetUniquePipeName();
 
             // Create the two named pipes, one for each direction, then create
             // another process with which to communicate
@@ -100,6 +103,22 @@ namespace System.IO.Pipes.Tests
             }
         }
 
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [SkipOnPlatform(TestPlatforms.LinuxBionic, "SElinux blocks UNIX sockets in our CI environment")]
+        public void NamedPipeOptionsFirstPipeInstance_Throws_WhenNameIsUsedAcrossProcesses()
+        {
+            var uniqueServerName = PipeStreamConformanceTests.GetUniquePipeName();
+            using (var firstServer = new NamedPipeServerStream(uniqueServerName, PipeDirection.In, 2, PipeTransmissionMode.Byte, PipeOptions.FirstPipeInstance))
+            {
+                RemoteExecutor.Invoke(new Action<string>(CreateFirstPipeInstance_OtherProcess), uniqueServerName).Dispose();
+            }
+        }
+
+        private static void CreateFirstPipeInstance_OtherProcess(string uniqueServerName)
+        {
+            Assert.Throws<UnauthorizedAccessException>(() => new NamedPipeServerStream(uniqueServerName, PipeDirection.In, 2, PipeTransmissionMode.Byte, PipeOptions.FirstPipeInstance));
+        }
+
         private static void PingPong_OtherProcess(string inName, string outName)
         {
             // Create pipes with the supplied names
@@ -117,15 +136,5 @@ namespace System.IO.Pipes.Tests
                 }
             }
         }
-
-        private static string GetUniquePipeName()
-        {
-            if (PlatformDetection.IsInAppContainer)
-            {
-                return @"LOCAL\" + Path.GetRandomFileName();
-            }
-            return Path.GetRandomFileName();
-        }
-
     }
 }

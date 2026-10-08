@@ -7,7 +7,9 @@
 .assembly extern System.Threading.Thread { auto }
 .assembly extern legacy library mscorlib { auto }
 
-.assembly ExternalException {}
+.assembly 'b143840' {}
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
 .class private auto ansi beforefieldinit ExternalClass
        extends [mscorlib]System.Object
 {
@@ -38,8 +40,15 @@
 .class public auto ansi beforefieldinit ExternalException
        extends [mscorlib]System.Exception
 {
-  .method public hidebysig static int32  Main(string[] args) cil managed
+  .method public hidebysig static int32  Main() cil managed
   {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
+    .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.SkipOnCoreClrAttribute::.ctor(string, valuetype [Microsoft.DotNet.XUnitExtensions]Xunit.RuntimeTestModes) = {
+      string('This test is not compatible with GC stress.')
+      int32(0xC0) // AnyGCStress
+    }
     .entrypoint
     .maxstack  3
     .locals init (class [System.Threading.Thread]System.Threading.Thread V_0,

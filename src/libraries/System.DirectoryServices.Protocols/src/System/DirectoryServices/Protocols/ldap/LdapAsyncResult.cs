@@ -8,7 +8,6 @@ namespace System.DirectoryServices.Protocols
 {
     internal class LdapAsyncResult : IAsyncResult
     {
-        private LdapAsyncWaitHandle _asyncWaitHandle;
         internal AsyncCallback _callback;
         internal bool _completed;
         internal ManualResetEvent _manualResetEvent;
@@ -26,10 +25,7 @@ namespace System.DirectoryServices.Protocols
 
         object IAsyncResult.AsyncState => _stateObject;
 
-        WaitHandle IAsyncResult.AsyncWaitHandle
-        {
-            get => _asyncWaitHandle ??= new LdapAsyncWaitHandle(_manualResetEvent.SafeWaitHandle);
-        }
+        WaitHandle IAsyncResult.AsyncWaitHandle => field ??= new LdapAsyncWaitHandle(_manualResetEvent.SafeWaitHandle);
 
         bool IAsyncResult.CompletedSynchronously => false;
 
@@ -58,7 +54,7 @@ namespace System.DirectoryServices.Protocols
         }
     }
 
-    internal class LdapRequestState
+    internal sealed class LdapRequestState
     {
         internal DirectoryResponse _response;
         internal LdapAsyncResult _ldapAsync;
@@ -75,7 +71,7 @@ namespace System.DirectoryServices.Protocols
         Done = 2
     }
 
-    internal class LdapPartialAsyncResult : LdapAsyncResult
+    internal sealed class LdapPartialAsyncResult : LdapAsyncResult
     {
         internal LdapConnection _con;
         internal int _messageID = -1;

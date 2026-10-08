@@ -12,12 +12,14 @@ using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
+using Xunit;
 
 namespace JIT.HardwareIntrinsics.General
 {
     public static partial class Program
     {
-        private static void {Method}{BaseType}()
+        [Fact]
+        public static void {Method}{BaseType}()
         {
             var test = new VectorAllBitsSet__{Method}{BaseType}();
 
@@ -38,7 +40,7 @@ namespace JIT.HardwareIntrinsics.General
     {
         private static readonly int LargestVectorSize = {LargestVectorSize};
 
-        private static readonly int ElementCount = Unsafe.SizeOf<{VectorType}<{BaseType}>>() / sizeof({BaseType});
+        private static readonly int ElementCount = sizeof({VectorType}<{BaseType}>) / sizeof({BaseType});
 
         public bool Succeeded { get; set; } = true;
 

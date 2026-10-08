@@ -1,8 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
 using System.Reflection.Internal;
+using System.Reflection.Metadata.Tests;
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices;
+using System.Text;
 using Xunit;
 using RowCounts = System.Reflection.Metadata.Ecma335.MetadataAggregator.RowCounts;
 
@@ -10,14 +14,14 @@ namespace System.Reflection.Metadata.Ecma335.Tests
 {
     public class MetadataAggregatorTests
     {
-        private static unsafe EnCMapTableReader CreateEncMapTable(int[] tokens)
+        private static unsafe EnCMapTableReader CreateEncMapTable(byte[] tokens)
         {
             GCHandle handle = GCHandle.Alloc(tokens, GCHandleType.Pinned);
-            var block = new MemoryBlock((byte*)handle.AddrOfPinnedObject(), tokens.Length * sizeof(uint));
-            return new EnCMapTableReader(tokens.Length, block, containingBlockOffset: 0);
+            var block = new MemoryBlock((byte*)handle.AddrOfPinnedObject(), tokens.Length);
+            return new EnCMapTableReader(tokens.Length / sizeof(uint), block, containingBlockOffset: 0);
         }
 
-        private static EnCMapTableReader[] CreateEncMapTables(int[][] tables)
+        private static EnCMapTableReader[] CreateEncMapTables(byte[][] tables)
         {
             var result = new EnCMapTableReader[tables.Length];
 
@@ -47,35 +51,35 @@ namespace System.Reflection.Metadata.Ecma335.Tests
         {
             var encMaps = new[]
             {
-                new[] // Gen1
+                new byte[] // Gen1
                 {
-                    0x0100009c,
-                    0x0200002e,
-                    0x0600009e,
-                    0x0600009f,
-                    0x23000011,
+                    0x9c, 0x00, 0x00, 0x01,
+                    0x2e, 0x00, 0x00, 0x02,
+                    0x9e, 0x00, 0x00, 0x06,
+                    0x9f, 0x00, 0x00, 0x06,
+                    0x11, 0x00, 0x00, 0x23,
                 },
-                new[] // Gen2
+                new byte[] // Gen2
                 {
-                    0x0100009d,
-                    0x06000075,
-                    0x1700001a,
-                    0x18000037,
-                    0x18000038,
-                    0x23000012,
-                    0x23000013,
+                    0x9d, 0x00, 0x00, 0x01,
+                    0x75, 0x00, 0x00, 0x06,
+                    0x1a, 0x00, 0x00, 0x17,
+                    0x37, 0x00, 0x00, 0x18,
+                    0x38, 0x00, 0x00, 0x18,
+                    0x12, 0x00, 0x00, 0x23,
+                    0x13, 0x00, 0x00, 0x23,
                 },
-                new[] // Gen3
+                new byte[] // Gen3
                 {
-                    0x0100009e,
-                    0x0100009f,
-                    0x06000075,
-                    0x11000031,
-                    0x1700001a,
-                    0x18000039,
-                    0x1800003a,
-                    0x23000014,
-                    0x23000015,
+                    0x9e, 0x00, 0x00, 0x01,
+                    0x9f, 0x00, 0x00, 0x01,
+                    0x75, 0x00, 0x00, 0x06,
+                    0x31, 0x00, 0x00, 0x11,
+                    0x1a, 0x00, 0x00, 0x17,
+                    0x39, 0x00, 0x00, 0x18,
+                    0x3a, 0x00, 0x00, 0x18,
+                    0x14, 0x00, 0x00, 0x23,
+                    0x15, 0x00, 0x00, 0x23,
                 }
             };
 
@@ -175,6 +179,69 @@ namespace System.Reflection.Metadata.Ecma335.Tests
             TestGenerationHandle(aggregator, MetadataTokens.GuidHandle(3), expectedHandle: MetadataTokens.GuidHandle(3), expectedGeneration: 4);
 
             AssertExtensions.Throws<ArgumentException>("handle", () => TestGenerationHandle(aggregator, MetadataTokens.StringHandle(22), expectedHandle: MetadataTokens.StringHandle(0), expectedGeneration: 0));
+            // Sizes are not cumulative for GUIDs. They represent the number of available GUIDs.
+            AssertExtensions.Throws<ArgumentException>("handle", () => TestGenerationHandle(aggregator, MetadataTokens.GuidHandle(4), expectedHandle: MetadataTokens.StringHandle(0), expectedGeneration: 0));
+        }
+
+        [Fact]
+        public void HeapSize_GuidHeapSizes()
+        {
+            MetadataReader baseReader = MetadataReaderTests.GetMetadataReader(NetModule.AppCS);
+            var bytes = CreateMinimalReaderMetadataAsBytes(Guid.NewGuid());
+            unsafe
+            {
+                fixed (byte* pointer = bytes)
+                {
+                    MetadataReader mr1 = CreateMinimalReaderWithGuid(pointer, bytes.Length);
+                    MetadataReader mr2 = CreateMinimalReaderWithGuid(pointer, bytes.Length);
+                    IReadOnlyList<MetadataReader> metadataReaders = new List<MetadataReader> { mr1, mr2 };
+
+                    var aggregator = new MetadataAggregator(baseReader, metadataReaders);
+
+                    var guidSizeReader0 = baseReader.GetHeapSize(HeapIndex.Guid) / 16;
+                    Assert.Equal(1, guidSizeReader0);
+                    var guidSizeReader1 = mr1.GetHeapSize(HeapIndex.Guid) / 16;
+                    Assert.Equal(1, guidSizeReader1);
+                    var guidSizeReader2 = mr2.GetHeapSize(HeapIndex.Guid) / 16;
+                    Assert.Equal(1, guidSizeReader2);
+
+                    TestGenerationHandle(aggregator, MetadataTokens.GuidHandle(1), expectedHandle: MetadataTokens.GuidHandle(1), expectedGeneration: 0);
+
+                    // GUID-heap allocation shouldn't be cumulative, since GUIDs are copied among generations.
+                    // The delta-reader above need indeed a single GUID allocation in each gen.
+                    AssertExtensions.Throws<ArgumentException>("handle", () => TestGenerationHandle(aggregator, MetadataTokens.GuidHandle(2), expectedHandle: MetadataTokens.GuidHandle(2), expectedGeneration: 0));
+                }
+            }
+        }
+
+        private static byte[] CreateMinimalReaderMetadataAsBytes(Guid mvid)
+        {
+            var builder = new MetadataBuilder();
+            GuidHandle mvidHandle = builder.GetOrAddGuid(mvid);
+
+            // module-row name is mandatory
+            StringHandle name = builder.GetOrAddString("TestModule");
+            builder.AddModule(
+                generation: 0,
+                moduleName: name,
+                mvid: mvidHandle,
+                encId: default,
+                encBaseId: default);
+
+            // Let's serialize metadata
+            var root = new MetadataRootBuilder(builder);
+            var bb = new BlobBuilder();
+            root.Serialize(bb, methodBodyStreamRva: 0, mappedFieldDataStreamRva: 0);
+            return bb.ToArray();
+        }
+
+        private static unsafe MetadataReader CreateMinimalReaderWithGuid(byte* pointer, int length)
+        {
+            var reader = new MetadataReader(pointer, length, MetadataReaderOptions.None);
+            // to avoid minimal flag exception.
+            reader.TableRowCounts[(int)TableIndex.EncMap] = 1;
+            reader.IsMinimalDelta = true;
+            return reader;
         }
     }
 }

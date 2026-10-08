@@ -12,12 +12,16 @@
 //
 
 using System;
+using Xunit;
+using TestLibrary;
 
-class Test{
-	public static int Main()
+public class Test_L_1_6_1{
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		int mi_RetCode;
-		mi_RetCode = B.Test();
+		mi_RetCode = B.Test_L_1_6_1();
 		
 		if(mi_RetCode == 100)
 			Console.WriteLine("Pass");
@@ -30,7 +34,7 @@ class Test{
 
 class B
 {
-	public static int Test()
+	public static int Test_L_1_6_1()
 	{
 		A a = new A();
 
@@ -155,7 +159,7 @@ class B
 		
 		////////////////////////////////////////////
 		// Test access from within the nested class
-		if(Nested_Cls.Test() != 100)
+		if(Nested_Cls.Test_L_1_6_1() != 100)
 			mi_RetCode = 0;
 
 		return mi_RetCode;
@@ -397,7 +401,7 @@ class A
 		
 		
 		public class Cls2{
-			public int Test(){
+			public int Test_L_1_6_1(){
 				int mi_RetCode = 100;
 				
 				/////////////////////////////////////////////////////////////////////////

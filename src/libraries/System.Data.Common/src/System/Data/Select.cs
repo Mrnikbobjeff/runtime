@@ -4,11 +4,14 @@
 using System.Collections.Generic;
 using System.Data.Common;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 
 namespace System.Data
 {
+    [RequiresUnreferencedCode(RequiresUnreferencedCodeMessage)]
     internal sealed class Select
     {
+        internal const string RequiresUnreferencedCodeMessage = "Members of types used in the filter expression might be trimmed.";
         private readonly DataTable _table;
         private readonly IndexField[] _indexFields;
         private readonly DataViewRowState _recordStates;
@@ -46,7 +49,7 @@ namespace System.Data
             _recordStates = recordStates;
         }
 
-        private bool IsSupportedOperator(int op)
+        private static bool IsSupportedOperator(int op)
         {
             return ((op >= Operators.EqualTo && op <= Operators.LessOrEqual) || op == Operators.Is || op == Operators.IsNot);
         }
@@ -367,19 +370,13 @@ namespace System.Data
                             if (canColumn == null || canColumn.flag)
                             { // if sort column is not a filter col , or not processed
                                 ndxFields[j++] = _indexFields[i];
-                                if (canColumn != null)
-                                {
-                                    canColumn.flag = false;
-                                }
+                                canColumn?.flag = false;
                             }
                         }
 
                         for (i = 0; i < _candidateColumns.Length; i++)
                         {
-                            if (_candidateColumns[i] != null)
-                            {
-                                _candidateColumns[i].flag = false; // same as before, it is false when it returns
-                            }
+                            _candidateColumns[i]?.flag = false; // same as before, it is false when it returns
                         }
 
                         // Debug.Assert(j == candidatesNotInIndex, "Whole ndxDesc should be filled!");
@@ -401,8 +398,7 @@ namespace System.Data
                         {
                             ndxFields[i] = _indexFields[i];
                             ColumnInfo canColumn = _candidateColumns[_indexFields[i].Column.Ordinal];
-                            if (canColumn != null)
-                                canColumn.flag = true;
+                            canColumn?.flag = true;
                         }
                         j = i;
                         for (i = 0; i < lenCanColumns; i++)
@@ -438,10 +434,7 @@ namespace System.Data
                         }
                         for (i = 0; i < _candidateColumns.Length; i++)
                         {
-                            if (_candidateColumns[i] != null)
-                            {
-                                _candidateColumns[i].flag = false; // same as before, it is false when it returns
-                            }
+                            _candidateColumns[i]?.flag = false; // same as before, it is false when it returns
                         }
                     }
                 }
@@ -449,7 +442,7 @@ namespace System.Data
         }
 
 
-        private bool IsOperatorIn(ExpressionNode? enode)
+        private static bool IsOperatorIn(ExpressionNode? enode)
         {
             BinaryNode? bnode = (enode as BinaryNode);
             if (null != bnode)
@@ -625,7 +618,7 @@ namespace System.Data
             }
             catch (Exception e) when (ADP.IsCatchableExceptionType(e))
             {
-                throw ExprException.FilterConvertion(_rowFilter!.Expression);
+                throw ExprException.FilterConversion(_rowFilter!.Expression);
             }
             return result;
         }
@@ -669,22 +662,22 @@ namespace System.Data
                 StorageType resultType;
                 if (expr._left.IsSqlColumn || expr._right.IsSqlColumn)
                 {
-                    resultType = expr.ResultSqlType(leftType, rightType, isLConst, isRConst, expr._op);
+                    resultType = BinaryNode.ResultSqlType(leftType, rightType, expr._op);
                 }
                 else
                 {
-                    resultType = expr.ResultType(leftType, rightType, isLConst, isRConst, expr._op);
+                    resultType = BinaryNode.ResultType(leftType, rightType, isLConst, isRConst, expr._op);
                 }
                 if (StorageType.Empty == resultType)
                 {
-                    expr.SetTypeMismatchError(expr._op, vLeft.GetType(), vRight.GetType());
+                    BinaryNode.SetTypeMismatchError(expr._op, vLeft.GetType(), vRight.GetType());
                 }
 
                 // if comparing a Guid column value against a string literal
                 // use InvariantCulture instead of DataTable.Locale because in the Danish related cultures
                 // sorting a Guid as a string has different results than in Invariant and English related cultures.
                 // This fix is restricted to DataTable.Select("GuidColumn = 'string literal'") types of queries
-                NameNode? namedNode = null;
+                NameNode? namedNode;
                 System.Globalization.CompareInfo? comparer =
                     ((isLConst && !isRConst && (leftType == StorageType.String) && (rightType == StorageType.Guid) && (null != (namedNode = expr._right as NameNode)) && (namedNode._column!.DataType == typeof(Guid))) ||
                      (isRConst && !isLConst && (rightType == StorageType.String) && (leftType == StorageType.Guid) && (null != (namedNode = expr._left as NameNode)) && (namedNode._column!.DataType == typeof(Guid))))

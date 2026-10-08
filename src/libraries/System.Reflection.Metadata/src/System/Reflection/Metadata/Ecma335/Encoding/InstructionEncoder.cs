@@ -34,10 +34,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// </param>
         public InstructionEncoder(BlobBuilder codeBuilder, ControlFlowBuilder? controlFlowBuilder = null)
         {
-            if (codeBuilder == null)
-            {
-                Throw.BuilderArgumentNull();
-            }
+            ArgumentNullException.ThrowIfNull(codeBuilder);
 
             CodeBuilder = codeBuilder;
             ControlFlowBuilder = controlFlowBuilder;
@@ -53,6 +50,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// </summary>
         public void OpCode(ILOpCode code)
         {
+            ControlFlowBuilder?.ValidateNotInSwitch();
             if (unchecked((byte)code) == (ushort)code)
             {
                 CodeBuilder.WriteByte((byte)code);
@@ -80,6 +78,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// </summary>
         public void Token(int token)
         {
+            ControlFlowBuilder?.ValidateNotInSwitch();
             CodeBuilder.WriteInt32(token);
         }
 
@@ -212,7 +211,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// Encodes local variable load instruction.
         /// </summary>
         /// <param name="slotIndex">Index of the local variable slot.</param>
-        /// <exception cref="ArgumentOutOfRangeException"><paramref name="slotIndex"/> is negative.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="slotIndex"/> is negative or greater than <see cref="ushort.MaxValue"/>.</exception>
         public void LoadLocal(int slotIndex)
         {
             switch (slotIndex)
@@ -228,10 +227,10 @@ namespace System.Reflection.Metadata.Ecma335
                         OpCode(ILOpCode.Ldloc_s);
                         CodeBuilder.WriteByte((byte)slotIndex);
                     }
-                    else if (slotIndex > 0)
+                    else if (unchecked((uint)slotIndex) <= ushort.MaxValue)
                     {
                         OpCode(ILOpCode.Ldloc);
-                        CodeBuilder.WriteInt32(slotIndex);
+                        CodeBuilder.WriteUInt16((ushort)slotIndex);
                     }
                     else
                     {
@@ -246,7 +245,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// Encodes local variable store instruction.
         /// </summary>
         /// <param name="slotIndex">Index of the local variable slot.</param>
-        /// <exception cref="ArgumentOutOfRangeException"><paramref name="slotIndex"/> is negative.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="slotIndex"/> is negative or greater than <see cref="ushort.MaxValue"/>.</exception>
         public void StoreLocal(int slotIndex)
         {
             switch (slotIndex)
@@ -262,10 +261,10 @@ namespace System.Reflection.Metadata.Ecma335
                         OpCode(ILOpCode.Stloc_s);
                         CodeBuilder.WriteByte((byte)slotIndex);
                     }
-                    else if (slotIndex > 0)
+                    else if (unchecked((uint)slotIndex) <= ushort.MaxValue)
                     {
                         OpCode(ILOpCode.Stloc);
-                        CodeBuilder.WriteInt32(slotIndex);
+                        CodeBuilder.WriteUInt16((ushort)slotIndex);
                     }
                     else
                     {
@@ -280,7 +279,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// Encodes local variable address load instruction.
         /// </summary>
         /// <param name="slotIndex">Index of the local variable slot.</param>
-        /// <exception cref="ArgumentOutOfRangeException"><paramref name="slotIndex"/> is negative.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="slotIndex"/> is negative or greater than <see cref="ushort.MaxValue"/>.</exception>
         public void LoadLocalAddress(int slotIndex)
         {
             if (unchecked((uint)slotIndex) <= byte.MaxValue)
@@ -288,10 +287,10 @@ namespace System.Reflection.Metadata.Ecma335
                 OpCode(ILOpCode.Ldloca_s);
                 CodeBuilder.WriteByte((byte)slotIndex);
             }
-            else if (slotIndex > 0)
+            else if (unchecked((uint)slotIndex) <= ushort.MaxValue)
             {
                 OpCode(ILOpCode.Ldloca);
-                CodeBuilder.WriteInt32(slotIndex);
+                CodeBuilder.WriteUInt16((ushort)slotIndex);
             }
             else
             {
@@ -303,7 +302,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// Encodes argument load instruction.
         /// </summary>
         /// <param name="argumentIndex">Index of the argument.</param>
-        /// <exception cref="ArgumentOutOfRangeException"><paramref name="argumentIndex"/> is negative.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="argumentIndex"/> is negative or greater than <see cref="ushort.MaxValue"/>.</exception>
         public void LoadArgument(int argumentIndex)
         {
             switch (argumentIndex)
@@ -319,10 +318,10 @@ namespace System.Reflection.Metadata.Ecma335
                         OpCode(ILOpCode.Ldarg_s);
                         CodeBuilder.WriteByte((byte)argumentIndex);
                     }
-                    else if (argumentIndex > 0)
+                    else if (unchecked((uint)argumentIndex) <= ushort.MaxValue)
                     {
                         OpCode(ILOpCode.Ldarg);
-                        CodeBuilder.WriteInt32(argumentIndex);
+                        CodeBuilder.WriteUInt16((ushort)argumentIndex);
                     }
                     else
                     {
@@ -337,7 +336,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// Encodes argument address load instruction.
         /// </summary>
         /// <param name="argumentIndex">Index of the argument.</param>
-        /// <exception cref="ArgumentOutOfRangeException"><paramref name="argumentIndex"/> is negative.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="argumentIndex"/> is negative or greater than <see cref="ushort.MaxValue"/>.</exception>
         public void LoadArgumentAddress(int argumentIndex)
         {
             if (unchecked((uint)argumentIndex) <= byte.MaxValue)
@@ -345,10 +344,10 @@ namespace System.Reflection.Metadata.Ecma335
                 OpCode(ILOpCode.Ldarga_s);
                 CodeBuilder.WriteByte((byte)argumentIndex);
             }
-            else if (argumentIndex > 0)
+            else if (unchecked((uint)argumentIndex) <= ushort.MaxValue)
             {
                 OpCode(ILOpCode.Ldarga);
-                CodeBuilder.WriteInt32(argumentIndex);
+                CodeBuilder.WriteUInt16((ushort)argumentIndex);
             }
             else
             {
@@ -360,7 +359,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// Encodes argument store instruction.
         /// </summary>
         /// <param name="argumentIndex">Index of the argument.</param>
-        /// <exception cref="ArgumentOutOfRangeException"><paramref name="argumentIndex"/> is negative.</exception>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="argumentIndex"/> is negative or greater than <see cref="ushort.MaxValue"/>.</exception>
         public void StoreArgument(int argumentIndex)
         {
             if (unchecked((uint)argumentIndex) <= byte.MaxValue)
@@ -368,10 +367,10 @@ namespace System.Reflection.Metadata.Ecma335
                 OpCode(ILOpCode.Starg_s);
                 CodeBuilder.WriteByte((byte)argumentIndex);
             }
-            else if (argumentIndex > 0)
+            else if (unchecked((uint)argumentIndex) <= ushort.MaxValue)
             {
                 OpCode(ILOpCode.Starg);
-                CodeBuilder.WriteInt32(argumentIndex);
+                CodeBuilder.WriteUInt16((ushort)argumentIndex);
             }
             else
             {
@@ -389,6 +388,23 @@ namespace System.Reflection.Metadata.Ecma335
             return GetBranchBuilder().AddLabel();
         }
 
+        internal void LabelOperand(ILOpCode code, LabelHandle label, int instructionEndDisplacement, int ilOffset)
+        {
+            GetBranchBuilder().AddBranch(Offset, label, instructionEndDisplacement, ilOffset, code);
+
+            // -1 points in the middle of the branch instruction and is thus invalid.
+            // We want to produce invalid IL so that if the caller doesn't patch the branches
+            // the branch instructions will be invalid in an obvious way.
+            if (instructionEndDisplacement == 1)
+            {
+                CodeBuilder.WriteSByte(-1);
+            }
+            else
+            {
+                CodeBuilder.WriteInt32(-1);
+            }
+        }
+
         /// <summary>
         /// Encodes a branch instruction.
         /// </summary>
@@ -401,23 +417,49 @@ namespace System.Reflection.Metadata.Ecma335
         public void Branch(ILOpCode code, LabelHandle label)
         {
             // throws if code is not a branch:
-            int size = code.GetBranchOperandSize();
+            int operandSize = code.GetBranchOperandSize();
+            // We want the offset before we add the opcode.
+            int ilOffset = Offset;
 
-            GetBranchBuilder().AddBranch(Offset, label, code);
             OpCode(code);
+            LabelOperand(code, label, operandSize, ilOffset);
+        }
 
-            // -1 points in the middle of the branch instruction and is thus invalid.
-            // We want to produce invalid IL so that if the caller doesn't patch the branches
-            // the branch instructions will be invalid in an obvious way.
-            if (size == 1)
+        /// <summary>
+        /// Starts encoding a switch instruction.
+        /// </summary>
+        /// <param name="branchCount">The number of branches the instruction will have.</param>
+        /// <returns>A <see cref="SwitchInstructionEncoder"/> that will
+        /// be used to emit the labels for the branches.</returns>
+        /// <remarks>
+        /// Before using this <see cref="InstructionEncoder"/> in any other way,
+        /// the method <see cref="SwitchInstructionEncoder.Branch(LabelHandle)"/>
+        /// must be called on the returned value exactly <paramref name="branchCount"/>
+        /// times. Failure to do so will throw <see cref="InvalidOperationException"/>.
+        /// </remarks>
+        /// <exception cref="ArgumentOutOfRangeException"><paramref name="branchCount"/>
+        /// less than or equal to zero.</exception>
+        public SwitchInstructionEncoder Switch(int branchCount)
+        {
+            if (branchCount <= 0)
             {
-                CodeBuilder.WriteSByte(-1);
+                Throw.ArgumentOutOfRange(nameof(branchCount));
             }
-            else
-            {
-                Debug.Assert(size == 4);
-                CodeBuilder.WriteInt32(-1);
-            }
+            ControlFlowBuilder branchBuilder = GetBranchBuilder();
+
+            // We want the offset before we add the opcode.
+            int ilOffset = Offset;
+
+            OpCode(ILOpCode.Switch);
+            branchBuilder.RemainingSwitchBranches = branchCount;
+            CodeBuilder.WriteUInt32((uint)branchCount);
+
+            // We calculate the offset where the instruction will end.
+            // The Offset property now accounts for the opcode byte and
+            // the four bits of the count, and we also add four bytes for
+            // each branch we are expecting from the user to emit.
+            int instructionEnd = Offset + 4 * branchCount;
+            return new SwitchInstructionEncoder(this, ilOffset, instructionEnd);
         }
 
         /// <summary>

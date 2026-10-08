@@ -11,65 +11,152 @@ namespace System.Threading
     {
         private const uint AccessRights = (uint)Interop.Kernel32.MAXIMUM_ALLOWED | Interop.Kernel32.SYNCHRONIZE | Interop.Kernel32.EVENT_MODIFY_STATE;
 
+        // Can't use MAXIMUM_ALLOWED in an access control entry (ACE)
+        private const int CurrentUserOnlyAceRights =
+            Interop.Kernel32.STANDARD_RIGHTS_REQUIRED | Interop.Kernel32.SYNCHRONIZE | Interop.Kernel32.EVENT_MODIFY_STATE;
+
         private EventWaitHandle(SafeWaitHandle handle)
         {
             SafeWaitHandle = handle;
         }
 
-        private void CreateEventCore(bool initialState, EventResetMode mode, string? name, out bool createdNew)
+        private void CreateEventCore(bool initialState, EventResetMode mode)
         {
-#if TARGET_UNIX || TARGET_BROWSER
-            if (name != null)
-                throw new PlatformNotSupportedException(SR.PlatformNotSupported_NamedSynchronizationPrimitives);
-#endif
-            uint eventFlags = initialState ? Interop.Kernel32.CREATE_EVENT_INITIAL_SET : 0;
+            ValidateMode(mode);
+
+            uint flags = initialState ? Interop.Kernel32.CREATE_EVENT_INITIAL_SET : 0;
             if (mode == EventResetMode.ManualReset)
-                eventFlags |= (uint)Interop.Kernel32.CREATE_EVENT_MANUAL_RESET;
-
-            SafeWaitHandle handle = Interop.Kernel32.CreateEventEx(IntPtr.Zero, name, eventFlags, AccessRights);
-
-            int errorCode = Marshal.GetLastWin32Error();
+                flags |= Interop.Kernel32.CREATE_EVENT_MANUAL_RESET;
+            SafeWaitHandle handle = Interop.Kernel32.CreateEventEx(lpSecurityAttributes: 0, name: null, flags, AccessRights);
             if (handle.IsInvalid)
             {
+                int errorCode = Marshal.GetLastPInvokeError();
                 handle.SetHandleAsInvalid();
-                if (!string.IsNullOrEmpty(name) && errorCode == Interop.Errors.ERROR_INVALID_HANDLE)
-                    throw new WaitHandleCannotBeOpenedException(SR.Format(SR.Threading_WaitHandleCannotBeOpenedException_InvalidHandle, name));
-
-                throw Win32Marshal.GetExceptionForWin32Error(errorCode, name);
+                throw Win32Marshal.GetExceptionForWin32Error(errorCode);
             }
+
+            SafeWaitHandle = handle;
+        }
+
+        private unsafe void CreateEventCore(
+            bool initialState,
+            EventResetMode mode,
+            string? name,
+            NamedWaitHandleOptionsInternal options,
+            out bool createdNew)
+        {
+            ValidateMode(mode);
+
+            void* securityAttributesPtr = null;
+            SafeWaitHandle handle;
+            int errorCode;
+            Thread.CurrentUserSecurityDescriptorInfo securityDescriptorInfo = default;
+            Interop.Kernel32.SECURITY_ATTRIBUTES securityAttributes;
+            if (!string.IsNullOrEmpty(name) && options.WasSpecified)
+            {
+                name = options.GetNameWithSessionPrefix(name);
+                if (options.CurrentUserOnly)
+                {
+                    securityDescriptorInfo = new(CurrentUserOnlyAceRights);
+                    securityAttributes = Interop.Kernel32.SECURITY_ATTRIBUTES.Create((void*)securityDescriptorInfo.SecurityDescriptor);
+                    securityAttributesPtr = &securityAttributes;
+                }
+            }
+
+            using (securityDescriptorInfo)
+            {
+                uint eventFlags = initialState ? Interop.Kernel32.CREATE_EVENT_INITIAL_SET : 0;
+                if (mode == EventResetMode.ManualReset)
+                    eventFlags |= Interop.Kernel32.CREATE_EVENT_MANUAL_RESET;
+                handle = Interop.Kernel32.CreateEventEx((nint)securityAttributesPtr, name, eventFlags, AccessRights);
+                errorCode = Marshal.GetLastPInvokeError();
+
+                if (handle.IsInvalid)
+                {
+                    handle.SetHandleAsInvalid();
+                    if (!string.IsNullOrEmpty(name) && errorCode == Interop.Errors.ERROR_INVALID_HANDLE)
+                        throw new WaitHandleCannotBeOpenedException(SR.Format(SR.Threading_WaitHandleCannotBeOpenedException_InvalidHandle, name));
+
+                    throw Win32Marshal.GetExceptionForWin32Error(errorCode, name);
+                }
+
+                if (errorCode == Interop.Errors.ERROR_ALREADY_EXISTS && securityAttributesPtr != null)
+                {
+                    try
+                    {
+                        if (!Thread.CurrentUserSecurityDescriptorInfo.IsSecurityDescriptorCompatible(
+                                securityDescriptorInfo.TokenUser,
+                                handle,
+                                Interop.Kernel32.EVENT_MODIFY_STATE))
+                        {
+                            throw new WaitHandleCannotBeOpenedException(SR.Format(SR.NamedWaitHandles_ExistingObjectIncompatibleWithCurrentUserOnly, name));
+                        }
+                    }
+                    catch
+                    {
+                        handle.Dispose();
+                        throw;
+                    }
+                }
+            }
+
             createdNew = errorCode != Interop.Errors.ERROR_ALREADY_EXISTS;
             SafeWaitHandle = handle;
         }
 
-        private static OpenExistingResult OpenExistingWorker(string name, out EventWaitHandle? result)
+        private static OpenExistingResult OpenExistingWorker(
+            string name,
+            NamedWaitHandleOptionsInternal options,
+            out EventWaitHandle? result)
         {
-#if TARGET_WINDOWS
-            if (name == null)
-                throw new ArgumentNullException(nameof(name));
-            if (name.Length == 0)
-                throw new ArgumentException(SR.Argument_EmptyName, nameof(name));
+            ArgumentException.ThrowIfNullOrEmpty(name);
 
-            result = null;
+            if (options.WasSpecified)
+            {
+                name = options.GetNameWithSessionPrefix(name);
+            }
+
             SafeWaitHandle myHandle = Interop.Kernel32.OpenEvent(AccessRights, false, name);
 
             if (myHandle.IsInvalid)
             {
-                int errorCode = Marshal.GetLastWin32Error();
+                result = null;
+                int errorCode = Marshal.GetLastPInvokeError();
+
+                myHandle.Dispose();
 
                 if (errorCode == Interop.Errors.ERROR_FILE_NOT_FOUND || errorCode == Interop.Errors.ERROR_INVALID_NAME)
                     return OpenExistingResult.NameNotFound;
                 if (errorCode == Interop.Errors.ERROR_PATH_NOT_FOUND)
                     return OpenExistingResult.PathNotFound;
-                if (!string.IsNullOrEmpty(name) && errorCode == Interop.Errors.ERROR_INVALID_HANDLE)
+                if (errorCode == Interop.Errors.ERROR_INVALID_HANDLE)
                     return OpenExistingResult.NameInvalid;
 
                 throw Win32Marshal.GetExceptionForWin32Error(errorCode, name);
             }
+
+            if (options.WasSpecified && options.CurrentUserOnly)
+            {
+                try
+                {
+                    if (!Thread.CurrentUserSecurityDescriptorInfo.IsValidSecurityDescriptor(
+                            myHandle,
+                            Interop.Kernel32.EVENT_MODIFY_STATE))
+                    {
+                        myHandle.Dispose();
+                        result = null;
+                        return OpenExistingResult.ObjectIncompatibleWithCurrentUserOnly;
+                    }
+                }
+                catch
+                {
+                    myHandle.Dispose();
+                    throw;
+                }
+            }
+
             result = new EventWaitHandle(myHandle);
             return OpenExistingResult.Success;
-#else
-            throw new PlatformNotSupportedException(SR.PlatformNotSupported_NamedSynchronizationPrimitives);
-#endif
         }
 
         public bool Reset()

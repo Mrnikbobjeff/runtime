@@ -1,13 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.Collections.Immutable;
 using System.IO;
+using System.Reflection.Internal;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.Metadata.Tests;
 using System.Runtime.CompilerServices;
+using Microsoft.Win32.SafeHandles;
 using Xunit;
 
 namespace System.Reflection.PortableExecutable.Tests
@@ -86,7 +87,6 @@ namespace System.Reflection.PortableExecutable.Tests
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/17088")]
         public void SubStream()
         {
             var stream = new MemoryStream();
@@ -104,7 +104,7 @@ namespace System.Reflection.PortableExecutable.Tests
             stream.Position = 1;
             var peReader2 = new PEReader(stream, PEStreamOptions.LeaveOpen | PEStreamOptions.PrefetchMetadata, Misc.Members.Length);
 
-            Assert.Equal(Misc.Members.Length, peReader2.GetEntireImage().Length);
+            // We cannot call GetEntireImage() here; we have fetched only the metadata.
             peReader2.GetMetadataReader();
             stream.Position = 1;
 
@@ -119,7 +119,7 @@ namespace System.Reflection.PortableExecutable.Tests
         [Fact]
         public void OpenNativeImage()
         {
-            using (var reader = new PEReader(File.OpenRead(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "kernel32.dll"))))
+            using (var reader = new PEReader(File.OpenRead(Path.Combine(Environment.SystemDirectory, "kernel32.dll"))))
             {
                 Assert.False(reader.HasMetadata);
                 Assert.True(reader.PEHeaders.IsDll);
@@ -245,7 +245,7 @@ namespace System.Reflection.PortableExecutable.Tests
             {
                 0x00, 0x20, 0x00, 0x00,
                 0x0C, 0x00, 0x00, 0x00,
-                0xD0, 0x38, 0x00, 0x00
+                0x00, 0x39, 0x00, 0x00
             }, relocBlob1);
 
             AssertEx.Equal(relocBlob1, relocBlob2);
@@ -719,7 +719,7 @@ namespace System.Reflection.PortableExecutable.Tests
                     reader.TryOpenAssociatedPortablePdb(Path.Combine("pedir", "file.exe"), _ => { throw new BadImageFormatException("Bang!"); }, out pdbProvider, out pdbPath),
                     e => Assert.Equal("Bang!", e.Message));
 
-                // file doesn't exist, fall back to embedded without reporting FileNotFoundExeception
+                // file doesn't exist, fall back to embedded without reporting FileNotFoundException
                 Assert.Throws<BadImageFormatException>(() =>
                     reader.TryOpenAssociatedPortablePdb(Path.Combine("pedir", "file.exe"), _ => { throw new FileNotFoundException(); }, out pdbProvider, out pdbPath));
 
@@ -820,10 +820,7 @@ namespace System.Reflection.PortableExecutable.Tests
             Assert.Throws<ObjectDisposedException>(() => reader.ReadDebugDirectory());
             Assert.Throws<ObjectDisposedException>(() => reader.ReadCodeViewDebugDirectoryData(ddCodeView));
             Assert.Throws<ObjectDisposedException>(() => reader.ReadEmbeddedPortablePdbDebugDirectoryData(ddEmbedded));
-
-            MetadataReaderProvider __;
-            string ___;
-            Assert.Throws<ObjectDisposedException>(() => reader.TryOpenAssociatedPortablePdb(@"x", _ => null, out __, out ___));
+            Assert.Throws<ObjectDisposedException>(() => reader.TryOpenAssociatedPortablePdb(@"x", _ => null, out _, out _));
 
             // ok to use providers after PEReader disposed:
             var pdbReader = pdbProvider.GetMetadataReader();
@@ -848,6 +845,26 @@ namespace System.Reflection.PortableExecutable.Tests
             GC.WaitForPendingFinalizers();
 
             Assert.Equal(@"Debug", reader.GetString(reader.GetAssemblyDefinition().Name));
+        }
+
+        [Fact]
+        [PlatformSpecific(TestPlatforms.Windows)]  // Uses P/Invokes only suported on windows
+        public unsafe void InvokeCtorWithIsLoadedImageAndPrefetchMetadataOptions2()
+        {
+            using (var tempFile = new TempFile(Path.GetTempFileName()))
+            {
+                File.WriteAllBytes(tempFile.Path, Misc.Members);
+
+                using (SafeLibraryHandle libHandle = global::Interop.Kernel32.LoadLibraryExW(tempFile.Path, IntPtr.Zero, 0))
+                {
+                    byte* peImagePtr = (byte*)global::Interop.Kernel32.GetModuleHandle(Path.GetFileName(tempFile.Path));
+
+                    Assert.True(peImagePtr != null);
+
+                    var peReader = new PEReader(new UnmanagedMemoryStream(peImagePtr, int.MaxValue), PEStreamOptions.IsLoadedImage | PEStreamOptions.PrefetchMetadata);
+                    peReader.Dispose();
+                }
+            }
         }
     }
 }

@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using Microsoft.CSharp.RuntimeBinder.Errors;
 using Microsoft.CSharp.RuntimeBinder.Syntax;
 
@@ -33,6 +34,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
     //
     // Lookup must be called before any other methods.
 
+    [RequiresDynamicCode(Binder.DynamicCodeWarning)]
     internal sealed class MemberLookup
     {
         // The inputs to Lookup.
@@ -94,6 +96,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
             pfHideByName is set to true iff something was found that hides all
             members of base types (eg, a hidebyname method).
         ******************************************************************************/
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         private bool SearchSingleType(AggregateType typeCur, out bool pfHideByName)
         {
             bool fFoundSome = false;
@@ -352,6 +355,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
 
             Returns true when searching should continue to the interfaces.
         ******************************************************************************/
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         private bool LookupInClass(AggregateType typeStart, ref AggregateType ptypeEnd)
         {
             Debug.Assert(!_swtFirst || _fMulti);
@@ -396,6 +400,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
         /******************************************************************************
             Returns true if searching should continue to object.
         ******************************************************************************/
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         private bool LookupInInterfaces(AggregateType typeStart, TypeArray types)
         {
             Debug.Assert(!_swtFirst || _fMulti);
@@ -422,10 +427,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
             AggregateType typeCur = typeStart;
             int itypeNext = 0;
 
-            if (typeCur == null)
-            {
-                typeCur = (AggregateType)types[itypeNext++];
-            }
+            typeCur ??= (AggregateType)types[itypeNext++];
             Debug.Assert(typeCur != null);
 
             // Loop through the interfaces.
@@ -516,6 +518,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
             flags - See MemLookFlags.
                 TypeVarsAllowed only applies to the most derived type (not base types).
         ***************************************************************************************************/
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         public bool Lookup(CType typeSrc, Expr obj, ParentSymbol symWhere, Name name, int arity, MemLookFlags flags)
         {
             Debug.Assert((flags & ~MemLookFlags.All) == 0);
@@ -588,6 +591,7 @@ namespace Microsoft.CSharp.RuntimeBinder.Semantics
         /******************************************************************************
             Reports errors. Only call this if FError() is true.
         ******************************************************************************/
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         public Exception ReportErrors()
         {
             Debug.Assert(FError());

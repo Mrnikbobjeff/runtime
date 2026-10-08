@@ -9,12 +9,11 @@ using System.Threading.Tasks;
 
 namespace System.IO.Packaging
 {
-    internal class ZipStreamManager : IDisposable
+    internal sealed class ZipStreamManager
     {
         private readonly ZipArchive _zipArchive;
         private readonly FileAccess _packageFileAccess;
         private readonly FileMode _packageFileMode;
-        private bool _disposed;
 
         public ZipStreamManager(ZipArchive zipArchive, FileMode packageFileMode, FileAccess packageFileAccess)
         {
@@ -23,7 +22,7 @@ namespace System.IO.Packaging
             _packageFileAccess = packageFileAccess;
         }
 
-        public Stream Open(ZipArchiveEntry zipArchiveEntry, FileMode streamFileMode, FileAccess streamFileAccess)
+        public Stream Open(ZipArchiveEntry zipArchiveEntry, FileAccess streamFileAccess, bool discardExistingContent = false, bool requireSeekableStream = false)
         {
             bool canRead = true;
             bool canWrite = true;
@@ -82,34 +81,26 @@ namespace System.IO.Packaging
                     break;
             }
 
-            Stream ns = zipArchiveEntry.Open();
-            return new ZipWrappingStream(zipArchiveEntry, ns, _packageFileMode, _packageFileAccess, canRead, canWrite);
-        }
-
-        public void Close(ZipArchiveEntry zipArchiveEntry)
-        {
-        }
-
-        //
-        // IDisposable interface
-        //
-        public void Dispose()
-        {
-            Dispose(true);
-            GC.SuppressFinalize(this);
-        }
-
-        // Protected implementation of Dispose pattern.
-        protected virtual void Dispose(bool disposing)
-        {
-            if (_disposed)
-                return;
-
-            if (disposing)
+            // Choose the most efficient way to open the entry based on how the returned stream will be used.
+            // In Update mode the parameterless Open() decompresses and loads the whole entry into memory:
+            //  - When the entry will be overwritten (discardExistingContent, e.g. FileMode.Create), open with
+            //    FileAccess.Write to discard the existing content without loading it just to truncate it.
+            //  - When the caller only reads (canRead && !canWrite), open with FileAccess.Read to stream directly
+            //    from the archive instead of buffering the whole entry in memory. NOTE: for compressed entries
+            //    the resulting stream is forward-only (not seekable) and reflects the on-disk content only, so
+            //    callers that need to seek (e.g. the interleaved part reader) opt out via requireSeekableStream.
+            Stream ns;
+#if NET11_0_OR_GREATER
+            ns = (_zipArchive.Mode, discardExistingContent, canRead, canWrite, requireSeekableStream) switch
             {
-            }
-
-            _disposed = true;
+                (ZipArchiveMode.Update, true, _, _, _) => zipArchiveEntry.Open(FileAccess.Write),
+                (ZipArchiveMode.Update, false, true, false, false) => zipArchiveEntry.Open(FileAccess.Read),
+                _ => zipArchiveEntry.Open(),
+            };
+#else
+            ns = zipArchiveEntry.Open();
+#endif
+            return new ZipWrappingStream(zipArchiveEntry, ns, _packageFileMode, _packageFileAccess, canRead, canWrite);
         }
     }
 }

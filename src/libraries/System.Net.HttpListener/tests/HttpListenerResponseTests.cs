@@ -13,7 +13,7 @@ namespace System.Net.Tests
     {
         protected HttpListenerFactory Factory { get; }
         protected Socket Client { get; }
-        protected static byte[] SimpleMessage { get; } = Encoding.UTF8.GetBytes("Hello");
+        protected static byte[] SimpleMessage { get; } = "Hello"u8.ToArray();
 
         public HttpListenerResponseTestBase()
         {
@@ -50,13 +50,13 @@ namespace System.Net.Tests
 
         protected async Task<HttpListenerResponse> GetResponse(string httpVersion = "1.1")
         {
-            Client.Send(Factory.GetContent(httpVersion, "POST", null, "Give me a context, please", null, headerOnly: false));
+            await Client.SendAsync(Factory.GetContent(httpVersion, "POST", null, "Give me a context, please", null, headerOnly: false));
             HttpListenerContext context = await Factory.GetListener().GetContextAsync();
             return context.Response;
         }
     }
 
-    [SkipOnCoreClr("System.Net.Tests may timeout in stress configurations", RuntimeConfiguration.Checked)]
+    [SkipOnCoreClr("System.Net.Tests may timeout in stress configurations", ~RuntimeConfiguration.Release)]
     [ActiveIssue("https://github.com/dotnet/runtime/issues/2391", TestRuntimes.Mono)]
     [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsNanoServer))] // httpsys component missing in Nano.
     public class HttpListenerResponseTests : HttpListenerResponseTestBase
@@ -113,7 +113,7 @@ namespace System.Net.Tests
         [InlineData(" \r \t \n", 123)]
         [InlineData("http://microsoft.com", 155)]
         [InlineData("  http://microsoft.com  ", 155)]
-        public async Task Redirect_Invoke_SetsRedirectionProperties(string url, int expectedNumberOfBytes)
+        public async Task Redirect_Invoke_SetsRedirectionProperties(string? url, int expectedNumberOfBytes)
         {
             string expectedUrl = url?.Trim() ?? "";
 
@@ -154,13 +154,13 @@ namespace System.Net.Tests
         }
 
         // The managed implementation should also dispose the OutputStream after calling Abort.
-        [ConditionalFact(nameof(Helpers) + "." + nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/21808", TestPlatforms.AnyUnix)]
+        [ConditionalFact(typeof(Helpers), nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/21808", TestPlatforms.AnyUnix)]
         public async Task Abort_Invoke_ForciblyTerminatesConnection()
         {
-            Client.Send(Factory.GetContent("1.1", "POST", null, "Give me a context, please", null, headerOnly: false));
+            await Client.SendAsync(Factory.GetContent("1.1", "POST", null, "Give me a context, please", null, headerOnly: false));
             HttpListenerContext context = await Factory.GetListener().GetContextAsync();
             HttpListenerResponse response = context.Response;
-            Stream ouputStream = response.OutputStream;
+            Stream outputStream = response.OutputStream;
             response.Abort();
 
             // Aborting the response should dispose the response.
@@ -172,7 +172,7 @@ namespace System.Net.Tests
             bool threwObjectDisposedException = false;
             try
             {
-                ouputStream.Write(SimpleMessage, 0, SimpleMessage.Length);
+                outputStream.Write(SimpleMessage, 0, SimpleMessage.Length);
             }
             catch (ObjectDisposedException)
             {
@@ -194,14 +194,14 @@ namespace System.Net.Tests
         {
             using (HttpListenerResponse response = await GetResponse())
             {
-                Stream ouputStream = response.OutputStream;
+                Stream outputStream = response.OutputStream;
                 response.Close();
 
                 // Aborting the response should dispose the response.
                 Assert.Throws<ObjectDisposedException>(() => response.ContentType = null);
 
                 // The output stream should be not disposed.
-                ouputStream.Write(SimpleMessage, 0, SimpleMessage.Length);
+                outputStream.Write(SimpleMessage, 0, SimpleMessage.Length);
 
                 // The connection should not be forcibly terminated.
                 string clientResponse = GetClientResponse(120);
@@ -219,14 +219,14 @@ namespace System.Net.Tests
         {
             using (HttpListenerResponse response = await GetResponse())
             {
-                Stream ouputStream = response.OutputStream;
+                Stream outputStream = response.OutputStream;
                 ((IDisposable)response).Dispose();
 
                 // Aborting the response should dispose the response.
                 Assert.Throws<ObjectDisposedException>(() => response.ContentType = null);
 
                 // The output stream should be disposed.
-                ouputStream.Write(SimpleMessage, 0, SimpleMessage.Length);
+                outputStream.Write(SimpleMessage, 0, SimpleMessage.Length);
 
                 // The connection should not be forcibly terminated.
                 string clientResponse = GetClientResponse(120);
@@ -265,7 +265,7 @@ namespace System.Net.Tests
             }
         }
 
-        [ConditionalTheory(nameof(Helpers) + "." + nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/21918", TestPlatforms.AnyUnix)]
+        [ConditionalTheory(typeof(Helpers), nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/21918", TestPlatforms.AnyUnix)]
         [InlineData(true)]
         [InlineData(false)]
         public async Task CloseResponseEntity_AllContentLengthAlreadySent_DoesNotSendEntity(bool willBlock)
@@ -359,7 +359,7 @@ namespace System.Net.Tests
             }
         }
 
-        [ConditionalTheory(nameof(Helpers) + "." + nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/21918", TestPlatforms.AnyUnix)]
+        [ConditionalTheory(typeof(Helpers), nameof(Helpers.IsWindowsImplementation))] // [ActiveIssue("https://github.com/dotnet/runtime/issues/21918", TestPlatforms.AnyUnix)]
         [InlineData(true)]
         [InlineData(false)]
         public async Task CloseResponseEntity_SendMoreThanContentLength_ThrowsInvalidOperationException(bool willBlock)
@@ -415,7 +415,7 @@ namespace System.Net.Tests
             using (Socket client = factory.GetConnectedSocket())
             {
                 // Send a header to the HttpListener to give it a context.
-                client.Send(factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
+                await client.SendAsync(factory.GetContent(RequestTypes.POST, Text, headerOnly: true));
                 HttpListener listener = factory.GetListener();
                 HttpListenerContext context = await listener.GetContextAsync();
 
@@ -436,6 +436,7 @@ namespace System.Net.Tests
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.FreeBSD, "unreliable on FreeBSD")]
         public async Task AddLongHeader_DoesNotThrow()
         {
             string longString = new string('a', 65536);

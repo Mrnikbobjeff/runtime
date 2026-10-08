@@ -60,8 +60,7 @@ public static partial class OverlappedTests
         Assert.Equal(1, obj.OffsetLow);
     }
 
-    [Fact]
-    [ActiveIssue("https://github.com/mono/mono/issues/15311", TestRuntimes.Mono)]
+    [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.Is32BitProcess))]
     public static void PropertyTest3()
     {
         IAsyncResult asyncResult = new Task(() => Console.WriteLine("this is a dummy task"));
@@ -161,6 +160,7 @@ public static partial class OverlappedTests
             Assert.True(ThreadPool.UnsafeQueueNativeOverlapped(nativeOverlapped));
 
             Assert.True(helper.Wait());
+            GC.KeepAlive(helper);
         }
         finally
         {
@@ -185,11 +185,19 @@ public static partial class OverlappedTests
             Assert.True(ThreadPool.UnsafeQueueNativeOverlapped(nativeOverlapped));
 
             Assert.True(helper.Wait());
+            GC.KeepAlive(helper);
         }
         finally
         {
             Overlapped.Free(nativeOverlapped);
         }
+    }
+
+    [Fact]
+    [PlatformSpecific(TestPlatforms.Windows)] // ThreadPool.UnsafeQueueNativeOverlapped is not supported on Unix
+    public static unsafe void UnsafeQueueNativeOverlappedNegTest()
+    {
+        AssertExtensions.Throws<ArgumentNullException>("overlapped", () => ThreadPool.UnsafeQueueNativeOverlapped(null));
     }
 
     internal static unsafe IOCompletionCallback MyCallback(AsyncHelper helper)

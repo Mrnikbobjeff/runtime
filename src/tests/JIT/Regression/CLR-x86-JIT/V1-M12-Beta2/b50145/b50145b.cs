@@ -2,11 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b50145b;
+
 using System;
+using Xunit;
 
 public class test
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         float x = 1;
         x /= x * 2;

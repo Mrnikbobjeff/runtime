@@ -1,13 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Xml;
 using System.Text;
+using System.Xml;
 
 namespace System.Security.Cryptography.Xml
 {
     // the class that provides node subset state and canonicalization function to XmlEntityReference
-    internal class CanonicalXmlEntityReference : XmlEntityReference, ICanonicalizableNode
+    internal sealed class CanonicalXmlEntityReference : XmlEntityReference, ICanonicalizableNode
     {
         private bool _isInNodeSet;
 

@@ -15,7 +15,7 @@ namespace System.Reflection.Tests
             else if (mb is ConstructorInfo c)
                 c.TestConstructorInfoInvariants();
             else
-                Assert.True(false, "What kind of MethodBase is this? " + mb);
+                Assert.Fail("What kind of MethodBase is this? " + mb);
         }
 
         public static void TestMethodInfoInvariants(this MethodInfo m)
@@ -59,7 +59,7 @@ namespace System.Reflection.Tests
             for (int i = 0; i < ps.Length; i++)
             {
                 ParameterInfo p = ps[i];
-                string paramterString = p.ToString();
+                string parameterString = p.ToString();
                 Assert.Equal(i, p.Position);
                 Assert.Equal(mb, p.Member);
             }
@@ -106,7 +106,12 @@ namespace System.Reflection.Tests
             Assert.False(c.IsConstructedGenericMethod());
             Assert.False(c.IsGenericMethod);
 
+#if NET
+            Assert.Empty(c.GetGenericArguments());
+#else
+            // On .NET Framework, ConstructorInfo.GetGenericArguments() throws NotSupportedException.
             Assert.Throws<NotSupportedException>(() => c.GetGenericArguments());
+#endif
         }
 
         private static void TestMethodInfoCommonInvariants(this MethodInfo m)

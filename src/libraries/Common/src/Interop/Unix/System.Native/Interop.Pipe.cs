@@ -12,6 +12,8 @@ internal static partial class Interop
         internal enum PipeFlags
         {
             O_CLOEXEC = 0x0010,
+            O_NONBLOCK_READ = 0x0400,
+            O_NONBLOCK_WRITE = 0x0800,
         }
 
         /// <summary>
@@ -24,7 +26,7 @@ internal static partial class Interop
         /// </summary>
         internal const int WriteEndOfPipe = 1;
 
-        [DllImport(Libraries.SystemNative, EntryPoint = "SystemNative_Pipe", SetLastError = true)]
-        internal static extern unsafe int Pipe(int* pipefd, PipeFlags flags = 0); // pipefd is an array of two ints
+        [LibraryImport(Libraries.SystemNative, EntryPoint = "SystemNative_Pipe", SetLastError = true)]
+        internal static unsafe partial int Pipe(int* pipefd, PipeFlags flags = 0); // pipefd is an array of two ints
     }
 }

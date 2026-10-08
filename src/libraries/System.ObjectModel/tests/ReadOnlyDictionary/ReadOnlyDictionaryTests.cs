@@ -64,6 +64,14 @@ namespace System.Collections.ObjectModel.Tests
             AssertExtensions.Throws<ArgumentNullException>("dictionary", () => new ReadOnlyDictionary<int, string>(null));
         }
 
+        [Fact]
+        public static void Empty_Idempotent()
+        {
+            Assert.NotNull(ReadOnlyDictionary<string, int>.Empty);
+            Assert.Equal(0, ReadOnlyDictionary<string, int>.Empty.Count);
+            Assert.Same(ReadOnlyDictionary<string, int>.Empty, ReadOnlyDictionary<string, int>.Empty);
+        }
+
         /// <summary>
         /// Tests that true is returned when the key exists in the dictionary
         /// and false otherwise.
@@ -143,6 +151,20 @@ namespace System.Collections.ObjectModel.Tests
         }
 
         /// <summary>
+        /// Tests that the explicit IDictionary.Item[] implementation returns null on a non-existing key.
+        /// </summary>
+        [Fact]
+        public static void IDictionaryItemTests()
+        {
+            KeyValuePair<int, string>[] expectedArr = new KeyValuePair<int, string>[] {
+                new KeyValuePair<int, string>(1, "one")
+            };
+            DummyDictionary<int, string> dummyExpectedDict = new DummyDictionary<int, string>(expectedArr);
+            IDictionary dictionary = new ReadOnlyDictionary<int, string>(dummyExpectedDict);
+            Assert.Null(dictionary[2]);
+        }
+
+        /// <summary>
         /// Tests that items can be retrieved by key from the Dictionary.
         /// </summary>
         [Fact]
@@ -210,40 +232,43 @@ namespace System.Collections.ObjectModel.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/57588", typeof(PlatformDetection), nameof(PlatformDetection.IsBuiltWithAggressiveTrimming), nameof(PlatformDetection.IsBrowser))]
         public static void DebuggerAttributeTests()
         {
             ReadOnlyDictionary<int, int> dict = new ReadOnlyDictionary<int, int>(new Dictionary<int, int>{{1, 2}, {2, 4}, {3, 6}});
             DebuggerAttributes.ValidateDebuggerDisplayReferences(dict);
             DebuggerAttributeInfo info = DebuggerAttributes.ValidateDebuggerTypeProxyProperties(dict);
             PropertyInfo itemProperty = info.Properties.Single(pr => pr.GetCustomAttribute<DebuggerBrowsableAttribute>().State == DebuggerBrowsableState.RootHidden);
-            KeyValuePair<int, int>[] pairs = itemProperty.GetValue(info.Instance) as KeyValuePair<int, int>[];
-            Assert.Equal(dict, pairs);
+            Array itemArray = (Array)itemProperty.GetValue(info.Instance);
+            Assert.Equal(dict.Count, itemArray.Length);
 
             DebuggerAttributes.ValidateDebuggerDisplayReferences(dict.Keys);
-            info = DebuggerAttributes.ValidateDebuggerTypeProxyProperties(typeof(ReadOnlyDictionary<int, int>.KeyCollection), new Type[] { typeof(int) }, dict.Keys);
+            info = DebuggerAttributes.ValidateDebuggerTypeProxyProperties(dict.Keys);
             itemProperty = info.Properties.Single(pr => pr.GetCustomAttribute<DebuggerBrowsableAttribute>().State == DebuggerBrowsableState.RootHidden);
             int[] items = itemProperty.GetValue(info.Instance) as int[];
             Assert.Equal(dict.Keys, items);
 
             DebuggerAttributes.ValidateDebuggerDisplayReferences(dict.Values);
-            info = DebuggerAttributes.ValidateDebuggerTypeProxyProperties(typeof(ReadOnlyDictionary<int, int>.KeyCollection), new Type[] { typeof(int) }, dict.Values);
+            info = DebuggerAttributes.ValidateDebuggerTypeProxyProperties(dict.Values);
             itemProperty = info.Properties.Single(pr => pr.GetCustomAttribute<DebuggerBrowsableAttribute>().State == DebuggerBrowsableState.RootHidden);
             items = itemProperty.GetValue(info.Instance) as int[];
             Assert.Equal(dict.Values, items);
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/57588", typeof(PlatformDetection), nameof(PlatformDetection.IsBuiltWithAggressiveTrimming), nameof(PlatformDetection.IsBrowser))]
         public static void DebuggerAttribute_NullDictionary_ThrowsArgumentNullException()
         {
-            TargetInvocationException ex = Assert.Throws<TargetInvocationException>(() =>   DebuggerAttributes.ValidateDebuggerTypeProxyProperties(typeof(ReadOnlyDictionary<int, int>), null));
+            TargetInvocationException ex = Assert.Throws<TargetInvocationException>(() =>   DebuggerAttributes.CreateDebuggerTypeProxyWithNullArgument(typeof(ReadOnlyDictionary<int, int>)));
             ArgumentNullException argumentNullException = Assert.IsType<ArgumentNullException>(ex.InnerException);
             Assert.Equal("dictionary", argumentNullException.ParamName);
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/57588", typeof(PlatformDetection), nameof(PlatformDetection.IsBuiltWithAggressiveTrimming), nameof(PlatformDetection.IsBrowser))]
         public static void DebuggerAttribute_NullDictionaryKeys_ThrowsArgumentNullException()
         {
-            TargetInvocationException ex = Assert.Throws<TargetInvocationException>(() => DebuggerAttributes.ValidateDebuggerTypeProxyProperties(typeof(ReadOnlyDictionary<int, int>.KeyCollection), new Type[] { typeof(int) }, null));
+            TargetInvocationException ex = Assert.Throws<TargetInvocationException>(() => DebuggerAttributes.CreateDebuggerTypeProxyWithNullArgument(typeof(ReadOnlyDictionary<int, int>.KeyCollection)));
             ArgumentNullException argumentNullException = Assert.IsType<ArgumentNullException>(ex.InnerException);
             Assert.Equal("collection", argumentNullException.ParamName);
         }
@@ -366,6 +391,7 @@ namespace System.Collections.ObjectModel.Tests
         protected override bool IsGenericCompatibility { get { return false; } }
         protected override bool ItemsMustBeUnique { get { return true; } }
         protected override bool ItemsMustBeNonNull { get { return true; } }
+        protected override bool CurrentAfterFullEnumerationThrows { get { return false; } }
         protected override object GenerateItem()
         {
             return new KeyValuePair<string, int>(m_next_item.ToString(), m_next_item++);
@@ -404,6 +430,7 @@ namespace System.Collections.ObjectModel.Tests
         protected override bool IsGenericCompatibility { get { return false; } }
         protected override bool ItemsMustBeUnique { get { return true; } }
         protected override bool ItemsMustBeNonNull { get { return true; } }
+        protected override bool CurrentAfterFullEnumerationThrows { get { return false; } }
         protected override object GenerateItem()
         {
             return new KeyValuePair<string, int>(m_next_item.ToString(), m_next_item++);

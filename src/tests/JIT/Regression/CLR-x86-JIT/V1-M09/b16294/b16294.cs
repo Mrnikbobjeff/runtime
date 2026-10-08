@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b16294
 {
     //@BEGINRENAME; Verify this renames
     //@ENDRENAME; Verify this renames
@@ -10,16 +11,24 @@ namespace DefaultNamespace
 
     public class Bug
     {
-        public virtual void runTest()
+        public const int DefaultSeed = 20010415;
+        public static int Seed = Environment.GetEnvironmentVariable("CORECLR_SEED") switch
         {
-            Random rand = new Random((int)DateTime.Now.Ticks);
+            string seedStr when seedStr.Equals("random", StringComparison.OrdinalIgnoreCase) => new Random().Next(),
+            string seedStr when int.TryParse(seedStr, out int envSeed) => envSeed,
+            _ => DefaultSeed
+        };
+
+        internal virtual void runTest()
+        {
+            Random rand = new Random(Seed);
             Object o = ((UInt64)rand.Next((int)UInt64.MinValue, Int32.MaxValue));
         }
 
-        public static int Main(String[] args)
+        [Fact]
+        public static void TestEntryPoint()
         {
             new Bug().runTest();
-            return 100;
         }
     }
 }

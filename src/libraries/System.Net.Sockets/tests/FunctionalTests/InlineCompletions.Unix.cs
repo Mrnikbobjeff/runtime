@@ -13,27 +13,27 @@ namespace System.Net.Sockets.Tests
     public class InlineContinuations
     {
         [OuterLoop]
-        [Fact]
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
         [PlatformSpecific(TestPlatforms.AnyUnix)] // Inline Socket mode is specific to Unix Socket implementation.
-        public void InlineSocketContinuations()
+        public async Task InlineSocketContinuations()
         {
             RemoteInvokeOptions options = new RemoteInvokeOptions();
             options.StartInfo.EnvironmentVariables.Add("DOTNET_SYSTEM_NET_SOCKETS_INLINE_COMPLETIONS", "1");
             options.TimeOut = (int)TimeSpan.FromMinutes(20).TotalMilliseconds;
 
-            RemoteExecutor.Invoke(async () =>
+            await RemoteExecutor.Invoke(async () =>
             {
                 // Connect/Accept tests
                 await new AcceptEap(null).Accept_ConcurrentAcceptsBeforeConnects_Success(5);
                 await new AcceptEap(null).Accept_ConcurrentAcceptsAfterConnects_Success(5);
 
                 // Send/Receive tests
-                await new SendReceiveEap(null).SendRecv_Stream_TCP(IPAddress.Loopback, useMultipleBuffers: false);
-                await new SendReceiveEap(null).SendRecv_Stream_TCP_MultipleConcurrentReceives(IPAddress.Loopback, useMultipleBuffers: false);
-                await new SendReceiveEap(null).SendRecv_Stream_TCP_MultipleConcurrentSends(IPAddress.Loopback, useMultipleBuffers: false);
-                await new SendReceiveEap(null).TcpReceiveSendGetsCanceledByDispose(receiveOrSend: true);
-                await new SendReceiveEap(null).TcpReceiveSendGetsCanceledByDispose(receiveOrSend: false);
-            }, options).Dispose();
+                await new SendReceive_Eap(null).SendRecv_Stream_TCP(IPAddress.Loopback, useMultipleBuffers: false);
+                await new SendReceive_Eap(null).SendRecv_Stream_TCP_MultipleConcurrentReceives(IPAddress.Loopback, useMultipleBuffers: false);
+                await new SendReceive_Eap(null).SendRecv_Stream_TCP_MultipleConcurrentSends(IPAddress.Loopback, useMultipleBuffers: false);
+                await new SendReceive_Eap(null).TcpReceiveSendGetsCanceledByDispose(receiveOrSend: true, ipv6Server: false, dualModeClient: false, owning: true);
+                await new SendReceive_Eap(null).TcpReceiveSendGetsCanceledByDispose(receiveOrSend: false, ipv6Server: false, dualModeClient: false, owning: true);
+            }, options).DisposeAsync();
         }
     }
 }

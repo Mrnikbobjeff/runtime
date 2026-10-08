@@ -14,17 +14,14 @@ namespace Microsoft.Extensions.DependencyInjection
     public static class MemoryCacheServiceCollectionExtensions
     {
         /// <summary>
-        /// Adds a non distributed in memory implementation of <see cref="IMemoryCache"/> to the
+        /// Adds a non distributed in-memory implementation of <see cref="IMemoryCache"/> to the
         /// <see cref="IServiceCollection" />.
         /// </summary>
         /// <param name="services">The <see cref="IServiceCollection" /> to add services to.</param>
         /// <returns>The <see cref="IServiceCollection"/> so that additional calls can be chained.</returns>
         public static IServiceCollection AddMemoryCache(this IServiceCollection services)
         {
-            if (services == null)
-            {
-                throw new ArgumentNullException(nameof(services));
-            }
+            ArgumentNullException.ThrowIfNull(services);
 
             services.AddOptions();
             services.TryAdd(ServiceDescriptor.Singleton<IMemoryCache, MemoryCache>());
@@ -33,7 +30,7 @@ namespace Microsoft.Extensions.DependencyInjection
         }
 
         /// <summary>
-        /// Adds a non distributed in memory implementation of <see cref="IMemoryCache"/> to the
+        /// Adds a non distributed in-memory implementation of <see cref="IMemoryCache"/> to the
         /// <see cref="IServiceCollection" />.
         /// </summary>
         /// <param name="services">The <see cref="IServiceCollection" /> to add services to.</param>
@@ -43,15 +40,8 @@ namespace Microsoft.Extensions.DependencyInjection
         /// <returns>The <see cref="IServiceCollection"/> so that additional calls can be chained.</returns>
         public static IServiceCollection AddMemoryCache(this IServiceCollection services, Action<MemoryCacheOptions> setupAction)
         {
-            if (services == null)
-            {
-                throw new ArgumentNullException(nameof(services));
-            }
-
-            if (setupAction == null)
-            {
-                throw new ArgumentNullException(nameof(setupAction));
-            }
+            ArgumentNullException.ThrowIfNull(services);
+            ArgumentNullException.ThrowIfNull(setupAction);
 
             services.AddMemoryCache();
             services.Configure(setupAction);
@@ -75,10 +65,7 @@ namespace Microsoft.Extensions.DependencyInjection
         /// <returns>The <see cref="IServiceCollection"/> so that additional calls can be chained.</returns>
         public static IServiceCollection AddDistributedMemoryCache(this IServiceCollection services)
         {
-            if (services == null)
-            {
-                throw new ArgumentNullException(nameof(services));
-            }
+            ArgumentNullException.ThrowIfNull(services);
 
             services.AddOptions();
             services.TryAdd(ServiceDescriptor.Singleton<IDistributedCache, MemoryDistributedCache>());
@@ -105,15 +92,8 @@ namespace Microsoft.Extensions.DependencyInjection
         /// <returns>The <see cref="IServiceCollection"/> so that additional calls can be chained.</returns>
         public static IServiceCollection AddDistributedMemoryCache(this IServiceCollection services, Action<MemoryDistributedCacheOptions> setupAction)
         {
-            if (services == null)
-            {
-                throw new ArgumentNullException(nameof(services));
-            }
-
-            if (setupAction == null)
-            {
-                throw new ArgumentNullException(nameof(setupAction));
-            }
+            ArgumentNullException.ThrowIfNull(services);
+            ArgumentNullException.ThrowIfNull(setupAction);
 
             services.AddDistributedMemoryCache();
             services.Configure(setupAction);

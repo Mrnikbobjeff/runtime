@@ -2,12 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 .assembly extern mscorlib { }
+.assembly extern xunit.core {}
 .assembly extern System.Console
 {
   .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )
   .ver 4:0:0:0
 }
-.assembly arrgetlen {}
+.assembly ASSEMBLY_NAME {}
 .class private sequential ansi sealed beforefieldinit VT
        extends [mscorlib]System.ValueType
 {
@@ -30,12 +31,14 @@
 
 } // end of class X
 
-.class private auto ansi beforefieldinit arrgetlen
+.class public auto ansi beforefieldinit arrgetlen
        extends [mscorlib]System.Object
 {
-  .method private hidebysig static int32 
-          Main() cil managed
+  .method public hidebysig static int32 Main() cil managed
   {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
     .entrypoint
     .maxstack  2
     .locals init (class [mscorlib]System.Array V_0,

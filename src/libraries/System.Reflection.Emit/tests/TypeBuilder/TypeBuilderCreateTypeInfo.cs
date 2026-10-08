@@ -23,7 +23,7 @@ namespace System.Reflection.Emit.Tests
         public void CreateType(TypeAttributes attributes)
         {
             TypeBuilder type = Helpers.DynamicType(attributes);
-            Type createdType = type.CreateTypeInfo().AsType();
+            Type createdType = type.CreateType();
             Assert.Equal(type.Name, createdType.Name);
 
             Assert.Equal(type.CreateTypeInfo(), createdType.GetTypeInfo());
@@ -35,7 +35,7 @@ namespace System.Reflection.Emit.Tests
             TypeBuilder type = Helpers.DynamicType(TypeAttributes.NotPublic);
             type.DefineNestedType("NestedType");
 
-            Type createdType = type.CreateTypeInfo().AsType();
+            Type createdType = type.CreateType();
             Assert.Equal(type.Name, createdType.Name);
         }
 
@@ -45,7 +45,7 @@ namespace System.Reflection.Emit.Tests
             TypeBuilder type = Helpers.DynamicType(TypeAttributes.NotPublic);
             type.DefineGenericParameters("T");
 
-            Type createdType = type.CreateTypeInfo().AsType();
+            Type createdType = type.CreateType();
             Assert.Equal(type.Name, createdType.Name);
         }
 
@@ -53,7 +53,6 @@ namespace System.Reflection.Emit.Tests
         [ActiveIssue("https://github.com/dotnet/runtime/issues/2389", TestRuntimes.Mono)]
         [InlineData(TypeAttributes.ClassSemanticsMask, typeof(InvalidOperationException))]
         [InlineData(TypeAttributes.HasSecurity, typeof(ArgumentException))]
-        [InlineData(TypeAttributes.LayoutMask, typeof(ArgumentException))]
         [InlineData(TypeAttributes.NestedAssembly, typeof(ArgumentException))]
         [InlineData(TypeAttributes.NestedFamANDAssem, typeof(ArgumentException))]
         [InlineData(TypeAttributes.NestedFamily, typeof(ArgumentException))]

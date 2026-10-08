@@ -2,12 +2,15 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b30630
 {
     using System;
-    class App
+    public class App
     {
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             bool param3 = false;
             try
@@ -21,7 +24,6 @@ namespace Test
                     //and here...
                 } while (param3);
             }
-            return 100;
         }
     }
 }

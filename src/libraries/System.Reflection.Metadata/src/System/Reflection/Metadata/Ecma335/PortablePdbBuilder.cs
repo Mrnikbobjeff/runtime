@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
+using System.Text;
 
 namespace System.Reflection.Metadata.Ecma335
 {
@@ -50,7 +51,7 @@ namespace System.Reflection.Metadata.Ecma335
             MethodDefinitionHandle entryPoint,
             Func<IEnumerable<Blob>, BlobContentId>? idProvider = null)
         {
-            if (tablesAndHeaps == null)
+            if (tablesAndHeaps is null)
             {
                 Throw.ArgumentNull(nameof(tablesAndHeaps));
             }
@@ -60,7 +61,7 @@ namespace System.Reflection.Metadata.Ecma335
             _builder = tablesAndHeaps;
             _entryPoint = entryPoint;
 
-            Debug.Assert(BlobUtilities.GetUTF8ByteCount(MetadataVersion) == MetadataVersion.Length);
+            Debug.Assert(Encoding.UTF8.GetByteCount(MetadataVersion) == MetadataVersion.Length);
             _serializedMetadata = tablesAndHeaps.GetSerializedMetadata(typeSystemRowCounts, MetadataVersion.Length, isStandaloneDebugMetadata: true);
 
             IdProvider = idProvider ?? BlobContentId.GetTimeBasedProvider();
@@ -124,7 +125,7 @@ namespace System.Reflection.Metadata.Ecma335
         /// <exception cref="ArgumentNullException"><paramref name="builder"/> is null.</exception>
         public BlobContentId Serialize(BlobBuilder builder)
         {
-            if (builder == null)
+            if (builder is null)
             {
                 Throw.ArgumentNull(nameof(builder));
             }

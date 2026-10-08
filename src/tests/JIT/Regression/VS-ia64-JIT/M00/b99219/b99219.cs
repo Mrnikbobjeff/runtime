@@ -2,12 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b99219;
+
 using System;
+using Xunit;
 public class a
 {
     static int temp = 0;
 
-    public static void MiddleMethod()
+    internal static void MiddleMethod()
     {
         temp += 1;
         try
@@ -24,7 +28,8 @@ public class a
         Console.WriteLine("Done...");
     }
 
-    public static int Main(string[] args)
+    [Fact]
+    public static int TestEntryPoint()
     {
         Console.WriteLine("Starting....");
 

@@ -2,9 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Globalization;
 
 namespace System.IO
 {
@@ -13,7 +13,7 @@ namespace System.IO
         // An alternative to Win32Marshal with friendlier messages for drives
         internal static Exception GetExceptionForLastWin32DriveError(string driveName)
         {
-            int errorCode = Marshal.GetLastWin32Error();
+            int errorCode = Marshal.GetLastPInvokeError();
             return GetExceptionForWin32DriveError(errorCode, driveName);
         }
 

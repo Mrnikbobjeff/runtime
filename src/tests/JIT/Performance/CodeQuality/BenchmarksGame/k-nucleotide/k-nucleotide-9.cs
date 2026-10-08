@@ -7,8 +7,9 @@
 // Best-scoring C# .NET Core version as of 2017-09-01
 
 /* The Computer Language Benchmarks Game
+using TestLibrary;
    http://benchmarksgame.alioth.debian.org/
- 
+
    submitted by Josh Goldfoot
    Modified to reduce memory and do more in parallel by Anthony Lloyd
  */
@@ -20,16 +21,12 @@ using System.Linq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using System.Runtime.CompilerServices;
-using Microsoft.Xunit.Performance;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
-[assembly: MeasureGCCounts]
 
 namespace BenchmarksGame
 {
     class Wrapper { public int v = 1; }
-    public static class KNucleotide_9
+    public class KNucleotide_9
     {
         const int BLOCK_SIZE = 1024 * 1024 * 8;
         static List<byte[]> threeBlocks = new List<byte[]>();
@@ -257,25 +254,14 @@ namespace BenchmarksGame
             return string.Concat(n.ToString(), "\t", fragment);
         }
 
-        public static int Main(string[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             var helpers = new TestHarnessHelpers(bigInput: false);
             bool ok = Bench(helpers, true);
 
             return (ok ? 100 : -1);
-        }
-
-        [Benchmark(InnerIterationCount = 10)]
-        public static void RunBench()
-        {
-            var helpers = new TestHarnessHelpers(bigInput: true);
-            bool ok = true;
-
-            Benchmark.Iterate(() =>
-            {
-                ok &= Bench(helpers, false);
-            });
-            Assert.True(ok);
         }
 
         static bool Bench(TestHarnessHelpers helpers, bool verbose)

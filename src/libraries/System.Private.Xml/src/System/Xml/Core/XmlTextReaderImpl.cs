@@ -1,25 +1,25 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.IO;
-using System.Text;
-using System.Xml.Schema;
-using System.Diagnostics;
-using System.Globalization;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
-using System.Diagnostics.CodeAnalysis;
+using System.Xml.Schema;
 
 namespace System.Xml
 {
-    internal partial class XmlTextReaderImpl : XmlReader, IXmlLineInfo, IXmlNamespaceResolver
+    internal sealed partial class XmlTextReaderImpl : XmlReader, IXmlLineInfo, IXmlNamespaceResolver
     {
         private static UTF8Encoding? s_utf8BomThrowing;
 
         private static UTF8Encoding UTF8BomThrowing =>
-            s_utf8BomThrowing ?? (s_utf8BomThrowing = new UTF8Encoding(encoderShouldEmitUTF8Identifier: true, throwOnInvalidBytes: true));
+            s_utf8BomThrowing ??= new UTF8Encoding(encoderShouldEmitUTF8Identifier: true, throwOnInvalidBytes: true);
 
         //
         // Private helper types
@@ -115,7 +115,7 @@ namespace System.Xml
 
         //later init means in the construction stage, do not open filestream and do not read any data from Stream/TextReader
         //the purpose is to make the Create of XmlReader do not block on IO.
-        private class LaterInitParam
+        private sealed class LaterInitParam
         {
             public bool useAsync;
 
@@ -143,9 +143,6 @@ namespace System.Xml
 
         #endregion
 
-        // XmlCharType instance
-        private XmlCharType _xmlCharType = XmlCharType.Instance;
-
         // current parsing state (aka. scanner data)
         private ParsingState _ps;
 
@@ -170,10 +167,10 @@ namespace System.Xml
         private int _attrDuplWalkCount;
         private bool _attrNeedNamespaceLookup;
         private bool _fullAttrCleanup;
-        private NodeData[]? _attrDuplSortingArray;
+        private HashSet<NodeData>? _attrDuplSet;
 
         // name table
-        private XmlNameTable _nameTable = null!; // TODO-NULLABLE: https://github.com/dotnet/roslyn/issues/43523
+        private XmlNameTable _nameTable;
         private bool _nameTableFromSettings;
 
         // resolver
@@ -213,7 +210,7 @@ namespace System.Xml
         private int _parsingStatesStackTop = -1;
 
         // current node base uri and encoding
-        private string? _reportedBaseUri;
+        private string _reportedBaseUri = string.Empty;
         private Encoding? _reportedEncoding;
 
         // DTD
@@ -263,7 +260,7 @@ namespace System.Xml
         private long _charactersFromEntities;
 
         // All entities that are currently being processed
-        private Dictionary<IDtdEntityInfo, IDtdEntityInfo>? _currentEntities;
+        private HashSet<IDtdEntityInfo>? _currentEntities;
 
         // DOM helpers
         private bool _disableUndeclaredEntityCheck;
@@ -290,7 +287,7 @@ namespace System.Xml
         private const int NodesInitialSize = 8;
         private const int InitialParsingStatesDepth = 2;
         private const int MaxByteSequenceLen = 6;  // max bytes per character
-        private const int MaxAttrDuplWalkCount = 250;
+        private const int MaxAttrDuplWalkCount = 64;
         private const int MinWhitespaceLookahedCount = 4096;
 
         private const string XmlDeclarationBeginning = "<?xml";
@@ -371,7 +368,7 @@ namespace System.Xml
                 if (nt == null)
                 {
                     nt = new NameTable();
-                    Debug.Assert(_nameTableFromSettings == false);
+                    Debug.Assert(!_nameTableFromSettings);
                 }
                 else
                 {
@@ -466,7 +463,7 @@ namespace System.Xml
             ConvertAbsoluteUnixPathToAbsoluteUri(ref url, resolver: null);
             _namespaceManager = new XmlNamespaceManager(nt);
 
-            if (url == null || url.Length == 0)
+            if (string.IsNullOrEmpty(url))
             {
                 InitStreamInput(input, null);
             }
@@ -497,7 +494,7 @@ namespace System.Xml
         {
             ConvertAbsoluteUnixPathToAbsoluteUri(ref url, resolver: null);
             _namespaceManager = new XmlNamespaceManager(nt);
-            _reportedBaseUri = (url != null) ? url : string.Empty;
+            _reportedBaseUri = url ?? string.Empty;
             InitTextReaderInput(_reportedBaseUri, input);
             _reportedEncoding = _ps.encoding;
         }
@@ -508,8 +505,8 @@ namespace System.Xml
         internal XmlTextReaderImpl(Stream xmlFragment, XmlNodeType fragType, XmlParserContext? context)
             : this((context != null && context.NameTable != null) ? context.NameTable : new NameTable())
         {
-            Encoding? enc = (context != null) ? context.Encoding : null;
-            if (context == null || context.BaseURI == null || context.BaseURI.Length == 0)
+            Encoding? enc = context?.Encoding;
+            if (context == null || string.IsNullOrEmpty(context.BaseURI))
             {
                 InitStreamInput(xmlFragment, enc);
             }
@@ -531,10 +528,7 @@ namespace System.Xml
         internal XmlTextReaderImpl(string xmlFragment, XmlNodeType fragType, XmlParserContext? context)
             : this(null == context || null == context.NameTable ? new NameTable() : context.NameTable)
         {
-            if (xmlFragment == null)
-            {
-                xmlFragment = string.Empty;
-            }
+            xmlFragment ??= string.Empty;
 
             if (context == null)
             {
@@ -558,7 +552,7 @@ namespace System.Xml
         internal XmlTextReaderImpl(string xmlFragment, XmlParserContext? context)
             : this(null == context || null == context.NameTable ? new NameTable() : context.NameTable)
         {
-            InitStringInput((context == null) ? string.Empty : context.BaseURI, Encoding.Unicode, string.Concat("<?xml ", xmlFragment, "?>"));
+            InitStringInput((context == null) ? string.Empty : context.BaseURI, Encoding.Unicode, $"<?xml {xmlFragment}?>");
             InitFragmentReader(XmlNodeType.XmlDeclaration, context, true);
         }
 
@@ -570,15 +564,7 @@ namespace System.Xml
 
         public XmlTextReaderImpl(string url, XmlNameTable nt) : this(nt)
         {
-            if (url == null)
-            {
-                throw new ArgumentNullException(nameof(url));
-            }
-
-            if (url.Length == 0)
-            {
-                throw new ArgumentException(SR.Xml_EmptyUrl, nameof(url));
-            }
+            ArgumentException.ThrowIfNullOrEmpty(url);
 
             _namespaceManager = new XmlNamespaceManager(nt);
 
@@ -639,7 +625,7 @@ namespace System.Xml
 
         private void FinishInitUriString()
         {
-            Stream? stream = null;
+            Stream? stream;
             Debug.Assert(_laterInitParam != null);
             Debug.Assert(_laterInitParam.inputUriResolver != null);
             Debug.Assert(_laterInitParam.inputbaseUri != null);
@@ -715,7 +701,7 @@ namespace System.Xml
                 }
             }
 
-            _reportedBaseUri = baseUriStr;
+            _reportedBaseUri = baseUriStr ?? string.Empty;
             _closeInput = closeInput;
 
             _laterInitParam = new LaterInitParam();
@@ -767,7 +753,7 @@ namespace System.Xml
 
         // Initializes a new instance of the XmlTextReaderImpl class with the specified arguments.
         // This constructor is used when creating XmlTextReaderImpl via XmlReader.Create
-        internal XmlTextReaderImpl(TextReader input, XmlReaderSettings settings, string? baseUriStr, XmlParserContext? context)
+        internal XmlTextReaderImpl(TextReader input, XmlReaderSettings settings, string baseUriStr, XmlParserContext? context)
             : this(settings.GetXmlResolver(), settings, context)
         {
             ConvertAbsoluteUnixPathToAbsoluteUri(ref baseUriStr, settings.GetXmlResolver());
@@ -944,7 +930,7 @@ namespace System.Xml
         }
 
         // Returns the base URI of the current node.
-        public override string? BaseURI
+        public override string BaseURI
         {
             get
             {
@@ -1078,10 +1064,8 @@ namespace System.Xml
         // Returns value of an attribute at the specified index (position)
         public override string GetAttribute(int i)
         {
-            if (i < 0 || i >= _attrCount)
-            {
-                throw new ArgumentOutOfRangeException(nameof(i));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(i);
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(i, _attrCount);
 
             return _nodes[_index + i + 1].StringValue;
         }
@@ -1142,10 +1126,8 @@ namespace System.Xml
         // Moves to an attribute at the specified index (position)
         public override void MoveToAttribute(int i)
         {
-            if (i < 0 || i >= _attrCount)
-            {
-                throw new ArgumentOutOfRangeException(nameof(i));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(i);
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(i, _attrCount);
 
             if (InAttributeValueIterator)
             {
@@ -1609,23 +1591,10 @@ namespace System.Xml
         // Reads and concatenates content nodes, base64-decodes the results and copies the decoded bytes into the provided buffer
         public override int ReadContentAsBase64(byte[] buffer, int index, int count)
         {
-            // check arguments
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-            if (index < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index));
-            }
-            if (buffer.Length - index < count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+            ArgumentNullException.ThrowIfNull(buffer);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, buffer.Length - index);
 
             // if not the first call to ReadContentAsBase64
             if (_parsingFunction == ParsingFunction.InReadContentAsBinary)
@@ -1669,23 +1638,10 @@ namespace System.Xml
         // Reads and concatenates content nodes, binhex-decodes the results and copies the decoded bytes into the provided buffer
         public override int ReadContentAsBinHex(byte[] buffer, int index, int count)
         {
-            // check arguments
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-            if (index < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index));
-            }
-            if (buffer.Length - index < count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+            ArgumentNullException.ThrowIfNull(buffer);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, buffer.Length - index);
 
             // if not the first call to ReadContentAsBinHex
             if (_parsingFunction == ParsingFunction.InReadContentAsBinary)
@@ -1728,23 +1684,10 @@ namespace System.Xml
         // Reads and concatenates content of an element, base64-decodes the results and copies the decoded bytes into the provided buffer
         public override int ReadElementContentAsBase64(byte[] buffer, int index, int count)
         {
-            // check arguments
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-            if (index < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index));
-            }
-            if (buffer.Length - index < count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+            ArgumentNullException.ThrowIfNull(buffer);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, buffer.Length - index);
 
             // if not the first call to ReadContentAsBase64
             if (_parsingFunction == ParsingFunction.InReadElementContentAsBinary)
@@ -1788,23 +1731,10 @@ namespace System.Xml
         // Reads and concatenates content of an element, binhex-decodes the results and copies the decoded bytes into the provided buffer
         public override int ReadElementContentAsBinHex(byte[] buffer, int index, int count)
         {
-            // check arguments
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-            if (index < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index));
-            }
-            if (buffer.Length - index < count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+            ArgumentNullException.ThrowIfNull(buffer);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, buffer.Length - index);
 
             // if not the first call to ReadContentAsBinHex
             if (_parsingFunction == ParsingFunction.InReadElementContentAsBinary)
@@ -1861,23 +1791,10 @@ namespace System.Xml
             {
                 throw new InvalidOperationException(SR.Format(SR.Xml_InvalidReadValueChunk, _curNode.type));
             }
-            // check arguments
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-            if (index < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index));
-            }
-            if (buffer.Length - index < count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+            ArgumentNullException.ThrowIfNull(buffer);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, buffer.Length - index);
 
             // first call of ReadValueChunk -> initialize incremental read state
             if (_parsingFunction != ParsingFunction.InReadValueChunk)
@@ -2153,10 +2070,7 @@ namespace System.Xml
             {
                 Debug.Assert(_v1Compat, "XmlTextReaderImpl.DtdProcessing property cannot be changed on reader created via XmlReader.Create.");
 
-                if ((uint)value > (uint)DtdProcessing.Parse)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(value));
-                }
+                ArgumentOutOfRangeException.ThrowIfGreaterThan((uint)value, (uint)DtdProcessing.Parse, nameof(value));
 
                 _dtdProcessing = value;
             }
@@ -2296,10 +2210,7 @@ namespace System.Xml
             {
                 if (_incReadDecoder != _readCharsDecoder)
                 { // mixing ReadChars with ReadBase64 or ReadBinHex
-                    if (_readCharsDecoder == null)
-                    {
-                        _readCharsDecoder = new IncrementalReadCharsDecoder();
-                    }
+                    _readCharsDecoder ??= new IncrementalReadCharsDecoder();
                     _readCharsDecoder.Reset();
                     _incReadDecoder = _readCharsDecoder;
                 }
@@ -2317,10 +2228,7 @@ namespace System.Xml
                     return 0;
                 }
 
-                if (_readCharsDecoder == null)
-                {
-                    _readCharsDecoder = new IncrementalReadCharsDecoder();
-                }
+                _readCharsDecoder ??= new IncrementalReadCharsDecoder();
 
                 InitIncrementalRead(_readCharsDecoder);
                 return IncrementalRead(buffer, index, count);
@@ -2354,10 +2262,7 @@ namespace System.Xml
                     return 0;
                 }
 
-                if (_base64Decoder == null)
-                {
-                    _base64Decoder = new Base64Decoder();
-                }
+                _base64Decoder ??= new Base64Decoder();
 
                 InitIncrementalRead(_base64Decoder);
                 return IncrementalRead(array, offset, len);
@@ -2391,10 +2296,7 @@ namespace System.Xml
                     return 0;
                 }
 
-                if (_binHexDecoder == null)
-                {
-                    _binHexDecoder = new BinHexDecoder();
-                }
+                _binHexDecoder ??= new BinHexDecoder();
 
                 InitIncrementalRead(_binHexDecoder);
                 return IncrementalRead(array, offset, len);
@@ -2560,8 +2462,7 @@ namespace System.Xml
 
         internal int DtdParserProxy_ParseNumericCharRef(StringBuilder? internalSubsetBuilder)
         {
-            EntityType entType;
-            return this.ParseNumericCharRef(true, internalSubsetBuilder, out entType);
+            return this.ParseNumericCharRef(true, internalSubsetBuilder, out _);
         }
 
         internal int DtdParserProxy_ParseNamedCharRef(bool expand, StringBuilder? internalSubsetBuilder)
@@ -2631,7 +2532,7 @@ namespace System.Xml
 
         private XmlResolver GetTempResolver()
         {
-            return _xmlResolver == null ? new XmlUrlResolver() : _xmlResolver;
+            return _xmlResolver ?? XmlReaderSettings.GetDefaultPermissiveResolver();
         }
 
         internal bool DtdParserProxy_PushEntity(IDtdEntityInfo entity, out int entityId)
@@ -2868,10 +2769,7 @@ namespace System.Xml
 
         private void SendValidationEvent(XmlSeverityType severity, XmlSchemaException exception)
         {
-            if (_validationEventHandling != null)
-            {
-                _validationEventHandling.SendEvent(exception, severity);
-            }
+            _validationEventHandling?.SendEvent(exception, severity);
         }
 
         //
@@ -2982,23 +2880,19 @@ namespace System.Xml
 
             // make sure we have at least 4 bytes to detect the encoding (no preamble of System.Text supported encoding is longer than 4 bytes)
             _ps.bytePos = 0;
-            while (_ps.bytesUsed < 4 && _ps.bytes.Length - _ps.bytesUsed > 0)
+            if (_ps.bytesUsed < 4 && _ps.bytes.Length - _ps.bytesUsed > 0)
             {
-                int read = stream.Read(_ps.bytes, _ps.bytesUsed, _ps.bytes.Length - _ps.bytesUsed);
-                if (read == 0)
+                int bytesToRead = Math.Min(4, _ps.bytes.Length - _ps.bytesUsed);
+                int read = stream.ReadAtLeast(_ps.bytes.AsSpan(_ps.bytesUsed), bytesToRead, throwOnEndOfStream: false);
+                if (read < bytesToRead)
                 {
                     _ps.isStreamEof = true;
-                    break;
                 }
                 _ps.bytesUsed += read;
             }
 
             // detect & setup encoding
-            if (encoding == null)
-            {
-                encoding = DetectEncoding();
-            }
-
+            encoding ??= DetectEncoding();
             SetupEncoding(encoding);
 
             // eat preamble
@@ -3300,18 +3194,9 @@ namespace System.Xml
             Debug.Assert(_ps.encoding != null);
             Debug.Assert(_ps.bytes != null);
             ReadOnlySpan<byte> preamble = _ps.encoding.Preamble;
-            int preambleLen = preamble.Length;
-            int i;
-            for (i = 0; i < preambleLen && i < _ps.bytesUsed; i++)
+            if (_ps.bytes.AsSpan(0, _ps.bytesUsed).StartsWith(preamble))
             {
-                if (_ps.bytes[i] != preamble[i])
-                {
-                    break;
-                }
-            }
-            if (i == preambleLen)
-            {
-                _ps.bytePos = preambleLen;
+                _ps.bytePos = preamble.Length;
             }
         }
 
@@ -3428,7 +3313,24 @@ namespace System.Xml
             {
                 Debug.Assert(_ps.encoding != null);
                 Debug.Assert(_ps.chars != null);
-                _ps.bytePos += _ps.encoding.GetByteCount(_ps.chars, 0, _ps.charPos);
+                if (_ps.decoder is SafeAsciiDecoder)
+                {
+                    // SafeAsciiDecoder maps 1 byte to 1 char regardless of encoding.
+                    // If any decoded char requires more bytes in the target encoding than
+                    // SafeAsciiDecoder consumed (1 byte), the input contains bytes that are
+                    // invalid in the target encoding (e.g., 0x80-0xFF treated as single chars
+                    // but requiring multi-byte sequences in UTF-8).
+                    _ps.bytePos += _ps.charPos;
+                    int encodingByteCount = _ps.encoding.GetByteCount(_ps.chars, 0, _ps.charPos);
+                    if (encodingByteCount != _ps.charPos)
+                    {
+                        Throw(SR.Xml_InvalidCharInThisEncoding);
+                    }
+                }
+                else
+                {
+                    _ps.bytePos += _ps.encoding.GetByteCount(_ps.chars, 0, _ps.charPos);
+                }
             }
 
             _ps.charsUsed = _ps.charPos;
@@ -3507,7 +3409,7 @@ namespace System.Xml
                     int copyCharsCount = _ps.charsUsed - _ps.charPos;
                     if (copyCharsCount < charsLen - 1)
                     {
-                        _ps.lineStartPos = _ps.lineStartPos - _ps.charPos;
+                        _ps.lineStartPos -= _ps.charPos;
                         if (copyCharsCount > 0)
                         {
                             BlockCopyChars(_ps.chars, _ps.charPos, _ps.chars, 0, copyCharsCount);
@@ -3706,8 +3608,8 @@ namespace System.Xml
                 }
             }
 
-            if (!XmlConvert.StrEqual(_ps.chars, _ps.charPos, 5, XmlDeclarationBeginning) ||
-                 _xmlCharType.IsNameSingleChar(_ps.chars![_ps.charPos + 5]))
+            if (!_ps.chars.AsSpan(_ps.charPos).StartsWith(XmlDeclarationBeginning) ||
+                 XmlCharType.IsNameSingleChar(_ps.chars![_ps.charPos + 5]))
             {
                 goto NoXmlDecl;
             }
@@ -3720,7 +3622,7 @@ namespace System.Xml
 
             _ps.charPos += 5;
 
-            // parsing of text declarations cannot change global stringBuidler or curNode as we may be in the middle of a text node
+            // parsing of text declarations cannot change global stringBuilder or curNode as we may be in the middle of a text node
             Debug.Assert(_stringBuilder.Length == 0 || isTextDecl);
             StringBuilder sb = isTextDecl ? new StringBuilder() : _stringBuilder;
 
@@ -3804,10 +3706,10 @@ namespace System.Xml
                 int nameEndPos = ParseName();
 
                 NodeData? attr = null;
-                switch (_ps.chars[_ps.charPos])
+                switch (_ps.chars.AsSpan(_ps.charPos, nameEndPos - _ps.charPos))
                 {
-                    case 'v':
-                        if (XmlConvert.StrEqual(_ps.chars, _ps.charPos, nameEndPos - _ps.charPos, "version") && xmlDeclState == 0)
+                    case "version":
+                        if (xmlDeclState == 0)
                         {
                             if (!isTextDecl)
                             {
@@ -3816,9 +3718,8 @@ namespace System.Xml
                             break;
                         }
                         goto default;
-                    case 'e':
-                        if (XmlConvert.StrEqual(_ps.chars, _ps.charPos, nameEndPos - _ps.charPos, "encoding") &&
-                            (xmlDeclState == 1 || (isTextDecl && xmlDeclState == 0)))
+                    case "encoding":
+                        if (xmlDeclState == 1 || (isTextDecl && xmlDeclState == 0))
                         {
                             if (!isTextDecl)
                             {
@@ -3828,14 +3729,10 @@ namespace System.Xml
                             break;
                         }
                         goto default;
-                    case 's':
-                        if (XmlConvert.StrEqual(_ps.chars, _ps.charPos, nameEndPos - _ps.charPos, "standalone") &&
-                             (xmlDeclState == 1 || xmlDeclState == 2) && !isTextDecl)
+                    case "standalone":
+                        if ((xmlDeclState == 1 || xmlDeclState == 2) && !isTextDecl)
                         {
-                            if (!isTextDecl)
-                            {
-                                attr = AddAttributeNoChecks("standalone", 1);
-                            }
+                            attr = AddAttributeNoChecks("standalone", 1);
                             xmlDeclState = 2;
                             break;
                         }
@@ -3889,7 +3786,7 @@ namespace System.Xml
                 char[] chars;
             Continue:
                 chars = _ps.chars;
-                while (_xmlCharType.IsAttributeValueChar(chars[pos]))
+                while (XmlCharType.IsAttributeValueChar(chars[pos]))
                 {
                     pos++;
                 }
@@ -3901,7 +3798,7 @@ namespace System.Xml
                         // version
                         case 0:
                             // VersionNum  ::=  '1.0'        (XML Fourth Edition and earlier)
-                            if (XmlConvert.StrEqual(_ps.chars, _ps.charPos, pos - _ps.charPos, "1.0"))
+                            if (_ps.chars.AsSpan(_ps.charPos).StartsWith("1.0"))
                             {
                                 if (!isTextDecl)
                                 {
@@ -3927,18 +3824,18 @@ namespace System.Xml
                             xmlDeclState = 2;
                             break;
                         case 2:
-                            if (XmlConvert.StrEqual(_ps.chars, _ps.charPos, pos - _ps.charPos, "yes"))
+                            switch (_ps.chars.AsSpan(_ps.charPos, pos - _ps.charPos))
                             {
-                                _standalone = true;
-                            }
-                            else if (XmlConvert.StrEqual(_ps.chars, _ps.charPos, pos - _ps.charPos, "no"))
-                            {
-                                _standalone = false;
-                            }
-                            else
-                            {
-                                Debug.Assert(!isTextDecl);
-                                Throw(SR.Xml_InvalidXmlDecl, _ps.LineNo, _ps.LinePos - 1);
+                                case "yes":
+                                    _standalone = true;
+                                    break;
+                                case "no":
+                                    _standalone = false;
+                                    break;
+                                default:
+                                    Debug.Assert(!isTextDecl);
+                                    Throw(SR.Xml_InvalidXmlDecl, _ps.LineNo, _ps.LinePos - 1);
+                                    break;
                             }
                             if (!isTextDecl)
                             {
@@ -4063,7 +3960,7 @@ namespace System.Xml
                                     {
                                         goto ReadData;
                                     }
-                                    if (XmlConvert.StrEqual(chars, pos, 6, "CDATA["))
+                                    if (chars.AsSpan(pos).StartsWith("CDATA["))
                                     {
                                         _ps.charPos = pos + 6;
                                         ParseCData();
@@ -4143,8 +4040,7 @@ namespace System.Xml
                         {
                             _fragmentType = XmlNodeType.Element;
                         }
-                        int i;
-                        switch (HandleEntityReference(false, EntityExpandType.OnlyGeneral, out i))
+                        switch (HandleEntityReference(false, EntityExpandType.OnlyGeneral, out _))
                         {
                             case EntityType.Unexpanded:
                                 if (_parsingFunction == ParsingFunction.EntityReference)
@@ -4162,8 +4058,6 @@ namespace System.Xml
                                 }
                                 continue;
                             default:
-                                chars = _ps.chars;
-                                pos = _ps.charPos;
                                 continue;
                         }
                     }
@@ -4201,11 +4095,7 @@ namespace System.Xml
 
             ReadData:
                 // read new characters into the buffer
-                if (ReadData() != 0)
-                {
-                    pos = _ps.charPos;
-                }
-                else
+                if (ReadData() == 0)
                 {
                     if (needMoreChars)
                     {
@@ -4235,9 +4125,6 @@ namespace System.Xml
                     OnEof();
                     return false;
                 }
-
-                pos = _ps.charPos;
-                chars = _ps.chars;
             }
         }
 
@@ -4293,7 +4180,7 @@ namespace System.Xml
                                     {
                                         goto ReadData;
                                     }
-                                    if (XmlConvert.StrEqual(chars, pos, 6, "CDATA["))
+                                    if (chars.AsSpan(pos).StartsWith("CDATA["))
                                     {
                                         _ps.charPos = pos + 6;
                                         ParseCData();
@@ -4431,7 +4318,7 @@ namespace System.Xml
         // case occurs (like end of buffer, invalid name char)
         ContinueStartName:
             // check element name start char
-            if (_xmlCharType.IsStartNCNameSingleChar(chars[pos]))
+            if (XmlCharType.IsStartNCNameSingleChar(chars[pos]))
             {
                 pos++;
             }
@@ -4444,7 +4331,7 @@ namespace System.Xml
             // parse element name
             while (true)
             {
-                if (_xmlCharType.IsNCNameSingleChar(chars[pos]))
+                if (XmlCharType.IsNCNameSingleChar(chars[pos]))
                 {
                     pos++;
                 }
@@ -4500,7 +4387,7 @@ namespace System.Xml
             {
                 int startPos = _ps.charPos;
                 int prefixLen = colonPos - startPos;
-                if (prefixLen == _lastPrefix.Length && XmlConvert.StrEqual(chars, startPos, prefixLen, _lastPrefix))
+                if (prefixLen == _lastPrefix.Length && chars.AsSpan(startPos).StartsWith(_lastPrefix))
                 {
                     _curNode.SetNamedNode(XmlNodeType.Element,
                                           _nameTable.Add(chars, colonPos + 1, pos - colonPos - 1),
@@ -4519,7 +4406,7 @@ namespace System.Xml
 
             char ch = chars[pos];
             // whitespace after element name -> there are probably some attributes
-            bool isWs = _xmlCharType.IsWhiteSpace(ch);
+            bool isWs = XmlCharType.IsWhiteSpace(ch);
             if (isWs)
             {
                 _ps.charPos = pos;
@@ -4635,7 +4522,7 @@ namespace System.Xml
 
                 foreach (IDtdDefaultAttributeInfo defaultAttributeInfo in defaultAttributes)
                 {
-                    if (AddDefaultAttributeDtd(defaultAttributeInfo, true, nameSortedAttributes))
+                    if (AddDefaultAttributeDtd(defaultAttributeInfo, nameSortedAttributes))
                     {
                         if (DtdValidation && _standalone && defaultAttributeInfo.IsDeclaredInExternal)
                         {
@@ -4676,7 +4563,7 @@ namespace System.Xml
             char[] chars = _ps.chars;
             if (startTagNode.prefix.Length == 0)
             {
-                if (!XmlConvert.StrEqual(chars, _ps.charPos, locLen, startTagNode.localName))
+                if (!chars.AsSpan(_ps.charPos).StartsWith(startTagNode.localName))
                 {
                     ThrowTagMismatch(startTagNode);
                 }
@@ -4685,9 +4572,9 @@ namespace System.Xml
             else
             {
                 int colonPos = _ps.charPos + prefLen;
-                if (!XmlConvert.StrEqual(chars, _ps.charPos, prefLen, startTagNode.prefix) ||
+                if (!chars.AsSpan(_ps.charPos).StartsWith(startTagNode.prefix) ||
                         chars[colonPos] != ':' ||
-                        !XmlConvert.StrEqual(chars, colonPos + 1, locLen, startTagNode.localName))
+                        !chars.AsSpan(colonPos + 1).StartsWith(startTagNode.localName))
                 {
                     ThrowTagMismatch(startTagNode);
                 }
@@ -4707,7 +4594,7 @@ namespace System.Xml
                     goto ReadData;
                 }
 
-                if (_xmlCharType.IsNCNameSingleChar(chars[pos]) || (chars[pos] == ':'))
+                if (XmlCharType.IsNCNameSingleChar(chars[pos]) || (chars[pos] == ':'))
                 {
                     ThrowTagMismatch(startTagNode);
                 }
@@ -4716,7 +4603,7 @@ namespace System.Xml
                 if (chars[pos] != '>')
                 {
                     char tmpCh;
-                    while (_xmlCharType.IsWhiteSpace(tmpCh = chars[pos]))
+                    while (XmlCharType.IsWhiteSpace(tmpCh = chars[pos]))
                     {
                         pos++;
                         switch (tmpCh)
@@ -4781,8 +4668,7 @@ namespace System.Xml
             if (startTag.type == XmlNodeType.Element)
             {
                 // parse the bad name
-                int colonPos;
-                int endPos = ParseQName(out colonPos);
+                int endPos = ParseQName(out _);
 
                 Debug.Assert(_ps.chars != null);
                 string[] args = new string[4];
@@ -4814,7 +4700,7 @@ namespace System.Xml
                 // eat whitespace
                 int lineNoDelta = 0;
                 char tmpch0;
-                while (_xmlCharType.IsWhiteSpace(tmpch0 = chars[pos]))
+                while (XmlCharType.IsWhiteSpace(tmpch0 = chars[pos]))
                 {
                     if (tmpch0 == (char)0xA)
                     {
@@ -4846,7 +4732,7 @@ namespace System.Xml
                 char tmpch1;
                 int startNameCharSize = 0;
 
-                if (_xmlCharType.IsStartNCNameSingleChar(tmpch1 = chars[pos]))
+                if (XmlCharType.IsStartNCNameSingleChar(tmpch1 = chars[pos]))
                 {
                     startNameCharSize = 1;
                 }
@@ -4918,7 +4804,7 @@ namespace System.Xml
 
                 while (true)
                 {
-                    if (_xmlCharType.IsNCNameSingleChar(tmpch2 = chars[pos]))
+                    if (XmlCharType.IsNCNameSingleChar(tmpch2 = chars[pos]))
                     {
                         pos++;
                     }
@@ -4948,7 +4834,7 @@ namespace System.Xml
                         colonPos = pos;
                         pos++;
 
-                        if (_xmlCharType.IsStartNCNameSingleChar(chars[pos]))
+                        if (XmlCharType.IsStartNCNameSingleChar(chars[pos]))
                         {
                             pos++;
                             goto ContinueParseName;
@@ -5004,7 +4890,7 @@ namespace System.Xml
 
                 // parse attribute value
                 char tmpch3;
-                while (_xmlCharType.IsAttributeValueChar(tmpch3 = chars[pos]))
+                while (XmlCharType.IsAttributeValueChar(tmpch3 = chars[pos]))
                 {
                     pos++;
                 }
@@ -5131,22 +5017,15 @@ namespace System.Xml
             }
             else
             {
-                if (_attrDuplSortingArray == null || _attrDuplSortingArray.Length < _attrCount)
-                {
-                    _attrDuplSortingArray = new NodeData[_attrCount];
-                }
-                Array.Copy(_nodes, _index + 1, _attrDuplSortingArray, 0, _attrCount);
-                Array.Sort(_attrDuplSortingArray, 0, _attrCount);
+                _attrDuplSet ??= new HashSet<NodeData>(NodeData.AtomizedNameEqualityComparer.Instance);
+                _attrDuplSet.Clear();
 
-                NodeData attr1 = _attrDuplSortingArray[0];
-                for (int i = 1; i < _attrCount; i++)
+                for (int i = _index + 1; i < _index + 1 + _attrCount; i++)
                 {
-                    NodeData attr2 = _attrDuplSortingArray[i];
-                    if (Ref.Equal(attr1.localName, attr2.localName) && Ref.Equal(attr1.ns, attr2.ns))
+                    if (!_attrDuplSet.Add(_nodes[i]))
                     {
-                        Throw(SR.Xml_DupAttributeName, attr2.GetNameWPrefix(_nameTable), attr2.LineNo, attr2.LinePos);
+                        Throw(SR.Xml_DupAttributeName, _nodes[i].GetNameWPrefix(_nameTable), _nodes[i].LineNo, _nodes[i].LinePos);
                     }
-                    attr1 = attr2;
                 }
             }
         }
@@ -5196,7 +5075,7 @@ namespace System.Xml
                         PushXmlContext();
                     }
 
-                    switch (XmlConvert.TrimString(attr.StringValue))
+                    switch (attr.StringValue.AsSpan().Trim(XmlConvert.WhitespaceChars))
                     {
                         case "preserve":
                             _xmlContext.xmlSpace = XmlSpace.Preserve;
@@ -5236,7 +5115,7 @@ namespace System.Xml
             while (true)
             {
                 // parse the rest of the attribute value
-                while (_xmlCharType.IsAttributeValueChar(chars[pos]))
+                while (XmlCharType.IsAttributeValueChar(chars[pos]))
                 {
                     pos++;
                 }
@@ -5497,7 +5376,7 @@ namespace System.Xml
             _stringBuilder.Length = 0;
         }
 
-        private void AddAttributeChunkToList(NodeData attr, NodeData chunk, ref NodeData? lastChunk)
+        private static void AddAttributeChunkToList(NodeData attr, NodeData chunk, ref NodeData? lastChunk)
         {
             if (lastChunk == null)
             {
@@ -5525,7 +5404,7 @@ namespace System.Xml
             // skip over the text if not in full parsing mode
             if (_parsingMode != ParsingMode.Full)
             {
-                while (!ParseText(out startPos, out endPos, ref orChars));
+                while (!ParseText(out _, out _, ref orChars));
                 goto IgnoredNode;
             }
 
@@ -5586,7 +5465,7 @@ namespace System.Xml
                 // V2 reader -> do not cache the whole value yet, read only up to 4kB to decide whether the value is a whitespace
                 else
                 {
-                    bool fullValue = false;
+                    bool fullValue;
 
                     // if it's a partial text value, not a whitespace -> return
                     if (orChars > 0x20)
@@ -5621,7 +5500,7 @@ namespace System.Xml
                         _stringBuilder.Length = 0;
                         if (!fullValue)
                         {
-                            while (!ParseText(out startPos, out endPos, ref orChars));
+                            while (!ParseText(out _, out _, ref orChars));
                         }
                         goto IgnoredNode;
                     }
@@ -5678,7 +5557,7 @@ namespace System.Xml
             while (true)
             {
                 // parse text content
-                while (_xmlCharType.IsTextChar(c = chars[pos]))
+                while (XmlCharType.IsTextChar(c = chars[pos]))
                 {
                     orChars |= (int)c;
                     pos++;
@@ -5752,7 +5631,7 @@ namespace System.Xml
                             rcount += (charRefEndPos - pos - charCount);
                             pos = charRefEndPos;
 
-                            if (!_xmlCharType.IsWhiteSpace(chars[charRefEndPos - charCount]) ||
+                            if (!XmlCharType.IsWhiteSpace(chars[charRefEndPos - charCount]) ||
                                  (_v1Compat && entityType == EntityType.CharacterDec))
                             {
                                 orChars |= 0xFF;
@@ -5781,7 +5660,7 @@ namespace System.Xml
                                     break;
                                 case EntityType.CharacterHex:
                                 case EntityType.CharacterNamed:
-                                    if (!_xmlCharType.IsWhiteSpace(_ps.chars[pos - 1]))
+                                    if (!XmlCharType.IsWhiteSpace(_ps.chars[pos - 1]))
                                     {
                                         orChars |= 0xFF;
                                     }
@@ -5832,7 +5711,6 @@ namespace System.Xml
                             int offset = pos - _ps.charPos;
                             if (ZeroEndingStream(pos))
                             {
-                                chars = _ps.chars;
                                 pos = _ps.charPos + offset;
                                 goto ReturnPartialValue;
                             }
@@ -5971,12 +5849,10 @@ namespace System.Xml
         {
             Debug.Assert(_parsingFunction == ParsingFunction.PartialTextValue || _parsingFunction == ParsingFunction.InReadValueChunk ||
                           _parsingFunction == ParsingFunction.InReadContentAsBinary || _parsingFunction == ParsingFunction.InReadElementContentAsBinary);
-            int startPos;
-            int endPos;
             int orChars = 0;
 
             _parsingFunction = _nextParsingFunction;
-            while (!ParseText(out startPos, out endPos, ref orChars));
+            while (!ParseText(out _, out _, ref orChars));
         }
 
         private void FinishReadValueChunk()
@@ -6060,7 +5936,7 @@ namespace System.Xml
                 }
             }
 
-            if (_xmlCharType.IsCharData(_ps.chars[_ps.charPos]))
+            if (XmlCharType.IsCharData(_ps.chars[_ps.charPos]))
             {
                 Throw(SR.Xml_InvalidRootData);
             }
@@ -6223,7 +6099,7 @@ namespace System.Xml
                 {
                     PushExternalEntity(entity);
                     _curNode.entityId = _ps.entityId;
-                    return (isInAttributeValue && _validatingReaderCompatFlag) ? EntityType.ExpandedInAttribute : EntityType.Expanded;
+                    return EntityType.Expanded;
                 }
             }
             else
@@ -6401,7 +6277,7 @@ namespace System.Xml
                 {
                     if (_ignorePIs || _parsingMode != ParsingMode.Full)
                     {
-                        while (!ParsePIValue(out startPos, out endPos));
+                        while (!ParsePIValue(out _, out _));
                         return false;
                     }
                     sb = _stringBuilder;
@@ -6448,7 +6324,7 @@ namespace System.Xml
             while (true)
             {
                 char tmpch;
-                while (_xmlCharType.IsTextChar(tmpch = chars[pos]) && tmpch != '?')
+                while (XmlCharType.IsTextChar(tmpch = chars[pos]) && tmpch != '?')
                 {
                     pos++;
                 }
@@ -6628,7 +6504,7 @@ namespace System.Xml
             }
             else
             {
-                while (!ParseCDataOrComment(type, out startPos, out endPos));
+                while (!ParseCDataOrComment(type, out _, out _));
             }
         }
 
@@ -6654,7 +6530,7 @@ namespace System.Xml
             while (true)
             {
                 char tmpch;
-                while (_xmlCharType.IsTextChar(tmpch = chars[pos]) && tmpch != stopChar)
+                while (XmlCharType.IsTextChar(tmpch = chars[pos]) && tmpch != stopChar)
                 {
                     pos++;
                 }
@@ -6812,13 +6688,13 @@ namespace System.Xml
                 }
             }
 
-            if (!XmlConvert.StrEqual(_ps.chars, _ps.charPos, 7, "DOCTYPE"))
+            if (!_ps.chars.AsSpan(_ps.charPos).StartsWith("DOCTYPE"))
             {
                 ThrowUnexpectedToken((!_rootElementParsed && _dtdInfo == null) ? "DOCTYPE" : "<!--");
             }
 
             Debug.Assert(_ps.chars != null);
-            if (!_xmlCharType.IsWhiteSpace(_ps.chars[_ps.charPos + 7]))
+            if (!XmlCharType.IsWhiteSpace(_ps.chars[_ps.charPos + 7]))
             {
                 ThrowExpectingWhitespace(_ps.charPos + 7);
             }
@@ -6874,10 +6750,8 @@ namespace System.Xml
 
         private void SkipDtd()
         {
-            int colonPos;
-
             // parse dtd name
-            int pos = ParseQName(out colonPos);
+            int pos = ParseQName(out _);
             _ps.charPos = pos;
 
             // check whitespace
@@ -6896,7 +6770,7 @@ namespace System.Xml
                     }
                 }
                 // check 'PUBLIC'
-                if (!XmlConvert.StrEqual(_ps.chars, _ps.charPos, 6, "PUBLIC"))
+                if (!_ps.chars.AsSpan(_ps.charPos).StartsWith("PUBLIC"))
                 {
                     ThrowUnexpectedToken("PUBLIC");
                 }
@@ -6933,7 +6807,7 @@ namespace System.Xml
                     }
                 }
                 // check 'SYSTEM'
-                if (!XmlConvert.StrEqual(_ps.chars, _ps.charPos, 6, "SYSTEM"))
+                if (!_ps.chars.AsSpan(_ps.charPos).StartsWith("SYSTEM"))
                 {
                     ThrowUnexpectedToken("SYSTEM");
                 }
@@ -7008,7 +6882,7 @@ namespace System.Xml
             {
                 char ch;
 
-                while (_xmlCharType.IsAttributeValueChar(ch = chars[pos]) && chars[pos] != stopChar && ch != '-' && ch != '?')
+                while (XmlCharType.IsAttributeValueChar(ch = chars[pos]) && chars[pos] != stopChar && ch != '-' && ch != '?')
                 {
                     pos++;
                 }
@@ -7253,10 +7127,7 @@ namespace System.Xml
                                 int tmp2 = pos - _ps.charPos;
                                 if (tmp2 > 0)
                                 {
-                                    if (sb != null)
-                                    {
-                                        sb.Append(_ps.chars, _ps.charPos, tmp2);
-                                    }
+                                    sb?.Append(_ps.chars, _ps.charPos, tmp2);
                                     _ps.charPos = pos;
                                     wsCount += tmp2;
                                 }
@@ -7269,10 +7140,7 @@ namespace System.Xml
                 int tmp3 = pos - _ps.charPos;
                 if (tmp3 > 0)
                 {
-                    if (sb != null)
-                    {
-                        sb.Append(_ps.chars, _ps.charPos, tmp3);
-                    }
+                    sb?.Append(_ps.chars, _ps.charPos, tmp3);
                     _ps.charPos = pos;
                     wsCount += tmp3;
                 }
@@ -7387,7 +7255,7 @@ namespace System.Xml
                 {
                     digitPos = pos;
                     badDigitExceptionString = SR.Xml_BadDecimalEntity;
-                    while (chars[pos] >= '0' && chars[pos] <= '9')
+                    while (char.IsAsciiDigit(chars[pos]))
                     {
                         val = checked(val * 10 + chars[pos] - '0');
                         pos++;
@@ -7427,7 +7295,7 @@ namespace System.Xml
             if (val <= char.MaxValue)
             {
                 char ch = (char)val;
-                if (!_xmlCharType.IsCharData(ch) &&
+                if (!XmlCharType.IsCharData(ch) &&
                      ((_v1Compat && _normalize) || (!_v1Compat && _checkCharacters)))
                 {
                     Throw((_ps.chars[startPos + 2] == 'x') ? startPos + 3 : startPos + 2, SR.Xml_InvalidCharacter, XmlException.BuildCharExceptionArgs(ch, '\0'));
@@ -7435,10 +7303,7 @@ namespace System.Xml
 
                 if (expand)
                 {
-                    if (internalSubsetBuilder != null)
-                    {
-                        internalSubsetBuilder.Append(_ps.chars, _ps.charPos, pos - _ps.charPos + 1);
-                    }
+                    internalSubsetBuilder?.Append(_ps.chars, _ps.charPos, pos - _ps.charPos + 1);
                     chars[pos] = ch;
                 }
                 charCount = 1;
@@ -7466,10 +7331,7 @@ namespace System.Xml
                 Debug.Assert(pos > 0);
                 if (expand)
                 {
-                    if (internalSubsetBuilder != null)
-                    {
-                        internalSubsetBuilder.Append(_ps.chars, _ps.charPos, pos - _ps.charPos + 1);
-                    }
+                    internalSubsetBuilder?.Append(_ps.chars, _ps.charPos, pos - _ps.charPos + 1);
                     chars[pos - 1] = (char)high;
                     chars[pos] = (char)low;
                 }
@@ -7635,10 +7497,7 @@ namespace System.Xml
             Debug.Assert(pos > 0);
             if (expand)
             {
-                if (internalSubsetBuilder != null)
-                {
-                    internalSubsetBuilder.Append(_ps.chars, _ps.charPos, pos - _ps.charPos);
-                }
+                internalSubsetBuilder?.Append(_ps.chars, _ps.charPos, pos - _ps.charPos);
                 _ps.chars[pos - 1] = ch;
             }
             return pos;
@@ -7646,8 +7505,7 @@ namespace System.Xml
 
         private int ParseName()
         {
-            int colonPos;
-            return ParseQName(false, 0, out colonPos);
+            return ParseQName(false, 0, out _);
         }
 
         private int ParseQName(out int colonPos)
@@ -7665,7 +7523,7 @@ namespace System.Xml
             char[] chars = _ps.chars;
 
             // start name char
-            if (_xmlCharType.IsStartNCNameSingleChar(chars[pos]))
+            if (XmlCharType.IsStartNCNameSingleChar(chars[pos]))
             {
                 pos++;
             }
@@ -7689,7 +7547,7 @@ namespace System.Xml
             // parse name
             while (true)
             {
-                if (_xmlCharType.IsNCNameSingleChar(chars[pos]))
+                if (XmlCharType.IsNCNameSingleChar(chars[pos]))
                 {
                     pos++;
                 }
@@ -7795,12 +7653,7 @@ namespace System.Xml
             }
             Debug.Assert(nodeIndex < _nodes.Length);
 
-            NodeData node = _nodes[nodeIndex];
-            if (node == null)
-            {
-                node = new NodeData();
-                _nodes[nodeIndex] = node;
-            }
+            NodeData node = _nodes[nodeIndex] ??= new NodeData();
             node.depth = nodeDepth;
             return node;
         }
@@ -7828,7 +7681,7 @@ namespace System.Xml
                 _attrNeedNamespaceLookup = true;
                 int startPos = _ps.charPos;
                 int prefixLen = colonPos - startPos;
-                if (prefixLen == _lastPrefix.Length && XmlConvert.StrEqual(_ps.chars, startPos, prefixLen, _lastPrefix))
+                if (prefixLen == _lastPrefix.Length && _ps.chars.AsSpan(_ps.charPos).StartsWith(_lastPrefix))
                 {
                     return AddAttribute(_nameTable.Add(_ps.chars, colonPos + 1, endNamePos - colonPos - 1),
                                          _lastPrefix,
@@ -8089,7 +7942,7 @@ namespace System.Xml
 
             if (entityName == null)
             {
-                ThrowWithoutLineInfo(SR.Xml_CannotResolveExternalSubset, new string?[] { (publicId != null ? publicId : string.Empty), systemId }, null);
+                ThrowWithoutLineInfo(SR.Xml_CannotResolveExternalSubset, new string?[] { publicId ?? string.Empty, systemId }, null);
             }
             else
             {
@@ -8207,10 +8060,7 @@ namespace System.Xml
 
         private void PopEntity()
         {
-            if (_ps.stream != null)
-            {
-                _ps.stream.Dispose();
-            }
+            _ps.stream?.Dispose();
 
             UnregisterEntity();
             PopParsingState();
@@ -8222,7 +8072,7 @@ namespace System.Xml
             // check entity recursion
             if (_currentEntities != null)
             {
-                if (_currentEntities.ContainsKey(entity))
+                if (_currentEntities.Contains(entity))
                 {
                     Throw(entity.IsParameterEntity ? SR.Xml_RecursiveParEntity : SR.Xml_RecursiveGenEntity, entity.Name,
                         _parsingStatesStack![_parsingStatesStackTop].LineNo, _parsingStatesStack[_parsingStatesStackTop].LinePos);
@@ -8236,12 +8086,9 @@ namespace System.Xml
             // register entity for recursion checkes
             if (entity != null)
             {
-                if (_currentEntities == null)
-                {
-                    _currentEntities = new Dictionary<IDtdEntityInfo, IDtdEntityInfo>();
-                }
+                _currentEntities ??= new HashSet<IDtdEntityInfo>();
 
-                _currentEntities.Add(entity, entity);
+                _currentEntities.Add(entity);
             }
         }
 
@@ -8369,8 +8216,8 @@ namespace System.Xml
                 }
             }
 
-            int startPos = 0;
-            int pos = 0;
+            int startPos;
+            int pos;
 
             while (true)
             {
@@ -8383,7 +8230,7 @@ namespace System.Xml
                     case IncrementalReadState.PI:
                         if (ParsePIValue(out startPos, out pos))
                         {
-                            Debug.Assert(XmlConvert.StrEqual(_ps.chars, _ps.charPos - 2, 2, "?>"));
+                            Debug.Assert(_ps.chars.AsSpan(_ps.charPos - 2).StartsWith("?>"));
                             _ps.charPos -= 2;
                             _incReadState = IncrementalReadState.Text;
                         }
@@ -8391,7 +8238,7 @@ namespace System.Xml
                     case IncrementalReadState.Comment:
                         if (ParseCDataOrComment(XmlNodeType.Comment, out startPos, out pos))
                         {
-                            Debug.Assert(XmlConvert.StrEqual(_ps.chars, _ps.charPos - 3, 3, "-->"));
+                            Debug.Assert(_ps.chars.AsSpan(_ps.charPos - 3).StartsWith("-->"));
                             _ps.charPos -= 3;
                             _incReadState = IncrementalReadState.Text;
                         }
@@ -8399,7 +8246,7 @@ namespace System.Xml
                     case IncrementalReadState.CDATA:
                         if (ParseCDataOrComment(XmlNodeType.CDATA, out startPos, out pos))
                         {
-                            Debug.Assert(XmlConvert.StrEqual(_ps.chars, _ps.charPos - 3, 3, "]]>"));
+                            Debug.Assert(_ps.chars.AsSpan(_ps.charPos - 3).StartsWith("]]>"));
                             _ps.charPos -= 3;
                             _incReadState = IncrementalReadState.Text;
                         }
@@ -8419,8 +8266,6 @@ namespace System.Xml
                             ThrowUnclosedElements();
                         }
                         _incReadState = IncrementalReadState.Text;
-                        startPos = _ps.charPos;
-                        pos = startPos;
                         break;
                     default:
                         Debug.Fail($"Unexpected read state {_incReadState}");
@@ -8441,14 +8286,14 @@ namespace System.Xml
                     char c;
                     if (_incReadState == IncrementalReadState.Attributes)
                     {
-                        while (_xmlCharType.IsAttributeValueChar(c = chars[pos]) && c != '/')
+                        while (XmlCharType.IsAttributeValueChar(c = chars[pos]) && c != '/')
                         {
                             pos++;
                         }
                     }
                     else
                     {
-                        while (_xmlCharType.IsAttributeValueChar(c = chars[pos]))
+                        while (XmlCharType.IsAttributeValueChar(chars[pos]))
                         {
                             pos++;
                         }
@@ -8521,7 +8366,7 @@ namespace System.Xml
                                     {
                                         goto ReadData;
                                     }
-                                    if (XmlConvert.StrEqual(chars, pos + 2, 7, "[CDATA["))
+                                    if (chars.AsSpan(pos + 2).StartsWith("[CDATA["))
                                     {
                                         pos += 9;
                                         _incReadState = IncrementalReadState.CDATA;
@@ -8538,11 +8383,11 @@ namespace System.Xml
                                         Debug.Assert(_ps.charPos - pos == 0);
                                         Debug.Assert(_ps.charPos - startPos == 0);
 
-                                        int colonPos;
                                         // ParseQName can flush the buffer, so we need to update the startPos, pos and chars after calling it
-                                        int endPos = ParseQName(true, 2, out colonPos);
-                                        if (XmlConvert.StrEqual(chars, _ps.charPos + 2, endPos - _ps.charPos - 2, _curNode.GetNameWPrefix(_nameTable)) &&
-                                            (_ps.chars[endPos] == '>' || _xmlCharType.IsWhiteSpace(_ps.chars[endPos])))
+                                        int endPos = ParseQName(true, 2, out _);
+                                        string checkName = _curNode.GetNameWPrefix(_nameTable);
+                                        if ((endPos - _ps.charPos - 2) == checkName.Length && chars.AsSpan(_ps.charPos + 2).StartsWith(checkName) &&
+                                            (_ps.chars[endPos] == '>' || XmlCharType.IsWhiteSpace(_ps.chars[endPos])))
                                         {
                                             if (--_incReadDepth > 0)
                                             {
@@ -8551,7 +8396,7 @@ namespace System.Xml
                                             }
 
                                             _ps.charPos = endPos;
-                                            if (_xmlCharType.IsWhiteSpace(_ps.chars[endPos]))
+                                            if (XmlCharType.IsWhiteSpace(_ps.chars[endPos]))
                                             {
                                                 EatWhitespaces(null);
                                             }
@@ -8578,11 +8423,10 @@ namespace System.Xml
                                         Debug.Assert(_ps.charPos - pos == 0);
                                         Debug.Assert(_ps.charPos - startPos == 0);
 
-                                        int colonPos;
                                         // ParseQName can flush the buffer, so we need to update the startPos, pos and chars after calling it
-                                        int endPos = ParseQName(true, 1, out colonPos);
-                                        if (XmlConvert.StrEqual(_ps.chars, _ps.charPos + 1, endPos - _ps.charPos - 1, _curNode.localName) &&
-                                            (_ps.chars[endPos] == '>' || _ps.chars[endPos] == '/' || _xmlCharType.IsWhiteSpace(_ps.chars[endPos])))
+                                        int endPos = ParseQName(true, 1, out _);
+                                        if (endPos - _ps.charPos - 1 == _curNode.localName.Length && _ps.chars.AsSpan(_ps.charPos + 1).StartsWith(_curNode.localName) &&
+                                            (_ps.chars[endPos] == '>' || _ps.chars[endPos] == '/' || XmlCharType.IsWhiteSpace(_ps.chars[endPos])))
                                         {
                                             _incReadDepth++;
                                             _incReadState = IncrementalReadState.Attributes;
@@ -8746,7 +8590,7 @@ namespace System.Xml
 
             while (true)
             {
-                while (_xmlCharType.IsAttributeValueChar(chars[pos]))
+                while (XmlCharType.IsAttributeValueChar(chars[pos]))
                     pos++;
 
                 switch (chars[pos])
@@ -8790,7 +8634,7 @@ namespace System.Xml
                             case EntityType.CharacterHex:
                             case EntityType.CharacterNamed:
                                 chars = _ps.chars;
-                                if (_normalize && _xmlCharType.IsWhiteSpace(chars[_ps.charPos]) && pos - _ps.charPos == 1)
+                                if (_normalize && XmlCharType.IsWhiteSpace(chars[_ps.charPos]) && pos - _ps.charPos == 1)
                                 {
                                     chars[_ps.charPos] = (char)0x20;  // CDATA normalization of character references in entities
                                 }
@@ -8948,10 +8792,10 @@ namespace System.Xml
 
             Debug.Assert(_ps.chars != null);
 
-            if (_xmlCharType.IsNCNameSingleChar(_ps.chars[_ps.charPos]))
+            if (XmlCharType.IsNCNameSingleChar(_ps.chars[_ps.charPos]))
             {
                 int pos = _ps.charPos + 1;
-                while (_xmlCharType.IsNCNameSingleChar(_ps.chars[pos]))
+                while (XmlCharType.IsNCNameSingleChar(_ps.chars[pos]))
                 {
                     pos++;
                 }
@@ -9202,15 +9046,12 @@ namespace System.Xml
             else if (nt == null)
             {
                 nt = new NameTable();
-                Debug.Assert(_nameTableFromSettings == false);
+                Debug.Assert(!_nameTableFromSettings);
             }
             _nameTable = nt;
 
             // make sure we have namespace manager
-            if (_namespaceManager == null)
-            {
-                _namespaceManager = new XmlNamespaceManager(nt);
-            }
+            _namespaceManager ??= new XmlNamespaceManager(nt);
 
             // copy xml:space and xml:lang
             _xmlContext.xmlSpace = context.XmlSpace;
@@ -9356,7 +9197,7 @@ namespace System.Xml
             }
         }
 
-        private bool AddDefaultAttributeDtd(IDtdDefaultAttributeInfo defAttrInfo, bool definedInDtd, NodeData[]? nameSortedNodeData)
+        private bool AddDefaultAttributeDtd(IDtdDefaultAttributeInfo defAttrInfo, NodeData[]? nameSortedNodeData)
         {
             if (defAttrInfo.Prefix.Length > 0)
             {
@@ -9394,10 +9235,7 @@ namespace System.Xml
 
             if (DtdValidation)
             {
-                if (_onDefaultAttributeUse != null)
-                {
-                    _onDefaultAttributeUse(defAttrInfo, this);
-                }
+                _onDefaultAttributeUse?.Invoke(defAttrInfo, this);
 
                 attr.typedValue = defAttrInfo.DefaultValueTyped;
             }
@@ -9418,10 +9256,7 @@ namespace System.Xml
                 prefix = _namespaceManager.LookupPrefix(ns);
 
                 Debug.Assert(prefix != null);
-                if (prefix == null)
-                {
-                    prefix = string.Empty;
-                }
+                prefix ??= string.Empty;
             }
 
             // find out if the attribute is already there
@@ -9670,17 +9505,14 @@ namespace System.Xml
         }
 
         // SxS: URIs are resolved only to be compared. No resource exposure. It's OK to suppress the SxS warning.
-        private bool UriEqual(Uri? uri1, string? uri1Str, string? uri2Str, XmlResolver? resolver)
+        private static bool UriEqual(Uri? uri1, string? uri1Str, string? uri2Str, XmlResolver? resolver)
         {
             if (resolver == null)
             {
                 return uri1Str == uri2Str;
             }
 
-            if (uri1 == null)
-            {
-                uri1 = resolver.ResolveUri(null, uri1Str);
-            }
+            uri1 ??= resolver.ResolveUri(null, uri1Str);
 
             Uri uri2 = resolver.ResolveUri(null, uri2Str);
             return uri1.Equals(uri2);
@@ -9735,36 +9567,30 @@ namespace System.Xml
             }
         }
 
-        internal static unsafe void AdjustLineInfo(char[] chars, int startPos, int endPos, bool isNormalized, ref LineInfo lineInfo)
+        internal static void AdjustLineInfo(char[] chars, int startPos, int endPos, bool isNormalized, ref LineInfo lineInfo)
         {
             Debug.Assert(startPos >= 0);
             Debug.Assert(endPos < chars.Length);
             Debug.Assert(startPos <= endPos);
 
-            fixed (char* pChars = &chars[startPos])
-            {
-                AdjustLineInfo(pChars, endPos - startPos, isNormalized, ref lineInfo);
-            }
+            AdjustLineInfo(chars.AsSpan(startPos, endPos - startPos), isNormalized, ref lineInfo);
         }
 
-        internal static unsafe void AdjustLineInfo(string str, int startPos, int endPos, bool isNormalized, ref LineInfo lineInfo)
+        internal static void AdjustLineInfo(string str, int startPos, int endPos, bool isNormalized, ref LineInfo lineInfo)
         {
             Debug.Assert(startPos >= 0);
             Debug.Assert(endPos < str.Length);
             Debug.Assert(startPos <= endPos);
 
-            fixed (char* pChars = str)
-            {
-                AdjustLineInfo(pChars + startPos, endPos - startPos, isNormalized, ref lineInfo);
-            }
+            AdjustLineInfo(str.AsSpan(startPos, endPos - startPos), isNormalized, ref lineInfo);
         }
 
-        internal static unsafe void AdjustLineInfo(char* pChars, int length, bool isNormalized, ref LineInfo lineInfo)
+        private static void AdjustLineInfo(ReadOnlySpan<char> chars, bool isNormalized, ref LineInfo lineInfo)
         {
             int lastNewLinePos = -1;
-            for (int i = 0; i < length; i++)
+            for (int i = 0; i < chars.Length; i++)
             {
-                switch (pChars[i])
+                switch (chars[i])
                 {
                     case '\n':
                         lineInfo.lineNo++;
@@ -9777,7 +9603,8 @@ namespace System.Xml
                         }
                         lineInfo.lineNo++;
                         lastNewLinePos = i;
-                        if (i + 1 < length && pChars[i + 1] == '\n')
+                        int nextIdx = i + 1;
+                        if ((uint)nextIdx < (uint)chars.Length && chars[nextIdx] == '\n')
                         {
                             i++;
                             lastNewLinePos++;
@@ -9787,7 +9614,7 @@ namespace System.Xml
             }
             if (lastNewLinePos >= 0)
             {
-                lineInfo.linePos = length - lastNewLinePos;
+                lineInfo.linePos = chars.Length - lastNewLinePos;
             }
         }
 
@@ -9836,10 +9663,7 @@ namespace System.Xml
                     }
                     if (j > i + 1)
                     {
-                        if (norValue == null)
-                        {
-                            norValue = new StringBuilder(len);
-                        }
+                        norValue ??= new StringBuilder(len);
                         norValue.Append(value, startPos, i - startPos + 1);
                         startPos = j;
                         i = j - 1;
@@ -9920,6 +9744,8 @@ namespace System.Xml
             Buffer.BlockCopy(src, srcOffset, dst, dstOffset, count);
         }
 
-        static partial void ConvertAbsoluteUnixPathToAbsoluteUri(ref string? url, XmlResolver? resolver);
+#pragma warning disable IDE0060 // https://github.com/dotnet/roslyn-analyzers/issues/6177
+        static partial void ConvertAbsoluteUnixPathToAbsoluteUri([NotNullIfNotNull(nameof(url))] ref string? url, XmlResolver? resolver);
+#pragma warning restore IDE0060
     }
 }

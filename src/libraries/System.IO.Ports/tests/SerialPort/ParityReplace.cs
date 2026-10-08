@@ -1,7 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Collections;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO.PortsTests;
 using System.Text;
@@ -37,7 +37,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(ParityReplace_Property), nameof(HasOneSerialPort))]
         public void ParityReplace_Default_AfterOpen()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -54,49 +54,49 @@ namespace System.IO.Ports.Tests
         }
 
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ParityReplace_Property), nameof(HasNullModem))]
         public void Read_byte_int_int_RNDParityReplace()
         {
             Debug.WriteLine("Verifying random ParityReplace with Read(byte[], int, int)");
             VerifyParityReplaceByte(Read_byte_int_int, false);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ParityReplace_Property), nameof(HasNullModem))]
         public void Read_char_int_int_RNDParityReplace()
         {
             Debug.WriteLine("Verifying random ParityReplace with Read(char[], int, int)");
             VerifyParityReplaceByte(Read_char_int_int, false);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ParityReplace_Property), nameof(HasNullModem))]
         public void ReadByte_RNDParityReplace()
         {
             Debug.WriteLine("Verifying random ParityReplace with ReadByte()");
             VerifyParityReplaceByte(ReadByte, false);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ParityReplace_Property), nameof(HasNullModem))]
         public void ReadChar_RNDParityReplace()
         {
             Debug.WriteLine("Verifying random ParityReplace with ReadChar()");
             VerifyParityReplaceByte(ReadChar, false);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ParityReplace_Property), nameof(HasNullModem))]
         public void ReadLine_RNDParityReplace()
         {
             Debug.WriteLine("Verifying random ParityReplace with ReadLine()");
             VerifyParityReplaceByte(17, ReadLine, true);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ParityReplace_Property), nameof(HasNullModem))]
         public void ReadTo_str_RNDParityReplace()
         {
             Debug.WriteLine("Verifying random ParityReplace with ReadTo(string)");
             VerifyParityReplaceByte(ReadTo, true);
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ParityReplace_Property), nameof(HasNullModem))]
         public void ParityReplace_After_Parity()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -123,7 +123,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ParityReplace_Property), nameof(HasNullModem))]
         public void ParityReplace_After_ParityReplace()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -151,7 +151,7 @@ namespace System.IO.Ports.Tests
             }
         }
 
-        [ConditionalFact(nameof(HasNullModem))]
+        [ConditionalFact(typeof(ParityReplace_Property), nameof(HasNullModem))]
         public void ParityReplace_After_ParityReplaceAndParity()
         {
             using (SerialPort com1 = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -236,7 +236,7 @@ namespace System.IO.Ports.Tests
             com1.DataBits = 7;
             com1.ReadTimeout = 500;
 
-            //Genrate random characters without an parity error
+            // Generate random characters without an parity error
             for (int i = 0; i < bytesToWrite.Length; i++)
             {
                 byte randByte;
@@ -297,8 +297,8 @@ namespace System.IO.Ports.Tests
 
         private char[] Read_byte_int_int(SerialPort com)
         {
-            ArrayList receivedBytes = new ArrayList();
-            byte[] buffer = new byte[DEFAULT_READ_BYTE_ARRAY_SIZE];
+            var receivedBytes = new List<byte>();
+            var buffer = new byte[DEFAULT_READ_BYTE_ARRAY_SIZE];
             int totalBytesRead = 0;
 
             while (true)
@@ -320,14 +320,14 @@ namespace System.IO.Ports.Tests
             if (totalBytesRead < receivedBytes.Count)
                 receivedBytes.RemoveRange(totalBytesRead, receivedBytes.Count - totalBytesRead);
 
-            return com.Encoding.GetChars((byte[])receivedBytes.ToArray(typeof(byte)));
+            return com.Encoding.GetChars(receivedBytes.ToArray());
         }
 
 
         private char[] Read_char_int_int(SerialPort com)
         {
-            ArrayList receivedChars = new ArrayList();
-            char[] buffer = new char[DEFAULT_READ_CHAR_ARRAY_SIZE];
+            var receivedChars = new List<char>();
+            var buffer = new char[DEFAULT_READ_CHAR_ARRAY_SIZE];
             int totalCharsRead = 0;
             int numChars;
 
@@ -349,13 +349,13 @@ namespace System.IO.Ports.Tests
             if (totalCharsRead < receivedChars.Count)
                 receivedChars.RemoveRange(totalCharsRead, receivedChars.Count - totalCharsRead);
 
-            return (char[])receivedChars.ToArray(typeof(char));
+            return receivedChars.ToArray();
         }
 
 
         private char[] ReadByte(SerialPort com)
         {
-            ArrayList receivedBytes = new ArrayList();
+            var receivedBytes = new List<byte>();
             int rcvByte;
 
             while (true)
@@ -372,13 +372,13 @@ namespace System.IO.Ports.Tests
                 receivedBytes.Add((byte)rcvByte);
             }
 
-            return com.Encoding.GetChars((byte[])receivedBytes.ToArray(typeof(byte)));
+            return com.Encoding.GetChars(receivedBytes.ToArray());
         }
 
 
         private char[] ReadChar(SerialPort com)
         {
-            ArrayList receivedChars = new ArrayList();
+            var receivedChars = new List<char>();
             int rcvChar;
 
             while (true)
@@ -395,13 +395,13 @@ namespace System.IO.Ports.Tests
                 receivedChars.Add((char)rcvChar);
             }
 
-            return (char[])receivedChars.ToArray(typeof(char));
+            return receivedChars.ToArray();
         }
 
 
         private char[] ReadLine(SerialPort com)
         {
-            StringBuilder rcvStringBuilder = new StringBuilder();
+            var rcvStringBuilder = new StringBuilder();
             string rcvString;
 
             while (true)
@@ -424,7 +424,7 @@ namespace System.IO.Ports.Tests
 
         private char[] ReadTo(SerialPort com)
         {
-            StringBuilder rcvStringBuilder = new StringBuilder();
+            var rcvStringBuilder = new StringBuilder();
             string rcvString;
 
             while (true)

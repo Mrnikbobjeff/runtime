@@ -5,24 +5,33 @@ using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
+using System.Text.Json.Reflection;
+using System.Text.Json.Serialization.Metadata;
 
 namespace System.Text.Json.Serialization.Converters
 {
     /// <summary>
     /// Converter factory for all IEnumerable types.
     /// </summary>
-    internal class IEnumerableConverterFactory : JsonConverterFactory
+    [RequiresDynamicCode(JsonSerializer.SerializationRequiresDynamicCodeMessage)]
+    internal sealed class IEnumerableConverterFactory : JsonConverterFactory
     {
         private static readonly IDictionaryConverter<IDictionary> s_converterForIDictionary = new IDictionaryConverter<IDictionary>();
         private static readonly IEnumerableConverter<IEnumerable> s_converterForIEnumerable = new IEnumerableConverter<IEnumerable>();
         private static readonly IListConverter<IList> s_converterForIList = new IListConverter<IList>();
+
+        [RequiresUnreferencedCode(JsonSerializer.SerializationUnreferencedCodeMessage)]
+        public IEnumerableConverterFactory() { }
 
         public override bool CanConvert(Type typeToConvert)
         {
             return typeof(IEnumerable).IsAssignableFrom(typeToConvert);
         }
 
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
+            Justification = "The ctor is marked RequiresUnreferencedCode.")]
         public override JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options)
         {
             Type converterType;
@@ -37,7 +46,7 @@ namespace System.Text.Json.Serialization.Converters
                 // Verify that we don't have a multidimensional array.
                 if (typeToConvert.GetArrayRank() > 1)
                 {
-                    ThrowHelper.ThrowNotSupportedException_SerializationNotSupported(typeToConvert);
+                    return UnsupportedTypeConverterFactory.CreateUnsupportedConverterForType(typeToConvert);
                 }
 
                 converterType = typeof(ArrayConverter<,>);
@@ -61,7 +70,7 @@ namespace System.Text.Json.Serialization.Converters
             else if (typeToConvert.IsImmutableDictionaryType())
             {
                 genericArgs = typeToConvert.GetGenericArguments();
-                converterType = typeof(ImmutableDictionaryOfTKeyTValueConverter<,,>);
+                converterType = typeof(ImmutableDictionaryOfTKeyTValueConverterWithReflection<,,>);
                 dictionaryKeyType = genericArgs[0];
                 elementType = genericArgs[1];
             }
@@ -84,7 +93,7 @@ namespace System.Text.Json.Serialization.Converters
             // Immutable non-dictionaries from System.Collections.Immutable, e.g. ImmutableStack<T>
             else if (typeToConvert.IsImmutableEnumerableType())
             {
-                converterType = typeof(ImmutableEnumerableOfTConverter<,>);
+                converterType = typeof(ImmutableEnumerableOfTConverterWithReflection<,>);
                 elementType = typeToConvert.GetGenericArguments()[0];
             }
             // IList<>
@@ -99,6 +108,14 @@ namespace System.Text.Json.Serialization.Converters
                 converterType = typeof(ISetOfTConverter<,>);
                 elementType = actualTypeToConvert.GetGenericArguments()[0];
             }
+#if NET
+            // IReadOnlySet<>
+            else if ((actualTypeToConvert = typeToConvert.GetCompatibleGenericInterface(typeof(IReadOnlySet<>))) != null)
+            {
+                converterType = typeof(IReadOnlySetOfTConverter<,>);
+                elementType = actualTypeToConvert.GetGenericArguments()[0];
+            }
+#endif
             // ICollection<>
             else if ((actualTypeToConvert = typeToConvert.GetCompatibleGenericInterface(typeof(ICollection<>))) != null)
             {
@@ -156,7 +173,7 @@ namespace System.Text.Json.Serialization.Converters
             }
             else if (typeToConvert.IsNonGenericStackOrQueue())
             {
-                converterType = typeof(IEnumerableWithAddMethodConverter<>);
+                converterType = typeof(StackOrQueueConverterWithReflection<>);
             }
             else
             {
@@ -177,11 +194,17 @@ namespace System.Text.Json.Serialization.Converters
             }
             else if (numberOfGenericArgs == 2)
             {
+                JsonTypeInfo.ValidateType(elementType!);
+
                 genericType = converterType.MakeGenericType(typeToConvert, elementType!);
             }
             else
             {
                 Debug.Assert(numberOfGenericArgs == 3);
+
+                JsonTypeInfo.ValidateType(elementType!);
+                JsonTypeInfo.ValidateType(dictionaryKeyType!);
+
                 genericType = converterType.MakeGenericType(typeToConvert, dictionaryKeyType!, elementType!);
             }
 

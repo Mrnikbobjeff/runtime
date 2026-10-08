@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b71099
 {
     using System;
 
@@ -27,9 +28,10 @@ namespace Test
         public static object m_xStatic1 = null;
     }
 
-    class App
+    public class App
     {
-        static int Main()
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

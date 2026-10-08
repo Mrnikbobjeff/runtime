@@ -3,12 +3,11 @@
 
 using System.Diagnostics;
 using System.IO;
-using System.IO.Pipelines;
-using System.Net.Connections;
 using System.Net.Quic;
 using System.Net.Security;
 using System.Net.Sockets;
-using System.Runtime.ExceptionServices;
+using System.Runtime.Versioning;
+using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,55 +33,7 @@ namespace System.Net.Http
             }
         }
 
-        public static async ValueTask<Connection> ConnectAsync(ConnectionFactory factory, DnsEndPoint endPoint, IConnectionProperties? options, CancellationToken cancellationToken)
-        {
-            try
-            {
-                return await factory.ConnectAsync(endPoint, options, cancellationToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException ex) when (ex.CancellationToken == cancellationToken)
-            {
-                throw CancellationHelper.CreateOperationCanceledException(innerException: null, cancellationToken);
-            }
-            catch (Exception ex)
-            {
-                throw CreateWrappedException(ex, endPoint.Host, endPoint.Port, cancellationToken);
-            }
-        }
-
-        public static Connection Connect(string host, int port, CancellationToken cancellationToken)
-        {
-            // For synchronous connections, we can just create a socket and make the connection.
-            cancellationToken.ThrowIfCancellationRequested();
-            var socket = new Socket(SocketType.Stream, ProtocolType.Tcp);
-            try
-            {
-                socket.NoDelay = true;
-                using (cancellationToken.UnsafeRegister(static s => ((Socket)s!).Dispose(), socket))
-                {
-                    socket.Connect(new DnsEndPoint(host, port));
-                }
-
-                // Since we only do GracefulShutdown in SocketsHttpHandler code, Connection.FromStream() should match SocketConnection's behavior:
-                return Connection.FromStream(new NetworkStream(socket, ownsSocket: true), localEndPoint: socket.LocalEndPoint, remoteEndPoint: socket.RemoteEndPoint);
-            }
-            catch (SocketException se)
-            {
-                socket.Dispose();
-
-                // SocketConnectionFactory wraps SocketException in NetworkException. Do the same here.
-                NetworkException ne = NetworkErrorHelper.MapSocketException(se);
-
-                throw CreateWrappedException(ne, host, port, cancellationToken);
-            }
-            catch (Exception e)
-            {
-                socket.Dispose();
-                throw CreateWrappedException(e, host, port, cancellationToken);
-            }
-        }
-
-        public static ValueTask<SslStream> EstablishSslConnectionAsync(SslClientAuthenticationOptions sslOptions, HttpRequestMessage request, bool async, Stream stream, CancellationToken cancellationToken)
+        private static SslClientAuthenticationOptions SetUpRemoteCertificateValidationCallback(SslClientAuthenticationOptions sslOptions, HttpRequestMessage request)
         {
             // If there's a cert validation callback, and if it came from HttpClientHandler,
             // wrap the original delegate in order to change the sender to be the request message (expected by HttpClientHandler's delegate).
@@ -101,12 +52,13 @@ namespace System.Net.Http
                 };
             }
 
-            // Create the SslStream, authenticate, and return it.
-            return EstablishSslConnectionAsyncCore(async, stream, sslOptions, cancellationToken);
+            return sslOptions;
         }
 
-        private static async ValueTask<SslStream> EstablishSslConnectionAsyncCore(bool async, Stream stream, SslClientAuthenticationOptions sslOptions, CancellationToken cancellationToken)
+        public static async ValueTask<SslStream> EstablishSslConnectionAsync(SslClientAuthenticationOptions sslOptions, HttpRequestMessage request, bool async, Stream stream, CancellationToken cancellationToken)
         {
+            sslOptions = SetUpRemoteCertificateValidationCallback(sslOptions, request);
+
             SslStream sslStream = new SslStream(stream);
 
             try
@@ -137,7 +89,14 @@ namespace System.Net.Http
                     throw CancellationHelper.CreateOperationCanceledException(e, cancellationToken);
                 }
 
-                throw new HttpRequestException(SR.net_http_ssl_connection_failed, e);
+                HttpRequestException ex = new HttpRequestException(HttpRequestError.SecureConnectionError, SR.net_http_ssl_connection_failed, e);
+                if (request.IsExtendedConnectRequest)
+                {
+                    // Extended connect request is negotiating strictly for ALPN = "h2" because HttpClient is unaware of a possible downgrade.
+                    // At this point, SSL connection for HTTP / 2 failed, and the exception should indicate the reason for the external client / user.
+                    ex.Data["HTTP2_ENABLED"] = false;
+                }
+                throw ex;
             }
 
             // Handle race condition if cancellation happens after SSL auth completes but before the registration is disposed
@@ -150,26 +109,58 @@ namespace System.Net.Http
             return sslStream;
         }
 
-        public static async ValueTask<QuicConnection> ConnectQuicAsync(DnsEndPoint endPoint, SslClientAuthenticationOptions? clientAuthenticationOptions, CancellationToken cancellationToken)
+        [SupportedOSPlatform("linux")]
+        [SupportedOSPlatform("macos")]
+        [SupportedOSPlatform("windows")]
+        public static async ValueTask<QuicConnection> ConnectQuicAsync(HttpRequestMessage request, DnsEndPoint endPoint, TimeSpan idleTimeout, SslClientAuthenticationOptions clientAuthenticationOptions, Action<QuicConnection, QuicStreamCapacityChangedArgs> streamCapacityCallback, CancellationToken cancellationToken)
         {
-            QuicConnection con = new QuicConnection(endPoint, clientAuthenticationOptions);
+            clientAuthenticationOptions = SetUpRemoteCertificateValidationCallback(clientAuthenticationOptions, request);
+
             try
             {
-                await con.ConnectAsync(cancellationToken).ConfigureAwait(false);
-                return con;
+                return await QuicConnection.ConnectAsync(new QuicClientConnectionOptions()
+                {
+                    MaxInboundBidirectionalStreams = 0, // Client doesn't support inbound streams: https://www.rfc-editor.org/rfc/rfc9114.html#name-bidirectional-streams. An extension might change this.
+                    MaxInboundUnidirectionalStreams = 5, // Minimum is 3: https://www.rfc-editor.org/rfc/rfc9114.html#unidirectional-streams (1x control stream + 2x QPACK). Set to 100 if/when support for PUSH streams is added.
+                    IdleTimeout = idleTimeout,
+                    DefaultStreamErrorCode = (long)Http3ErrorCode.RequestCancelled,
+                    DefaultCloseErrorCode = (long)Http3ErrorCode.NoError,
+                    RemoteEndPoint = endPoint,
+                    ClientAuthenticationOptions = clientAuthenticationOptions,
+                    StreamCapacityCallback = streamCapacityCallback,
+                }, cancellationToken).ConfigureAwait(false);
             }
-            catch (Exception ex)
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                con.Dispose();
                 throw CreateWrappedException(ex, endPoint.Host, endPoint.Port, cancellationToken);
             }
         }
 
-        private static Exception CreateWrappedException(Exception error, string host, int port, CancellationToken cancellationToken)
+        internal static Exception CreateWrappedException(Exception exception, string host, int port, CancellationToken cancellationToken)
         {
-            return CancellationHelper.ShouldWrapInOperationCanceledException(error, cancellationToken) ?
-                CancellationHelper.CreateOperationCanceledException(error, cancellationToken) :
-                new HttpRequestException($"{error.Message} ({host}:{port})", error, RequestRetryType.RetryOnNextProxy);
+            return CancellationHelper.ShouldWrapInOperationCanceledException(exception, cancellationToken) ?
+                CancellationHelper.CreateOperationCanceledException(exception, cancellationToken) :
+                new HttpRequestException(DeduceError(exception), $"{exception.Message} ({host}:{port})", exception, RequestRetryType.RetryOnNextProxy);
+
+            static HttpRequestError DeduceError(Exception exception)
+            {
+                if (exception is AuthenticationException)
+                {
+                    return HttpRequestError.SecureConnectionError;
+                }
+
+                // Resolving a non-existent hostname often leads to EAI_AGAIN/TryAgain on Linux, indicating a non-authoritative failure, eg. timeout.
+                // Getting EAGAIN/TryAgain from a TCP connect() is not possible on Windows or Mac according to the docs and indicates lack of kernel resources on Linux,
+                // which should be a very rare error in practice. As a result, mapping SocketError.TryAgain to HttpRequestError.NameResolutionError
+                // leads to a more reliable distinction between NameResolutionError and ConnectionError.
+                if (exception is SocketException socketException &&
+                    socketException.SocketErrorCode is SocketError.HostNotFound or SocketError.TryAgain)
+                {
+                    return HttpRequestError.NameResolutionError;
+                }
+
+                return HttpRequestError.ConnectionError;
+            }
         }
     }
 }

@@ -32,17 +32,26 @@ namespace System
             }
         }
 
+        [DllImport("libc", SetLastError = true)]
+        internal static extern unsafe uint geteuid();
+
         public static unsafe bool IsProcessElevated()
         {
+            // Browser and WASI do not have the concept of an elevated process
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Create("BROWSER")) ||
+                RuntimeInformation.IsOSPlatform(OSPlatform.Create("WASI")))
+            {
+                return false;
+            }
+
             if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                uint userId = Interop.Sys.GetEUid();
+                uint userId = geteuid();
                 return(userId == 0);
             }
 
-            IntPtr processHandle = Interop.Kernel32.GetCurrentProcess();
-            SafeAccessTokenHandle token;
-            if (!Interop.Advapi32.OpenProcessToken(processHandle, TokenAccessLevels.Read, out token))
+            SafeTokenHandle token;
+            if (!Interop.Advapi32.OpenProcessToken(Interop.Kernel32.GetCurrentProcess(), (int)TokenAccessLevels.Read, out token))
             {
                 throw new Win32Exception(Marshal.GetLastWin32Error(), "Open process token failed");
             }

@@ -11,10 +11,16 @@
 
 using System.Globalization;
 using System.IO;
+using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Xml;
 using System.Xml.XPath;
+using Microsoft.DotNet.RemoteExecutor;
+using Test.Cryptography;
 using Xunit;
 
 namespace System.Security.Cryptography.Xml.Tests
@@ -48,7 +54,7 @@ namespace System.Security.Cryptography.Xml.Tests
             Assert.Equal("http://www.w3.org/2000/09/xmldsig#sha1", SignedXml.XmlDsigSHA1Url);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
         public void Constructor_Empty()
         {
             XmlDocument doc = new XmlDocument();
@@ -61,7 +67,7 @@ namespace System.Security.Cryptography.Xml.Tests
             Assert.True(sx.CheckSignature(), "CheckSignature");
         }
 
-        [Fact]
+        [ConditionalFact(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
         public void Constructor_XmlDocument()
         {
             XmlDocument doc = new XmlDocument();
@@ -81,7 +87,7 @@ namespace System.Security.Cryptography.Xml.Tests
             Assert.Throws<ArgumentNullException>(() => new SignedXml(doc));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
         public void Constructor_XmlElement()
         {
             XmlDocument doc = new XmlDocument();
@@ -188,7 +194,9 @@ namespace System.Security.Cryptography.Xml.Tests
 
             Assert.Null(signedXml.SigningKeyName);
 
+#if NET
             Assert.Equal("http://www.w3.org/2001/04/xmldsig-more#rsa-sha256", signedXml.SignatureMethod);
+#endif
 
             Assert.Equal(key.KeySize / 8, signedXml.SignatureValue.Length);
             Assert.Null(signedXml.SigningKeyName);
@@ -275,7 +283,7 @@ namespace System.Security.Cryptography.Xml.Tests
         // Example output from Windows for AsymmetricRSAMixedCaseAttributes()
         private const string AsymmetricRSAMixedCaseAttributesResult = "<Signature xmlns=\"http://www.w3.org/2000/09/xmldsig#\"><SignedInfo><CanonicalizationMethod Algorithm=\"http://www.w3.org/TR/2001/REC-xml-c14n-20010315\" /><SignatureMethod Algorithm=\"http://www.w3.org/2000/09/xmldsig#rsa-sha1\" /><Reference URI=\"#MyObjectId\"><DigestMethod Algorithm=\"http://www.w3.org/2000/09/xmldsig#sha1\" /><DigestValue>0j1xLsePFtuRHfXEnVdTSLWtAm4=</DigestValue></Reference></SignedInfo><SignatureValue>hmrEBgns5Xx14aDhzqOyIh0qLNMUldtW8+fNPcvtD/2KtEhNZQGctnhs90CRa1NZ08TqzW2pUaEwmqvMAtF4v8KtWzC/zTuc1jH6nxQvQSQo0ABhuXdu7/hknZkXJ4yKBbdgbKjAsKfULwbWrP/PacLPoYfCO+wXSrt+wLMTTWU=</SignatureValue><KeyInfo><KeyValue><RSAKeyValue><Modulus>4h/rHDr54r6SZWk2IPCeHX7N+wR1za0VBLshuS6tq3RSWap4PY2BM8VdbKH2T9RzyZoiHufjng+1seUx430iMsXisOLUkPP+yGtMQOSZ3CQHAa+IYA+fplXipixI0rV1J1wJNXQm3HxXQqKWpIv5fkwBtj8o2k6CWMgPNgFCnxc=</Modulus><Exponent>AQAB</Exponent></RSAKeyValue></KeyValue></KeyInfo><Object Id=\"MyObjectId\"><MyElement Aa=\"one\" Bb=\"two\" aa=\"three\" bb=\"four\" xmlns=\"samples\">This is some text</MyElement></Object></Signature>";
 
-        [Fact]
+        [ConditionalFact(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
         public void AsymmetricRSAMixedCaseAttributesVerifyWindows()
         {
             XmlDocument doc = new XmlDocument();
@@ -286,13 +294,12 @@ namespace System.Security.Cryptography.Xml.Tests
             Assert.True(v1.CheckSignature());
         }
 
-        [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/20575", TestPlatforms.OSX)]
+        [ConditionalFact(typeof(PlatformSupport), nameof(PlatformSupport.IsDSASupported))]
         public void AsymmetricDSASignature()
         {
             SignedXml signedXml = MSDNSample();
 
-            DSA key = DSA.Create();
+            DSA key = TestHelpers.GetWorkingDSA();
             signedXml.SigningKey = key;
 
             // Add a KeyInfo.
@@ -362,7 +369,7 @@ namespace System.Security.Cryptography.Xml.Tests
 
         // Using empty constructor
         // The two other constructors don't seems to apply in verifying signatures
-        [Fact]
+        [ConditionalFact(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
         public void AsymmetricRSAVerify()
         {
             string value = "<Signature xmlns=\"http://www.w3.org/2000/09/xmldsig#\"><SignedInfo><CanonicalizationMethod Algorithm=\"http://www.w3.org/TR/2001/REC-xml-c14n-20010315\" /><SignatureMethod Algorithm=\"http://www.w3.org/2000/09/xmldsig#rsa-sha1\" /><Reference URI=\"#MyObjectId\"><DigestMethod Algorithm=\"http://www.w3.org/2000/09/xmldsig#sha1\" /><DigestValue>/Vvq6sXEVbtZC8GwNtLQnGOy/VI=</DigestValue></Reference></SignedInfo><SignatureValue>A6XuE8Cy9iOffRXaW9b0+dUcMUJQnlmwLsiqtQnADbCtZXnXAaeJ6nGnQ4Mm0IGi0AJc7/2CoJReXl7iW4hltmFguG1e3nl0VxCyCTHKGOCo1u8R3K+B1rTaenFbSxs42EM7/D9KETsPlzfYfis36yM3PqatiCUOsoMsAiMGzlc=</SignatureValue><KeyInfo><KeyValue xmlns=\"http://www.w3.org/2000/09/xmldsig#\"><RSAKeyValue><Modulus>tI8QYIpbG/m6JLyvP+S3X8mzcaAIayxomyTimSh9UCpEucRnGvLw0P73uStNpiF7wltTZA1HEsv+Ha39dY/0j/Wiy3RAodGDRNuKQao1wu34aNybZ673brbsbHFUfw/o7nlKD2xO84fbajBZmKtBBDy63NHt+QL+grSrREPfCTM=</Modulus><Exponent>AQAB</Exponent></RSAKeyValue></KeyValue></KeyInfo><Object Id=\"MyObjectId\"><MyElement xmlns=\"samples\">This is some text</MyElement></Object></Signature>";
@@ -386,7 +393,7 @@ namespace System.Security.Cryptography.Xml.Tests
 
         // Using empty constructor
         // The two other constructors don't seems to apply in verifying signatures
-        [Fact]
+        [ConditionalFact(typeof(PlatformSupport), nameof(PlatformSupport.IsDSASupported))]
         public void AsymmetricDSAVerify()
         {
             string value = "<Signature xmlns=\"http://www.w3.org/2000/09/xmldsig#\"><SignedInfo><CanonicalizationMethod Algorithm=\"http://www.w3.org/TR/2001/REC-xml-c14n-20010315\" /><SignatureMethod Algorithm=\"http://www.w3.org/2000/09/xmldsig#dsa-sha1\" /><Reference URI=\"#MyObjectId\"><DigestMethod Algorithm=\"http://www.w3.org/2000/09/xmldsig#sha1\" /><DigestValue>/Vvq6sXEVbtZC8GwNtLQnGOy/VI=</DigestValue></Reference></SignedInfo><SignatureValue>BYz/qRGjGsN1yMFPxWa3awUZm1y4I/IxOQroMxkOteRGgk1HIwhRYw==</SignatureValue><KeyInfo><KeyValue xmlns=\"http://www.w3.org/2000/09/xmldsig#\"><DSAKeyValue><P>iglVaZ+LsSL8Y0aDXmFMBwva3xHqIypr3l/LtqBH9ziV2Sh1M4JVasAiKqytWIWt/s/Uk8Ckf2tO2Ww1vsNi1NL+Kg9T7FE52sn380/rF0miwGkZeidzm74OWhykb3J+wCTXaIwOzAWI1yN7FoeoN7wzF12jjlSXAXeqPMlViqk=</P><Q>u4sowiJMHilNRojtdmIuQY2YnB8=</Q><G>SdnN7d+wn1n+HH4Hr8MIryIRYgcXdbZ5TH7jAnuWc1koqRc1AZfcYAZ6RDf+orx6Lzn055FTFiN+1NHQfGUtXJCWW0zz0FVV1NJux7WRj8vGTldjJ5ef0oCenkpwDjcIxWsZgVobve4GPoyN1sAc1scnkJB59oupibklmF4y72A=</G><Y>XejzS8Z51yfl0zbYnxSYYbHqreSLjNCoGPB/KjM1TOyV5sMjz0StKtGrFWryTWc7EgvFY7kUth4e04VKf9HbK8z/FifHTXj8+Tszbjzw8GfInnBwLN+vJgbpnjtypmiI5Bm2nLiRbfkdAHP+OrKtr/EauM9GQfYuaxm3/Vj8B84=</Y><J>vGwGg9wqwwWP9xsoPoXu6kHArJtadiNKe9azBiUx5Ob883gd5wlKfEcGuKkBmBySGbgwxyOsIBovd9Kk48hF01ymfQzAAuHR0EdJECSsTsTTKVTLQNBU32O+PRbLYpv4E8kt6rNL83JLJCBY</J><Seed>sqzn8J6fd2gtEyq6YOqiUSHgPE8=</Seed><PgenCounter>sQ==</PgenCounter></DSAKeyValue></KeyValue></KeyInfo><Object Id=\"MyObjectId\"><MyElement xmlns=\"samples\">This is some text</MyElement></Object></Signature>";
@@ -424,7 +431,7 @@ namespace System.Security.Cryptography.Xml.Tests
             Assert.True(v1.CheckSignature(hmac), "HMACSHA1-CheckSignature(key)");
         }
 
-        [Fact]
+        [ConditionalFact(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
         // adapted from http://bugzilla.ximian.com/show_bug.cgi?id=52084
         public void GetIdElement()
         {
@@ -536,7 +543,7 @@ namespace System.Security.Cryptography.Xml.Tests
             Assert.Throws<CryptographicException>(() => signedXml.ComputeSignature());
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformSupport), nameof(PlatformSupport.IsDSASupported))]
         public void ComputeSignatureMissingReferencedObject()
         {
             XmlDocument doc = new XmlDocument();
@@ -638,7 +645,8 @@ namespace System.Security.Cryptography.Xml.Tests
             Assert.Null(sign.GetIdElement(new XmlDocument(), null));
         }
 
-        [Fact]
+        [ConditionalFact(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51370", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void DigestValue_CRLF()
         {
             XmlDocument doc = CreateSomeXml("\r\n");
@@ -660,7 +668,7 @@ namespace System.Security.Cryptography.Xml.Tests
 
             X509Certificate2 cert = new X509Certificate2(_pkcs12, "mono");
             SignedXml signedXml = new SignedXml(doc);
-            signedXml.SigningKey = cert.PrivateKey;
+            signedXml.SigningKey = cert.GetRSAPrivateKey();
             signedXml.SignedInfo.CanonicalizationMethod = SignedXml.XmlDsigExcC14NTransformUrl;
             signedXml.SignedInfo.SignatureMethod = SignedXml.XmlDsigRSASHA1Url;
 
@@ -697,7 +705,8 @@ namespace System.Security.Cryptography.Xml.Tests
                 + "</SignedInfo>", signedXml.SignedInfo.GetXml().OuterXml);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51370", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void DigestValue_LF()
         {
             XmlDocument doc = CreateSomeXml("\n");
@@ -719,7 +728,7 @@ namespace System.Security.Cryptography.Xml.Tests
 
             X509Certificate2 cert = new X509Certificate2(_pkcs12, "mono");
             SignedXml signedXml = new SignedXml(doc);
-            signedXml.SigningKey = cert.PrivateKey;
+            signedXml.SigningKey = cert.GetRSAPrivateKey();
             signedXml.SignedInfo.SignatureMethod = SignedXml.XmlDsigRSASHA1Url;
             signedXml.SignedInfo.CanonicalizationMethod = SignedXml.XmlDsigExcC14NTransformUrl;
 
@@ -756,7 +765,8 @@ namespace System.Security.Cryptography.Xml.Tests
                 + "</SignedInfo>", signedXml.SignedInfo.GetXml().OuterXml);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51370", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void SignedXML_CRLF_Invalid()
         {
             X509Certificate2 cert = new X509Certificate2(_pkcs12, "mono");
@@ -819,7 +829,8 @@ namespace System.Security.Cryptography.Xml.Tests
             Assert.True(!signedXml.CheckSignature(), "#2");
         }
 
-        [Fact]
+        [ConditionalFact(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51370", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void SignedXML_CRLF_Valid()
         {
             X509Certificate2 cert = new X509Certificate2(_pkcs12, "mono");
@@ -876,7 +887,8 @@ namespace System.Security.Cryptography.Xml.Tests
                 "</person>", "\r\n"), doc.OuterXml);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51370", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void SignedXML_LF_Valid()
         {
             X509Certificate2 cert = new X509Certificate2(_pkcs12, "mono");
@@ -933,7 +945,8 @@ namespace System.Security.Cryptography.Xml.Tests
                 "</person>", "\n"), doc.OuterXml);
         }
 
-        [Fact] // part of bug #79454
+        [ConditionalFact(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))] // part of bug #79454
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51370", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void MultipleX509Certificates()
         {
             XmlDocument doc = null;
@@ -960,7 +973,7 @@ namespace System.Security.Cryptography.Xml.Tests
             XmlDocument doc = CreateSomeXml(lineFeed);
 
             SignedXml signedXml = new SignedXml(doc);
-            signedXml.SigningKey = cert.PrivateKey;
+            signedXml.SigningKey = cert.GetRSAPrivateKey();
             signedXml.SignedInfo.CanonicalizationMethod = canonicalizationMethod;
             signedXml.SignedInfo.SignatureMethod = SignedXml.XmlDsigRSASHA1Url;
 
@@ -1438,7 +1451,7 @@ namespace System.Security.Cryptography.Xml.Tests
 ";
                 SignedXml sign = GetSignedXml(string.Format(xml, bits));
                 // only multiple of 8 bits are supported
-                sign.CheckSignature(new HMACSHA1(Encoding.ASCII.GetBytes("secret")));
+                sign.CheckSignature(new HMACSHA1("secret"u8.ToArray()));
             }
 
             for (int i = 1; i < 160; i++)
@@ -1474,10 +1487,10 @@ namespace System.Security.Cryptography.Xml.Tests
 ";
             SignedXml sign = GetSignedXml(xml);
 
-            CheckErratum(sign, new HMACSHA1(Encoding.ASCII.GetBytes("no clue")), "1");
+            CheckErratum(sign, new HMACSHA1("no clue"u8.ToArray()), "1");
             CheckErratum(sign, new HMACSHA1(Encoding.ASCII.GetBytes("")), "2");
-            CheckErratum(sign, new HMACSHA1(Encoding.ASCII.GetBytes("oops")), "3");
-            CheckErratum(sign, new HMACSHA1(Encoding.ASCII.GetBytes("secret")), "4");
+            CheckErratum(sign, new HMACSHA1("oops"u8.ToArray()), "3");
+            CheckErratum(sign, new HMACSHA1("secret"u8.ToArray()), "4");
         }
 
         [ActiveIssue("https://github.com/dotnet/runtime/issues/20429")]
@@ -1487,7 +1500,7 @@ namespace System.Security.Cryptography.Xml.Tests
             // 72 is a multiple of 8 but smaller than the minimum of 80 bits
             string xml = @"<Signature xmlns=""http://www.w3.org/2000/09/xmldsig#""><SignedInfo><CanonicalizationMethod Algorithm=""http://www.w3.org/TR/2001/REC-xml-c14n-20010315"" /><SignatureMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#hmac-sha1""><HMACOutputLength>72</HMACOutputLength></SignatureMethod><Reference URI=""#object""><DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha1"" /><DigestValue>nz4GS0NbH2SrWlD/4fX313CoTzc=</DigestValue></Reference></SignedInfo><SignatureValue>2dimB+P5Aw5K</SignatureValue><Object Id=""object"">some other text</Object></Signature>";
             SignedXml sign = GetSignedXml(xml);
-            CheckErratum(sign, new HMACSHA1(Encoding.ASCII.GetBytes("secret")), "72");
+            CheckErratum(sign, new HMACSHA1("secret"u8.ToArray()), "72");
         }
 
         [ActiveIssue("https://github.com/dotnet/runtime/issues/20429")]
@@ -1497,7 +1510,7 @@ namespace System.Security.Cryptography.Xml.Tests
             // 80 bits is the minimum (and the half-size of HMACSHA1)
             string xml = @"<Signature xmlns=""http://www.w3.org/2000/09/xmldsig#""><SignedInfo><CanonicalizationMethod Algorithm=""http://www.w3.org/TR/2001/REC-xml-c14n-20010315"" /><SignatureMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#hmac-sha1""><HMACOutputLength>80</HMACOutputLength></SignatureMethod><Reference URI=""#object""><DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha1"" /><DigestValue>nz4GS0NbH2SrWlD/4fX313CoTzc=</DigestValue></Reference></SignedInfo><SignatureValue>jVQPtLj61zNYjw==</SignatureValue><Object Id=""object"">some other text</Object></Signature>";
             SignedXml sign = GetSignedXml(xml);
-            Assert.True(sign.CheckSignature(new HMACSHA1(Encoding.ASCII.GetBytes("secret"))));
+            Assert.True(sign.CheckSignature(new HMACSHA1("secret"u8.ToArray())));
         }
 
         [ActiveIssue("https://github.com/dotnet/runtime/issues/20429")]
@@ -1507,7 +1520,7 @@ namespace System.Security.Cryptography.Xml.Tests
             // 80bits is smaller than the half-size of HMACSHA256
             string xml = @"<Signature xmlns=""http://www.w3.org/2000/09/xmldsig#""><SignedInfo><CanonicalizationMethod Algorithm=""http://www.w3.org/TR/2001/REC-xml-c14n-20010315"" /><SignatureMethod Algorithm=""http://www.w3.org/2001/04/xmldsig-more#hmac-sha256""><HMACOutputLength>80</HMACOutputLength></SignatureMethod><Reference URI=""#object""><DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha1"" /><DigestValue>nz4GS0NbH2SrWlD/4fX313CoTzc=</DigestValue></Reference></SignedInfo><SignatureValue>vPtw7zKVV/JwQg==</SignatureValue><Object Id=""object"">some other text</Object></Signature>";
             SignedXml sign = GetSignedXml(xml);
-            CheckErratum(sign, new HMACSHA256(Encoding.ASCII.GetBytes("secret")), "80");
+            CheckErratum(sign, new HMACSHA256("secret"u8.ToArray()), "80");
         }
 
         [ActiveIssue("https://github.com/dotnet/runtime/issues/20429")]
@@ -1517,7 +1530,7 @@ namespace System.Security.Cryptography.Xml.Tests
             // 128 is the half-size of HMACSHA256
             string xml = @"<Signature xmlns=""http://www.w3.org/2000/09/xmldsig#""><SignedInfo><CanonicalizationMethod Algorithm=""http://www.w3.org/TR/2001/REC-xml-c14n-20010315"" /><SignatureMethod Algorithm=""http://www.w3.org/2001/04/xmldsig-more#hmac-sha256""><HMACOutputLength>128</HMACOutputLength></SignatureMethod><Reference URI=""#object""><DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha1"" /><DigestValue>nz4GS0NbH2SrWlD/4fX313CoTzc=</DigestValue></Reference></SignedInfo><SignatureValue>aegpvkAwOL8gN/CjSnW6qw==</SignatureValue><Object Id=""object"">some other text</Object></Signature>";
             SignedXml sign = GetSignedXml(xml);
-            Assert.True(sign.CheckSignature(new HMACSHA256(Encoding.ASCII.GetBytes("secret"))));
+            Assert.True(sign.CheckSignature(new HMACSHA256("secret"u8.ToArray())));
         }
 
         [Fact]
@@ -1525,7 +1538,7 @@ namespace System.Security.Cryptography.Xml.Tests
         {
             string xml = @"<Signature xmlns=""http://www.w3.org/2000/09/xmldsig#""><SignedInfo><CanonicalizationMethod Algorithm=""http://www.w3.org/TR/2001/REC-xml-c14n-20010315"" /><SignatureMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#hmac-sha1"" /><Reference URI=""#object""><DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha1"" /><DigestValue>7/XTsHaBSOnJ/jXD5v0zL6VKYsk=</DigestValue></Reference></SignedInfo><SignatureValue>a0goL9esBUKPqtFYgpp2KST4huk=</SignatureValue><Object Id=""object"">some text</Object></Signature>";
             SignedXml sign = GetSignedXml(xml);
-            Assert.True(sign.CheckSignature(new HMACSHA1(Encoding.ASCII.GetBytes("secret"))));
+            Assert.True(sign.CheckSignature(new HMACSHA1("secret"u8.ToArray())));
         }
 
         [ActiveIssue("https://github.com/dotnet/runtime/issues/20429")]
@@ -1550,7 +1563,7 @@ namespace System.Security.Cryptography.Xml.Tests
 </Signature>
 ";
             SignedXml sign = GetSignedXml(xml);
-            Assert.Throws<CryptographicException>(() => sign.CheckSignature(new HMACSHA1(Encoding.ASCII.GetBytes("no clue"))));
+            Assert.Throws<CryptographicException>(() => sign.CheckSignature(new HMACSHA1("no clue"u8.ToArray())));
         }
 
         [ActiveIssue("https://github.com/dotnet/runtime/issues/20429")]
@@ -1575,9 +1588,142 @@ namespace System.Security.Cryptography.Xml.Tests
 </Signature>
 ";
             SignedXml sign = GetSignedXml(xml);
-            Assert.Throws<FormatException>(() => sign.CheckSignature(new HMACSHA1(Encoding.ASCII.GetBytes("no clue"))));
+            Assert.Throws<FormatException>(() => sign.CheckSignature(new HMACSHA1("no clue"u8.ToArray())));
         }
 
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/74115")]
+        public void VerifyXmlResolver(bool provideResolver)
+        {
+            TcpListener listener = new TcpListener(IPAddress.Loopback, 0);
+            listener.Start();
+            int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+
+            string xml = $@"<!DOCTYPE foo [<!ENTITY xxe SYSTEM ""http://127.0.0.1:{port}/"" >]>
+<ExampleDoc>Example doc to be signed.&xxe;<Signature xmlns=""http://www.w3.org/2000/09/xmldsig#"">
+    <SignedInfo>
+      <CanonicalizationMethod Algorithm=""http://www.w3.org/TR/2001/REC-xml-c14n-20010315"" />
+      <SignatureMethod Algorithm=""http://www.w3.org/2001/04/xmldsig-more#hmac-sha256"" />
+      <Reference URI="""">
+        <Transforms>
+          <Transform Algorithm=""http://www.w3.org/2000/09/xmldsig#enveloped-signature"" />
+        </Transforms>
+        <DigestMethod Algorithm=""http://www.w3.org/2001/04/xmlenc#sha256"" />
+        <DigestValue>CLUSJx4H4EwydAT/CtNWYu/l6R8uZe0tO2rlM/o0iM4=</DigestValue>
+      </Reference>
+    </SignedInfo>
+    <SignatureValue>o0IAVyovNUYKs5CCIRpZVy6noLpdJBp8LwWrqzzhKPg=</SignatureValue>
+  </Signature>
+</ExampleDoc>";
+
+            bool listenerContacted = false;
+            CancellationTokenSource tokenSource = new CancellationTokenSource();
+            Task listenerTask = ProcessRequests(listener, () => listenerContacted = true, tokenSource.Token);
+
+            XmlDocument doc = new XmlDocument();
+            doc.LoadXml(xml);
+
+            SignedXml signedXml = new SignedXml(doc);
+            signedXml.LoadXml((XmlElement)doc.GetElementsByTagName("Signature")[0]);
+
+            try
+            {
+                using (HMAC key = new HMACSHA256(Encoding.UTF8.GetBytes("sample")))
+                {
+                    if (provideResolver)
+                    {
+                        signedXml.Resolver = new XmlUrlResolver();
+                        Assert.True(signedXml.CheckSignature(key), "signedXml.CheckSignature(key)");
+                        Assert.True(listenerContacted, "listenerContacted");
+                    }
+                    else
+                    {
+                        XmlException ex = Assert.Throws<XmlException>(() => signedXml.CheckSignature(key));
+                        Assert.False(listenerContacted, "listenerContacted");
+                    }
+                }
+            }
+            finally
+            {
+                tokenSource.Cancel();
+
+                try
+                {
+                    listener.Stop();
+                }
+                catch
+                {
+                }
+            }
+
+            static async Task ProcessRequests(
+                TcpListener listener,
+                Action requestReceived,
+                CancellationToken cancellationToken)
+            {
+                static byte[] GetResponse() =>
+                    ("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=UTF-8\r\nContent-Length: 0\r\n\r\n"u8).ToArray();
+
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    Socket socket;
+
+                    try
+                    {
+#if NET
+                        socket = await listener.AcceptSocketAsync(cancellationToken);
+#else
+                        socket = await listener.AcceptSocketAsync();
+#endif
+                    }
+                    catch
+                    {
+                        break;
+                    }
+
+                    using (socket)
+                    using (NetworkStream stream = new NetworkStream(socket))
+                    {
+                        requestReceived();
+                        byte[] buf = new byte[1024];
+                        int offset = 0;
+
+                        // Drain out the request.
+                        do
+                        {
+                            int read = await stream.ReadAsync(buf, offset, buf.Length - offset, cancellationToken);
+
+                            if (read <= 0)
+                            {
+                                break;
+                            }
+
+                            offset += read;
+
+                            if (offset >= buf.Length)
+                            {
+                                throw new InvalidOperationException();
+                            }
+
+                            if (offset > 4)
+                            {
+                                if (buf.AsSpan(offset - 4, 4).SequenceEqual("\r\n\r\n"u8))
+                                {
+                                    break;
+                                }
+                            }
+                        } while (true);
+
+                        byte[] response = GetResponse();
+                        await stream.WriteAsync(response, 0, response.Length, cancellationToken);
+                    }
+                }
+            }
+        }
+
+#if NET
         [Fact]
         public void CoreFxSignedXmlUsesSha256ByDefault()
         {
@@ -1627,5 +1773,687 @@ namespace System.Security.Cryptography.Xml.Tests
                     xp.SelectSingleNode("/ds:SignedInfo/ds:Reference/ds:DigestMethod/@Algorithm", nsMgr)?.Value);
             }
         }
+#endif
+
+        // To reduce running time, the test data is a pre-calculated string. For anyone that want to
+        // make adjustments to it, this is the small program that was used to generate the data.
+
+        //void Main()
+        //{
+        //    var xml = "<root><x ID=\"a\"/><x ID=\"b\"><x ID=\"c\"><x ID=\"y\"/></x></x></root>";
+
+        //    var xd = new XmlDocument();
+        //    xd.LoadXml(xml);
+
+        //    Sign(xd, "c", "y");
+        //    Sign(xd, "b", "b");
+        //    Sign(xd, "a", "a");
+        //    Sign(xd, "", "");
+
+        //    Console.WriteLine(xd);
+        //}
+
+        //void Sign(XmlDocument xd, string id, string signaturePlacement)
+        //{
+        //    var sx = new SignedXml(xd);
+        //    var key = RSA.Create();
+        //    sx.SigningKey = key;
+
+        //    if (!string.IsNullOrEmpty(id)) id = "#" + id;
+        //    var reference = new Reference(id);
+        //    reference.AddTransform(new XmlDsigEnvelopedSignatureTransform());
+        //    reference.AddTransform(new XmlDsigExcC14NTransform());
+        //    sx.AddReference(reference);
+
+        //    sx.ComputeSignature();
+        //    sx.KeyInfo.AddClause(new RSAKeyValue(key));
+
+        //    var node = string.IsNullOrEmpty(signaturePlacement) ? xd.DocumentElement :
+        //        xd.SelectSingleNode("//x[@ID=\'" + signaturePlacement + "']");
+
+        //    var signatureElement = sx.GetXml();
+
+        //    node.AppendChild(sx.GetXml());
+        //}
+
+        // Note that signatures were created/added in an order so that all should validate.
+        private const string multipleSignaturesXml =
+            @"<root>
+               <x ID=""a"">
+                  <Signature xmlns=""http://www.w3.org/2000/09/xmldsig#"">
+                     <SignedInfo>
+                        <CanonicalizationMethod Algorithm=""http://www.w3.org/TR/2001/REC-xml-c14n-20010315"" />
+                        <SignatureMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#rsa-sha1"" />
+                        <Reference URI=""#a"">
+                           <Transforms>
+                              <Transform Algorithm=""http://www.w3.org/2000/09/xmldsig#enveloped-signature"" />
+                              <Transform Algorithm=""http://www.w3.org/2001/10/xml-exc-c14n#"" />
+                           </Transforms>
+                           <DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha1"" />
+                           <DigestValue>2US57VqBEH0lqyIYKTxbq2deDTA=</DigestValue>
+                        </Reference>
+                     </SignedInfo>
+                     <SignatureValue>VMdecll8TJ89oLmTOpkA12NgzZeO5AZCei+7649C9tB4ca8kJd0J3VAcRKtYeu+5A1oGmgDRS1icGf3TxuRKqHH2kTwGLZbmIEKf75n7lpz1ReBYqFMc/DW45x42MlerhGkPEdnO7Ucwykdd38gSqZJcfYENtwq7xUcTZIedKi4=</SignatureValue>
+                     <KeyInfo>
+                        <KeyValue>
+                           <RSAKeyValue>
+                              <Modulus>muFUHuh9LsUbbz8awq3p/RPlltaZFV0DxhofwqBS5zWhqJ/I5/0F2UVi+8XXQ37TFkBh5wpm/HwJC+Uh9t17l7CpdgiasGiN9G1i1gaSwaNsj2SnwCmBl/AICuFVp6i/UC+v77dXaBhTnH0lhD2a/+fbUomJAxSyQhqfpH3SLgk=</Modulus>
+                              <Exponent>AQAB</Exponent>
+                           </RSAKeyValue>
+                        </KeyValue>
+                     </KeyInfo>
+                  </Signature>
+               </x>
+               <x ID=""b"">
+                  <x ID=""c"">
+                     <x ID=""y"">
+                        <Signature xmlns=""http://www.w3.org/2000/09/xmldsig#"">
+                           <SignedInfo>
+                              <CanonicalizationMethod Algorithm=""http://www.w3.org/TR/2001/REC-xml-c14n-20010315"" />
+                              <SignatureMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#rsa-sha1"" />
+                              <Reference URI=""#c"">
+                                 <Transforms>
+                                    <Transform Algorithm=""http://www.w3.org/2000/09/xmldsig#enveloped-signature"" />
+                                    <Transform Algorithm=""http://www.w3.org/2001/10/xml-exc-c14n#"" />
+                                 </Transforms>
+                                 <DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha1"" />
+                                 <DigestValue>NGqdYOU+AMF8pwX09mfN7GfG9lA=</DigestValue>
+                              </Reference>
+                           </SignedInfo>
+                           <SignatureValue>YypMN7Cu6cDdMilxDV78dgTUtyNjY1iZn4rtzGQzCTPBFJHGNr75oZMg9vRX9nnpnNc3xHWbJyxTZ8uuXfVvPSjCTVjYeuMpe+11lz3qkQCmw+B9nypQTgXWz3zNrN0wNSTm1TzowWrte0vaJSWA9bgOFvmn9YG2GEfS69DSzOY=</SignatureValue>
+                           <KeyInfo>
+                              <KeyValue>
+                                 <RSAKeyValue>
+                                    <Modulus>xhqQCNyUSmaKKAhR+YhZjmrtK/vaG+S4AUwotC7u2B5f4e9OIye7PcN74k1G4K0cY5hzqeZUTKHCRBuxgDPT6IifA4MIeiKfyql20GlLNkEO/xAR9wrFgIBRWk9sgU7Nfhe8+W/AjY9+RlPPZXBdOVyAacse4KY4XY5z2GgYQHU=</Modulus>
+                                    <Exponent>AQAB</Exponent>
+                                 </RSAKeyValue>
+                              </KeyValue>
+                           </KeyInfo>
+                        </Signature>
+                     </x>
+                  </x>
+                  <Signature xmlns=""http://www.w3.org/2000/09/xmldsig#"">
+                     <SignedInfo>
+                        <CanonicalizationMethod Algorithm=""http://www.w3.org/TR/2001/REC-xml-c14n-20010315"" />
+                        <SignatureMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#rsa-sha1"" />
+                        <Reference URI=""#b"">
+                           <Transforms>
+                              <Transform Algorithm=""http://www.w3.org/2000/09/xmldsig#enveloped-signature"" />
+                              <Transform Algorithm=""http://www.w3.org/2001/10/xml-exc-c14n#"" />
+                           </Transforms>
+                           <DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha1"" />
+                           <DigestValue>A9fDiGJkjH9TuFkydEBjIJMkMzU=</DigestValue>
+                        </Reference>
+                     </SignedInfo>
+                     <SignatureValue>bdZtoQ2jqEVB3ifJ+lpVkKhtJYw8/WXhua3+O3ubRueYmmHVE26hFrg5y+Hz/D/YFVXtzU2dc6YypOYBLsdcRdI1JDqBN7UevmFe1NsW5YaBj4whmm3bTswMcqL6dQCXur0iq4LljVB8mhQP6nl27IajnIV+VOmkNNha+qzJfuE=</SignatureValue>
+                     <KeyInfo>
+                        <KeyValue>
+                           <RSAKeyValue>
+                              <Modulus>y1a1hMeJ7nkLr5SS5lkRvFV5dnejBnu7hjiXKYdN/YZKbaxVpmuPguJVqqrrXE52RigIcM//EYvfYvV0rhIr6PN+mwm2m4ZuZjAvCrxvYU3G/ZGHtF5LYt0RaZVMOLG4xqFXlQpwlEXw39UN1PreZi6XEV7Jjszd/VLdtIykW5U=</Modulus>
+                              <Exponent>AQAB</Exponent>
+                           </RSAKeyValue>
+                        </KeyValue>
+                     </KeyInfo>
+                  </Signature>
+               </x>
+               <Signature xmlns=""http://www.w3.org/2000/09/xmldsig#"">
+                  <SignedInfo>
+                     <CanonicalizationMethod Algorithm=""http://www.w3.org/TR/2001/REC-xml-c14n-20010315"" />
+                     <SignatureMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#rsa-sha1"" />
+                     <Reference URI="""">
+                        <Transforms>
+                           <Transform Algorithm=""http://www.w3.org/2000/09/xmldsig#enveloped-signature"" />
+                           <Transform Algorithm=""http://www.w3.org/2001/10/xml-exc-c14n#"" />
+                        </Transforms>
+                        <DigestMethod Algorithm=""http://www.w3.org/2000/09/xmldsig#sha1"" />
+                        <DigestValue>knyXmtlEae1LcoEEx52tq9yYr50=</DigestValue>
+                     </Reference>
+                  </SignedInfo>
+                  <SignatureValue>Bk4BUVLgQ47zZ1mUrnzeRZfQor0C9GhrtF03AXF5Z7Iq4KfpAgD+R9BJhR6+5Fodr5O2v1v1OhzYxL8aBgM1bdrtTZZI02JmaWSUv5/Af2ZybXCec2hKReJ94omO/8vaq3kBdovfT9G0WfXBzlD0URy+7WZBi+YJ5FPtx1vroLM=</SignatureValue>
+                  <KeyInfo>
+                     <KeyValue>
+                        <RSAKeyValue>
+                           <Modulus>sa9jTiNt9nsavccQO9gZjUKRF1qgKGOY4tojYjv+C7VLYBDfrpXDWdYcsBQV0DJCD+CH4IJ069lMTJBQ5sHoc1pHxCqywgoMpMTbHrXt0PHvz6P7Bd77KgNfbsCnV62g098r/y8n8APRdp1G5zZFPAltOah8kj485cp2BRpQTmE=</Modulus>
+                           <Exponent>AQAB</Exponent>
+                        </RSAKeyValue>
+                     </KeyValue>
+                  </KeyInfo>
+               </Signature>
+            </root>";
+
+        private SignedXml CreateSubjectForMultipleEnvelopedSignatures(string xml, string signatureParent)
+        {
+            var doc = new XmlDocument();
+            doc.LoadXml(xml);
+
+            var subject = new SignedXml(doc);
+
+            XmlNode parentNode = string.IsNullOrEmpty(signatureParent) ? doc.DocumentElement : doc.SelectSingleNode("//x[@ID='" + signatureParent + "']");
+            XmlElement signatureElement = parentNode["Signature"];
+
+            subject.LoadXml(signatureElement);
+
+            return subject;
+        }
+
+        [ConditionalTheory(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
+        [InlineData("a"/*, 1*/)]
+        [InlineData("b"/*, 2*/)]
+        [InlineData("y"/*, 1*/)]
+        [InlineData(""/* , 4*/)]
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "SignedXml has been failing validation on nested signatures all the time with .NET Framework and .NET (Core) up to .NET 6. This test was added together with a fix for .NET 7.")]
+        public void CheckSignatureMultipleEnvelopedSignatures(string signatureParent/*, int expectedPosition*/)
+        {
+            SignedXml subject = CreateSubjectForMultipleEnvelopedSignatures(multipleSignaturesXml, signatureParent);
+
+            // When debugging this test, it might make sense to validate the actual signature
+            // position rather than the external-visible behaviour. The test relies on private
+            // reflection so I don't think it belongs in the normal test run. Uncomment these
+            // lines  and the expectedPosition parameter to enable the validation
+
+            //var transform = (XmlDsigEnvelopedSignatureTransform)((Reference)subject.Signature.SignedInfo.References[0]).TransformChain[0];
+            //var signaturePositionField = typeof(XmlDsigEnvelopedSignatureTransform).GetField("_signaturePosition", Reflection.BindingFlags.NonPublic | Reflection.BindingFlags.Instance);
+            //var actualPosition = (int)signaturePositionField.GetValue(transform);
+            //Assert.Equal(expectedPosition, actualPosition);
+
+            Assert.True(subject.CheckSignature(), "Multiple signatures, validating " + signatureParent);
+        }
+
+        [ConditionalTheory(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
+        [InlineData("a", "a", false)]
+        [InlineData("a", "b", true)]
+        [InlineData("b", "b", false)]
+        [InlineData("b", "c", false)]
+        [InlineData("y", "b", true)]
+        [InlineData("y", "c", false)]
+        [InlineData("y", "y", false)]
+        [InlineData("", "a", false)]
+        [InlineData("", "b", false)]
+        [InlineData("", "c", false)]
+        [InlineData("", "y", false)]
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "SignedXml has been failing validation on nested signatures all the time with .NET Framework and .NET (Core) up to .NET 6. This test was added together with a fix for .NET 7.")]
+        public void CheckSignatureDetectsTamperedDataOnMultipleEnvelopedSignatures(
+            string signatureParent, string tamperNode, bool expected)
+        {
+            var tampered = multipleSignaturesXml.Replace($"ID=\"{tamperNode}\"", $"ID=\"{tamperNode}\" Hackerz=\"true\"");
+
+            SignedXml subject = CreateSubjectForMultipleEnvelopedSignatures(tampered, signatureParent);
+
+            Assert.Equal(expected, subject.CheckSignature());
+        }
+
+        [ConditionalTheory(typeof(SignatureSupport), nameof(SignatureSupport.SupportsRsaSha1Signatures))]
+        [InlineData("a", "b")]
+        [InlineData("a", "nonexisting")]
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "SignedXml has been failing validation on nested signatures all the time with .NET Framework and .NET (Core) up to .NET 6. This test was added together with a fix for .NET 7.")]
+        public void CheckSignatureHandlesIncorrectOrTamperedReferenceWithMultipleEnvelopedSignatures(
+            string signatureParent, string newReference)
+        {
+            var tampered = multipleSignaturesXml.Replace($"URI=\"#{signatureParent}", $"URI=\"#{newReference}");
+
+            SignedXml subject = CreateSubjectForMultipleEnvelopedSignatures(tampered, signatureParent);
+
+            Assert.False(subject.CheckSignature());
+        }
+
+        public static object[][] EnvelopedSignatureWithRootXpointerReference = new object[][]
+        {
+            new object[] { true,  """<?xml version="1.0" encoding="UTF-8"?><hello><world>Hi</world><Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#WithComments" /><SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" /><Reference URI="#xpointer(/)"><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" /><Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#WithComments" /></Transforms><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256" /><DigestValue>SVaCE5w9iLXTVYTKP1t/yjjmPXvWovMYpgljGgpgz2Y=</DigestValue></Reference></SignedInfo><SignatureValue>dqcBmS1ZvDJNhmCEgobpAb+A2XaiuB69dfGIhisZvqoxaWqAqv/0w49jp38+usJ5t3wcq3aMC631QE8iln+lHWrarojDMDWLa00isv3oE3q9UgOIV9e6MUSoRTTvQkmlK/LSYV9T/SKx6h03vLLcIkUMXaTkC/n2kthlJTGkLbU=</SignatureValue><KeyInfo><KeyValue><RSAKeyValue><Modulus>t6qV1iTlkCPoaIeOTvnDczQv5pytUxMoyNXws5vaMQYxfJMKos47dvmiLtfWUDLYXFX3Yf/JMC14plJw2JA5jLrlHLnZj/vCjRtXckmWW/wGYewXUqrgR1CytStUeQKj9mNsi76erukua10UhzIrWG+H6YQ/qS4AMMJZU6jBvO0=</Modulus><Exponent>AQAB</Exponent></RSAKeyValue></KeyValue></KeyInfo></Signature></hello>""" },
+            new object[] { false, """<?xml version="1.0" encoding="UTF-8"?><hello>Tempered world<Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#WithComments" /><SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" /><Reference URI="#xpointer(/)"><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" /><Transform Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#WithComments" /></Transforms><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256" /><DigestValue>SVaCE5w9iLXTVYTKP1t/yjjmPXvWovMYpgljGgpgz2Y=</DigestValue></Reference></SignedInfo><SignatureValue>dqcBmS1ZvDJNhmCEgobpAb+A2XaiuB69dfGIhisZvqoxaWqAqv/0w49jp38+usJ5t3wcq3aMC631QE8iln+lHWrarojDMDWLa00isv3oE3q9UgOIV9e6MUSoRTTvQkmlK/LSYV9T/SKx6h03vLLcIkUMXaTkC/n2kthlJTGkLbU=</SignatureValue><KeyInfo><KeyValue><RSAKeyValue><Modulus>t6qV1iTlkCPoaIeOTvnDczQv5pytUxMoyNXws5vaMQYxfJMKos47dvmiLtfWUDLYXFX3Yf/JMC14plJw2JA5jLrlHLnZj/vCjRtXckmWW/wGYewXUqrgR1CytStUeQKj9mNsi76erukua10UhzIrWG+H6YQ/qS4AMMJZU6jBvO0=</Modulus><Exponent>AQAB</Exponent></RSAKeyValue></KeyValue></KeyInfo></Signature></hello>""" },
+        };
+
+        [Theory]
+        [MemberData(nameof(EnvelopedSignatureWithRootXpointerReference))]
+        public void CheckSignatureHandlesEnvelopedSignatureWithRootXpointerReference(bool isValid, string xml)
+        {
+            XmlDocument xmlDoc = new ();
+            xmlDoc.LoadXml(xml);
+            SignedXml signedXml = new (xmlDoc);
+            signedXml.LoadXml(xmlDoc.GetElementsByTagName("Signature", SignedXml.XmlDsigNamespaceUrl)[0] as XmlElement);
+
+            Assert.Equal(isValid, signedXml.CheckSignature());
+        }
+
+
+        public static object[][] EnvelopedSignatureWithEmptyReference = new object[][]
+        {
+            new object[] { true,  """<?xml version="1.0" encoding="UTF-8"?><hello><world>Hi</world><Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#WithComments" /><SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" /><Reference><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" /></Transforms><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256" /><DigestValue>SVaCE5w9iLXTVYTKP1t/yjjmPXvWovMYpgljGgpgz2Y=</DigestValue></Reference></SignedInfo><SignatureValue>CiB9jgIS7+Wq+lpyzCGsBZQcQ2BxqQuEU9VCvb3Li5jMtjwRV1bMO+4Wfnb4VWhEtEUq6NdiVGXhC1xvtVLnnLDX7CD/jG6NvM1Yd0/rf0UUceBhzYLFE9HLsopsBmmm3t8FO6ZtRr1QqKM0XDaQleGK9vYd2m2Jq8OR3r/w4OY=</SignatureValue><KeyInfo><KeyValue><RSAKeyValue><Modulus>vcM1wQVmLB9DwdnAym8l8nw63/HlTVzgTDhIwNzWPhsPE/qr2wlK4TEQ3rjU+RAdNytfFNCnuuh75ZVMjAWCV9h6VDlp0DOvBhb6GenhymtTAdJJKzBXKJP6mNPga9cPOP31IZ36Ui00G3fjBBPrHa7nStludgL9Wi0dBU28DjU=</Modulus><Exponent>AQAB</Exponent></RSAKeyValue></KeyValue></KeyInfo></Signature></hello>""" },
+            new object[] { false, """<?xml version="1.0" encoding="UTF-8"?><hello><WORLD>HI</WORLD><Signature xmlns="http://www.w3.org/2000/09/xmldsig#"><SignedInfo><CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#WithComments" /><SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha256" /><Reference><Transforms><Transform Algorithm="http://www.w3.org/2000/09/xmldsig#enveloped-signature" /></Transforms><DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256" /><DigestValue>SVaCE5w9iLXTVYTKP1t/yjjmPXvWovMYpgljGgpgz2Y=</DigestValue></Reference></SignedInfo><SignatureValue>CiB9jgIS7+Wq+lpyzCGsBZQcQ2BxqQuEU9VCvb3Li5jMtjwRV1bMO+4Wfnb4VWhEtEUq6NdiVGXhC1xvtVLnnLDX7CD/jG6NvM1Yd0/rf0UUceBhzYLFE9HLsopsBmmm3t8FO6ZtRr1QqKM0XDaQleGK9vYd2m2Jq8OR3r/w4OY=</SignatureValue><KeyInfo><KeyValue><RSAKeyValue><Modulus>vcM1wQVmLB9DwdnAym8l8nw63/HlTVzgTDhIwNzWPhsPE/qr2wlK4TEQ3rjU+RAdNytfFNCnuuh75ZVMjAWCV9h6VDlp0DOvBhb6GenhymtTAdJJKzBXKJP6mNPga9cPOP31IZ36Ui00G3fjBBPrHa7nStludgL9Wi0dBU28DjU=</Modulus><Exponent>AQAB</Exponent></RSAKeyValue></KeyValue></KeyInfo></Signature></hello>""" },
+        };
+
+        [Theory]
+        [MemberData(nameof(EnvelopedSignatureWithEmptyReference))]
+        public void CheckSignatureHandlesEnvelopedSignatureWithEmptyReference(bool isValid, string xml)
+        {
+            XmlDocument xmlDoc = new ();
+            xmlDoc.LoadXml(xml);
+            SignedXml signedXml = new (xmlDoc);
+            signedXml.LoadXml(xmlDoc.GetElementsByTagName("Signature", SignedXml.XmlDsigNamespaceUrl)[0] as XmlElement);
+
+            // without this, CheckSignature throws
+            ((Reference)signedXml.SignedInfo.References[0]).TransformChain[0].LoadInput(xmlDoc);
+
+            Assert.Equal(isValid, signedXml.CheckSignature());
+        }
+
+        // Builds a SignedXml document over "<Data>some other text</Data>" wrapped in an
+        // <Object Id="object">, signs it with the supplied HMAC, and returns a verifier-side
+        // SignedXml loaded from the produced XML. When hmacOutputLengthBits is supplied,
+        // ComputeSignature truncates SignatureValue to that bit length. When
+        // overrideSignatureMethodUrl is supplied, the SignatureMethod URL on the produced
+        // signature is replaced with the given value after signing.
+        private static SignedXml BuildHmacSignedXml(
+            HMAC signingHmac,
+            int? hmacOutputLengthBits = null,
+            string overrideSignatureMethodUrl = null)
+        {
+            XmlDocument dataDoc = new XmlDocument();
+            XmlElement dataElement = dataDoc.CreateElement("Data");
+            dataElement.AppendChild(dataDoc.CreateTextNode("some other text"));
+            dataDoc.AppendChild(dataElement);
+
+            SignedXml builder = new SignedXml();
+            builder.SignedInfo.CanonicalizationMethod = SignedXml.XmlDsigC14NTransformUrl;
+
+            DataObject dataObject = new DataObject
+            {
+                Id = "object",
+                Data = dataDoc.ChildNodes,
+            };
+            builder.AddObject(dataObject);
+
+            Reference reference = new Reference
+            {
+                Uri = "#object",
+                DigestMethod = SignedXml.XmlDsigSHA256Url,
+            };
+            builder.AddReference(reference);
+
+            if (hmacOutputLengthBits.HasValue)
+            {
+                builder.SignedInfo.SignatureLength =
+                    hmacOutputLengthBits.Value.ToString(CultureInfo.InvariantCulture);
+            }
+
+            builder.ComputeSignature(signingHmac);
+
+            if (overrideSignatureMethodUrl is not null)
+            {
+                builder.SignedInfo.SignatureMethod = overrideSignatureMethodUrl;
+            }
+
+            XmlDocument verifierDoc = new XmlDocument();
+            verifierDoc.AppendChild(verifierDoc.ImportNode(builder.GetXml(), deep: true));
+
+            SignedXml verifier = new SignedXml(verifierDoc);
+            verifier.LoadXml(verifierDoc.DocumentElement);
+            return verifier;
+        }
+
+        [Theory]
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework)]
+        [InlineData("urn:example:not-a-registered-hmac-url")]
+        [InlineData(SignedXml.XmlDsigEnvelopedSignatureTransformUrl)]
+        [InlineData(SignedXml.XmlDsigC14NTransformUrl)]
+        [InlineData(SignedXml.XmlDsigSHA1Url)]
+        [InlineData(SignedXml.XmlDsigRSASHA1Url)]
+        public void VerifyHMAC_ZeroLength_NonHmacSignatureMethodUrl_Rejects(string signatureMethodUrl)
+        {
+            using HMACSHA256 builderHmac = new HMACSHA256("any-key"u8.ToArray());
+            SignedXml sign = BuildHmacSignedXml(
+                signingHmac: builderHmac,
+                hmacOutputLengthBits: 0,
+                overrideSignatureMethodUrl: signatureMethodUrl);
+
+            Assert.False(sign.CheckSignature(new HMACSHA256("any-key"u8.ToArray())));
+        }
+
+        [Fact]
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework)]
+        public void VerifyHMAC_ZeroLength_NullSignatureFormatValidator_DefaultRejects()
+        {
+            using HMACSHA256 builderHmac = new HMACSHA256("secret"u8.ToArray());
+            SignedXml sign = BuildHmacSignedXml(signingHmac: builderHmac, hmacOutputLengthBits: 0);
+            sign.SignatureFormatValidator = null;
+
+            Assert.False(sign.CheckSignature(new HMACSHA256("secret"u8.ToArray())));
+        }
+
+        [Fact]
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework)]
+        public void VerifyHMAC_ZeroLength_PermissiveSignatureFormatValidator_DefaultRejects()
+        {
+            using HMACSHA256 builderHmac = new HMACSHA256("secret"u8.ToArray());
+            SignedXml sign = BuildHmacSignedXml(signingHmac: builderHmac, hmacOutputLengthBits: 0);
+            sign.SignatureFormatValidator = _ => true;
+
+            Assert.False(sign.CheckSignature(new HMACSHA256("secret"u8.ToArray())));
+        }
+
+        [Fact]
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework)]
+        public void VerifyHMAC_HalfLength_NullSignatureFormatValidator_DefaultRejects()
+        {
+            using HMACSHA256 builderHmac = new HMACSHA256("secret"u8.ToArray());
+            SignedXml sign = BuildHmacSignedXml(signingHmac: builderHmac, hmacOutputLengthBits: 128);
+            sign.SignatureFormatValidator = null;
+
+            Assert.False(sign.CheckSignature(new HMACSHA256("secret"u8.ToArray())));
+        }
+
+        [Fact]
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework)]
+        public void VerifyHMAC_EnvelopedSignature_PostProcessedToZeroLengthNonHmacMethod_Rejects()
+        {
+            XmlDocument doc = new XmlDocument();
+            doc.LoadXml("<root><data>some other text</data></root>");
+
+            SignedXml signer = new SignedXml(doc);
+            Reference reference = new Reference(uri: "");
+            reference.AddTransform(new XmlDsigEnvelopedSignatureTransform());
+            reference.DigestMethod = SignedXml.XmlDsigSHA256Url;
+            signer.AddReference(reference);
+            signer.SignedInfo.CanonicalizationMethod = SignedXml.XmlDsigC14NTransformUrl;
+
+            using HMACSHA256 signingHmac = new HMACSHA256("secret"u8.ToArray());
+            signer.ComputeSignature(signingHmac);
+
+            doc.DocumentElement.AppendChild(doc.ImportNode(signer.GetXml(), deep: true));
+
+            XmlElement signatureElement = (XmlElement)doc.GetElementsByTagName("Signature", SignedXml.XmlDsigNamespaceUrl)[0];
+            XmlElement signatureMethodElement = (XmlElement)signatureElement.GetElementsByTagName("SignatureMethod", SignedXml.XmlDsigNamespaceUrl)[0];
+            XmlElement signatureValueElement = (XmlElement)signatureElement.GetElementsByTagName("SignatureValue", SignedXml.XmlDsigNamespaceUrl)[0];
+            signatureMethodElement.SetAttribute("Algorithm", "urn:example:not-a-registered-hmac-url");
+            XmlElement hmacOutputLengthElement = doc.CreateElement("HMACOutputLength", SignedXml.XmlDsigNamespaceUrl);
+            hmacOutputLengthElement.InnerText = "0";
+            signatureMethodElement.AppendChild(hmacOutputLengthElement);
+            signatureValueElement.InnerText = string.Empty;
+
+            SignedXml verifier = new SignedXml(doc);
+            verifier.LoadXml(signatureElement);
+
+            Assert.False(verifier.CheckSignature(new HMACSHA256("no clue"u8.ToArray())));
+        }
+
+#if NET
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
+        public void SignedXml_EncryptedDataWithInfiniteXslTransform()
+        {
+            using RSA key = RSA.Create();
+            using Aes aes = Aes.Create();
+
+            XmlDocument doc = new();
+            doc.LoadXml("""
+                <Root>
+                  <Container Id="container">
+                    <EncryptedData Type="http://www.w3.org/2001/04/xmlenc#Element" xmlns="http://www.w3.org/2001/04/xmlenc#">
+                      <EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc" />
+                      <KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#">
+                        <KeyName>mykey</KeyName>
+                      </KeyInfo>
+                      <CipherData>
+                        <CipherValue>QUFCQkNDRERFRUZGR0dISA==</CipherValue>
+                      </CipherData>
+                    </EncryptedData>
+                  </Container>
+                </Root>
+                """);
+
+            SignedXml signedXml = new(doc)
+            {
+                SigningKey = key
+            };
+
+            signedXml.EncryptedXml.AddKeyNameMapping("mykey", aes);
+
+            Reference reference = new("#container");
+            reference.AddTransform(new XmlDecryptionTransform());
+            signedXml.AddReference(reference);
+
+            signedXml.ComputeSignature();
+            doc.DocumentElement!.AppendChild(signedXml.GetXml());
+
+            string encryptedDataWithXsltTransform = $"""
+                <EncryptedData Type="http://www.w3.org/2001/04/xmlenc#Element" xmlns="http://www.w3.org/2001/04/xmlenc#">
+                  <EncryptionMethod Algorithm="http://www.w3.org/2001/04/xmlenc#aes128-cbc" />
+                  <KeyInfo xmlns="http://www.w3.org/2000/09/xmldsig#">
+                    <KeyName>mykey</KeyName>
+                  </KeyInfo>
+                  <CipherData>
+                    <CipherReference URI="#data">
+                      <Transforms>
+                        <Transform Algorithm="http://www.w3.org/TR/1999/REC-xslt-19991116" xmlns="http://www.w3.org/2000/09/xmldsig#">
+                            {GenerateBillionLaughsXSLT()}
+                        </Transform>
+                      </Transforms>
+                    </CipherReference>
+                  </CipherData>
+                </EncryptedData>
+                """;
+
+            XmlElement dataElem = doc.CreateElement("Data");
+            dataElem.SetAttribute("Id", "data");
+            dataElem.InnerText = "RefData";
+            doc.DocumentElement.AppendChild(dataElem);
+
+            XmlNamespaceManager nsm = new XmlNamespaceManager(doc.NameTable);
+            nsm.AddNamespace("enc", "http://www.w3.org/2001/04/xmlenc#");
+            XmlNode edNode = doc.SelectSingleNode("//enc:EncryptedData", nsm)!;
+
+            XmlDocument fragment = new();
+            fragment.LoadXml(encryptedDataWithXsltTransform);
+            edNode.ParentNode!.ReplaceChild(doc.ImportNode(fragment.DocumentElement!, true), edNode);
+
+            // 2. Verify the signature
+            SignedXml verifierSignedXml = new(doc);
+            XmlNodeList signatures = doc.GetElementsByTagName("Signature");
+            verifierSignedXml.LoadXml((XmlElement)signatures[0]!);
+            verifierSignedXml.EncryptedXml.AddKeyNameMapping("mykey", aes);
+            CryptographicException ex = Assert.Throws<CryptographicException>(() => verifierSignedXml.CheckSignature(key));
+            Assert.Equal("The specified cryptographic transform is not supported.", ex.Message);
+
+            static string GenerateBillionLaughsXSLT()
+            {
+                // 32 chars
+                string vars = $"""<xsl:variable name="v0" select="'XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX'"/>{Environment.NewLine}""";
+
+                // 32 * 2^28 is roughly 8GB
+                int iterations = 28;
+                for (int i = 1; i <= iterations; i++)
+                {
+                    vars += $"""<xsl:variable name="v{i}" select="concat($v{i - 1}, $v{i - 1})"/>{Environment.NewLine}""";
+                }
+
+                return $"""
+                    <xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
+                    <xsl:template match="/">
+                    {vars}
+                    <xsl:value-of select="$v{iterations}"/>
+                    </xsl:template>
+                    </xsl:stylesheet>
+                    """;
+            }
+        }
+
+        [Theory]
+        [InlineData(64, false)]   // at the default limit - should pass
+        [InlineData(65, true)]    // one over the default limit - should fail
+        [InlineData(1000, true)]  // way over - should fail
+        public void SignedXml_DeepXmlDocument_ComputeSignature(int depth, bool shouldThrow)
+        {
+            MemoryStream ms = CreateDeepXmlStream(depth);
+
+            XmlDocument dummyDoc = new XmlDocument();
+            dummyDoc.LoadXml("<Root />");
+            SignedXml signedXml = new SignedXml(dummyDoc);
+            using RSA rsa = RSA.Create();
+            signedXml.SigningKey = rsa;
+
+            // Reference to the Stream
+            Reference reference = new Reference(ms);
+            // We need a transform that processes the stream.
+            // XmlDsigC14NTransform handles Stream input.
+            reference.AddTransform(new XmlDsigC14NTransform());
+            signedXml.AddReference(reference);
+
+            if (shouldThrow)
+            {
+                CryptographicException ex = Assert.Throws<CryptographicException>(() => signedXml.ComputeSignature());
+                Assert.Equal("The XML element has exceeded the maximum nesting depth allowed for decryption.", ex.Message);
+            }
+            else
+            {
+                signedXml.ComputeSignature(); // Should not throw
+            }
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void SignedXml_DeepXmlDocument_ComputeSignature_Depth65_PassesWithIncreasedLimit()
+        {
+            // A document of depth 65 exceeds the default limit of 64.
+            // Raising the limit to 100 should allow it to pass.
+            // Also verify the boundary is exact: depth 100 passes, depth 101 fails.
+            RemoteExecutor.Invoke(static () =>
+            {
+                AppContext.SetData("System.Security.Cryptography.Xml.DangerousMaxRecursionDepth", 100);
+                ComputeSignatureOnDeepStream(depth: 65);
+                ComputeSignatureOnDeepStream(depth: 100);
+                ComputeSignatureOnDeepStreamExpectFailure(depth: 101);
+            }).Dispose();
+        }
+
+        [ConditionalTheory(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        [InlineData(0)]      // 0 means no limit
+        [InlineData(100)]    // limit exactly equal to depth
+        [InlineData(10000)]  // large explicit limit
+        public void SignedXml_DeepXmlDocument_ComputeSignature_LargeDocument_PassesWithLargeOrUnlimitedDepth(int maxDepth)
+        {
+            // Setting the depth to 0 (unlimited) or a value above the document depth should
+            // allow documents with deep nesting to be signed successfully.
+            RemoteExecutor.Invoke(static (string maxDepthStr) =>
+            {
+                int maxDepth = int.Parse(maxDepthStr);
+                AppContext.SetData("System.Security.Cryptography.Xml.DangerousMaxRecursionDepth", maxDepth);
+                ComputeSignatureOnDeepStream(depth: 100);
+            }, maxDepth.ToString()).Dispose();
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void SignedXml_DeepXmlDocument_ComputeSignature_NegativeDepthFallsBackToDefault()
+        {
+            // Negative values are rejected by GetInt32Config (allowNegative: false)
+            // and fall back to the default limit of 64.
+            // Depth 64 should pass, depth 65 should fail.
+            RemoteExecutor.Invoke(static () =>
+            {
+                AppContext.SetData("System.Security.Cryptography.Xml.DangerousMaxRecursionDepth", -1);
+                ComputeSignatureOnDeepStream(depth: 64);
+                ComputeSignatureOnDeepStreamExpectFailure(depth: 65);
+            }).Dispose();
+        }
+
+        private static void ComputeSignatureOnDeepStream(int depth)
+        {
+            MemoryStream ms = CreateDeepXmlStream(depth);
+            XmlDocument dummyDoc = new XmlDocument();
+            dummyDoc.LoadXml("<Root />");
+            SignedXml signedXml = new SignedXml(dummyDoc);
+            using RSA rsa = RSA.Create();
+            signedXml.SigningKey = rsa;
+
+            Reference reference = new Reference(ms);
+            reference.AddTransform(new XmlDsigC14NTransform());
+            signedXml.AddReference(reference);
+
+            signedXml.ComputeSignature(); // Should not throw
+        }
+
+        private static void ComputeSignatureOnDeepStreamExpectFailure(int depth)
+        {
+            MemoryStream ms = CreateDeepXmlStream(depth);
+            XmlDocument dummyDoc = new XmlDocument();
+            dummyDoc.LoadXml("<Root />");
+            SignedXml signedXml = new SignedXml(dummyDoc);
+            using RSA rsa = RSA.Create();
+            signedXml.SigningKey = rsa;
+
+            Reference reference = new Reference(ms);
+            reference.AddTransform(new XmlDsigC14NTransform());
+            signedXml.AddReference(reference);
+
+            CryptographicException ex = Assert.Throws<CryptographicException>(() => signedXml.ComputeSignature());
+            Assert.Equal("The XML element has exceeded the maximum nesting depth allowed for decryption.", ex.Message);
+        }
+
+
+        private static MemoryStream CreateDeepXmlStream(int depth)
+        {
+            MemoryStream ms = new();
+            using (XmlWriter xw = XmlWriter.Create(ms))
+            {
+                xw.WriteStartDocument();
+                xw.WriteStartElement("Root");
+                for (int i = 0; i < depth; i++)
+                {
+                    xw.WriteStartElement("a");
+                }
+                for (int i = 0; i < depth; i++)
+                {
+                    xw.WriteEndElement();
+                }
+                xw.WriteEndElement();
+                xw.WriteEndDocument();
+            }
+            ms.Position = 0;
+            return ms;
+        }
+
+        [Fact]
+        public void SignedXml_DeepXmlDocument_CheckSignature()
+        {
+            using RSA rsa = RSA.Create();
+
+            XmlDocument xmlDocument = new();
+            xmlDocument.LoadXml("<Root Id='target'><Data>Safe</Data></Root>");
+            SignedXml signer = new(xmlDocument)
+            {
+                SigningKey = rsa
+            };
+
+            Reference reference = new()
+            {
+                Uri = "#target"
+            };
+
+            reference.AddTransform(new XmlDsigC14NTransform());
+            signer.AddReference(reference);
+            signer.ComputeSignature();
+            XmlElement signatureElement = signer.GetXml();
+            XmlDocument deepXmlDoc = new();
+            deepXmlDoc.LoadXml(GenerateDeepXmlString(depth: 4500, "target"));
+            SignedXml verifier = new(deepXmlDoc);
+            verifier.LoadXml(signatureElement);
+
+            CryptographicException ex = Assert.Throws<CryptographicException>(() => verifier.CheckSignature(rsa));
+            Assert.Equal("The XML element has exceeded the maximum nesting depth allowed for decryption.", ex.Message);
+
+            static string GenerateDeepXmlString(int depth, string id)
+            {
+                StringBuilder sb = new StringBuilder();
+                sb.Append($"<Root Id='{id}'>");
+                for (int i = 0; i < depth; i++)
+                {
+                    sb.Append("<N>");
+                }
+                sb.Append("Leaf");
+                for (int i = 0; i < depth; i++)
+                {
+                    sb.Append("</N>");
+                }
+                sb.Append("</Root>");
+                return sb.ToString();
+            }
+        }
+#endif
     }
 }

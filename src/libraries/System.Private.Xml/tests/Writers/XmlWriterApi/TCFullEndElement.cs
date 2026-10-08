@@ -1,15 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using OLEDB.Test.ModuleCore;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Text;
+using OLEDB.Test.ModuleCore;
 using XmlCoreTest.Common;
 using Xunit;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlWriterApiTests
 {
     //[TestCase(Name = "WriteFullEndElement")]
     public class TCFullEndElement
@@ -46,7 +46,7 @@ namespace System.Xml.Tests
                 }
             }
             CError.WriteLine("Did not throw exception");
-            Assert.True(false);
+            Assert.Fail();
         }
 
         // Call WriteFullEndElement after WriteEndElement
@@ -70,7 +70,7 @@ namespace System.Xml.Tests
                 }
             }
             CError.WriteLine("Did not throw exception");
-            Assert.True(false);
+            Assert.Fail();
         }
 
         // Call WriteFullEndElement without closing attributes
@@ -145,7 +145,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Multiple NS decl for same prefix (same NS value) on an element
@@ -170,7 +170,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Element and attribute have same prefix, but different namespace value
@@ -223,7 +223,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Mapping reserved prefix xml to correct namespace
@@ -294,7 +294,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw error");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Create nested element without prefix but with namespace of parent element with a defined prefix
@@ -428,7 +428,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Map XML NS 'http://www.w3.org/XML/1998/namaespace' to another prefix
@@ -477,7 +477,7 @@ namespace System.Xml.Tests
                         return;
                     }
                 }
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Write element in reserved XMLNS namespace, should error
@@ -498,7 +498,7 @@ namespace System.Xml.Tests
                         return;
                     }
                 }
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Mapping a prefix to empty ns should error
@@ -521,7 +521,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Pass null prefix to WriteStartElement()
@@ -635,7 +635,7 @@ namespace System.Xml.Tests
                         return;
                     }
                 }
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Pass String.Empty ns to WriteStartElement() when prefix is in scope
@@ -655,7 +655,7 @@ namespace System.Xml.Tests
                         return;
                     }
                 }
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Mapping empty ns uri to a prefix should error
@@ -676,7 +676,7 @@ namespace System.Xml.Tests
                         return;
                     }
                 }
-                Assert.True(false);
+                Assert.Fail();
             }
         }
 
@@ -703,7 +703,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Bind NS prefix 'xml' with valid namespace URI
@@ -770,7 +770,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Write attribute xml:lang with incorrect namespace
@@ -794,7 +794,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
 
@@ -1089,7 +1089,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Explicitly write namespace attribute that maps XML NS 'http://www.w3.org/XML/1998/namaespace' to another prefix
@@ -1154,7 +1154,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Write attribute in reserved XML namespace, should error
@@ -1176,7 +1176,7 @@ namespace System.Xml.Tests
                         return;
                     }
                 }
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Write attribute in reserved XMLNS namespace, should error
@@ -1198,7 +1198,7 @@ namespace System.Xml.Tests
                         return;
                     }
                 }
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // WriteAttributeString with no namespace under element with empty prefix
@@ -1359,7 +1359,7 @@ namespace System.Xml.Tests
                         return;
                     }
                 }
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // WriteStartAttribute with prefix = null, localName = xmlns - case 2
@@ -1511,7 +1511,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // WriteCData after root element
@@ -1535,7 +1535,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Call WriteCData twice - that should write two CData blocks
@@ -1559,7 +1559,7 @@ namespace System.Xml.Tests
             public void CData_12(XmlWriterUtils utils)
             {
                 // WriteCData with empty string when the write buffer looks like
-                // <r>aaaaaaa....   (currently lenght is 2048 * 3 - len("<![CDATA[")
+                // <r>aaaaaaa....   (currently length is 2048 * 3 - len("<![CDATA[")
                 int buflen = 2048 * 3;
                 string xml1 = "<r>";
                 string xml3 = "<![CDATA[";
@@ -1682,7 +1682,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw error");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // WriteComment with -- in value
@@ -1752,7 +1752,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw error");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // WriteEntityRef with entity defined in doctype
@@ -1897,7 +1897,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Character from high surrogate range
@@ -1920,7 +1920,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Sanity test, pass 'a'
@@ -2077,7 +2077,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Invalid low surrogate character
@@ -2100,7 +2100,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Swap high-low surrogate characters
@@ -2123,7 +2123,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // WriteSurrogateCharEntity for special attributes
@@ -2215,7 +2215,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // PI name = String.Empty should error
@@ -2238,7 +2238,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // WritePI with xmlns as the name value
@@ -2277,7 +2277,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // WritePI before XmlDecl
@@ -2300,7 +2300,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // WritePI (after StartDocument) with name = 'xml' text = 'version = 1.0' should error
@@ -2323,7 +2323,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // WritePI (before StartDocument) with name = 'xml' text = 'version = 1.0' should error
@@ -2346,7 +2346,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Include PI end tag ?> as part of the text value
@@ -2398,7 +2398,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
         }
 
@@ -2431,7 +2431,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Sanity test, Name = foo
@@ -2491,7 +2491,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
         }
 
@@ -2524,7 +2524,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Sanity test, Name = foo
@@ -2582,7 +2582,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
         }
 
@@ -2682,7 +2682,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             [Theory]
@@ -2802,7 +2802,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // WriteChars with count > buffer size
@@ -2930,7 +2930,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // WriteString with entity reference
@@ -3075,7 +3075,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Low surrogate on first position
@@ -3101,7 +3101,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
 
             // Swap low-high surrogates
@@ -3127,7 +3127,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
         }
 
@@ -3232,7 +3232,7 @@ namespace System.Xml.Tests
                     }
                 }
                 CError.WriteLine("Did not throw exception");
-                Assert.True(false);
+                Assert.Fail();
             }
         }
 
@@ -3332,7 +3332,7 @@ namespace System.Xml.Tests
                     catch (InvalidOperationException e)
                     {
                         CError.WriteLine(e);
-                        Assert.True(false);
+                        Assert.Fail();
                     }
                 }
                 Assert.True((utils.CompareReader("<Root attr=\"2 true 3.14 \" />")));
@@ -4366,7 +4366,7 @@ namespace System.Xml.Tests
                                 w.WriteValue(t);
                                 break;
                             default:
-                                Assert.True(false, "invalid param");
+                                Assert.Fail("invalid param");
                                 break;
                         }
                     }
@@ -4427,7 +4427,7 @@ namespace System.Xml.Tests
                 }
                 catch (XmlException) { return; }
                 catch (InvalidOperationException) { return; }
-                Assert.True(false);
+                Assert.Fail();
             }
 
             [Theory]
@@ -4541,7 +4541,7 @@ namespace System.Xml.Tests
                         }
                     }
                     CError.WriteLine("Did not throw exception");
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 // LookupPrefix with String.Empty should return String.Empty
@@ -4838,7 +4838,7 @@ namespace System.Xml.Tests
                         }
                     }
                     CError.WriteLine("Exception expected");
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 // Duplicate xml:space attr should error
@@ -4862,7 +4862,7 @@ namespace System.Xml.Tests
                         }
                     }
                     CError.WriteLine("Exception expected");
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 // Verify XmlSpace value when received through WriteString
@@ -4919,7 +4919,7 @@ namespace System.Xml.Tests
                             w.Dispose();
                             CError.WriteLine("Default value if no xml:lang attributes are currently on the stack should be null");
                             CError.WriteLine("Actual value: {0}", w.XmlLang.ToString());
-                            Assert.True(false);
+                            Assert.Fail();
                         }
                     }
                     return;
@@ -4982,7 +4982,7 @@ namespace System.Xml.Tests
                         }
                     }
                     CError.WriteLine("Exception expected");
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 // Verify XmlLang value when received through WriteAttributes
@@ -5051,7 +5051,7 @@ namespace System.Xml.Tests
 
                         string strExp = "<Root xml:lang=\"" + langs[i] + "\" />";
                         if (!utils.CompareReader(strExp))
-                            Assert.True(false);
+                            Assert.Fail();
                     }
                     return;
                 }
@@ -5091,7 +5091,7 @@ namespace System.Xml.Tests
                     Assert.True(utils.CompareReader("<Root a=\"Test Case\" b=\"Test\" />"));
                 }
 
-                // WriteRaw with entites and entitized characters
+                // WriteRaw with entities and entitized characters
                 [Theory]
                 [XmlWriterInlineData]
                 public void writeRaw_2(XmlWriterUtils utils)
@@ -5219,7 +5219,7 @@ namespace System.Xml.Tests
                         }
                     }
                     CError.WriteLine("Did not throw exception");
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 // WriteRaw with valid surrogate pair
@@ -5262,7 +5262,7 @@ namespace System.Xml.Tests
                         }
                     }
                     CError.WriteLine("Did not throw exception");
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 // Index = Count = 0
@@ -5296,12 +5296,7 @@ namespace System.Xml.Tests
                 [XmlWriterInlineData(4096)]
                 public void Base64_1(XmlWriterUtils utils, int strBase64Len)
                 {
-                    string strBase64 = string.Empty;
-                    for (int i = 0; i < strBase64Len; i++)
-                    {
-                        strBase64 += "A";
-                    }
-
+                    string strBase64 = new string('A', strBase64Len);
                     byte[] Wbase64 = new byte[strBase64Len * 2];
                     int Wbase64len = 0;
 
@@ -5325,11 +5320,14 @@ namespace System.Xml.Tests
 
                     CError.Compare(nRead, strBase64Len * 2, "Read count");
 
-                    string strRes = string.Empty;
+                    StringBuilder strResBuilder = new StringBuilder(strBase64Len);
+
                     for (int i = 0; i < nRead; i += 2)
                     {
-                        strRes += BitConverter.ToChar(buffer, i);
+                        strResBuilder.Append(BitConverter.ToChar(buffer, i));
                     }
+
+                    string strRes = strResBuilder.ToString();
                     CError.Compare(strRes, strBase64, "Base64 value");
 
                     return;
@@ -5394,7 +5392,7 @@ namespace System.Xml.Tests
                         }
                     }
                     CError.WriteLine("Did not throw exception");
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 // Index = Count = 0
@@ -5448,7 +5446,7 @@ namespace System.Xml.Tests
                     }
 
                     CError.WriteLine("Did not throw exception");
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 // WriteBase64 should flush the buffer if WriteString is called
@@ -5715,7 +5713,7 @@ namespace System.Xml.Tests
                         }
                     }
                     CError.WriteLine("Did not throw exception");
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 // Index = Count = 0
@@ -5755,7 +5753,14 @@ namespace System.Xml.Tests
                         w.WriteBinHex(Wbase64, 0, (int)Wbase64len);
                         w.WriteEndElement();
                     }
-                    Assert.True(utils.CompareReader("<root a='610062006300' />"));
+                    if (System.BitConverter.IsLittleEndian)
+                    {
+                        Assert.True(utils.CompareReader("<root a='610062006300' />"));
+                    }
+                    else
+                    {
+                        Assert.True(utils.CompareReader("<root a='006100620063' />"));
+                    }
                 }
 
                 // Call WriteBinHex and verify results can be read as a string
@@ -5777,7 +5782,14 @@ namespace System.Xml.Tests
                         w.WriteBinHex(Wbase64, 0, (int)Wbase64len);
                         w.WriteEndElement();
                     }
-                    Assert.True(utils.CompareReader("<root>610062006300</root>"));
+                    if (System.BitConverter.IsLittleEndian)
+                    {
+                        Assert.True(utils.CompareReader("<root>610062006300</root>"));
+                    }
+                    else
+                    {
+                        Assert.True(utils.CompareReader("<root>006100620063</root>"));
+                    }
                 }
             }
 
@@ -5797,7 +5809,7 @@ namespace System.Xml.Tests
                     }
                     catch (InvalidOperationException)
                     {
-                        Assert.True(false);
+                        Assert.Fail();
                     }
                     return;
                 }
@@ -5959,7 +5971,7 @@ namespace System.Xml.Tests
                                 return;
                         }
                     }
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 [Theory]
@@ -6055,7 +6067,7 @@ namespace System.Xml.Tests
                     if (methodName == "Flush" || methodName == "LookupPrefix")
                         return;
 
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 private void InvokeMethod(XmlWriter w, string methodName)
@@ -6209,7 +6221,7 @@ namespace System.Xml.Tests
                         }
                     }
 
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 // XmlWellformedWriter wrapping another XmlWriter should check the duplicate attributes first
@@ -6233,7 +6245,7 @@ namespace System.Xml.Tests
                             }
                         }
                     }
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 [Theory]
@@ -6292,15 +6304,24 @@ namespace System.Xml.Tests
                 [XmlWriterInlineData]
                 public void var_1(XmlWriterUtils utils)
                 {
-                    string UniStr = "";
-                    using (XmlWriter w = utils.CreateWriter())
+                    char startChar = '\ue000';
+                    char endChar = '\ufffe';
+                    int charCount = endChar - startChar;
+                    StringBuilder uniStrBuilder = new StringBuilder(charCount);
+
+                    for (char ch = startChar; ch < endChar; ch++)
                     {
-                        for (char ch = '\ue000'; ch < '\ufffe'; ch++)
-                            UniStr += ch;
-                        w.WriteElementString("root", UniStr);
+                        uniStrBuilder.Append(ch);
                     }
 
-                    Assert.True(utils.CompareReader("<root>" + UniStr + "</root>"));
+                    string uniStr = uniStrBuilder.ToString();
+
+                    using (XmlWriter w = utils.CreateWriter())
+                    {
+                        w.WriteElementString("root", uniStr);
+                    }
+
+                    Assert.True(utils.CompareReader("<root>" + uniStr + "</root>"));
                 }
 
                 [Fact]
@@ -6338,12 +6359,12 @@ namespace System.Xml.Tests
                 [XmlWriterInlineData]
                 public void var_1(XmlWriterUtils utils)
                 {
-                    using (XmlWriter writer = utils.CreateWriter())
-                    {
-                        writer.WriteStartElement("Root");
-                        writer.WriteStartElement("Nesting");
-                        writer.WriteStartElement("SomeDeep");
-                    }
+                    XmlWriter writer = utils.CreateWriter();
+                    writer.WriteStartElement("Root");
+                    writer.WriteStartElement("Nesting");
+                    writer.WriteStartElement("SomeDeep");
+                    writer.Close();
+
                     Assert.True(utils.CompareReader("<Root><Nesting><SomeDeep /></Nesting></Root>"));
                 }
 
@@ -6415,7 +6436,7 @@ namespace System.Xml.Tests
                         ((IDisposable)w).Dispose();
                     }
                     catch (ObjectDisposedException e) { CError.WriteLine(e.Message); return; }
-                    Assert.True(false);
+                    Assert.Fail();
                 }
 
                 // Close() should be allowed when XML doesn't have content
@@ -6435,9 +6456,9 @@ namespace System.Xml.Tests
                         CError.WriteLine(e.Message);
                         if (e.Message.EndsWith(".."))
                         {
-                            Assert.True(false);
+                            Assert.Fail();
                         }
-                        Assert.True(false);
+                        Assert.Fail();
                     }
                     return;
                 }
@@ -6508,7 +6529,7 @@ namespace System.Xml.Tests
                     {
                         return;
                     }
-                    Assert.True(false);
+                    Assert.Fail();
                 }
             }
         }

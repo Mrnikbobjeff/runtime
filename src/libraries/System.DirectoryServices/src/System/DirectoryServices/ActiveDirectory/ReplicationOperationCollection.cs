@@ -18,7 +18,7 @@ namespace System.DirectoryServices.ActiveDirectory
             _nameTable = Hashtable.Synchronized(tempNameTable);
         }
 
-        public ReplicationOperation this[int index] => (ReplicationOperation)InnerList[index];
+        public ReplicationOperation this[int index] => (ReplicationOperation)InnerList[index]!;
 
         public bool Contains(ReplicationOperation operation)
         {
@@ -48,11 +48,11 @@ namespace System.DirectoryServices.ActiveDirectory
             // get the count
             int count = operations.cNumPendingOps;
 
-            IntPtr addr = (IntPtr)0;
+            IntPtr addr = 0;
 
             for (int i = 0; i < count; i++)
             {
-                addr = IntPtr.Add(info, Marshal.SizeOf(typeof(DS_REPL_PENDING_OPS)) + i * Marshal.SizeOf(typeof(DS_REPL_OP)));
+                addr = IntPtr.Add(info, Marshal.SizeOf<DS_REPL_PENDING_OPS>() + i * Marshal.SizeOf<DS_REPL_OP>());
                 ReplicationOperation managedOperation = new ReplicationOperation(addr, _server, _nameTable);
 
                 Add(managedOperation);
@@ -61,7 +61,7 @@ namespace System.DirectoryServices.ActiveDirectory
 
         internal ReplicationOperation GetFirstOperation()
         {
-            ReplicationOperation op = (ReplicationOperation)InnerList[0];
+            ReplicationOperation op = (ReplicationOperation)InnerList[0]!;
             InnerList.RemoveAt(0);
 
             return op;

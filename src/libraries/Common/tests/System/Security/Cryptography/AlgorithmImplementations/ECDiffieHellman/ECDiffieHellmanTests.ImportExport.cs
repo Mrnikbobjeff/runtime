@@ -1,24 +1,29 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
 using System.Security.Cryptography.Tests;
+using Microsoft.DotNet.XUnitExtensions;
 using Test.Cryptography;
 using Xunit;
 
 namespace System.Security.Cryptography.EcDiffieHellman.Tests
 {
-#if NETCOREAPP
     public partial class ECDiffieHellmanTests
     {
         // On CentOS, secp224r1 (also called nistP224) appears to be disabled. To prevent test failures on that platform,
         // probe for this capability before depending on it.
-        internal static bool ECDsa224Available =>
+        internal bool ECDsa224Available =>
             ECDiffieHellmanFactory.IsCurveValid(new Oid(ECDSA_P224_OID_VALUE));
 
-        [Theory, MemberData(nameof(TestCurvesFull))]
-        public static void TestNamedCurves(CurveDef curveDef)
+        internal bool CanDeriveNewPublicKey =>
+            ECDiffieHellmanFactory.CanDeriveNewPublicKey;
+
+        [Theory]
+        [MemberData(nameof(TestCurvesFull))]
+        public void TestNamedCurves(CurveDef curveDef)
         {
-            if (!curveDef.Curve.IsNamed)
+            if (!curveDef.Curve.IsNamed || !curveDef.IsCurveValidOnPlatform(ECDiffieHellmanFactory))
                 return;
 
             using (ECDiffieHellman ec1 = ECDiffieHellmanFactory.Create(curveDef.Curve))
@@ -37,21 +42,27 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
             }
         }
 
-        [Theory, MemberData(nameof(TestInvalidCurves))]
-        public static void TestNamedCurvesNegative(CurveDef curveDef)
+        [Theory]
+        [MemberData(nameof(TestCurves))]
+        public void TestNamedCurvesNegative(CurveDef curveDef)
         {
-            if (!curveDef.Curve.IsNamed)
+            if (!curveDef.Curve.IsNamed || curveDef.IsCurveValidOnPlatform(ECDiffieHellmanFactory))
                 return;
 
             // An exception may be thrown during Create() if the Oid is bad, or later during native calls
-            Assert.Throws<PlatformNotSupportedException>(
-                () => ECDiffieHellmanFactory.Create(curveDef.Curve).ExportParameters(false));
+            Assert.Throws<PlatformNotSupportedException>(() =>
+            {
+                using ECDiffieHellman ecdh = ECDiffieHellmanFactory.Create(curveDef.Curve);
+                ecdh.ExportParameters(false);
+            });
         }
 
-        [Theory, MemberData(nameof(TestCurvesFull))]
-        public static void TestExplicitCurves(CurveDef curveDef)
+        [Theory]
+        [MemberData(nameof(TestCurvesFull))]
+        public void TestExplicitCurves(CurveDef curveDef)
         {
-            if (!ECDiffieHellmanFactory.ExplicitCurvesSupported)
+            if (!ECDiffieHellmanFactory.ExplicitCurvesSupported || 
+                !curveDef.IsCurveValidOnPlatform(ECDiffieHellmanFactory))
             {
                 return;
             }
@@ -72,10 +83,12 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
             }
         }
 
-        [Theory, MemberData(nameof(TestCurves))]
-        public static void TestExplicitCurvesKeyAgree(CurveDef curveDef)
+        [Theory]
+        [MemberData(nameof(TestCurves))]
+        public void TestExplicitCurvesKeyAgree(CurveDef curveDef)
         {
-            if (!ECDiffieHellmanFactory.ExplicitCurvesSupported)
+            if (!ECDiffieHellmanFactory.ExplicitCurvesSupported ||
+                !curveDef.IsCurveValidOnPlatform(ECDiffieHellmanFactory))
             {
                 return;
             }
@@ -124,7 +137,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
         }
 
         [Fact]
-        public static void TestNamedCurveNegative()
+        public void TestNamedCurveNegative()
         {
             Assert.Throws<PlatformNotSupportedException>(
                 () => ECDiffieHellmanFactory.Create(ECCurve.CreateFromFriendlyName("Invalid")).ExportExplicitParameters(false));
@@ -134,7 +147,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
         }
 
         [Fact]
-        public static void TestKeySizeCreateKey()
+        public void TestKeySizeCreateKey()
         {
             using (ECDiffieHellman ec = ECDiffieHellmanFactory.Create(ECCurve.NamedCurves.nistP256))
             {
@@ -151,7 +164,8 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
         }
 
         [Fact]
-        public static void TestExplicitImportValidationNegative()
+        [SkipOnPlatform(TestPlatforms.Android, "Android does not validate curve parameters")]
+        public void TestExplicitImportValidationNegative()
         {
             if (!ECDiffieHellmanFactory.ExplicitCurvesSupported)
             {
@@ -204,7 +218,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
         }
 
         [Fact]
-        public static void ImportExplicitWithSeedButNoHash()
+        public void ImportExplicitWithSeedButNoHash()
         {
             if (!ECDiffieHellmanFactory.ExplicitCurvesSupported)
             {
@@ -228,7 +242,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
 
         [Fact]
         [PlatformSpecific(TestPlatforms.Windows/* "parameters.Curve.Hash doesn't round trip on Unix." */)]
-        public static void ImportExplicitWithHashButNoSeed()
+        public void ImportExplicitWithHashButNoSeed()
         {
             if (!ECDiffieHellmanFactory.ExplicitCurvesSupported)
             {
@@ -250,9 +264,11 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
             }
         }
 
-        [ConditionalFact(nameof(ECDsa224Available))]
-        public static void TestNamedImportValidationNegative()
+        [ConditionalFact]
+        public void TestNamedImportValidationNegative()
         {
+            SkipTestException.ThrowUnless(ECDsa224Available);
+
             if (!ECDiffieHellmanFactory.ExplicitCurvesSupported)
             {
                 return;
@@ -286,7 +302,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
         }
 
         [Fact]
-        public static void TestGeneralExportWithExplicitParameters()
+        public void TestGeneralExportWithExplicitParameters()
         {
             if (!ECDiffieHellmanFactory.ExplicitCurvesSupported)
             {
@@ -309,9 +325,9 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
         }
 
         [Fact]
-        public static void TestExplicitCurveImportOnUnsupportedPlatform()
+        public void TestExplicitCurveImportOnUnsupportedPlatform()
         {
-            if (ECDiffieHellmanFactory.ExplicitCurvesSupported)
+            if (ECDiffieHellmanFactory.ExplicitCurvesSupported || ECDiffieHellmanProvider.ExplicitCurvesSupportFailOnUseOnly)
             {
                 return;
             }
@@ -335,9 +351,11 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
             }
         }
 
-        [ConditionalFact(nameof(ECDsa224Available))]
-        public static void TestNamedCurveWithExplicitKey()
+        [ConditionalFact]
+        public void TestNamedCurveWithExplicitKey()
         {
+            SkipTestException.ThrowUnless(ECDsa224Available);
+
             if (!ECDiffieHellmanFactory.ExplicitCurvesSupported)
             {
                 return;
@@ -352,7 +370,7 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
         }
 
         [Fact]
-        public static void ExportIncludingPrivateOnPublicOnlyKey()
+        public void ExportIncludingPrivateOnPublicOnlyKey()
         {
             ECParameters iutParameters = new ECParameters
             {
@@ -385,9 +403,11 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
             }
         }
 
-        [Fact]
-        public static void ImportFromPrivateOnlyKey()
+        [ConditionalFact]
+        public void ImportFromPrivateOnlyKey()
         {
+            SkipTestException.ThrowUnless(ECDiffieHellmanFactory.CanDeriveNewPublicKey);
+
             byte[] expectedX = "00d45615ed5d37fde699610a62cd43ba76bedd8f85ed31005fe00d6450fbbd101291abd96d4945a8b57bc73b3fe9f4671105309ec9b6879d0551d930dac8ba45d255".HexToByteArray();
             byte[] expectedY = "01425332844e592b440c0027972ad1526431c06732df19cd46a242172d4dd67c2c8c99dfc22e49949a56cf90c6473635ce82f25b33682fb19bc33bd910ed8ce3a7fa".HexToByteArray();
 
@@ -406,6 +426,47 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
                 Assert.Equal(expectedX, exportedParameters.Q.X);
                 Assert.Equal(expectedY, exportedParameters.Q.Y);
                 Assert.Equal(limitedPrivateParameters.D, exportedParameters.D);
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(NamedCurves))]
+        public void OidPresentOnCurveMiscased(ECCurve curve, bool checkCurveValidity)
+        {
+            if (checkCurveValidity && !ECDiffieHellmanFactory.IsCurveValid(curve.Oid))
+                return;
+
+            ECCurve miscasedCurve = ECCurve.CreateFromFriendlyName(InvertStringCase(curve.Oid.FriendlyName));
+            Assert.NotEqual(miscasedCurve.Oid.FriendlyName, curve.Oid.FriendlyName);
+            Assert.Equal(miscasedCurve.Oid.FriendlyName, curve.Oid.FriendlyName, ignoreCase: true);
+
+            using (ECDiffieHellman ecdh = ECDiffieHellmanFactory.Create())
+            {
+                ecdh.GenerateKey(miscasedCurve);
+                ECParameters exportedParameters = ecdh.ExportParameters(false);
+                Assert.Equal(curve.Oid.Value, exportedParameters.Curve.Oid.Value);
+
+                exportedParameters.Curve = miscasedCurve;
+
+                // Assert.NoThrow. Make sure we can import the mis-cased curve.
+                ecdh.ImportParameters(exportedParameters);
+            }
+        }
+
+        public static IEnumerable<object[]> NamedCurves
+        {
+            get
+            {
+                yield return new object[] { ECCurve.NamedCurves.nistP256, false };
+                yield return new object[] { ECCurve.NamedCurves.nistP384, false };
+                yield return new object[] { ECCurve.NamedCurves.nistP521, false };
+                yield return new object[] { ECCurve.CreateFromFriendlyName("ECDH_P256"), false };
+                yield return new object[] { ECCurve.CreateFromFriendlyName("ECDH_P384"), false };
+                yield return new object[] { ECCurve.CreateFromFriendlyName("ECDH_P521"), false };
+
+                // Curves may not be valid for all platforms, so validity must be checked at runtime
+                yield return new object[] { ECCurve.NamedCurves.brainpoolP160r1, true };
+                yield return new object[] { ECCurve.NamedCurves.brainpoolP160t1, true };
             }
         }
 
@@ -458,6 +519,71 @@ namespace System.Security.Cryptography.EcDiffieHellman.Tests
             ECParameters paramSecondExport = ec.ExportExplicitParameters(curveDef.IncludePrivate);
             AssertEqual(parameters, paramSecondExport);
         }
+
+        [Theory]
+        [MemberData(nameof(NistEccCdhPrimeCurveVectors))]
+        public void EcdhKeyAgreement_PrimeCurve_MatchesKnownSharedSecret(
+            string curveName, string curveOid,
+            string qCavsXHex, string qCavsYHex,
+            string dIutHex, string qIutXHex, string qIutYHex,
+            string expectedZHex)
+        {
+            _ = curveName;
+            ECCurve curve = ECCurve.CreateFromValue(curveOid);
+
+            using (ECDiffieHellman iut = ECDiffieHellmanFactory.Create())
+            using (ECDiffieHellman cavs = ECDiffieHellmanFactory.Create())
+            {
+                iut.ImportParameters(new ECParameters
+                {
+                    Curve = curve,
+                    D = dIutHex.HexToByteArray(),
+                    Q = new ECPoint
+                    {
+                        X = qIutXHex.HexToByteArray(),
+                        Y = qIutYHex.HexToByteArray(),
+                    },
+                });
+
+                cavs.ImportParameters(new ECParameters
+                {
+                    Curve = curve,
+                    Q = new ECPoint
+                    {
+                        X = qCavsXHex.HexToByteArray(),
+                        Y = qCavsYHex.HexToByteArray(),
+                    },
+                });
+
+                byte[] derivedZ = iut.DeriveRawSecretAgreement(cavs.PublicKey);
+                Assert.Equal(expectedZHex.HexToByteArray(), derivedZ);
+            }
+        }
+
+        // NIST SP 800-56A ECCCDH vectors (CAVS 14.1), P-256
+        // Source: https://csrc.nist.gov/projects/cryptographic-algorithm-validation-program
+        public static TheoryData<string, string, string, string, string, string, string, string> NistEccCdhPrimeCurveVectors => new()
+        {
+            // P-256, COUNT=0
+            {
+                "P-256", "1.2.840.10045.3.1.7",
+                "700c48f77f56584c5cc632ca65640db91b6bacce3a4df6b42ce7cc838833d287",
+                "db71e509e3fd9b060ddb20ba5c51dcc5948d46fbf640dfe0441782cab85fa4ac",
+                "7d7dc5f71eb29ddaf80d6214632eeae03d9058af1fb6d22ed80badb62bc1a534",
+                "ead218590119e8876b29146ff89ca61770c4edbbf97d38ce385ed281d8a6b230",
+                "28af61281fd35e2fa7002523acc85a429cb06ee6648325389f59edfce1405141",
+                "46fc62106420ff012e54a434fbdd2d25ccc5852060561e68040dd7778997bd7b"
+            },
+            // P-256, COUNT=1
+            {
+                "P-256", "1.2.840.10045.3.1.7",
+                "809f04289c64348c01515eb03d5ce7ac1a8cb9498f5caa50197e58d43a86a7ae",
+                "b29d84e811197f25eba8f5194092cb6ff440e26d4421011372461f579271cda3",
+                "38f65d6dce47676044d58ce5139582d568f64bb16098d179dbab07741dd5caf5",
+                "119f2f047902782ab0c9e27a54aff5eb9b964829ca99c06b02ddba95b0a3f6d0",
+                "8f52b726664cac366fc98ac7a012b2682cbd962e5acb544671d41b9445704d1d",
+                "057d636096cb80b67a8c038c890e887d1adfa4195e9b3ce241c8a778c59cda67"
+            },
+        };
     }
-#endif
 }

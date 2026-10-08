@@ -32,7 +32,7 @@ namespace Internal.Cryptography.Pal.AnyOS
             public override unsafe ContentInfo? TryDecrypt(
                 RecipientInfo recipientInfo,
                 X509Certificate2? cert,
-                AsymmetricAlgorithm? privateKey,
+                EnvelopedCmsKey privateKey,
                 X509Certificate2Collection originatorCerts,
                 X509Certificate2Collection extraStore,
                 out Exception? exception)
@@ -40,45 +40,48 @@ namespace Internal.Cryptography.Pal.AnyOS
                 // When encryptedContent is null Windows seems to decrypt the CEK first,
                 // then return a 0 byte answer.
 
-                Debug.Assert((cert != null) ^ (privateKey != null));
+                Debug.Assert((cert is not null) ^ (privateKey is not EnvelopedCmsKey.None));
+
+                byte[]? cek;
 
                 if (recipientInfo.Pal is ManagedKeyTransPal ktri)
                 {
-                    RSA? key = privateKey as RSA;
+                    RSA? key = privateKey is RSA rsa ? rsa : null;
 
-                    if (privateKey != null && key == null)
+                    if (privateKey is not EnvelopedCmsKey.None && key is null)
                     {
                         exception = new CryptographicException(SR.Cryptography_Cms_Ktri_RSARequired);
                         return null;
                     }
 
-                    byte[]? cek = ktri.DecryptCek(cert, key, out exception);
-                    // Pin CEK to prevent it from getting copied during heap compaction.
-                    fixed (byte* pinnedCek = cek)
+                    cek = ktri.DecryptCek(cert, key, out exception);
+                }
+#if NET11_0_OR_GREATER
+                else if (recipientInfo.Pal is ManagedKemRecipientInfoPal kemRecipientInfo)
+                {
+                    if (privateKey is CompositeMLKem compositeMLKem)
                     {
-                        try
-                        {
-                            if (exception != null)
-                            {
-                                return null;
-                            }
+                        cek = kemRecipientInfo.DecryptCek(compositeMLKem, out exception);
+                    }
+                    else if (privateKey is MLKem mlKem)
+                    {
+                        cek = kemRecipientInfo.DecryptCek(mlKem, out exception);
+                    }
+                    else if (privateKey is EnvelopedCmsKey.None)
+                    {
+                        Debug.Assert(cert is not null);
+                        cek = kemRecipientInfo.DecryptCek(cert, out exception);
+                    }
+                    else
+                    {
+                        exception = new CryptographicException(
+                            SR.Cryptography_Cms_RecipientType_NotSupported,
+                            recipientInfo.Type.ToString());
 
-                            return TryDecryptCore(
-                                cek!,
-                                _envelopedData.EncryptedContentInfo.ContentType,
-                                _envelopedData.EncryptedContentInfo.EncryptedContent,
-                                _envelopedData.EncryptedContentInfo.ContentEncryptionAlgorithm,
-                                out exception);
-                        }
-                        finally
-                        {
-                            if (cek != null)
-                            {
-                                Array.Clear(cek, 0, cek.Length);
-                            }
-                        }
+                        return null;
                     }
                 }
+#endif
                 else
                 {
                     exception = new CryptographicException(
@@ -87,9 +90,35 @@ namespace Internal.Cryptography.Pal.AnyOS
 
                     return null;
                 }
+
+                // Pin CEK to prevent it from getting copied during heap compaction.
+                fixed (byte* pinnedCek = cek)
+                {
+                    try
+                    {
+                        if (exception is not null)
+                        {
+                            return null;
+                        }
+
+                        return TryDecryptCore(
+                            cek!,
+                            _envelopedData.EncryptedContentInfo.ContentType,
+                            _envelopedData.EncryptedContentInfo.EncryptedContent,
+                            _envelopedData.EncryptedContentInfo.ContentEncryptionAlgorithm,
+                            out exception);
+                    }
+                    finally
+                    {
+                        if (cek is not null)
+                        {
+                            CryptographicOperations.ZeroMemory(cek);
+                        }
+                    }
+                }
             }
 
-            public static unsafe ContentInfo? TryDecryptCore(
+            public static ContentInfo? TryDecryptCore(
                 byte[] cek,
                 string contentType,
                 ReadOnlyMemory<byte>? content,
@@ -112,23 +141,7 @@ namespace Internal.Cryptography.Pal.AnyOS
                     return null;
                 }
 
-                // Compat: Previous versions of the managed PAL encryptor would wrap the contents in an octet stream
-                // which is not correct and is incompatible with other CMS readers. To maintain compatibility with
-                // existing CMS that have the incorrect wrapping, we attempt to remove it.
-                if (contentType == Oids.Pkcs7Data)
-                {
-                    if (decrypted?.Length > 0 && decrypted[0] == 0x04)
-                    {
-                        try
-                        {
-                            decrypted = AsnDecoder.ReadOctetString(decrypted, AsnEncodingRules.BER, out _);
-                        }
-                        catch (AsnContentException)
-                        {
-                        }
-                    }
-                }
-                else
+                if (contentType != Oids.Pkcs7Data)
                 {
                     decrypted = GetAsnSequenceWithContentNoValidation(decrypted);
                 }
@@ -162,24 +175,70 @@ namespace Internal.Cryptography.Pal.AnyOS
                 out Exception? exception)
             {
                 exception = null;
+
+                // Windows compat: If the encrypted content is completely empty, even where it does not make sense for the
+                // mode and padding (e.g. CBC + PKCS7), produce an empty plaintext.
+                if (encryptedContent.IsEmpty)
+                {
+                    return Array.Empty<byte>();
+                }
+
+#if NET
+                try
+                {
+                    using (SymmetricAlgorithm alg = OpenAlgorithm(contentEncryptionAlgorithm))
+                    {
+                        try
+                        {
+                            alg.Key = cek;
+                        }
+                        catch (CryptographicException ce)
+                        {
+                            throw new CryptographicException(SR.Cryptography_Cms_InvalidSymmetricKey, ce);
+                        }
+
+                        return alg.DecryptCbc(encryptedContent.Span, alg.IV);
+                    }
+                }
+                catch (CryptographicException ce)
+                {
+                    exception = ce;
+                    return null;
+                }
+#else
                 int encryptedContentLength = encryptedContent.Length;
-                byte[]? encryptedContentArray = CryptoPool.Rent(encryptedContentLength);
+                byte[] encryptedContentArray = CryptoPool.Rent(encryptedContentLength);
 
                 try
                 {
                     encryptedContent.CopyTo(encryptedContentArray);
 
                     using (SymmetricAlgorithm alg = OpenAlgorithm(contentEncryptionAlgorithm))
-                    using (ICryptoTransform decryptor = alg.CreateDecryptor(cek, alg.IV))
                     {
-                        // If we extend this library to accept additional algorithm providers
-                        // then a different array pool needs to be used.
-                        Debug.Assert(alg.GetType().Assembly == typeof(Aes).Assembly);
+                        ICryptoTransform decryptor;
 
-                        return decryptor.OneShot(
-                            encryptedContentArray,
-                            0,
-                            encryptedContentLength);
+                        try
+                        {
+                            decryptor = alg.CreateDecryptor(cek, alg.IV);
+                        }
+                        catch (ArgumentException ae)
+                        {
+                            // Decrypting or deriving the symmetric key with the wrong key may still succeed
+                            // but produce a symmetric key that is not the correct length.
+                            throw new CryptographicException(SR.Cryptography_Cms_InvalidSymmetricKey, ae);
+                        }
+
+                        using (decryptor)
+                        {
+                            // If we extend this library to accept additional algorithm providers
+                            // then a different array pool needs to be used.
+                            Debug.Assert(alg.GetType().Assembly == typeof(Aes).Assembly);
+
+                            return decryptor.OneShot(
+                                encryptedContentArray,
+                                0,
+                                encryptedContentLength);
+                        }
                     }
                 }
                 catch (CryptographicException e)
@@ -190,8 +249,8 @@ namespace Internal.Cryptography.Pal.AnyOS
                 finally
                 {
                     CryptoPool.Return(encryptedContentArray, encryptedContentLength);
-                    encryptedContentArray = null;
                 }
+#endif
             }
 
             public override void Dispose()

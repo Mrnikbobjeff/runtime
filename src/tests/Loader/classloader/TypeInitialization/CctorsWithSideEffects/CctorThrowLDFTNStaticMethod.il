@@ -2,7 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 .assembly extern System.Console { }
-// A .cctor has only one chance to run in any appdomain. 
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+// A .cctor has only one chance to run in any appdomain.
 // If it fails, the 2nd time we try to access a static field we check if .cctor has been run. 
 // And it has, but failed so we fail again.
 
@@ -24,7 +26,6 @@
   .hash algorithm 0x00008004
   .ver 0:0:0:0
 }
-.module CctorThrowLDFTNStaticMethod.exe
 // MVID: {DFA6FFCF-599E-4DF2-8538-B842C6A0AD10}
 .imagebase 0x00400000
 .file alignment 0x00000200
@@ -100,11 +101,15 @@
 
 } // end of class B
 
-.class public auto ansi beforefieldinit Test
+.class public auto ansi beforefieldinit Test_CctorThrowLDFTNStaticMethod
        extends [mscorlib]System.Object
 {
   .method public hidebysig static int32  Main() cil managed
   {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
+    .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, valuetype [Microsoft.DotNet.XUnitExtensions]Xunit.TestRuntimes) = {string('needs triage') int32(2)}
     .entrypoint
     // Code size       279 (0x117)
     .maxstack  2

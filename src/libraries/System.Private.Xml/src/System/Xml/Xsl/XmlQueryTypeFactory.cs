@@ -5,13 +5,13 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Numerics;
 using System.Xml.Schema;
 using System.Xml.XPath;
+using TF = System.Xml.Xsl.XmlQueryTypeFactory;
 
 namespace System.Xml.Xsl
 {
-    using TF = XmlQueryTypeFactory;
-
     /// <summary>
     /// This class is the only way to create concrete instances of the abstract XmlQueryType class.
     /// Once basic types have been created, they can be combined and transformed in various ways.
@@ -347,8 +347,8 @@ namespace System.Xml.Xsl
             static ItemType()
             {
 #if DEBUG
-                Array arrEnum = Enum.GetValues(typeof(XmlTypeCode));
-                Debug.Assert((XmlTypeCode)arrEnum.GetValue(arrEnum.Length - 1)! == XmlTypeCode.DayTimeDuration,
+                XmlTypeCode[] arrEnum = Enum.GetValues<XmlTypeCode>();
+                Debug.Assert(arrEnum[arrEnum.Length - 1] == XmlTypeCode.DayTimeDuration,
                              "DayTimeDuration is no longer the last item in XmlTypeCode.  This code expects it to be.");
 #endif
 
@@ -700,17 +700,20 @@ namespace System.Xml.Xsl
             public static XmlQueryType Create(XmlNodeKindFlags nodeKinds)
             {
                 List<XmlQueryType> members;
+                uint kinds = (uint)nodeKinds;
 
                 // If exactly one kind is set, then create singleton ItemType
-                if (Bits.ExactlyOne((uint)nodeKinds))
-                    return ItemType.Create(s_nodeKindToTypeCode[Bits.LeastPosition((uint)nodeKinds)], false);
+                if (BitOperations.IsPow2(kinds))
+                {
+                    return ItemType.Create(s_nodeKindToTypeCode[BitOperations.TrailingZeroCount(kinds) + 1], false);
+                }
 
                 members = new List<XmlQueryType>();
-                while (nodeKinds != XmlNodeKindFlags.None)
+                while (kinds != 0)
                 {
-                    members.Add(ItemType.Create(s_nodeKindToTypeCode[Bits.LeastPosition((uint)nodeKinds)], false));
+                    members.Add(ItemType.Create(s_nodeKindToTypeCode[BitOperations.TrailingZeroCount(kinds) + 1], false));
 
-                    nodeKinds = (XmlNodeKindFlags)Bits.ClearLeast((uint)nodeKinds);
+                    kinds &= kinds - 1;
                 }
 
                 return Create(members);
@@ -855,10 +858,11 @@ namespace System.Xml.Xsl
             {
                 get
                 {
-                    // TODO-NULLABLE: Per documentation of base class we should not be returning null here
-                    //                Currently we return null for some type codes (i.e. Item, Node)
-                    //                but doc says we should be returning AnyType
-                    //                which presumably means XmlSchemaComplexType.AnyType
+                    // https://github.com/dotnet/runtime/issues/44148
+                    //     Per documentation of base class we should not be returning null here
+                    //     Currently we return null for some type codes (i.e. Item, Node)
+                    //     but doc says we should be returning AnyType
+                    //     which presumably means XmlSchemaComplexType.AnyType
                     return _schemaType!;
                 }
             }
@@ -1175,7 +1179,7 @@ namespace System.Xml.Xsl
                 subtypeId = 2;
             else
             {
-                Debug.Fail("Don't know how to serialize " + type.GetType().ToString());
+                Debug.Fail($"Don't know how to serialize {type.GetType()}");
                 subtypeId = -1;
             }
 
@@ -1365,7 +1369,7 @@ namespace System.Xml.Xsl
                             XmlQueryType atomicSeq = Type((XmlSchemaSimpleType)schemaType, false);
 
                             // Add prime to a choice
-                            // It doen't have to be a single item!
+                            // It doesn't have to be a single item!
                             PrimeChoice(list, atomicSeq.Prime);
 
                             // Add cardinality to a choice

@@ -14,16 +14,31 @@ namespace Microsoft.Extensions.Configuration.UserSecrets
         internal const string SecretsFileName = "secrets.json";
 
         /// <summary>
-        /// <para>
         /// Returns the path to the JSON file that stores user secrets.
+        /// </summary>
+        /// <param name="userSecretsId">The user secret ID.</param>
+        /// <returns>The full path to the secret file.</returns>
+        /// <remarks>
+        /// This method uses the current user profile to locate the secrets
+        /// file on disk in a location outside of source control.
+        /// </remarks>
+        public static string GetSecretsPathFromSecretsId(string userSecretsId)
+        {
+            return InternalGetSecretsPathFromSecretsId(userSecretsId, throwIfNoRoot: true);
+        }
+
+        /// <summary>
+        /// <para>
+        /// Returns the path to the JSON file that stores user secrets or throws exception if not found.
         /// </para>
         /// <para>
         /// This uses the current user profile to locate the secrets file on disk in a location outside of source control.
         /// </para>
         /// </summary>
         /// <param name="userSecretsId">The user secret ID.</param>
+        /// <param name="throwIfNoRoot">specifies if an exception should be thrown when no root for user secrets is found</param>
         /// <returns>The full path to the secret file.</returns>
-        public static string GetSecretsPathFromSecretsId(string userSecretsId)
+        internal static string InternalGetSecretsPathFromSecretsId(string userSecretsId, bool throwIfNoRoot)
         {
             if (string.IsNullOrEmpty(userSecretsId))
             {
@@ -43,16 +58,29 @@ namespace Microsoft.Extensions.Configuration.UserSecrets
             const string userSecretsFallbackDir = "DOTNET_USER_SECRETS_FALLBACK_DIR";
 
             // For backwards compat, this checks env vars first before using Env.GetFolderPath
-            string appData = Environment.GetEnvironmentVariable("APPDATA");
-            string root = appData                                                                   // On Windows it goes to %APPDATA%\Microsoft\UserSecrets\
-                       ?? Environment.GetEnvironmentVariable("HOME")                             // On Mac/Linux it goes to ~/.microsoft/usersecrets/
+            string? appData = Environment.GetEnvironmentVariable("APPDATA");
+            string? home = Environment.GetEnvironmentVariable("HOME");
+#if NET
+            if (OperatingSystem.IsIOS() || OperatingSystem.IsTvOS() || OperatingSystem.IsMacCatalyst())
+            {
+                // The Apple mobile HOME directory is the app container root, which is not writable.
+                home = null;
+            }
+#endif
+            string? root = appData                                                                   // On Windows it goes to %APPDATA%\Microsoft\UserSecrets\
+                       ?? home                                                                       // On Mac/Linux it goes to ~/.microsoft/usersecrets/
                        ?? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)
                        ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
                        ?? Environment.GetEnvironmentVariable(userSecretsFallbackDir);            // this fallback is an escape hatch if everything else fails
 
             if (string.IsNullOrEmpty(root))
             {
-                throw new InvalidOperationException("Could not determine an appropriate location for storing user secrets. Set the " + userSecretsFallbackDir + " environment variable to a folder where user secrets should be stored.");
+                if (throwIfNoRoot)
+                {
+                    throw new InvalidOperationException(SR.Format(SR.Error_Missing_UserSecretsLocation, userSecretsFallbackDir));
+                }
+
+                return string.Empty;
             }
 
             return !string.IsNullOrEmpty(appData)

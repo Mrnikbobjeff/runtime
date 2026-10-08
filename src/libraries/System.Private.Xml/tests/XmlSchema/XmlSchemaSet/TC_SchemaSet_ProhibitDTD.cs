@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Xunit;
-using Xunit.Abstractions;
 using System.IO;
 using System.Xml.Schema;
+using Xunit;
+using Xunit.Abstractions;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlSchemaTests
 {
     //[TestCase(Name = "TC_SchemaSet_ProhibitDTD", Desc = "")]
     public class TC_SchemaSet_ProhibitDTD : TC_SchemaSetBase
@@ -139,7 +139,7 @@ namespace System.Xml.Tests
                 CError.Compare(e.Message.Contains("DTD"), true, "Some other error thrown");
                 return;
             }
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "v2- Test Default value of ProhibitDTD for Add(XmlReader) of schema with DTD", Priority = 1)]
@@ -149,7 +149,7 @@ namespace System.Xml.Tests
             Initialize();
             XmlSchemaSet xss = new XmlSchemaSet();
             xss.ValidationEventHandler += ValidationCallback;
-            XmlReader r = CreateReader(Path.Combine(TestData._Root, "bug356711_a.xsd"));
+            using XmlReader r = CreateReader(Path.Combine(TestData._Root, "bug356711_a.xsd"));
             try
             {
                 xss.Add(null, r);
@@ -159,7 +159,7 @@ namespace System.Xml.Tests
                 CError.Compare(e.Message.Contains("DTD"), true, "Some other error thrown");
                 return;
             }
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "v3- Test Default value of ProhibitDTD for Add(URL) containing xs:import for schema with DTD", Priority = 1)]
@@ -176,7 +176,7 @@ namespace System.Xml.Tests
             }
             catch (XmlException)
             {
-                Assert.True(false); //expect a validation warning for unresolvable schema location
+                Assert.Fail(); //expect a validation warning for unresolvable schema location
             }
             CError.Compare(warningCount, 1, "Warning Count mismatch");
             return;
@@ -190,32 +190,31 @@ namespace System.Xml.Tests
             XmlSchemaSet xss = new XmlSchemaSet();
             xss.XmlResolver = new XmlUrlResolver();
             xss.ValidationEventHandler += ValidationCallback;
-            XmlReader r = CreateReader(Path.Combine(TestData._Root, "bug356711.xsd"));
+            using XmlReader r = CreateReader(Path.Combine(TestData._Root, "bug356711.xsd"));
             try
             {
                 xss.Add(null, r);
             }
             catch (XmlException)
             {
-                Assert.True(false); //expect a validation warning for unresolvable schema location
+                Assert.Fail(); //expect a validation warning for unresolvable schema location
             }
             CError.Compare(warningCount, 1, "Warning Count mismatch");
             return;
         }
 
         [Theory]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/30107")]
         //[Variation(Desc = "v5.2- Test Default value of ProhibitDTD for Add(TextReader) for schema with DTD", Priority = 1, Params = new object[] { "bug356711_a.xsd", 0 })]
         [InlineData("bug356711_a.xsd", 0)]
         //[Variation(Desc = "v5.1- Test Default value of ProhibitDTD for Add(TextReader) with an xs:import for schema with DTD", Priority = 1, Params = new object[] { "bug356711.xsd", 0 })]
-        [InlineData("bug356711.xsd", 0)]
-        public void v5(object param0, object param1)
+        [InlineData("bug356711.xsd", 2)]
+        public void v5(string fileName, int expectedWarnings)
         {
             Initialize();
             XmlSchemaSet xss = new XmlSchemaSet();
             xss.XmlResolver = new XmlUrlResolver();
             xss.ValidationEventHandler += ValidationCallback;
-            XmlSchema schema = XmlSchema.Read(new StreamReader(new FileStream(Path.Combine(TestData._Root, param0.ToString()), FileMode.Open, FileAccess.Read)), ValidationCallback);
+            XmlSchema schema = XmlSchema.Read(new StreamReader(new FileStream(Path.Combine(TestData._Root, fileName), FileMode.Open, FileAccess.Read)), ValidationCallback);
 #pragma warning disable 0618
             schema.Compile(ValidationCallback, new XmlUrlResolver());
 #pragma warning restore 0618
@@ -225,25 +224,24 @@ namespace System.Xml.Tests
             }
             catch (XmlException)
             {
-                Assert.True(false); //expect a validation warning for unresolvable schema location
+                Assert.Fail(); //expect a validation warning for unresolvable schema location
             }
-            CError.Compare(warningCount, (int)param1, "Warning Count mismatch");
+            CError.Compare(warningCount, expectedWarnings, "Warning Count mismatch");
             CError.Compare(errorCount, 0, "Error Count mismatch");
         }
 
         [Theory]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/30107")]
         //[Variation(Desc = "v6.2- Test Default value of ProhibitDTD for Add(XmlTextReader) for schema with DTD", Priority = 1, Params = new object[] { "bug356711_a.xsd" })]
-        [InlineData("bug356711_a.xsd")]
+        [InlineData("bug356711_a.xsd", 0)]
         //[Variation(Desc = "v6.1- Test Default value of ProhibitDTD for Add(XmlTextReader) with an xs:import for schema with DTD", Priority = 1, Params = new object[] { "bug356711.xsd" })]
-        [InlineData("bug356711.xsd")]
-        public void v6(object param0)
+        [InlineData("bug356711.xsd", 1)]
+        public void v6(string fileName, int expectedWarnings)
         {
             Initialize();
             XmlSchemaSet xss = new XmlSchemaSet();
             xss.XmlResolver = new XmlUrlResolver();
             xss.ValidationEventHandler += ValidationCallback;
-            var reader = new XmlTextReader(Path.Combine(TestData._Root, param0.ToString()));
+            var reader = new XmlTextReader(Path.Combine(TestData._Root, fileName));
             reader.XmlResolver = new XmlUrlResolver();
             XmlSchema schema = XmlSchema.Read(reader, ValidationCallback);
 #pragma warning disable 0618
@@ -253,7 +251,7 @@ namespace System.Xml.Tests
             xss.Add(schema);
 
             // expect a validation warning for unresolvable schema location
-            CError.Compare(warningCount, 0, "Warning Count mismatch");
+            CError.Compare(warningCount, expectedWarnings, "Warning Count mismatch");
             CError.Compare(errorCount, 0, "Error Count mismatch");
         }
 
@@ -277,7 +275,7 @@ namespace System.Xml.Tests
                 return;
             }
 
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "v8- Test Default value of ProhibitDTD for Add(XmlReader) with xs:import for schema with DTD", Priority = 1, Params = new object[] { "bug356711.xsd" })]
@@ -296,7 +294,7 @@ namespace System.Xml.Tests
             }
             catch (XmlException)
             {
-                Assert.True(false); //expect a validation warning for unresolvable schema location
+                Assert.Fail(); //expect a validation warning for unresolvable schema location
             }
 
             CError.Compare(warningCount, 0, "Warning Count mismatch");
@@ -316,14 +314,14 @@ namespace System.Xml.Tests
             xss.XmlResolver = new XmlUrlResolver();
             xss.ValidationEventHandler += ValidationCallback;
 
-            XmlReader r = CreateReader(Path.Combine(TestData._Root, param0.ToString()), false);
+            using XmlReader r = CreateReader(Path.Combine(TestData._Root, param0.ToString()), false);
             try
             {
                 xss.Add(null, r);
             }
             catch (XmlException)
             {
-                Assert.True(false);
+                Assert.Fail();
             }
             CError.Compare(warningCount, 0, "Warning Count mismatch");
             CError.Compare(errorCount, 0, "Warning Count mismatch");
@@ -348,7 +346,7 @@ namespace System.Xml.Tests
             }
             catch (XmlException)
             {
-                Assert.True(false);
+                Assert.Fail();
             }
 
             CError.Compare(warningCount, 0, "Warning Count mismatch");
@@ -365,8 +363,8 @@ namespace System.Xml.Tests
             XmlSchemaSet xss = new XmlSchemaSet();
             xss.ValidationEventHandler += ValidationCallback;
 
-            XmlReader r = CreateReader(Path.Combine(TestData._Root, param0.ToString()), false);
-            XmlReader r2 = CreateReader(r, true);
+            using XmlReader r = CreateReader(Path.Combine(TestData._Root, param0.ToString()), false);
+            using XmlReader r2 = CreateReader(r, true);
             try
             {
                 xss.Add(null, r2);
@@ -376,7 +374,7 @@ namespace System.Xml.Tests
                 CError.Compare(e.Message.Contains("DTD"), true, "Some other error thrown");
                 return;
             }
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "v13- Test with underlying reader with ProhibitDTD=true, and new Setting with True for a schema with xs:import for schema with DTD", Priority = 1, Params = new object[] { "bug356711.xsd" })]
@@ -389,8 +387,8 @@ namespace System.Xml.Tests
             xss.XmlResolver = new XmlUrlResolver();
             xss.ValidationEventHandler += ValidationCallback;
 
-            XmlReader r = CreateReader(Path.Combine(TestData._Root, param0.ToString()), false);
-            XmlReader r2 = CreateReader(r, true);
+            using XmlReader r = CreateReader(Path.Combine(TestData._Root, param0.ToString()), false);
+            using XmlReader r2 = CreateReader(r, true);
 
             try
             {
@@ -398,7 +396,7 @@ namespace System.Xml.Tests
             }
             catch (XmlException)
             {
-                Assert.True(false); //expect a validation warning for unresolvable schema location
+                Assert.Fail(); //expect a validation warning for unresolvable schema location
             }
 
             _output.WriteLine("Count: " + xss.Count);
@@ -415,7 +413,7 @@ namespace System.Xml.Tests
             xss.XmlResolver = new XmlUrlResolver();
             xss.ValidationEventHandler += ValidationCallback;
 
-            XmlReader r = CreateReader(Path.Combine(TestData._Root, "bug356711.xsd"), false);
+            using XmlReader r = CreateReader(Path.Combine(TestData._Root, "bug356711.xsd"), false);
 
             try
             {
@@ -428,7 +426,7 @@ namespace System.Xml.Tests
                 CError.Compare(e.Message.Contains("DTD"), true, "Some other error thrown");
                 return;
             }
-            Assert.True(false);
+            Assert.Fail();
         }
 
         //[Variation(Desc = "v15 - SchemaSet.Add(XmlReader) with pDTD True ,then a SchemaSet.Add(XmlReader) with pDTD False with DTD", Priority = 1)]
@@ -439,8 +437,8 @@ namespace System.Xml.Tests
             XmlSchemaSet xss = new XmlSchemaSet();
             xss.ValidationEventHandler += ValidationCallback;
 
-            XmlReader r1 = CreateReader(Path.Combine(TestData._Root, "bug356711_a.xsd"));
-            XmlReader r2 = CreateReader(Path.Combine(TestData._Root, "bug356711_b.xsd"), false);
+            using XmlReader r1 = CreateReader(Path.Combine(TestData._Root, "bug356711_a.xsd"));
+            using XmlReader r2 = CreateReader(Path.Combine(TestData._Root, "bug356711_b.xsd"), false);
 
             try
             {
@@ -458,7 +456,7 @@ namespace System.Xml.Tests
             }
             catch (Exception)
             {
-                Assert.True(false);
+                Assert.Fail();
             }
             CError.Compare(xss.Count, 1, "SchemaSet count mismatch!");
             return;
@@ -484,12 +482,12 @@ namespace System.Xml.Tests
 
             try
             {
-                XmlReader reader = CreateReader(Path.Combine(TestData._Root, param0.ToString()), xss, true);
+                using XmlReader reader = CreateReader(Path.Combine(TestData._Root, param0.ToString()), xss, true);
                 while (reader.Read()) ;
             }
             catch (XmlException)
             {
-                Assert.True(false);
+                Assert.Fail();
             }
             CError.Compare(warningCount, 2, "ProhibitDTD did not work with schemaLocation");
             return;
@@ -515,7 +513,7 @@ namespace System.Xml.Tests
             }
             catch (XmlException)
             {
-                Assert.True(false);
+                Assert.Fail();
             }
             CError.Compare(warningCount, 2, "ProhibitDTD did not work with schemaLocation");
             return;
@@ -541,12 +539,12 @@ namespace System.Xml.Tests
 
             try
             {
-                XmlReader reader = CreateReader(Path.Combine(TestData._Root, param0.ToString()), xss, false);
+                using XmlReader reader = CreateReader(Path.Combine(TestData._Root, param0.ToString()), xss, false);
                 while (reader.Read()) ;
             }
             catch (XmlException)
             {
-                Assert.True(false);
+                Assert.Fail();
             }
             CError.Compare(errorCount, 0, "ProhibitDTD did not work with schemaLocation");
             return;
@@ -563,13 +561,13 @@ namespace System.Xml.Tests
 
             try
             {
-                XmlReader r1 = CreateReader(Path.Combine(TestData._Root, "bug356711_1.xml"), true);
-                XmlReader r2 = CreateReader(r1, xss, false);
+                using XmlReader r1 = CreateReader(Path.Combine(TestData._Root, "bug356711_1.xml"), true);
+                using XmlReader r2 = CreateReader(r1, xss, false);
                 while (r2.Read()) ;
             }
             catch (XmlException)
             {
-                Assert.True(false);
+                Assert.Fail();
             }
             CError.Compare(errorCount, 0, "ProhibitDTD did not work with schemaLocation");
             return;

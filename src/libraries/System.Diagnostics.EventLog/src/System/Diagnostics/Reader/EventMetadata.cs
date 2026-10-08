@@ -20,7 +20,7 @@ namespace System.Diagnostics.Eventing.Reader
 
         internal EventMetadata(uint id, byte version, byte channelId,
                  byte level, byte opcode, short task, long keywords,
-                 string template, string description, ProviderMetadata pmReference)
+                 string? template, string? description, ProviderMetadata pmReference)
         {
             Id = id;
             Version = version;
@@ -100,15 +100,15 @@ namespace System.Diagnostics.Eventing.Reader
                         // theKeywords = theKeywords - mask;
                     }
                     // Modify the mask to check next bit.
-                    mask = mask >> 1;
+                    mask >>= 1;
                 }
 
                 return list;
             }
         }
 
-        public string Template { get; }
+        public string? Template { get; }
 
-        public string Description { get; }
+        public string? Description { get; }
     }
 }

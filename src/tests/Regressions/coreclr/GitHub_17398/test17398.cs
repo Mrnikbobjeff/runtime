@@ -3,16 +3,20 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
+using TestLibrary;
 
 // Repro case for https://github.com/dotnet/coreclr/pull/17398
 
-class X
+public class X
 {
     static int v;
 
     string s;
 
     public override string ToString() => s;
+
+    public X() { }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
     X(int x)
@@ -63,7 +67,9 @@ class X
         }
     }
 
-    public static int Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static int TestEntryPoint()
     {
         v = 1;
         int r = 0;

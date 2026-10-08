@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Microsoft.DotNet.RemoteExecutor;
 using Xunit;
 
 namespace System.Reflection.Emit.Tests
@@ -25,7 +26,7 @@ namespace System.Reflection.Emit.Tests
         [InlineData("method", typeof(string), new Type[] { typeof(char?) })]
         [InlineData("Method", typeof(string), new Type[] { typeof(GenericClass2<,>), typeof(GenericClass2<,>) })]
         [InlineData("Method", typeof(string), new Type[] { typeof(TestInterface) })]
-        public void String_Type_TypeArray_Module(string name, Type returnType, Type[] parameterTypes)
+        public void String_Type_TypeArray_Module(string name, Type? returnType, Type[]? parameterTypes)
         {
             Module module = typeof(TestClass).GetTypeInfo().Module;
 
@@ -51,7 +52,7 @@ namespace System.Reflection.Emit.Tests
         [InlineData("Method", typeof(string), null, typeof(TestClass))]
         [InlineData("Method", typeof(string), new Type[] { typeof(int), typeof(string) }, typeof(TestClass))]
         [InlineData("", typeof(string), new Type[] { typeof(int), typeof(string) }, typeof(TestClass))]
-        public void String_Type_TypeArray_Type(string name, Type returnType, Type[] parameterTypes, Type owner)
+        public void String_Type_TypeArray_Type(string name, Type returnType, Type[]? parameterTypes, Type owner)
         {
             DynamicMethod method1 = new DynamicMethod(name, returnType, parameterTypes, owner);
             Helpers.VerifyMethod(method1, name, MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard, returnType, parameterTypes, owner.GetTypeInfo().Module);
@@ -159,7 +160,6 @@ namespace System.Reflection.Emit.Tests
         }
 
         [Theory]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/31858", TestRuntimes.Mono)]
         [InlineData(typeof(int[]))]
         [InlineData(typeof(TestInterface))]
         [InlineData(typeof(GenericClass<>))]
@@ -173,6 +173,31 @@ namespace System.Reflection.Emit.Tests
 
             AssertExtensions.Throws<ArgumentException>(null, () => new DynamicMethod("Method", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard, typeof(void), new Type[0], owner, true));
             AssertExtensions.Throws<ArgumentException>(null, () => new DynamicMethod("Method", MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard, typeof(void), new Type[0], owner, false));
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public static void ThrowsWhenDynamicCodeNotSupported()
+        {
+            RemoteInvokeOptions options = new RemoteInvokeOptions();
+            options.RuntimeConfigurationOptions.Add("System.Runtime.CompilerServices.RuntimeFeature.IsDynamicCodeSupported", false.ToString());
+
+            using RemoteInvokeHandle remoteHandle = RemoteExecutor.Invoke(static () =>
+            {
+                Module module = typeof(TestClass).GetTypeInfo().Module;
+                string name = "Method";
+                Type returnType = typeof(void);
+                Type[] parameterTypes = null;
+                Type owner = typeof(TestClass);
+
+                Assert.Throws<PlatformNotSupportedException>(() => new DynamicMethod(name, returnType, parameterTypes));
+                Assert.Throws<PlatformNotSupportedException>(() => new DynamicMethod(name, returnType, parameterTypes, true));
+                Assert.Throws<PlatformNotSupportedException>(() => new DynamicMethod(name, returnType, parameterTypes, module));
+                Assert.Throws<PlatformNotSupportedException>(() => new DynamicMethod(name, returnType, parameterTypes, owner));
+                Assert.Throws<PlatformNotSupportedException>(() => new DynamicMethod(name, returnType, parameterTypes, module, true));
+                Assert.Throws<PlatformNotSupportedException>(() => new DynamicMethod(name, returnType, parameterTypes, owner, true));
+                Assert.Throws<PlatformNotSupportedException>(() => new DynamicMethod(name, MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard, returnType, parameterTypes, module, true));
+                Assert.Throws<PlatformNotSupportedException>(() => new DynamicMethod(name, MethodAttributes.Public | MethodAttributes.Static, CallingConventions.Standard, returnType, parameterTypes, owner, true));
+            }, options);
         }
     }
 }

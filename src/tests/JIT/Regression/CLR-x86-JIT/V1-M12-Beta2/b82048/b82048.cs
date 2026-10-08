@@ -1,13 +1,19 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b82048;
+
 using System;
+using Xunit;
 
 public struct AA
 {
     public static sbyte m_suFwd3;
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         bool local9 = false;
         sbyte local11 = m_suFwd3;

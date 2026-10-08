@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b55197
 {
     using System;
 
@@ -114,9 +115,11 @@ namespace Test
         }
     }
 
-    class App
+    public class App
     {
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

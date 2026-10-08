@@ -1,20 +1,33 @@
 [CmdletBinding(PositionalBinding=$false)]
 Param(
   [switch][Alias('h')]$help,
+  [switch]$pack,
   [switch][Alias('t')]$test,
   [ValidateSet("Debug","Release","Checked")][string[]][Alias('c')]$configuration = @("Debug"),
   [string][Alias('f')]$framework,
   [string]$vs,
   [string][Alias('v')]$verbosity = "minimal",
-  [ValidateSet("Windows_NT","Linux","OSX","Browser")][string]$os,
-  [switch]$allconfigurations,
+  [ValidateSet("windows","linux","osx","android","browser","wasi")][string]$os,
   [switch]$coverage,
   [string]$testscope,
   [switch]$testnobuild,
-  [ValidateSet("x86","x64","arm","arm64","wasm")][string[]][Alias('a')]$arch = @([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant()),
-  [Parameter(Position=0)][string][Alias('s')]$subset,
+  [ValidateSet("x86","x64","arm","arm64","wasm")][string[]][Alias('a')]$arch = @([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()),
+  [switch]$cross = $false,
+  [string][Alias('s')]$subset,
   [ValidateSet("Debug","Release","Checked")][string][Alias('rc')]$runtimeConfiguration,
   [ValidateSet("Debug","Release")][string][Alias('lc')]$librariesConfiguration,
+  [ValidateSet("CoreCLR","Mono")][string][Alias('rf')]$runtimeFlavor,
+  [ValidateSet("Debug","Release","Checked")][string][Alias('hc')]$hostConfiguration,
+  [switch]$usemonoruntime = $false,
+  [switch]$ninja,
+  [switch]$msbuild,
+  [string]$cmakeargs,
+  [switch]$pgoinstrument,
+  [string[]]$fsanitize,
+  [switch]$bootstrap,
+  [switch]$useBoostrap,
+  [switch]$clrinterpreter,
+  [ValidateSet("true","false")][string]$dynamiccodecompiled,
   [Parameter(ValueFromRemainingArguments=$true)][String[]]$properties
 )
 
@@ -30,22 +43,33 @@ function Get-Help() {
   Write-Host "                                 Pass a comma-separated list to build for multiple configurations."
   Write-Host "                                 [Default: Debug]"
   Write-Host "  -help (-h)                     Print help and exit."
+  Write-Host "  -hostConfiguration (-hc)       Host build configuration: Debug, Release or Checked."
+  Write-Host "                                 [Default: Debug]"
   Write-Host "  -librariesConfiguration (-lc)  Libraries build configuration: Debug or Release."
   Write-Host "                                 [Default: Debug]"
-  Write-Host "  -os                            Target operating system: Windows_NT, Linux, OSX, or Browser."
+  Write-Host "  -os                            Target operating system: windows, linux, osx, android, wasi or browser."
   Write-Host "                                 [Default: Your machine's OS.]"
   Write-Host "  -runtimeConfiguration (-rc)    Runtime build configuration: Debug, Release or Checked."
   Write-Host "                                 Checked is exclusive to the CLR runtime. It is the same as Debug, except code is"
   Write-Host "                                 compiled with optimizations enabled."
   Write-Host "                                 [Default: Debug]"
+  Write-Host "  -runtimeFlavor (-rf)           Runtime flavor: CoreCLR or Mono."
+  Write-Host "                                 [Default: CoreCLR]"
   Write-Host "  -subset (-s)                   Build a subset, print available subsets with -subset help."
   Write-Host "                                 '-subset' can be omitted if the subset is given as the first argument."
   Write-Host "                                 [Default: Builds the entire repo.]"
+  Write-Host "  -usemonoruntime                Product a .NET runtime with Mono as the underlying runtime."
+  Write-Host "  -clrinterpreter                Enables CoreCLR interpreter for Release builds of targets where it is a Debug only feature."
+  Write-Host "  -dynamiccodecompiled           Enable or disable dynamic code compilation support. Accepts true or false."
+  Write-Host "                                 Also enables the interpreter when dynamic code compilation is disabled."
+  Write-Host "                                 [Default: true for most platforms, false for ios/tvos/browser/wasi]"
   Write-Host "  -verbosity (-v)                MSBuild verbosity: q[uiet], m[inimal], n[ormal], d[etailed], and diag[nostic]."
   Write-Host "                                 [Default: Minimal]"
+  Write-Host "  --useBootstrap                 Use the results of building the bootstrap subset to build published tools on the target machine."
+  Write-Host "  --bootstrap                     Build the bootstrap subset and then build the repo with --use-bootstrap."
   Write-Host "  -vs                            Open the solution with Visual Studio using the locally acquired SDK."
   Write-Host "                                 Path or any project or solution name is accepted."
-  Write-Host "                                 (Example: -vs Microsoft.CSharp)"
+  Write-Host "                                 (Example: -vs Microsoft.CSharp or -vs CoreCLR.sln)"
   Write-Host ""
 
   Write-Host "Actions (defaults to -restore -build):"
@@ -59,16 +83,24 @@ function Get-Help() {
   Write-Host "  -restore                Restore dependencies."
   Write-Host "  -sign                   Sign build outputs."
   Write-Host "  -test (-t)              Incrementally builds and runs tests."
-  Write-Host "                          Use in conjuction with -testnobuild to only run tests."
+  Write-Host "                          Use in conjunction with -testnobuild to only run tests."
   Write-Host ""
 
   Write-Host "Libraries settings:"
-  Write-Host "  -allconfigurations      Build packages for all build configurations."
   Write-Host "  -coverage               Collect code coverage when testing."
-  Write-Host "  -framework (-f)         Build framework: net5.0 or net48."
-  Write-Host "                          [Default: net5.0]"
+  Write-Host "  -framework (-f)         Build framework: net11.0 or net481."
+  Write-Host "                          [Default: net11.0]"
   Write-Host "  -testnobuild            Skip building tests when invoking -test."
   Write-Host "  -testscope              Scope tests, allowed values: innerloop, outerloop, all."
+  Write-Host ""
+
+  Write-Host "Native build settings:"
+  Write-Host "  -cmakeargs                User-settable additional arguments passed to CMake."
+  Write-Host "  -ninja                    Use Ninja to drive the native build. (default)"
+  Write-Host "  -msbuild                  Use MSBuild to drive the native build. This is a no-op for Mono."
+  Write-Host "  -pgoinstrument            Build the CLR with PGO instrumentation."
+  Write-Host "  -fsanitize (address)      Build the native components with the specified sanitizers."
+  Write-Host "                            Sanitizers can be specified with a comma-separated list."
   Write-Host ""
 
   Write-Host "Command-line arguments not listed above are passed through to MSBuild."
@@ -100,39 +132,165 @@ function Get-Help() {
   Write-Host ".\build.cmd mono.corelib+libs.pretest -rc debug -c release"
   Write-Host ""
   Write-Host ""
-  Write-Host "For more information, check out https://github.com/dotnet/runtime/blob/master/docs/workflow/README.md"
+  Write-Host "For more information, check out https://github.com/dotnet/runtime/blob/main/docs/workflow/README.md"
 }
 
-if ($help -or (($null -ne $properties) -and ($properties.Contains('/help') -or $properties.Contains('/?')))) {
+function Check-LongPathSupport() {
+  $regValue = Get-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name "LongPathsEnabled" -ErrorAction SilentlyContinue
+
+  if ($regValue -and $regValue.LongPathsEnabled -eq 1) {
+    return
+  }
+
+  Write-Host ""
+  Write-Host "ERROR: Long file paths are not enabled on this system." -ForegroundColor Red
+  Write-Host "The dotnet/runtime repository requires long path support to build successfully." -ForegroundColor Red
+  Write-Host ""
+  Write-Host "Please follow the instructions at:" -ForegroundColor Yellow
+  Write-Host "  docs\workflow\requirements\windows-requirements.md#enable-long-paths" -ForegroundColor Yellow
+  Write-Host ""
+  Write-Host "Quick fix:" -ForegroundColor Yellow
+  Write-Host "  1. Enable long paths in Windows (requires admin):" -ForegroundColor White
+  Write-Host "     https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation" -ForegroundColor White
+  Write-Host "  2. Enable long paths in Git:" -ForegroundColor White
+  Write-Host "     git config --system core.longpaths true" -ForegroundColor White
+  Write-Host ""
+  exit 1
+}
+
+if ($help) {
   Get-Help
   exit 0
 }
 
+# check the first argument if subset is not explicitly passed in
+if (-not $PSBoundParameters.ContainsKey("subset") -and $properties.Length -gt 0 -and $properties[0] -match '^[a-zA-Z\.\+]+$') {
+  $subset = $properties[0]
+  $PSBoundParameters.Add("subset", $subset)
+  $properties = $properties | Select-Object -Skip 1
+}
+
 if ($subset -eq 'help') {
-  Invoke-Expression "& `"$PSScriptRoot/common/build.ps1`" -restore -build /p:subset=help /clp:nosummary"
+  Invoke-Expression "& `"$PSScriptRoot/common/build.ps1`" -restore -build /p:subset=help /clp:nosummary /tl:false"
   exit 0
 }
 
-if ($vs) {
-  . $PSScriptRoot\common\tools.ps1
+Check-LongPathSupport
 
-  if (-Not (Test-Path $vs)) {
-    $solution = $vs
-    # Search for the solution in libraries
-    $vs = Split-Path $PSScriptRoot -Parent | Join-Path -ChildPath "src\libraries" | Join-Path -ChildPath $vs | Join-Path -ChildPath "$vs.sln"
+# Lower-case the passed in OS string.
+if ($os) {
+  $os = $os.ToLowerInvariant()
+}
+
+if ($os -eq "browser") {
+  # override default arch for Browser, we only support wasm
+  $arch = "wasm"
+
+  if ($msbuild -eq $True) {
+    Write-Error "Using the -msbuild option isn't supported when building for Browser on Windows, we need need ninja for Emscripten."
+    exit 1
+  }
+}
+
+if ($os -eq "wasi") {
+  # override default arch for wasi, we only support wasm
+  $arch = "wasm"
+
+  if ($msbuild -eq $True) {
+    Write-Error "Using the -msbuild option isn't supported when building for WASI on Windows, we need ninja for WASI-SDK."
+    exit 1
+  }
+}
+
+if ($vs) {
+  $archToOpen = $arch[0]
+  $configToOpen = $configuration[0]
+  $repoRoot = Split-Path $PSScriptRoot -Parent
+  if ($runtimeConfiguration) {
+    $configToOpen = $runtimeConfiguration
+  }
+
+  # Auto-generated solution file that uses the sln or slnx format
+  if ($vs -match "^coreclr(\.slnx|\.sln)?$") {
+    # If someone passes in coreclr.sln or coreclr.slnx or just coreclr (case-insensitive),
+    # launch the generated CMake solution with the right extension, defaulting to slnx.
+    $ext = [System.IO.Path]::GetExtension($vs)
+    if ([string]::IsNullOrEmpty($ext)) {
+      $ext = ".slnx"
+    }
+
+    $vs = Split-Path $PSScriptRoot -Parent | Join-Path -ChildPath "artifacts\obj\coreclr" | Join-Path -ChildPath "windows.$archToOpen.$((Get-Culture).TextInfo.ToTitleCase($configToOpen))" | Join-Path -ChildPath "ide" | Join-Path -ChildPath "CoreCLR$ext"
     if (-Not (Test-Path $vs)) {
-      $vs = $solution
-      # Search for the solution in installer
-      if (-Not ($vs.endswith(".sln"))) {
-        $vs = "$vs.sln"
-      }
-      $vs = Split-Path $PSScriptRoot -Parent | Join-Path -ChildPath "src\installer" | Join-Path -ChildPath $vs
-      if (-Not (Test-Path $vs)) {
-        Write-Error "Passed in solution cannot be resolved."
+      Invoke-Expression "& `"$repoRoot/eng/common/msbuild.ps1`" $repoRoot/src/coreclr/runtime.proj /clp:nosummary /restore /p:Ninja=false /p:Configuration=$configToOpen /p:TargetArchitecture=$archToOpen /p:ConfigureOnly=true /p:ClrFullNativeBuild=true"
+      if ($lastExitCode -ne 0) {
+        Write-Error "Failed to generate the CoreCLR solution file."
         exit 1
+      }
+      if (-Not (Test-Path $vs)) {
+        Write-Error "Unable to find the CoreCLR solution file at $vs."
       }
     }
   }
+  # Auto-generated solution file that uses the sln or slnx format
+  elseif ($vs -match "^corehost(\.slnx|\.sln)?$") {
+    $ext = [System.IO.Path]::GetExtension($vs)
+    if ([string]::IsNullOrEmpty($ext)) {
+      $ext = ".slnx"
+    }
+
+    $vs = Split-Path $PSScriptRoot -Parent | Join-Path -ChildPath "artifacts\obj\" | Join-Path -ChildPath "win-$archToOpen.$((Get-Culture).TextInfo.ToTitleCase($configToOpen))" | Join-Path -ChildPath "corehost" | Join-Path -ChildPath "ide" | Join-Path -ChildPath "corehost$ext"
+    if (-Not (Test-Path $vs)) {
+      Invoke-Expression "& `"$repoRoot/eng/common/msbuild.ps1`" $repoRoot/src/native/corehost/corehost.proj /clp:nosummary /restore /p:Ninja=false /p:Configuration=$configToOpen /p:TargetArchitecture=$archToOpen /p:ConfigureOnly=true"
+      if ($lastExitCode -ne 0) {
+        Write-Error "Failed to generate the CoreHost solution file."
+        exit 1
+      }
+      if (-Not (Test-Path $vs)) {
+        Write-Error "Unable to find the CoreHost solution file at $vs."
+      }
+    }
+  }
+  elseif (-Not (Test-Path $vs)) {
+    $solution = $vs
+
+    if ($runtimeFlavor -eq "Mono") {
+      # Search for the solution in mono
+      $vs = Split-Path $PSScriptRoot -Parent | Join-Path -ChildPath "src\mono" | Join-Path -ChildPath $vs | Join-Path -ChildPath "$vs.slnx"
+    } else {
+      # Search for the solution in coreclr
+      $vs = Split-Path $PSScriptRoot -Parent | Join-Path -ChildPath "src\coreclr" | Join-Path -ChildPath $vs | Join-Path -ChildPath "$vs.slnx"
+
+      # Also, search for the solution in coreclr\tools\aot
+      if (-Not (Test-Path $vs)) {
+        $vs = Split-Path $PSScriptRoot -Parent | Join-Path -ChildPath "src\coreclr\tools\aot\$solution.slnx"
+      }
+    }
+
+    if (-Not (Test-Path $vs)) {
+      $vs = $solution
+
+      # Search for the solution in libraries
+      $vs = Split-Path $PSScriptRoot -Parent | Join-Path -ChildPath "src\libraries" | Join-Path -ChildPath $vs | Join-Path -ChildPath "$vs.slnx"
+
+      if (-Not (Test-Path $vs)) {
+        $vs = $solution
+
+        # Search for the solution in installer
+        if (-Not ($vs.endswith(".slnx"))) {
+          $vs = "$vs.slnx"
+        }
+
+        $vs = Split-Path $PSScriptRoot -Parent | Join-Path -ChildPath "src\installer" | Join-Path -ChildPath $vs
+
+        if (-Not (Test-Path $vs)) {
+          Write-Error "Passed in solution cannot be resolved."
+          exit 1
+        }
+      }
+    }
+  }
+
+  . $PSScriptRoot\common\tools.ps1
 
   # This tells .NET Core to use the bootstrapped runtime
   $env:DOTNET_ROOT=InitializeDotNetCli -install:$true -createSdkLocationFile:$true
@@ -140,20 +298,39 @@ if ($vs) {
   # This tells MSBuild to load the SDK from the directory of the bootstrapped SDK
   $env:DOTNET_MSBUILD_SDK_RESOLVER_CLI_DIR=$env:DOTNET_ROOT
 
-  # This tells .NET Core not to go looking for .NET Core in other places
-  $env:DOTNET_MULTILEVEL_LOOKUP=0;
-
   # Put our local dotnet.exe on PATH first so Visual Studio knows which one to use
   $env:PATH=($env:DOTNET_ROOT + ";" + $env:PATH);
 
+  # Disable .NET runtime signature validation errors which errors for local builds
+  $env:VSDebugger_ValidateDotnetDebugLibSignatures=0;
+
+  # Respect the RuntimeConfiguration variable for building inside VS with different runtime configurations
   if ($runtimeConfiguration)
   {
-    # Respect the RuntimeConfiguration variable for building inside VS with different runtime configurations
     $env:RUNTIMECONFIGURATION=$runtimeConfiguration
   }
-  
-  # Restore the solution to workaround https://github.com/dotnet/runtime/issues/32205
-  Invoke-Expression "& dotnet restore $vs"
+
+  if ($librariesConfiguration)
+  {
+    # Respect the LibrariesConfiguration variable for building inside VS with different libraries configurations
+    $env:LIBRARIESCONFIGURATION=$librariesConfiguration
+  }
+
+  # Respect the RuntimeFlavor variable for building inside VS with a different CoreLib and runtime
+  if ($runtimeFlavor)
+  {
+    $env:RUNTIMEFLAVOR=$runtimeFlavor
+  }
+
+  # Respect the TargetOS variable for building non AnyOS libraries
+  if ($os) {
+    $env:TARGETOS=$os
+  }
+
+  # Respect the TargetArchitecture variable for building non AnyCPU libraries
+  if ($arch) {
+    $env:TARGETARCHITECTURE=$arch
+  }
 
   # Launch Visual Studio with the locally defined environment variables
   ."$vs"
@@ -177,17 +354,114 @@ foreach ($argument in $PSBoundParameters.Keys)
   switch($argument)
   {
     "runtimeConfiguration"   { $arguments += " /p:RuntimeConfiguration=$((Get-Culture).TextInfo.ToTitleCase($($PSBoundParameters[$argument])))" }
+    "runtimeFlavor"          { $arguments += " /p:RuntimeFlavor=$($PSBoundParameters[$argument].ToLowerInvariant())" }
+    "usemonoruntime"         { $arguments += " /p:PrimaryRuntimeFlavor=Mono" }
     "librariesConfiguration" { $arguments += " /p:LibrariesConfiguration=$((Get-Culture).TextInfo.ToTitleCase($($PSBoundParameters[$argument])))" }
+    "hostConfiguration"      { $arguments += " /p:HostConfiguration=$((Get-Culture).TextInfo.ToTitleCase($($PSBoundParameters[$argument])))" }
     "framework"              { $arguments += " /p:BuildTargetFramework=$($PSBoundParameters[$argument].ToLowerInvariant())" }
     "os"                     { $arguments += " /p:TargetOS=$($PSBoundParameters[$argument])" }
-    "allconfigurations"      { $arguments += " /p:BuildAllConfigurations=true" }
-    "properties"             { $arguments += " " + $properties }
+    "pack"                   { $arguments += " -pack /p:BuildAllConfigurations=true" }
+    "properties"             {
+      # These arguments are later passed to Invoke-Expression, which re-parses the
+      # string as PowerShell. Wrap any value containing a ';' in quotes so it isn't
+      # interpreted as a statement separator (e.g. '-warnnotaserror NU1901;NU1902;NU1903').
+      $quotedProperties = $properties | ForEach-Object {
+        if ($_ -match ';' -and $_ -notmatch '^["'']') { '"' + $_ + '"' } else { $_ }
+      }
+      $arguments += " " + ($quotedProperties -join ' ')
+    }
     "verbosity"              { $arguments += " -$argument " + $($PSBoundParameters[$argument]) }
+    "cmakeargs"              { $arguments += " /p:CMakeArgs=`"$($PSBoundParameters[$argument])`"" }
+    # The -ninja switch is a no-op since Ninja is the default generator on Windows.
+    "ninja"                  { }
+    "msbuild"                { $arguments += " /p:Ninja=false" }
+    "pgoinstrument"          { $arguments += " /p:PgoInstrument=$($PSBoundParameters[$argument])"}
     # configuration and arch can be specified multiple times, so they should be no-ops here
     "configuration"          {}
     "arch"                   {}
+    "fsanitize"              { $arguments += " /p:EnableNativeSanitizers=$($PSBoundParameters[$argument])"}
+    "useBootstrap"           { $arguments += " /p:UseBootstrap=$($PSBoundParameters[$argument])" }
+    "clrinterpreter"         { $arguments += " /p:FeatureInterpreter=true" }
+    "dynamiccodecompiled"    {}
     default                  { $arguments += " /p:$argument=$($PSBoundParameters[$argument])" }
   }
+}
+
+# Default dynamiccodecompiled based on target OS if not explicitly set
+if (-not $dynamiccodecompiled) {
+  if ($os -eq "maccatalyst" -or $os -eq "ios" -or $os -eq "iossimulator" -or $os -eq "tvos" -or $os -eq "tvossimulator" -or $os -eq "browser" -or $os -eq "wasi") {
+    $dynamiccodecompiled = "false"
+  } else {
+    $dynamiccodecompiled = "true"
+  }
+}
+$arguments += " /p:FeatureDynamicCodeCompiled=$dynamiccodecompiled"
+if ($dynamiccodecompiled -eq "false") {
+  $arguments += " /p:FeatureInterpreter=true"
+}
+
+if ($env:TreatWarningsAsErrors -eq 'false') {
+  $arguments += " -warnAsError `$false"
+}
+
+# disable terminal logger for now: https://github.com/dotnet/runtime/issues/97211
+$arguments += " /tl:false"
+# disable line wrapping so that C&P from the console works well
+$arguments += " /clp:ForceNoAlign"
+
+# Disable targeting pack caching as we reference a partially constructed targeting pack and update it later.
+# The later changes are ignored when using the cache.
+$env:DOTNETSDK_ALLOW_TARGETING_PACK_CACHING=0
+
+if ($bootstrap -eq $True) {
+
+  if ($actionPassedIn) {
+    # Filter out all actions
+    $bootstrapArguments = $(($arguments -split ' ') | Where-Object {
+        $_ -notmatch '^/p:(' + ($actionPassedIn -join '|') + ')=.*'
+    }) -join ' '
+
+    # Preserve Restore and Build if they're passed in
+    if ($arguments -match "/p:Restore=true") {
+      $bootstrapArguments += "/p:Restore=true"
+    }
+    if ($arguments -match "/p:Build=true") {
+      $bootstrapArguments += "/p:Build=true"
+    }
+  } else {
+    $bootstrapArguments = $arguments
+  }
+
+  if ($configuration.Count -gt 1) {
+    Write-Error "Building the bootstrap build does not support multiple configurations. Please specify a single configuration using -configuration."
+    exit 1
+  }
+
+  if ($arch.Count -gt 1) {
+    Write-Error "Building the bootstrap build does not support multiple architectures. Please specify a single architecture using -arch."
+    exit 1
+  }
+
+  $bootstrapArguments += " /p:TargetArchitecture=$($arch[0])"
+  $config = $((Get-Culture).TextInfo.ToTitleCase($configuration[0]))
+  $bootstrapArguments += " -configuration $config"
+
+  # Set a different path for prebuilt usage tracking for the bootstrap build.
+  $bootstrapArguments += " /p:TrackPrebuiltUsageReportFile=$PSScriptRoot/../artifacts/log/bootstrap-prebuilt-usage.xml"
+
+  $bootstrapArguments += " /p:Subset=bootstrap /bl:$PSScriptRoot/../artifacts/log/$config/bootstrap.binlog"
+  Invoke-Expression "& `"$PSScriptRoot/common/build.ps1`" $bootstrapArguments"
+
+  if ($lastExitCode -ne 0) {
+    Write-Error "Bootstrap build failed. Stopping build."
+    exit 1
+  }
+
+  # Remove artifacts from the bootstrap build so the product build is a "clean" build.
+  Write-Host "Cleaning up artifacts from bootstrap build..."
+  Remove-Item -Recurse "$PSScriptRoot/../artifacts/bin"
+  Remove-Item -Recurse "$PSScriptRoot/../artifacts/obj"
+  $arguments += " /p:UseBootstrap=true"
 }
 
 $failedBuilds = @()
@@ -196,7 +470,6 @@ foreach ($config in $configuration) {
   $argumentsWithConfig = $arguments + " -configuration $((Get-Culture).TextInfo.ToTitleCase($config))";
   foreach ($singleArch in $arch) {
     $argumentsWithArch =  "/p:TargetArchitecture=$singleArch " + $argumentsWithConfig
-    $env:__DistroRid="win-$singleArch"
     Invoke-Expression "& `"$PSScriptRoot/common/build.ps1`" $argumentsWithArch"
     if ($lastExitCode -ne 0) {
         $failedBuilds += "Configuration: $config, Architecture: $singleArch"
@@ -210,6 +483,10 @@ if ($failedBuilds.Count -ne 0) {
         Write-Host "`t$failedBuild"
     }
     exit 1
+}
+
+if ($ninja) {
+    Write-Host "The -ninja option has no effect on Windows builds since the Ninja generator is the default generator."
 }
 
 exit 0

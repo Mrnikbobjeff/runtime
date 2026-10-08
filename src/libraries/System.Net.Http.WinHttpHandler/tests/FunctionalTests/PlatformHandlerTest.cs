@@ -82,7 +82,7 @@ namespace System.Net.Http.Functional.Tests
         public PlatformHandler_HttpClientEKUTest(ITestOutputHelper output) : base(output) { }
     }
 
-#if NETCOREAPP
+#if NET
     public sealed class PlatformHandler_HttpClientHandler_Decompression_Tests : HttpClientHandler_Decompression_Test
     {
         public PlatformHandler_HttpClientHandler_Decompression_Tests(ITestOutputHelper output) : base(output) { }
@@ -104,6 +104,7 @@ namespace System.Net.Http.Functional.Tests
         public PlatformHandler_HttpClientHandler_DefaultProxyCredentials_Test(ITestOutputHelper output) : base(output) { }
     }
 
+    [SkipOnPlatform(TestPlatforms.Browser, "MaxConnectionsPerServer not supported on Browser")]
     public sealed class PlatformHandler_HttpClientHandler_MaxConnectionsPerServer_Test : HttpClientHandler_MaxConnectionsPerServer_Test
     {
         public PlatformHandler_HttpClientHandler_MaxConnectionsPerServer_Test(ITestOutputHelper output) : base(output) { }
@@ -134,11 +135,6 @@ namespace System.Net.Http.Functional.Tests
         public PlatformHandler_HttpClientHandler_Proxy_Test(ITestOutputHelper output) : base(output) { }
     }
 
-    public sealed class PlatformHandler_SchSendAuxRecordHttpTest : SchSendAuxRecordHttpTest
-    {
-        public PlatformHandler_SchSendAuxRecordHttpTest(ITestOutputHelper output) : base(output) { }
-    }
-
     public sealed class PlatformHandler_HttpClientHandlerTest : HttpClientHandlerTest
     {
         public PlatformHandler_HttpClientHandlerTest(ITestOutputHelper output) : base(output) { }
@@ -157,13 +153,6 @@ namespace System.Net.Http.Functional.Tests
     public sealed class PlatformHandler_IdnaProtocolTests : IdnaProtocolTests
     {
         public PlatformHandler_IdnaProtocolTests(ITestOutputHelper output) : base(output) { }
-        // WinHttp on Win7 does not support IDNA
-        protected override bool SupportsIdna => !PlatformDetection.IsWindows7;
-    }
-
-    public sealed class PlatformHandler_HttpRetryProtocolTests : HttpRetryProtocolTests
-    {
-        public PlatformHandler_HttpRetryProtocolTests(ITestOutputHelper output) : base(output) { }
     }
 
     public sealed class PlatformHandlerTest_Cookies : HttpClientHandlerTest_Cookies
@@ -191,8 +180,7 @@ namespace System.Net.Http.Functional.Tests
         public PlatformHandler_HttpClientHandler_Authentication_Test(ITestOutputHelper output) : base(output) { }
     }
 
-#if NETCOREAPP
-#if !WINHTTPHANDLER_TEST // [ActiveIssue("https://github.com/dotnet/runtime/issues/33930")]
+#if NET
     [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsWindows10Version1607OrGreater))]
     public sealed class PlatformHandlerTest_Cookies_Http2 : HttpClientHandlerTest_Cookies
     {
@@ -200,7 +188,6 @@ namespace System.Net.Http.Functional.Tests
 
         public PlatformHandlerTest_Cookies_Http2(ITestOutputHelper output) : base(output) { }
     }
-#endif
 
     public sealed class PlatformHandler_HttpClientHandler_Asynchrony_Http2_Test : HttpClientHandler_Asynchrony_Test
     {
@@ -265,6 +252,7 @@ namespace System.Net.Http.Functional.Tests
         public PlatformHandler_HttpClientHandler_DefaultProxyCredentials_Http2_Test(ITestOutputHelper output) : base(output) { }
     }
 
+    [SkipOnPlatform(TestPlatforms.Browser, "MaxConnectionsPerServer not supported on Browser")]
     public sealed class PlatformHandler_HttpClientHandler_MaxConnectionsPerServer_Http2_Test : HttpClientHandler_MaxConnectionsPerServer_Test
     {
         protected override Version UseVersion => HttpVersion20.Value;
@@ -276,7 +264,8 @@ namespace System.Net.Http.Functional.Tests
     {
         protected override Version UseVersion => HttpVersion20.Value;
 
-        public PlatformHandler_HttpClientHandler_ServerCertificates_Http2_Test(ITestOutputHelper output) : base(output) {
+        public PlatformHandler_HttpClientHandler_ServerCertificates_Http2_Test(ITestOutputHelper output) : base(output)
+        {
             AllowAllCertificates = false;
         }
     }
@@ -300,13 +289,6 @@ namespace System.Net.Http.Functional.Tests
         protected override Version UseVersion => HttpVersion20.Value;
 
         public PlatformHandler_HttpClientHandler_Proxy_Http2_Test(ITestOutputHelper output) : base(output) { }
-    }
-
-    public sealed class PlatformHandler_SchSendAuxRecordHttp_Http2_Test : SchSendAuxRecordHttpTest
-    {
-        protected override Version UseVersion => HttpVersion20.Value;
-
-        public PlatformHandler_SchSendAuxRecordHttp_Http2_Test(ITestOutputHelper output) : base(output) { }
     }
 
     [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsWindows10Version1607OrGreater))]
@@ -336,15 +318,6 @@ namespace System.Net.Http.Functional.Tests
         protected override Version UseVersion => HttpVersion20.Value;
 
         public PlatformHandler_IdnaProtocol_Http2_Tests(ITestOutputHelper output) : base(output) { }
-        // WinHttp on Win7 does not support IDNA
-        protected override bool SupportsIdna => !PlatformDetection.IsWindows7;
-    }
-
-    public sealed class PlatformHandler_HttpRetryProtocol_Http2_Tests : HttpRetryProtocolTests
-    {
-        protected override Version UseVersion => HttpVersion20.Value;
-
-        public PlatformHandler_HttpRetryProtocol_Http2_Tests(ITestOutputHelper output) : base(output) { }
     }
 
     public sealed class PlatformHandlerTest_Cookies_Http11_Http2 : HttpClientHandlerTest_Cookies_Http11
@@ -354,6 +327,7 @@ namespace System.Net.Http.Functional.Tests
         public PlatformHandlerTest_Cookies_Http11_Http2(ITestOutputHelper output) : base(output) { }
     }
 
+    [ConditionalClass(typeof(PlatformDetection), nameof(PlatformDetection.IsWindows10Version1607OrGreater))]
     public sealed class PlatformHandler_HttpClientHandler_MaxResponseHeadersLength_Http2_Test : HttpClientHandler_MaxResponseHeadersLength_Test
     {
         protected override Version UseVersion => HttpVersion20.Value;

@@ -4,8 +4,10 @@
 
 using System.Runtime.InteropServices;
 using System;
+using Xunit;
 
-internal class NullableTest
+namespace castclass041;
+public class NullableTest
 {
     private static bool BoxUnboxToNQ(object o)
     {
@@ -17,7 +19,9 @@ internal class NullableTest
         return Helper.Compare((ImplementTwoInterfaceGen<int>?)(ValueType)o, Helper.Create(default(ImplementTwoInterfaceGen<int>)));
     }
 
-    private static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         ImplementTwoInterfaceGen<int>? s = Helper.Create(default(ImplementTwoInterfaceGen<int>));
 

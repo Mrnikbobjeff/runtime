@@ -8,13 +8,13 @@ namespace System.Collections.Immutable
     /// <content>
     /// Contains the inner <see cref="ImmutableHashSet{T}.HashBucketByRefEqualityComparer"/> class.
     /// </content>
-    public sealed partial class ImmutableHashSet<T> : IImmutableSet<T>, IHashKeyCollection<T>, IReadOnlyCollection<T>, ICollection<T>, ISet<T>, ICollection, IStrongEnumerable<T, ImmutableHashSet<T>.Enumerator>
+    public sealed partial class ImmutableHashSet<T> : IImmutableSet<T>, IReadOnlyCollection<T>, ICollection<T>, ISet<T>, ICollection, IStrongEnumerable<T, ImmutableHashSet<T>.Enumerator>
     {
         /// <summary>
         /// Compares equality between two <see cref="HashBucket"/> instances
         /// by reference.
         /// </summary>
-        private class HashBucketByRefEqualityComparer : IEqualityComparer<HashBucket>
+        private sealed class HashBucketByRefEqualityComparer : IEqualityComparer<HashBucket>
         {
             /// <summary>
             /// The singleton instance.

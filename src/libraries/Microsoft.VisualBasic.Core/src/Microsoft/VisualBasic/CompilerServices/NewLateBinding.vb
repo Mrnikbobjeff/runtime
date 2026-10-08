@@ -2,20 +2,14 @@
 ' The .NET Foundation licenses this file to you under the MIT license.
 
 Imports System
-Imports System.Collections
 Imports System.Collections.Generic
 Imports System.Diagnostics
 Imports System.Dynamic
-Imports System.Globalization
 Imports System.Reflection
-Imports System.Runtime.InteropServices
 
 Imports Microsoft.VisualBasic.CompilerServices.Symbols
 Imports Microsoft.VisualBasic.CompilerServices.OverloadResolution
-Imports Microsoft.VisualBasic.CompilerServices.ExceptionUtils
-Imports Microsoft.VisualBasic.CompilerServices.Utils
-Imports Microsoft.VisualBasic.CompilerServices.ReflectionExtensions
-Imports System.Runtime.Versioning
+Imports System.Diagnostics.CodeAnalysis
 
 #Const NEW_BINDER = True
 #Const BINDING_LOG = False
@@ -25,11 +19,13 @@ Namespace Microsoft.VisualBasic.CompilerServices
     ' Implements VB late binder.
     <ComponentModel.EditorBrowsable(ComponentModel.EditorBrowsableState.Never)>
     Public NotInheritable Class NewLateBinding
+        Private Const LateBindingTrimMessage As String = "Late binding is dynamic and cannot be statically analyzed. The referenced types and members may be trimmed"
         ' Prevent creation.
         Private Sub New()
         End Sub
 
         <DebuggerHiddenAttribute()> <DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Function LateCall(
                 ByVal Instance As Object,
                 ByVal Type As System.Type,
@@ -51,6 +47,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
                 baseReference = New Container(Instance)
             End If
 
+            If baseReference.IsCOMObject AndAlso Not baseReference.IsWindowsRuntimeObject Then
+                Return LateBinding.InternalLateCall(Instance, Type, MemberName, Arguments, ArgumentNames, CopyBack, IgnoreReturn)
+            End If
+
             Dim idmop As IDynamicMetaObjectProvider = IDOUtils.TryCastToIDMOP(Instance)
             If idmop IsNot Nothing AndAlso TypeArguments Is NoTypeArguments Then
                 Return IDOBinder.IDOCall(idmop, MemberName, Arguments, ArgumentNames, CopyBack, IgnoreReturn)
@@ -61,9 +61,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Function
 
         'This method is only called from DynamicMethods generated at runtime
-        <Obsolete("do not use this method", True)>
+        <Obsolete("FallbackCall has been deprecated and is not supported.", True)>
         <System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>
         <DebuggerHiddenAttribute()> <DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Function FallbackCall(
                 ByVal Instance As Object,
                 ByVal MemberName As String,
@@ -76,6 +77,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Function
 
         <DebuggerHiddenAttribute()> <DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Private Shared Function ObjectLateCall(
                 ByVal instance As Object,
                 ByVal type As System.Type,
@@ -111,6 +113,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Function
 
         'Quick check to determine if FallbackCall will succeed
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Friend Shared Function CanBindCall(ByVal instance As Object, ByVal memberName As String, ByVal arguments As Object(), ByVal argumentNames As String(), ByVal ignoreReturn As Boolean) As Boolean
             Dim baseReference As New Container(instance)
             Dim invocationFlags As BindingFlags = BindingFlagsInvokeMethod Or BindingFlagsGetProperty
@@ -140,9 +143,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
         ' LateCallInvokeDefault is used to optionally invoke the default action on a call target.
         ' If the arguments are non-empty, then it isn't optional, and is treated
         ' as an error if there is no default action.
-        ' Currently we can get here only in the process of execution of NewLateBinding.LateCall. 
+        ' Currently we can get here only in the process of execution of NewLateBinding.LateCall.
         <System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>
         <DebuggerHiddenAttribute()> <DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Function LateCallInvokeDefault(
                 ByVal Instance As Object,
                 ByVal Arguments As Object(),
@@ -155,9 +159,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
         ' LateGetInvokeDefault is used to optionally invoke the default action.
         ' If the arguments are non-empty, then it isn't optional, and is treated
         ' as an error if there is no default action.
-        ' Currently we can get here only in the process of execution of NewLateBinding.LateGet. 
+        ' Currently we can get here only in the process of execution of NewLateBinding.LateGet.
         <System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>
         <DebuggerHiddenAttribute()> <DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Function LateGetInvokeDefault(
                 ByVal Instance As Object,
                 ByVal Arguments As Object(),
@@ -166,7 +171,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
 
             ' According to a comment in VBGetBinder.FallbackInvoke, this function is called when
             ' "The DLR was able to resolve o.member, but not o.member(args)"
-            ' When NewLateBinding.LateGet is evaluating similar expression itself, it never tries to invoke default action 
+            ' When NewLateBinding.LateGet is evaluating similar expression itself, it never tries to invoke default action
             ' if arguments are not empty. It simply returns result of evaluating o.member. I believe, it makes sense
             ' to follow the same logic here. I.e., if there are no arguments, simply return the instance unless it is an IDO.
 
@@ -179,6 +184,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
             End If
         End Function
 
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Private Shared Function InternalLateInvokeDefault(
                 ByVal instance As Object,
                 ByVal arguments As Object(),
@@ -195,9 +201,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Function
 
         'This method is only called from DynamicMethods generated at runtime
-        <Obsolete("do not use this method", True)>
+        <Obsolete("FallbackInvokeDefault1 has been deprecated and is not supported.", True)>
         <System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>
         <DebuggerHiddenAttribute()> <DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Function FallbackInvokeDefault1(
                 ByVal Instance As Object,
                 ByVal Arguments As Object(),
@@ -209,9 +216,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Function
 
         'This method is only called from DynamicMethods generated at runtime
-        <Obsolete("do not use this method", True)>
+        <Obsolete("FallbackInvokeDefault2 has been deprecated and is not supported.", True)>
         <System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>
         <DebuggerHiddenAttribute()> <DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Function FallbackInvokeDefault2(
                 ByVal Instance As Object,
                 ByVal Arguments As Object(),
@@ -222,6 +230,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Function
 
         <DebuggerHiddenAttribute()> <DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Private Shared Function ObjectLateInvokeDefault(
                 ByVal instance As Object,
                 ByVal arguments As Object(),
@@ -239,6 +248,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Function
 
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Function LateIndexGet(
                 ByVal Instance As Object,
                 ByVal Arguments() As Object,
@@ -247,6 +257,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
             Return InternalLateInvokeDefault(Instance, Arguments, ArgumentNames, True, Nothing)
         End Function
 
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Private Shared Function LateIndexGet(
                 ByVal instance As Object,
                 ByVal arguments() As Object,
@@ -256,6 +267,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
             Return InternalLateInvokeDefault(instance, arguments, argumentNames, True, copyBack)
         End Function
 
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Private Shared Function InternalLateIndexGet(
                 ByVal instance As Object,
                 ByVal arguments() As Object,
@@ -270,6 +282,9 @@ Namespace Microsoft.VisualBasic.CompilerServices
             If argumentNames Is Nothing Then argumentNames = NoArgumentNames
 
             Dim baseReference As Container = New Container(instance)
+            If baseReference.IsCOMObject AndAlso Not baseReference.IsWindowsRuntimeObject Then
+                Return LateBinding.LateIndexGet(instance, arguments, argumentNames)
+            End If
 
             'An r-value expression o(a) has two possible forms:
             '    1: o(a)    array lookup--where o is an array object and a is a set of indices
@@ -306,6 +321,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
                        failure)
         End Function
 
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Friend Shared Function CanBindInvokeDefault(
                 ByVal instance As Object,
                 ByVal arguments As Object(),
@@ -342,6 +358,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Sub
 
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Function LateGet(
                 ByVal Instance As Object,
                 ByVal Type As System.Type,
@@ -362,6 +379,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
                 baseReference = New Container(Instance)
             End If
 
+            If baseReference.IsCOMObject AndAlso Not baseReference.IsWindowsRuntimeObject Then
+                Return LateBinding.LateGet(Instance, Type, MemberName, Arguments, ArgumentNames, CopyBack)
+            End If
+
             Dim invocationFlags As BindingFlags = BindingFlagsInvokeMethod Or BindingFlagsGetProperty
 
             Dim idmop As IDynamicMetaObjectProvider = IDOUtils.TryCastToIDMOP(Instance)
@@ -373,9 +394,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Function 'LateGet
 
         'This method is only called from DynamicMethods generated at runtime
-        <Obsolete("do not use this method", True)>
+        <Obsolete("FallbackGet has been deprecated and is not supported.", True)>
         <System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>
         <DebuggerHiddenAttribute()> <DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Function FallbackGet(
                 ByVal Instance As Object,
                 ByVal MemberName As String,
@@ -386,6 +408,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Function 'FallbackGet
 
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Private Shared Function ObjectLateGet(
                 ByVal instance As Object,
                 ByVal type As System.Type,
@@ -501,6 +524,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Function 'ObjectLateGet
 
         'Quick check to determine if FallbackGet will succeed
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Friend Shared Function CanBindGet(ByVal instance As Object, ByVal memberName As String, ByVal arguments As Object(), ByVal argumentNames As String()) As Boolean
             Dim baseReference As New Container(instance)
             Dim invocationFlags As BindingFlags = BindingFlagsInvokeMethod Or BindingFlagsGetProperty
@@ -569,6 +593,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Function
 
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Sub LateIndexSetComplex(
                 ByVal Instance As Object,
                 ByVal Arguments As Object(),
@@ -586,9 +611,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Sub
 
         'This method is only called from DynamicMethods generated at runtime
-        <Obsolete("do not use this method", True)>
+        <Obsolete("FallbackIndexSetComplex has been deprecated and is not supported.", True)>
         <System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Sub FallbackIndexSetComplex(
                 ByVal Instance As Object,
                 ByVal Arguments As Object(),
@@ -600,6 +626,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Sub 'FallbackIndexSetComplex
 
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Friend Shared Sub ObjectLateIndexSetComplex(
                 ByVal instance As Object,
                 ByVal arguments As Object(),
@@ -637,6 +664,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
             End If
 
             Dim methodName As String = ""
+            If baseReference.IsCOMObject AndAlso Not baseReference.IsWindowsRuntimeObject Then
+                LateBinding.LateIndexSetComplex(instance, arguments, argumentNames, optimisticSet, rValueBase)
+                Return
+            End If
 
             Dim invocationFlags As BindingFlags = BindingFlagsSetProperty
 
@@ -693,6 +724,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
 
         'Determines if ObjectLateIndexSetComplex can succeed
         'Used by IDOBinder
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Friend Shared Function CanIndexSetComplex(
                 ByVal instance As Object,
                 ByVal arguments As Object(),
@@ -744,6 +776,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Function
 
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Sub LateIndexSet(
                 ByVal Instance As Object,
                 ByVal Arguments() As Object,
@@ -760,9 +793,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Sub 'LateIndexSet
 
         'This method is only called from DynamicMethods generated at runtime
-        <Obsolete("do not use this method", True)>
+        <Obsolete("FallbackIndexSet has been deprecated and is not supported.", True)>
         <System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>
         <DebuggerHiddenAttribute()> <DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Sub FallbackIndexSet(
                 ByVal Instance As Object,
                 ByVal Arguments() As Object,
@@ -772,6 +806,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Sub 'FallbackIndexSet
 
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Private Shared Sub ObjectLateIndexSet(
                 ByVal Instance As Object,
                 ByVal Arguments() As Object,
@@ -782,6 +817,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Sub 'ObjectLateIndexSet
 
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Sub LateSetComplex(
                 ByVal Instance As Object,
                 ByVal Type As Type,
@@ -803,9 +839,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Sub
 
         'This method is only called from DynamicMethods generated at runtime
-        <Obsolete("do not use this method", True)>
+        <Obsolete("FallbackSetComplex has been deprecated and is not supported.", True)>
         <System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Sub FallbackSetComplex(
                 ByVal Instance As Object,
                 ByVal MemberName As String,
@@ -814,11 +851,12 @@ Namespace Microsoft.VisualBasic.CompilerServices
                 ByVal RValueBase As Boolean)
 
             ObjectLateSetComplex(
-                Instance, Nothing, MemberName, Arguments, New String() {},
+                Instance, Nothing, MemberName, Arguments, Array.Empty(Of String)(),
                 NoTypeArguments, OptimisticSet, RValueBase)
         End Sub 'FallbackSetComplex
 
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Friend Shared Sub ObjectLateSetComplex(
                 ByVal instance As Object,
                 ByVal type As Type,
@@ -834,6 +872,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Sub
 
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Sub LateSet(
                 ByVal Instance As Object,
                 ByVal Type As Type,
@@ -852,9 +891,10 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Sub
 
         'This method is only called from DynamicMethods generated at runtime
-        <Obsolete("do not use this method", True)>
+        <Obsolete("FallbackSet has been deprecated and is not supported.", True)>
         <System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)>
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Sub FallbackSet(
                 ByVal Instance As Object,
                 ByVal MemberName As String,
@@ -863,6 +903,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
             ObjectLateSet(Instance, Nothing, MemberName, Arguments, NoArgumentNames, NoTypeArguments)
         End Sub
 
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Friend Shared Sub ObjectLateSet(
                 ByVal instance As Object,
                 ByVal type As Type,
@@ -878,6 +919,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Sub
 
         <DebuggerHiddenAttribute(), DebuggerStepThroughAttribute()>
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Public Shared Sub LateSet(
                 ByVal Instance As Object,
                 ByVal Type As Type,
@@ -898,6 +940,18 @@ Namespace Microsoft.VisualBasic.CompilerServices
                 baseReference = New Container(Type)
             Else
                 baseReference = New Container(Instance)
+            End If
+
+            If baseReference.IsCOMObject AndAlso Not baseReference.IsWindowsRuntimeObject Then
+                Try
+                    LateBinding.InternalLateSet(Instance, Type, MemberName, Arguments, ArgumentNames, OptimisticSet, CallType)
+                    If RValueBase And Type.IsValueType Then
+                        Throw New Exception(Utils.GetResourceString(SR.RValueBaseForValueType, baseReference.VBFriendlyName, baseReference.VBFriendlyName))
+                    End If
+                    Return
+                Catch ex As MissingMemberException When OptimisticSet
+                    Return
+                End Try
             End If
 
             Dim invocationFlags As BindingFlags
@@ -1045,6 +1099,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
         End Sub
 
         'Determines if LateSet will succeed. Used by IDOBinder.
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Friend Shared Function CanBindSet(ByVal instance As Object, ByVal memberName As String, ByVal value As Object, ByVal optimisticSet As Boolean, ByVal rValueBase As Boolean) As Boolean
             Dim baseReference As New Container(instance)
             Dim arguments As Object() = {value}
@@ -1112,6 +1167,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
             Return optimisticSet
         End Function
 
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Private Shared Function CallMethod(
                 ByVal baseReference As Container,
                 ByVal methodName As String,
@@ -1187,27 +1243,42 @@ Namespace Microsoft.VisualBasic.CompilerServices
         Friend Shared Function MatchesPropertyRequirements(ByVal targetProcedure As Method, ByVal flags As BindingFlags) As MethodInfo
             Debug.Assert(targetProcedure.IsProperty, "advertised property method isn't.")
 
+            Dim propInfo As PropertyInfo = targetProcedure.AsProperty()
             If HasFlag(flags, BindingFlagsSetProperty) Then
-                Return targetProcedure.AsProperty.GetSetMethod
+                Return If(HasIsExternalInitModifier(propInfo.GetSetMethod), Nothing, propInfo.GetSetMethod)
             Else
-                Return targetProcedure.AsProperty.GetGetMethod
+                Return propInfo.GetGetMethod
             End If
         End Function
 
         Friend Shared Function ReportPropertyMismatch(ByVal targetProcedure As Method, ByVal flags As BindingFlags) As Exception
             Debug.Assert(targetProcedure.IsProperty, "advertised property method isn't.")
 
+            Dim propInfo As PropertyInfo = targetProcedure.AsProperty()
             If HasFlag(flags, BindingFlagsSetProperty) Then
-                Debug.Assert(targetProcedure.AsProperty.GetSetMethod Is Nothing, "expected error condition")
+                Debug.Assert(propInfo.GetSetMethod Is Nothing OrElse HasIsExternalInitModifier(propInfo.GetSetMethod), "expected error condition")
                 Return New MissingMemberException(
-                    SR.Format(SR.NoSetProperty1, targetProcedure.AsProperty.Name))
+                    SR.Format(SR.NoSetProperty1, propInfo.Name))
             Else
-                Debug.Assert(targetProcedure.AsProperty.GetGetMethod Is Nothing, "expected error condition")
+                Debug.Assert(propInfo.GetGetMethod Is Nothing, "expected error condition")
                 Return New MissingMemberException(
-                    SR.Format(SR.NoGetProperty1, targetProcedure.AsProperty.Name))
+                    SR.Format(SR.NoGetProperty1, propInfo.Name))
             End If
         End Function
 
+        Private Shared Function HasIsExternalInitModifier(method As MethodInfo) As Boolean
+            Dim customModifierTypes As Type() = method?.ReturnParameter.GetRequiredCustomModifiers()
+            If customModifierTypes IsNot Nothing Then
+                For Each customModifierType As Type In customModifierTypes
+                    If customModifierType.Name = "IsExternalInit" AndAlso Not customModifierType.IsNested AndAlso customModifierType.Namespace = "System.Runtime.CompilerServices" Then
+                        Return True
+                    End If
+                Next
+            End If
+            Return False
+        End Function
+
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Friend Shared Function ResolveCall(
                 ByVal baseReference As Container,
                 ByVal methodName As String,
@@ -1413,6 +1484,7 @@ Namespace Microsoft.VisualBasic.CompilerServices
             Return Nothing
         End Function
 
+        <RequiresUnreferencedCode(LateBindingTrimMessage)>
         Friend Shared Function ConstructCallArguments(
             ByVal targetProcedure As Method,
             ByVal arguments As Object(),

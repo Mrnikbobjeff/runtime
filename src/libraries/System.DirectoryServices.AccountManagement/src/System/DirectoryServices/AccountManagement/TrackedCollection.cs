@@ -2,20 +2,19 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Diagnostics;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
 
 namespace System.DirectoryServices.AccountManagement
 {
-    internal class TrackedCollection<T> : ICollection<T>, ICollection, IEnumerable<T>, IEnumerable
+    internal sealed class TrackedCollection<T> : ICollection<T>, ICollection, IEnumerable<T>, IEnumerable
     {
         //
         // ICollection
         //
         void ICollection.CopyTo(Array array, int index)
         {
-            // Parameter validation
             if (index < 0)
                 throw new ArgumentOutOfRangeException(nameof(index));
 
@@ -197,7 +196,7 @@ namespace System.DirectoryServices.AccountManagement
         // Private implementation
         //
 
-        internal class ValueEl
+        internal sealed class ValueEl
         {
             public bool isInserted;
 

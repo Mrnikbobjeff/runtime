@@ -100,6 +100,7 @@ namespace System.Reflection.Metadata
         public System.Reflection.Metadata.StringHandle Name { get { throw null; } }
         public System.Reflection.Metadata.BlobHandle PublicKey { get { throw null; } }
         public System.Version Version { get { throw null; } }
+        public System.Reflection.Metadata.AssemblyNameInfo GetAssemblyNameInfo() { throw null; }
         public System.Reflection.Metadata.CustomAttributeHandleCollection GetCustomAttributes() { throw null; }
         public System.Reflection.Metadata.DeclarativeSecurityAttributeHandleCollection GetDeclarativeSecurityAttributes() { throw null; }
     }
@@ -157,6 +158,19 @@ namespace System.Reflection.Metadata
             void System.IDisposable.Dispose() { }
         }
     }
+    public sealed partial class AssemblyNameInfo
+    {
+        public AssemblyNameInfo(string name, System.Version? version = null, string? cultureName = null, System.Reflection.AssemblyNameFlags flags = System.Reflection.AssemblyNameFlags.None, System.Collections.Immutable.ImmutableArray<byte> publicKeyOrToken = default(System.Collections.Immutable.ImmutableArray<byte>)) { }
+        public string? CultureName { get { throw null; } }
+        public System.Reflection.AssemblyNameFlags Flags { get { throw null; } }
+        public string FullName { get { throw null; } }
+        public string Name { get { throw null; } }
+        public System.Collections.Immutable.ImmutableArray<byte> PublicKeyOrToken { get { throw null; } }
+        public System.Version? Version { get { throw null; } }
+        public static System.Reflection.Metadata.AssemblyNameInfo Parse(System.ReadOnlySpan<char> assemblyName) { throw null; }
+        public System.Reflection.AssemblyName ToAssemblyName() { throw null; }
+        public static bool TryParse(System.ReadOnlySpan<char> assemblyName, [System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] out System.Reflection.Metadata.AssemblyNameInfo? result) { throw null; }
+    }
     public readonly partial struct AssemblyReference
     {
         private readonly object _dummy;
@@ -167,6 +181,7 @@ namespace System.Reflection.Metadata
         public System.Reflection.Metadata.StringHandle Name { get { throw null; } }
         public System.Reflection.Metadata.BlobHandle PublicKeyOrToken { get { throw null; } }
         public System.Version Version { get { throw null; } }
+        public System.Reflection.Metadata.AssemblyNameInfo GetAssemblyNameInfo() { throw null; }
         public System.Reflection.Metadata.CustomAttributeHandleCollection GetCustomAttributes() { throw null; }
     }
     public readonly partial struct AssemblyReferenceHandle : System.IEquatable<System.Reflection.Metadata.AssemblyReferenceHandle>
@@ -291,7 +306,7 @@ namespace System.Reflection.Metadata
         public System.Guid Guid { get { throw null; } }
         public bool IsDefault { get { throw null; } }
         public uint Stamp { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.BlobContentId other) { throw null; }
         public static System.Reflection.Metadata.BlobContentId FromHash(byte[] hashCode) { throw null; }
         public static System.Reflection.Metadata.BlobContentId FromHash(System.Collections.Immutable.ImmutableArray<byte> hashCode) { throw null; }
@@ -304,7 +319,7 @@ namespace System.Reflection.Metadata
     {
         private readonly int _dummyPrimitive;
         public bool IsNil { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.BlobHandle other) { throw null; }
         public override int GetHashCode() { throw null; }
         public static bool operator ==(System.Reflection.Metadata.BlobHandle left, System.Reflection.Metadata.BlobHandle right) { throw null; }
@@ -538,7 +553,7 @@ namespace System.Reflection.Metadata
     {
         private readonly int _dummyPrimitive;
         public bool IsNil { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.CustomDebugInformationHandle other) { throw null; }
         public override int GetHashCode() { throw null; }
         public static bool operator ==(System.Reflection.Metadata.CustomDebugInformationHandle left, System.Reflection.Metadata.CustomDebugInformationHandle right) { throw null; }
@@ -661,7 +676,7 @@ namespace System.Reflection.Metadata
     {
         private readonly int _dummyPrimitive;
         public bool IsNil { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.DocumentNameBlobHandle other) { throw null; }
         public override int GetHashCode() { throw null; }
         public static bool operator ==(System.Reflection.Metadata.DocumentNameBlobHandle left, System.Reflection.Metadata.DocumentNameBlobHandle right) { throw null; }
@@ -676,7 +691,7 @@ namespace System.Reflection.Metadata
         public static readonly System.Reflection.Metadata.ModuleDefinitionHandle ModuleDefinition;
         public bool IsNil { get { throw null; } }
         public System.Reflection.Metadata.HandleKind Kind { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.EntityHandle other) { throw null; }
         public override int GetHashCode() { throw null; }
         public static bool operator ==(System.Reflection.Metadata.EntityHandle left, System.Reflection.Metadata.EntityHandle right) { throw null; }
@@ -702,6 +717,7 @@ namespace System.Reflection.Metadata
         public System.Reflection.Metadata.EntityHandle Type { get { throw null; } }
         public System.Reflection.Metadata.EventAccessors GetAccessors() { throw null; }
         public System.Reflection.Metadata.CustomAttributeHandleCollection GetCustomAttributes() { throw null; }
+        public System.Reflection.Metadata.TypeDefinitionHandle GetDeclaringType() { throw null; }
     }
     public readonly partial struct EventDefinitionHandle : System.IEquatable<System.Reflection.Metadata.EventDefinitionHandle>
     {
@@ -932,7 +948,7 @@ namespace System.Reflection.Metadata
     {
         private readonly int _dummyPrimitive;
         public bool IsNil { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.GuidHandle other) { throw null; }
         public override int GetHashCode() { throw null; }
         public static bool operator ==(System.Reflection.Metadata.GuidHandle left, System.Reflection.Metadata.GuidHandle right) { throw null; }
@@ -947,7 +963,7 @@ namespace System.Reflection.Metadata
         public static readonly System.Reflection.Metadata.ModuleDefinitionHandle ModuleDefinition;
         public bool IsNil { get { throw null; } }
         public System.Reflection.Metadata.HandleKind Kind { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.Handle other) { throw null; }
         public override int GetHashCode() { throw null; }
         public static bool operator ==(System.Reflection.Metadata.Handle left, System.Reflection.Metadata.Handle right) { throw null; }
@@ -1320,7 +1336,7 @@ namespace System.Reflection.Metadata
     {
         private readonly int _dummyPrimitive;
         public bool IsNil { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.ImportScopeHandle other) { throw null; }
         public override int GetHashCode() { throw null; }
         public static bool operator ==(System.Reflection.Metadata.ImportScopeHandle left, System.Reflection.Metadata.ImportScopeHandle right) { throw null; }
@@ -1400,7 +1416,7 @@ namespace System.Reflection.Metadata
     {
         private readonly int _dummyPrimitive;
         public bool IsNil { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.LocalConstantHandle other) { throw null; }
         public override int GetHashCode() { throw null; }
         public static bool operator ==(System.Reflection.Metadata.LocalConstantHandle left, System.Reflection.Metadata.LocalConstantHandle right) { throw null; }
@@ -1663,6 +1679,7 @@ namespace System.Reflection.Metadata
         public System.Reflection.Metadata.MetadataStringDecoder UTF8Decoder { get { throw null; } }
         public System.Reflection.Metadata.AssemblyDefinition GetAssemblyDefinition() { throw null; }
         public System.Reflection.Metadata.AssemblyFile GetAssemblyFile(System.Reflection.Metadata.AssemblyFileHandle handle) { throw null; }
+        public static System.Reflection.AssemblyName GetAssemblyName(string assemblyFile) { throw null; }
         public System.Reflection.Metadata.AssemblyReference GetAssemblyReference(System.Reflection.Metadata.AssemblyReferenceHandle handle) { throw null; }
         public byte[] GetBlobBytes(System.Reflection.Metadata.BlobHandle handle) { throw null; }
         public System.Collections.Immutable.ImmutableArray<byte> GetBlobContent(System.Reflection.Metadata.BlobHandle handle) { throw null; }
@@ -2006,7 +2023,7 @@ namespace System.Reflection.Metadata
     {
         private readonly int _dummyPrimitive;
         public bool IsNil { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.NamespaceDefinitionHandle other) { throw null; }
         public override int GetHashCode() { throw null; }
         public static bool operator ==(System.Reflection.Metadata.NamespaceDefinitionHandle left, System.Reflection.Metadata.NamespaceDefinitionHandle right) { throw null; }
@@ -2121,6 +2138,7 @@ namespace System.Reflection.Metadata
         public System.Reflection.Metadata.MethodSignature<TType> DecodeSignature<TType, TGenericContext>(System.Reflection.Metadata.ISignatureTypeProvider<TType, TGenericContext> provider, TGenericContext genericContext) { throw null; }
         public System.Reflection.Metadata.PropertyAccessors GetAccessors() { throw null; }
         public System.Reflection.Metadata.CustomAttributeHandleCollection GetCustomAttributes() { throw null; }
+        public System.Reflection.Metadata.TypeDefinitionHandle GetDeclaringType() { throw null; }
         public System.Reflection.Metadata.ConstantHandle GetDefaultValue() { throw null; }
     }
     public readonly partial struct PropertyDefinitionHandle : System.IEquatable<System.Reflection.Metadata.PropertyDefinitionHandle>
@@ -2176,7 +2194,7 @@ namespace System.Reflection.Metadata
         public int Offset { get { throw null; } }
         public int StartColumn { get { throw null; } }
         public int StartLine { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.SequencePoint other) { throw null; }
         public override int GetHashCode() { throw null; }
     }
@@ -2248,7 +2266,7 @@ namespace System.Reflection.Metadata
         public bool IsInstance { get { throw null; } }
         public System.Reflection.Metadata.SignatureKind Kind { get { throw null; } }
         public byte RawValue { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.SignatureHeader other) { throw null; }
         public override int GetHashCode() { throw null; }
         public static bool operator ==(System.Reflection.Metadata.SignatureHeader left, System.Reflection.Metadata.SignatureHeader right) { throw null; }
@@ -2407,6 +2425,43 @@ namespace System.Reflection.Metadata
         public int PackingSize { get { throw null; } }
         public int Size { get { throw null; } }
     }
+    public sealed partial class TypeName
+    {
+        internal TypeName() { }
+        public System.Reflection.Metadata.AssemblyNameInfo? AssemblyName { get { throw null; } }
+        public string AssemblyQualifiedName { get { throw null; } }
+        public System.Reflection.Metadata.TypeName DeclaringType { get { throw null; } }
+        public string FullName { get { throw null; } }
+        public bool IsArray { get { throw null; } }
+        public bool IsByRef { get { throw null; } }
+        public bool IsConstructedGenericType { get { throw null; } }
+        public bool IsNested { get { throw null; } }
+        public bool IsPointer { get { throw null; } }
+        public bool IsSimple { get { throw null; } }
+        public bool IsSZArray { get { throw null; } }
+        public bool IsVariableBoundArrayType { get { throw null; } }
+        public string Name { get { throw null; } }
+        public string Namespace { get { throw null; } }
+        public int GetArrayRank() { throw null; }
+        public System.Reflection.Metadata.TypeName GetElementType() { throw null; }
+        public System.Collections.Immutable.ImmutableArray<System.Reflection.Metadata.TypeName> GetGenericArguments() { throw null; }
+        public System.Reflection.Metadata.TypeName GetGenericTypeDefinition() { throw null; }
+        public int GetNodeCount() { throw null; }
+        public System.Reflection.Metadata.TypeName MakeArrayTypeName(int rank) { throw null; }
+        public System.Reflection.Metadata.TypeName MakeByRefTypeName() { throw null; }
+        public System.Reflection.Metadata.TypeName MakeGenericTypeName(System.Collections.Immutable.ImmutableArray<System.Reflection.Metadata.TypeName> typeArguments) { throw null; }
+        public System.Reflection.Metadata.TypeName MakePointerTypeName() { throw null; }
+        public System.Reflection.Metadata.TypeName MakeSZArrayTypeName() { throw null; }
+        public static System.Reflection.Metadata.TypeName Parse(System.ReadOnlySpan<char> typeName, System.Reflection.Metadata.TypeNameParseOptions? options = null) { throw null; }
+        public static bool TryParse(System.ReadOnlySpan<char> typeName, [System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] out System.Reflection.Metadata.TypeName? result, System.Reflection.Metadata.TypeNameParseOptions? options = null) { throw null; }
+        public static string Unescape(string name) { throw null; }
+        public System.Reflection.Metadata.TypeName WithAssemblyName(System.Reflection.Metadata.AssemblyNameInfo? assemblyName) { throw null; }
+    }
+    public sealed partial class TypeNameParseOptions
+    {
+        public TypeNameParseOptions() { }
+        public int MaxNodes { get { throw null; } set { } }
+    }
     public readonly partial struct TypeReference
     {
         private readonly object _dummy;
@@ -2499,6 +2554,7 @@ namespace System.Reflection.Metadata.Ecma335
         public System.Reflection.Metadata.BlobBuilder Builder { get { throw null; } }
         public void CustomAttributeSignature(System.Action<System.Reflection.Metadata.Ecma335.FixedArgumentsEncoder> fixedArguments, System.Action<System.Reflection.Metadata.Ecma335.CustomAttributeNamedArgumentsEncoder> namedArguments) { }
         public void CustomAttributeSignature(out System.Reflection.Metadata.Ecma335.FixedArgumentsEncoder fixedArguments, out System.Reflection.Metadata.Ecma335.CustomAttributeNamedArgumentsEncoder namedArguments) { throw null; }
+        public System.Reflection.Metadata.Ecma335.FieldTypeEncoder Field() { throw null; }
         public System.Reflection.Metadata.Ecma335.SignatureTypeEncoder FieldSignature() { throw null; }
         public System.Reflection.Metadata.Ecma335.LocalVariablesEncoder LocalVariableSignature(int variableCount) { throw null; }
         public System.Reflection.Metadata.Ecma335.MethodSignatureEncoder MethodSignature(System.Reflection.Metadata.SignatureCallingConvention convention = System.Reflection.Metadata.SignatureCallingConvention.Default, int genericParameterCount = 0, bool isInstanceMethod = false) { throw null; }
@@ -2533,6 +2589,7 @@ namespace System.Reflection.Metadata.Ecma335
         public void AddFaultRegion(System.Reflection.Metadata.Ecma335.LabelHandle tryStart, System.Reflection.Metadata.Ecma335.LabelHandle tryEnd, System.Reflection.Metadata.Ecma335.LabelHandle handlerStart, System.Reflection.Metadata.Ecma335.LabelHandle handlerEnd) { }
         public void AddFilterRegion(System.Reflection.Metadata.Ecma335.LabelHandle tryStart, System.Reflection.Metadata.Ecma335.LabelHandle tryEnd, System.Reflection.Metadata.Ecma335.LabelHandle handlerStart, System.Reflection.Metadata.Ecma335.LabelHandle handlerEnd, System.Reflection.Metadata.Ecma335.LabelHandle filterStart) { }
         public void AddFinallyRegion(System.Reflection.Metadata.Ecma335.LabelHandle tryStart, System.Reflection.Metadata.Ecma335.LabelHandle tryEnd, System.Reflection.Metadata.Ecma335.LabelHandle handlerStart, System.Reflection.Metadata.Ecma335.LabelHandle handlerEnd) { }
+        public void Clear() { }
     }
     public readonly partial struct CustomAttributeArrayTypeEncoder
     {
@@ -2588,7 +2645,7 @@ namespace System.Reflection.Metadata.Ecma335
         public EditAndContinueLogEntry(System.Reflection.Metadata.EntityHandle handle, System.Reflection.Metadata.Ecma335.EditAndContinueOperation operation) { throw null; }
         public System.Reflection.Metadata.EntityHandle Handle { get { throw null; } }
         public System.Reflection.Metadata.Ecma335.EditAndContinueOperation Operation { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.Ecma335.EditAndContinueLogEntry other) { throw null; }
         public override int GetHashCode() { throw null; }
     }
@@ -2618,6 +2675,16 @@ namespace System.Reflection.Metadata.Ecma335
     public static partial class ExportedTypeExtensions
     {
         public static int GetTypeDefinitionId(this System.Reflection.Metadata.ExportedType exportedType) { throw null; }
+    }
+    public readonly partial struct FieldTypeEncoder
+    {
+        private readonly object _dummy;
+        private readonly int _dummyPrimitive;
+        public FieldTypeEncoder(System.Reflection.Metadata.BlobBuilder builder) { throw null; }
+        public System.Reflection.Metadata.BlobBuilder Builder { get { throw null; } }
+        public System.Reflection.Metadata.Ecma335.CustomModifiersEncoder CustomModifiers() { throw null; }
+        public System.Reflection.Metadata.Ecma335.SignatureTypeEncoder Type(bool isByRef = false) { throw null; }
+        public void TypedReference() { }
     }
     public readonly partial struct FixedArgumentsEncoder
     {
@@ -2676,6 +2743,7 @@ namespace System.Reflection.Metadata.Ecma335
         public void OpCode(System.Reflection.Metadata.ILOpCode code) { }
         public void StoreArgument(int argumentIndex) { }
         public void StoreLocal(int slotIndex) { }
+        public System.Reflection.Metadata.Ecma335.SwitchInstructionEncoder Switch(int branchCount) { throw null; }
         public void Token(int token) { }
         public void Token(System.Reflection.Metadata.EntityHandle handle) { }
     }
@@ -2684,7 +2752,7 @@ namespace System.Reflection.Metadata.Ecma335
         private readonly int _dummyPrimitive;
         public int Id { get { throw null; } }
         public bool IsNil { get { throw null; } }
-        public override bool Equals(object? obj) { throw null; }
+        public override bool Equals([System.Diagnostics.CodeAnalysis.NotNullWhenAttribute(true)] object? obj) { throw null; }
         public bool Equals(System.Reflection.Metadata.Ecma335.LabelHandle other) { throw null; }
         public override int GetHashCode() { throw null; }
         public static bool operator ==(System.Reflection.Metadata.Ecma335.LabelHandle left, System.Reflection.Metadata.Ecma335.LabelHandle right) { throw null; }
@@ -3050,11 +3118,18 @@ namespace System.Reflection.Metadata.Ecma335
         public void String() { }
         public System.Reflection.Metadata.Ecma335.SignatureTypeEncoder SZArray() { throw null; }
         public void Type(System.Reflection.Metadata.EntityHandle type, bool isValueType) { }
+        public void TypedReference() { }
         public void UInt16() { }
         public void UInt32() { }
         public void UInt64() { }
         public void UIntPtr() { }
         public void VoidPointer() { }
+    }
+    public readonly partial struct SwitchInstructionEncoder
+    {
+        private readonly object _dummy;
+        private readonly int _dummyPrimitive;
+        public void Branch(System.Reflection.Metadata.Ecma335.LabelHandle label) { }
     }
     public enum TableIndex : byte
     {
@@ -3191,6 +3266,7 @@ namespace System.Reflection.PortableExecutable
     {
         public DebugDirectoryBuilder() { }
         public void AddCodeViewEntry(string pdbPath, System.Reflection.Metadata.BlobContentId pdbContentId, ushort portablePdbVersion) { }
+        public void AddCodeViewEntry(string pdbPath, System.Reflection.Metadata.BlobContentId pdbContentId, ushort portablePdbVersion, int age) { }
         public void AddEmbeddedPortablePdbEntry(System.Reflection.Metadata.BlobBuilder debugMetadata, ushort portablePdbVersion) { }
         public void AddEntry(System.Reflection.PortableExecutable.DebugDirectoryEntryType type, uint version, uint stamp) { }
         public void AddEntry<TData>(System.Reflection.PortableExecutable.DebugDirectoryEntryType type, uint version, uint stamp, TData data, System.Action<System.Reflection.Metadata.BlobBuilder, TData> dataSerializer) { }
@@ -3234,12 +3310,14 @@ namespace System.Reflection.PortableExecutable
         ThreadTerm = (ushort)8,
         HighEntropyVirtualAddressSpace = (ushort)32,
         DynamicBase = (ushort)64,
+        ForceIntegrity = (ushort)128,
         NxCompatible = (ushort)256,
         NoIsolation = (ushort)512,
         NoSeh = (ushort)1024,
         NoBind = (ushort)2048,
         AppContainer = (ushort)4096,
         WdmDriver = (ushort)8192,
+        ControlFlowGuard = (ushort)16384,
         TerminalServerAware = (ushort)32768,
     }
     public enum Machine : ushort
@@ -3266,6 +3344,11 @@ namespace System.Reflection.PortableExecutable
         MipsFpu16 = (ushort)1126,
         Tricore = (ushort)1312,
         Ebc = (ushort)3772,
+        RiscV32 = (ushort)20530,
+        RiscV64 = (ushort)20580,
+        RiscV128 = (ushort)20776,
+        LoongArch32 = (ushort)25138,
+        LoongArch64 = (ushort)25188,
         Amd64 = (ushort)34404,
         M32R = (ushort)36929,
         Arm64 = (ushort)43620,

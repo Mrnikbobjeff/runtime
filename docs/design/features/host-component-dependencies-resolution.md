@@ -28,9 +28,8 @@ This feature certainly provides a somewhat duplicate functionality to the existi
   * RID fallback graph from the root framework - reused
 * Just like settings, there's a set of environment variables which are used in the same way as the app would use them
   * `DOTNET_ROLL_FORWARD_ON_NO_CANDIDATE_FX` - used just like in the app
-  * `ProgramFiles` and `ProgramFiles(x86")` - used to find servicing root and the shared store
+  * `ProgramFiles` and `ProgramFiles(x86")` - used to find servicing root
   * `DOTNET_SHARED_STORE` - used to find the shared store - just like the app
-  * `DOTNET_MULTILEVEL_LOOKUP` - used to enable multi-level lookup - used just like in the app
 * Right now this feature doesn't process `.runtimeconfig.json` or `.runtimeconfig.dev.json`. Most dynamically loaded components don't have these anyway, since SDK doesn't generate these for the `classlib` project type. The only meaningful piece of info from these which could be used is the set of probing paths to use. Currently the same set ofprobing paths as for the app is used. With the changes in .NET Core 3 where `dotnet build` will copy all static dependencies locally, the importance of additional probing paths should be very low anyway.
 
 ## Open questions
@@ -38,6 +37,6 @@ This feature certainly provides a somewhat duplicate functionality to the existi
 * Review the list of settings which are reused from the app (see above)
 * Review the list of environment variables - if we should use the same as the app or not
 * Currently we don't consider frameworks for the app when computing probing paths for resolving assets from the component's `.deps.json`. This is a different behavior from the app startup where these are considered. Is it important - needed?
-* Add ability to corelate tracing with the runtime - probably some kind of activity ID
+* Add ability to correlate tracing with the runtime - probably some kind of activity ID
 * Handling of native assets - currently returning just probing paths. Would be cleaner to return full resolved paths. But we would have to keep some probing paths. In the case of missing `.deps.json` the native library should be looked for in the component directory - thus requires probing - we can't figure out which of the files in the folder are native libraries in the hosts.
 * Handling of satellite assemblies (resource assets) - currently returning just probing paths which exclude the culture. So from a resolved asset `./foo/en-us/resource.dll` we only take `./foo` as the probing path. Consider using full paths instead - probably would require more parsing as we would have to be able to figure out the culture ID somewhere to build the true map AssemblyName->path in the managed class. Just like for native assets, if there's no `.deps.json` the only possible solution is to use probing, so the probing semantics would have to be supported anyway.

@@ -6,7 +6,7 @@
 
 #define LCID_ENGLISH MAKELCID(MAKELANGID(0x09, 0x01), SORT_DEFAULT)
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Byte(VARIANT value, BYTE expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Byte(VARIANT value, uint8_t expected)
 {
     if (value.vt != VT_UI1)
     {
@@ -28,7 +28,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_SByte(VARIANT value
     return value.cVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Int16(VARIANT value, SHORT expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Int16(VARIANT value, int16_t expected)
 {
     if (value.vt != VT_I2)
     {
@@ -39,7 +39,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Int16(VARIANT value
     return value.iVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_UInt16(VARIANT value, USHORT expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_UInt16(VARIANT value, uint16_t expected)
 {
     if (value.vt != VT_UI2)
     {
@@ -49,7 +49,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_UInt16(VARIANT valu
 
     return value.uiVal == expected ? TRUE : FALSE;
 }
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Int32(VARIANT value, LONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Int32(VARIANT value, int32_t expected)
 {
     if (value.vt != VT_I4)
     {
@@ -60,7 +60,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Int32(VARIANT value
     return value.lVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_UInt32(VARIANT value, ULONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_UInt32(VARIANT value, uint32_t expected)
 {
     if (value.vt != VT_UI4)
     {
@@ -71,7 +71,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_UInt32(VARIANT valu
     return value.ulVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Int64(VARIANT value, LONGLONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Int64(VARIANT value, int64_t expected)
 {
     if (value.vt != VT_I8)
     {
@@ -82,7 +82,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Int64(VARIANT value
     return value.llVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_UInt64(VARIANT value, ULONGLONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_UInt64(VARIANT value, uint64_t expected)
 {
     if (value.vt != VT_UI8)
     {
@@ -146,19 +146,19 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_String(VARIANT valu
 
 extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Object(VARIANT value)
 {
-    
+
     if (value.vt != VT_DISPATCH)
     {
         printf("Invalid format. Expected VT_DISPATCH.\n");
         return FALSE;
     }
-    
+
 
     IDispatch* obj = value.pdispVal;
 
     if (obj == NULL)
     {
-        printf("Marshal_ByValue (Native side) recieved an invalid IDispatch pointer\n");
+        printf("Marshal_ByValue (Native side) received an invalid IDispatch pointer\n");
         return FALSE;
     }
 
@@ -171,19 +171,19 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Object(VARIANT valu
 
 extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Object_IUnknown(VARIANT value)
 {
-    
+
     if (value.vt != VT_UNKNOWN)
     {
         printf("Invalid format. Expected VT_UNKNOWN.\n");
         return FALSE;
     }
-    
+
 
     IUnknown* obj = value.punkVal;
 
     if (obj == NULL)
     {
-        printf("Marshal_ByValue (Native side) recieved an invalid IUnknown pointer\n");
+        printf("Marshal_ByValue (Native side) received an invalid IUnknown pointer\n");
         return FALSE;
     }
 
@@ -212,7 +212,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Empty(VARIANT value
         printf("Invalid format. Expected VT_EMPTY. \n");
         return FALSE;
     }
-    
+
     return TRUE;
 }
 
@@ -270,7 +270,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Null(VARIANT value)
         printf("Invalid format. Expected VT_NULL. \n");
         return FALSE;
     }
-    
+
     return TRUE;
 }
 
@@ -279,7 +279,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByValue_Invalid(VARIANT val
     return FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Byte(VARIANT* value, BYTE expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Byte(VARIANT* value, uint8_t expected)
 {
     if (value->vt != VT_UI1)
     {
@@ -301,7 +301,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_SByte(VARIANT* value,
     return value->cVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Int16(VARIANT* value, SHORT expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Int16(VARIANT* value, int16_t expected)
 {
     if (value->vt != VT_I2)
     {
@@ -312,7 +312,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Int16(VARIANT* value,
     return value->iVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_UInt16(VARIANT* value, USHORT expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_UInt16(VARIANT* value, uint16_t expected)
 {
     if (value->vt != VT_UI2)
     {
@@ -322,7 +322,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_UInt16(VARIANT* value
 
     return value->uiVal == expected ? TRUE : FALSE;
 }
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Int32(VARIANT* value, LONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Int32(VARIANT* value, int32_t expected)
 {
     if (value->vt != VT_I4)
     {
@@ -333,7 +333,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Int32(VARIANT* value,
     return value->lVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_UInt32(VARIANT* value, ULONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_UInt32(VARIANT* value, uint32_t expected)
 {
     if (value->vt != VT_UI4)
     {
@@ -344,7 +344,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_UInt32(VARIANT* value
     return value->ulVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Int64(VARIANT* value, LONGLONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Int64(VARIANT* value, int64_t expected)
 {
     if (value->vt != VT_I8)
     {
@@ -355,7 +355,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Int64(VARIANT* value,
     return value->llVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_UInt64(VARIANT* value, ULONGLONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_UInt64(VARIANT* value, uint64_t expected)
 {
     if (value->vt != VT_UI8)
     {
@@ -406,7 +406,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_String(VARIANT* value
         printf("Invalid format. Expected VT_BSTR.\n");
         return FALSE;
     }
-    
+
     if (value->bstrVal == NULL || expected == NULL)
     {
         return value->bstrVal == NULL && expected == NULL;
@@ -419,19 +419,19 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_String(VARIANT* value
 
 extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Object(VARIANT* value)
 {
-    
+
     if (value->vt != VT_DISPATCH)
     {
         printf("Invalid format. Expected VT_DISPATCH.\n");
         return FALSE;
     }
-    
+
 
     IDispatch* obj = value->pdispVal;
 
     if (obj == NULL)
     {
-        printf("Marshal_ByRef (Native side) recieved an invalid IDispatch pointer\n");
+        printf("Marshal_ByRef (Native side) received an invalid IDispatch pointer\n");
         return FALSE;
     }
 
@@ -444,19 +444,19 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Object(VARIANT* value
 
 extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Object_IUnknown(VARIANT* value)
 {
-    
+
     if (value->vt != VT_UNKNOWN)
     {
         printf("Invalid format. Expected VT_UNKNOWN.\n");
         return FALSE;
     }
-    
+
 
     IUnknown* obj = value->punkVal;
 
     if (obj == NULL)
     {
-        printf("Marshal_ByRef (Native side) recieved an invalid IUnknown pointer\n");
+        printf("Marshal_ByRef (Native side) received an invalid IUnknown pointer\n");
         return FALSE;
     }
 
@@ -485,7 +485,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Empty(VARIANT* value)
         printf("Invalid format. Expected VT_EMPTY. \n");
         return FALSE;
     }
-    
+
     return TRUE;
 }
 
@@ -542,11 +542,11 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ByRef_Null(VARIANT* value)
         printf("Invalid format. Expected VT_NULL. \n");
         return FALSE;
     }
-    
+
     return TRUE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Out(VARIANT* pValue, LONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Out(VARIANT* pValue, int32_t expected)
 {
     if (FAILED(VariantClear(pValue)))
     {
@@ -559,7 +559,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Out(VARIANT* pValue, LONG e
     return TRUE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ChangeVariantType(VARIANT* pValue, LONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_ChangeVariantType(VARIANT* pValue, int32_t expected)
 {
     if (FAILED(VariantClear(pValue)))
     {
@@ -577,7 +577,7 @@ struct VariantWrapper
     VARIANT value;
 };
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Byte(VariantWrapper wrapper, BYTE expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Byte(VariantWrapper wrapper, uint8_t expected)
 {
     if (wrapper.value.vt != VT_UI1)
     {
@@ -599,7 +599,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_SByte(Varian
     return wrapper.value.cVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Int16(VariantWrapper wrapper, SHORT expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Int16(VariantWrapper wrapper, int16_t expected)
 {
     if (wrapper.value.vt != VT_I2)
     {
@@ -610,7 +610,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Int16(Varian
     return wrapper.value.iVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_UInt16(VariantWrapper wrapper, USHORT expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_UInt16(VariantWrapper wrapper, uint16_t expected)
 {
     if (wrapper.value.vt != VT_UI2)
     {
@@ -620,7 +620,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_UInt16(Varia
 
     return wrapper.value.uiVal == expected ? TRUE : FALSE;
 }
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Int32(VariantWrapper wrapper, LONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Int32(VariantWrapper wrapper, int32_t expected)
 {
     if (wrapper.value.vt != VT_I4)
     {
@@ -631,7 +631,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Int32(Varian
     return wrapper.value.lVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_UInt32(VariantWrapper wrapper, ULONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_UInt32(VariantWrapper wrapper, uint32_t expected)
 {
     if (wrapper.value.vt != VT_UI4)
     {
@@ -642,7 +642,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_UInt32(Varia
     return wrapper.value.ulVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Int64(VariantWrapper wrapper, LONGLONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Int64(VariantWrapper wrapper, int64_t expected)
 {
     if (wrapper.value.vt != VT_I8)
     {
@@ -653,7 +653,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Int64(Varian
     return wrapper.value.llVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_UInt64(VariantWrapper wrapper, ULONGLONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_UInt64(VariantWrapper wrapper, uint64_t expected)
 {
     if (wrapper.value.vt != VT_UI8)
     {
@@ -704,7 +704,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_String(Varia
         printf("Invalid format. Expected VT_BSTR.\n");
         return FALSE;
     }
-    
+
     if (wrapper.value.bstrVal == NULL || expected == NULL)
     {
         return wrapper.value.bstrVal == NULL && expected == NULL;
@@ -717,19 +717,19 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_String(Varia
 
 extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Object(VariantWrapper wrapper)
 {
-    
+
     if (wrapper.value.vt != VT_DISPATCH)
     {
         printf("Invalid format. Expected VT_DISPATCH.\n");
         return FALSE;
     }
-    
+
 
     IDispatch* obj = wrapper.value.pdispVal;
 
     if (obj == NULL)
     {
-        printf("Marshal_Struct_ByValue (Native side) recieved an invalid IDispatch pointer\n");
+        printf("Marshal_Struct_ByValue (Native side) received an invalid IDispatch pointer\n");
         return FALSE;
     }
 
@@ -742,19 +742,19 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Object(Varia
 
 extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Object_IUnknown(VariantWrapper wrapper)
 {
-    
+
     if (wrapper.value.vt != VT_UNKNOWN)
     {
         printf("Invalid format. Expected VT_UNKNOWN.\n");
         return FALSE;
     }
-    
+
 
     IUnknown* obj = wrapper.value.punkVal;
 
     if (obj == NULL)
     {
-        printf("Marshal_Struct_ByValue (Native side) recieved an invalid IUnknown pointer\n");
+        printf("Marshal_Struct_ByValue (Native side) received an invalid IUnknown pointer\n");
         return FALSE;
     }
 
@@ -783,7 +783,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Empty(Varian
         printf("Invalid format. Expected VT_EMPTY. \n");
         return FALSE;
     }
-    
+
     return TRUE;
 }
 
@@ -840,12 +840,12 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByValue_Null(Variant
         printf("Invalid format. Expected VT_NULL. \n");
         return FALSE;
     }
-    
+
     return TRUE;
 }
 
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Byte(VariantWrapper* pWrapper, BYTE expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Byte(VariantWrapper* pWrapper, uint8_t expected)
 {
     if (pWrapper->value.vt != VT_UI1)
     {
@@ -867,7 +867,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_SByte(VariantW
     return pWrapper->value.cVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Int16(VariantWrapper* pWrapper, SHORT expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Int16(VariantWrapper* pWrapper, int16_t expected)
 {
     if (pWrapper->value.vt != VT_I2)
     {
@@ -878,7 +878,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Int16(VariantW
     return pWrapper->value.iVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_UInt16(VariantWrapper* pWrapper, USHORT expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_UInt16(VariantWrapper* pWrapper, uint16_t expected)
 {
     if (pWrapper->value.vt != VT_UI2)
     {
@@ -888,7 +888,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_UInt16(Variant
 
     return pWrapper->value.uiVal == expected ? TRUE : FALSE;
 }
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Int32(VariantWrapper* pWrapper, LONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Int32(VariantWrapper* pWrapper, int32_t expected)
 {
     if (pWrapper->value.vt != VT_I4)
     {
@@ -899,7 +899,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Int32(VariantW
     return pWrapper->value.lVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_UInt32(VariantWrapper* pWrapper, ULONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_UInt32(VariantWrapper* pWrapper, uint32_t expected)
 {
     if (pWrapper->value.vt != VT_UI4)
     {
@@ -910,7 +910,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_UInt32(Variant
     return pWrapper->value.ulVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Int64(VariantWrapper* pWrapper, LONGLONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Int64(VariantWrapper* pWrapper, int64_t expected)
 {
     if (pWrapper->value.vt != VT_I8)
     {
@@ -921,7 +921,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Int64(VariantW
     return pWrapper->value.llVal == expected ? TRUE : FALSE;
 }
 
-extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_UInt64(VariantWrapper* pWrapper, ULONGLONG expected)
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_UInt64(VariantWrapper* pWrapper, uint64_t expected)
 {
     if (pWrapper->value.vt != VT_UI8)
     {
@@ -972,7 +972,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_String(Variant
         printf("Invalid format. Expected VT_BSTR.\n");
         return FALSE;
     }
-    
+
     if (pWrapper->value.bstrVal == NULL || expected == NULL)
     {
         return pWrapper->value.bstrVal == NULL && expected == NULL;
@@ -985,19 +985,19 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_String(Variant
 
 extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Object(VariantWrapper* pWrapper)
 {
-    
+
     if (pWrapper->value.vt != VT_DISPATCH)
     {
         printf("Invalid format. Expected VT_DISPATCH.\n");
         return FALSE;
     }
-    
+
 
     IDispatch* obj = pWrapper->value.pdispVal;
 
     if (obj == NULL)
     {
-        printf("Marshal_Struct_ByRef (Native side) recieved an invalid IDispatch pointer\n");
+        printf("Marshal_Struct_ByRef (Native side) received an invalid IDispatch pointer\n");
         return FALSE;
     }
 
@@ -1010,19 +1010,19 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Object(Variant
 
 extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Object_IUnknown(VariantWrapper* pWrapper)
 {
-    
+
     if (pWrapper->value.vt != VT_UNKNOWN)
     {
         printf("Invalid format. Expected VT_UNKNOWN.\n");
         return FALSE;
     }
-    
+
 
     IUnknown* obj = pWrapper->value.punkVal;
 
     if (obj == NULL)
     {
-        printf("Marshal_Struct_ByRef (Native side) recieved an invalid IUnknown pointer\n");
+        printf("Marshal_Struct_ByRef (Native side) received an invalid IUnknown pointer\n");
         return FALSE;
     }
 
@@ -1051,7 +1051,7 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Empty(VariantW
         printf("Invalid format. Expected VT_EMPTY. \n");
         return FALSE;
     }
-    
+
     return TRUE;
 }
 
@@ -1108,7 +1108,49 @@ extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE Marshal_Struct_ByRef_Null(VariantWr
         printf("Invalid format. Expected VT_NULL. \n");
         return FALSE;
     }
-    
+
     return TRUE;
 }
 
+#define TRAILING_BYTE 0xFF
+
+extern "C" void DLL_EXPORT STDMETHODCALLTYPE GetBSTRWithTrailingByteInVariant(VARIANT* pVariant)
+{
+    VARIANT variant;
+    VariantInit(&variant);
+
+    BSTR bstr = (BSTR)CoreClrBStrAlloc(sizeof(W("Test")) + 1); // 4 characters + trailing byte + null terminator
+    bstr[0] = W('T');
+    bstr[1] = W('e');
+    bstr[2] = W('s');
+    bstr[3] = W('t');
+    bstr[4] = W('\0');
+    *(uint8_t*)(bstr + 5) = TRAILING_BYTE;
+
+    variant.vt = VT_BSTR;
+    variant.bstrVal = bstr;
+
+    *pVariant = variant;
+}
+
+extern "C" BOOL DLL_EXPORT STDMETHODCALLTYPE VerifyBSTRWithTrailingByteInVariant(VARIANT variant)
+{
+    if (variant.vt != VT_BSTR)
+    {
+        return FALSE;
+    }
+
+    BSTR bstr = variant.bstrVal;
+
+    // Verify the contents of the BSTR
+    if (bstr[0] != W('T') || bstr[1] != W('e') || bstr[2] != W('s') || bstr[3] != W('t') || bstr[4] != W('\0'))
+    {
+        return FALSE;
+    }
+
+    if (*(uint8_t*)(bstr + 5) != TRAILING_BYTE)
+    {
+        return FALSE;
+    }
+    return TRUE;
+}

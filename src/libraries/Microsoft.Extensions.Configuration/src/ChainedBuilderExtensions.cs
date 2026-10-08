@@ -7,7 +7,7 @@ using System.Collections.Generic;
 namespace Microsoft.Extensions.Configuration
 {
     /// <summary>
-    /// Extension methods for adding <see cref="IConfiguration"/> to an <see cref="IConfigurationBuilder"/>.
+    /// Provides extension methods for adding <see cref="IConfiguration"/> to an <see cref="IConfigurationBuilder"/>.
     /// </summary>
     public static class ChainedBuilderExtensions
     {
@@ -29,14 +29,8 @@ namespace Microsoft.Extensions.Configuration
         /// <returns>The <see cref="IConfigurationBuilder"/>.</returns>
         public static IConfigurationBuilder AddConfiguration(this IConfigurationBuilder configurationBuilder, IConfiguration config, bool shouldDisposeConfiguration)
         {
-            if (configurationBuilder == null)
-            {
-                throw new ArgumentNullException(nameof(configurationBuilder));
-            }
-            if (config == null)
-            {
-                throw new ArgumentNullException(nameof(config));
-            }
+            ArgumentNullException.ThrowIfNull(configurationBuilder);
+            ArgumentNullException.ThrowIfNull(config);
 
             configurationBuilder.Add(new ChainedConfigurationSource
             {

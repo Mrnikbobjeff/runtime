@@ -17,7 +17,8 @@ namespace System.ComponentModel.Tests
             yield return new object[] { new Mock<IServiceProvider>(MockBehavior.Strict).Object };
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(CreateInstance_WithoutParent_TestData))]
         public void CreateInstance_InvokeWithoutParent_ReturnsExpected(IServiceProvider serviceProvider)
         {
@@ -37,7 +38,8 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(CreateInstance_WithParent_TestData))]
         public void CreateInstance_InvokeWithParent_ReturnsExpected(IServiceProvider serviceProvider, Type objectType, Type[] argTypes, object[] args, object result)
         {
@@ -46,6 +48,9 @@ namespace System.ComponentModel.Tests
                 .Setup(p => p.CreateInstance(serviceProvider, objectType, argTypes, args))
                 .Returns(result)
                 .Verifiable();
+            mockParentProvider
+                .Setup(p => p.RequireRegisteredTypes)
+                .CallBase();
             var provider = new SubTypeDescriptionProvider(mockParentProvider.Object);
             Assert.Same(result, provider.CreateInstance(serviceProvider, objectType, argTypes, args));
             mockParentProvider.Verify(p => p.CreateInstance(serviceProvider, objectType, argTypes, args), Times.Once());
@@ -88,7 +93,8 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetCache_WithParent_TestData))]
         public void GetCache_InvokeWithParent_ReturnsExpected(object instance, IDictionary result)
         {
@@ -134,7 +140,8 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetExtendedTypeDescriptor_WithParent_TestData))]
         public void GetExtendedTypeDescriptor_InvokeWithParent_ReturnsExpected(object instance, ICustomTypeDescriptor result)
         {
@@ -171,7 +178,8 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetExtenderProviders_WithParent_TestData))]
         public void GetExtenderProviders_InvokeWithParent_ReturnsExpected(object instance, IExtenderProvider[] result)
         {
@@ -212,7 +220,8 @@ namespace System.ComponentModel.Tests
             yield return new object[] { new Component { Site = mockSite.Object } };
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetFullComponentName_WithoutParent_TestData))]
         public void GetFullComponentName_InvokeWithoutParent_ReturnsNull(object component)
         {
@@ -241,7 +250,8 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetFullComponentName_InvokeWithCustomTypeDescriptor_TestData))]
         public void GetFullComponentName_InvokeWithCustomTypeDescriptor_ReturnsExpected(object component, string result)
         {
@@ -269,9 +279,9 @@ namespace System.ComponentModel.Tests
             mockCustomTypeDescriptor.Verify(d => d.GetComponentName(), Times.Exactly(2));
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetFullComponentName_WithoutParent_TestData))]
-        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, ".NET Framework throws NullReferenceException")]
         public void GetFullComponentName_InvokeWithNullTypeDescriptor_ReturnsExpected(object component)
         {
             var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
@@ -300,7 +310,8 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetFullComponentName_WithParent_TestData))]
         public void GetFullComponentName_InvokeWithParent_ReturnsExpected(object component, string result)
         {
@@ -325,10 +336,11 @@ namespace System.ComponentModel.Tests
             AssertExtensions.Throws<ArgumentNullException>("instance", () => provider.GetFullComponentName(null));
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(null)]
         [InlineData(typeof(int))]
-        public void GetReflectionType_InvokeTypeWithoutParent_ReturnsExpected(Type objectType)
+        public void GetReflectionType_InvokeTypeWithoutParent_ReturnsExpected(Type? objectType)
         {
             var provider = new SubTypeDescriptionProvider();
             Assert.Same(objectType, provider.GetReflectionType(objectType));
@@ -337,10 +349,11 @@ namespace System.ComponentModel.Tests
             Assert.Same(objectType, provider.GetReflectionType(objectType));
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(null)]
         [InlineData(typeof(int))]
-        public void GetReflectionType_InvokeTypeWithoutParent_CallsTypeObjectOverload_ByType(Type objectType)
+        public void GetReflectionType_InvokeTypeWithoutParent_CallsTypeObjectOverload_ByType(Type? objectType)
         {
             var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             mockProvider
@@ -364,7 +377,8 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetReflectionType_TypeWithParent_TestData))]
         public void GetReflectionType_InvokeTypeWithParent_ReturnsExpected(Type objectType, Type result)
         {
@@ -382,7 +396,8 @@ namespace System.ComponentModel.Tests
             mockParentProvider.Verify(p => p.GetReflectionType(objectType, null), Times.Exactly(2));
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(1, typeof(int))]
         public void GetReflectionType_InvokeObjectWithoutParent_ReturnsExpected(object instance, Type expected)
         {
@@ -393,7 +408,8 @@ namespace System.ComponentModel.Tests
             Assert.Same(expected, provider.GetReflectionType(instance));
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(1, typeof(int))]
         public void GetReflectionType_InvokeTypeWithoutParent_CallsTypeObjectOverload_ByObjectAndType(object instance, Type expected)
         {
@@ -410,10 +426,11 @@ namespace System.ComponentModel.Tests
             mockProvider.Verify(p => p.GetReflectionType(instance.GetType(), instance), Times.Exactly(2));
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(1, null)]
         [InlineData(1, typeof(object))]
-        public void GetReflectionType_InvokeObjectWithParent_ReturnsExpected(object instance, Type result)
+        public void GetReflectionType_InvokeObjectWithParent_ReturnsExpected(object instance, Type? result)
         {
             var mockParentProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             mockParentProvider
@@ -429,12 +446,13 @@ namespace System.ComponentModel.Tests
             mockParentProvider.Verify(p => p.GetReflectionType(instance.GetType(), instance), Times.Exactly(2));
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(null, null)]
         [InlineData(null, 1)]
         [InlineData(typeof(object), null)]
         [InlineData(typeof(object), 1)]
-        public void GetReflectionType_InvokeTypeObjectWithoutParent_ReturnsExpected(Type objectType, object instance)
+        public void GetReflectionType_InvokeTypeObjectWithoutParent_ReturnsExpected(Type? objectType, object? instance)
         {
             var provider = new SubTypeDescriptionProvider();
             Assert.Same(objectType, provider.GetReflectionType(objectType, instance));
@@ -454,9 +472,10 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetReflectionType_TypeObjectWithParent_TestData))]
-        public void GetReflectionType_InvokeTypeObjectWithParent_ReturnsExpected(Type objectType, object instance, Type result)
+        public void GetReflectionType_InvokeTypeObjectWithParent_ReturnsExpected(Type? objectType, object? instance, Type? result)
         {
             var mockParentProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             mockParentProvider
@@ -479,7 +498,8 @@ namespace System.ComponentModel.Tests
             AssertExtensions.Throws<ArgumentNullException>("instance", () => provider.GetReflectionType((object)null));
         }
 
-        [Fact]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         public void GetReflectionType_NullInstanceWithParent_ThrowsArgumentNullException()
         {
             var mockParentProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
@@ -487,7 +507,8 @@ namespace System.ComponentModel.Tests
             AssertExtensions.Throws<ArgumentNullException>("instance", () => provider.GetReflectionType((object)null));
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(typeof(int))]
         [InlineData(typeof(TypeDescriptionProviderTests))]
         public void GetRuntimeType_InvokeWithoutParentSystemDefinedType_ReturnsSame(Type reflectionType)
@@ -499,10 +520,11 @@ namespace System.ComponentModel.Tests
             Assert.Same(reflectionType, provider.GetRuntimeType(reflectionType));
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(null)]
         [InlineData(typeof(int))]
-        public void GetRuntimeType_InvokeWithoutParentWithUserDefinedType_RetunsUnderlyingSystemType(Type result)
+        public void GetRuntimeType_InvokeWithoutParentWithUserDefinedType_RetunsUnderlyingSystemType(Type? result)
         {
             var mockType = new Mock<Type>(MockBehavior.Strict);
             mockType
@@ -527,7 +549,8 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetRuntimeType_WithParent_TestData))]
         public void GetRuntimeType_InvokeWithParent_ReturnsExpected(Type reflectionType, Type result)
         {
@@ -553,10 +576,11 @@ namespace System.ComponentModel.Tests
         }
 
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(null)]
         [InlineData(typeof(int))]
-        public void GetTypeDescriptor_InvokeTypeWithoutParent_ReturnsExpected(Type objectType)
+        public void GetTypeDescriptor_InvokeTypeWithoutParent_ReturnsExpected(Type? objectType)
         {
             var provider = new SubTypeDescriptionProvider();
             CustomTypeDescriptor result1 = Assert.IsAssignableFrom<CustomTypeDescriptor>(provider.GetTypeDescriptor(objectType));
@@ -567,14 +591,18 @@ namespace System.ComponentModel.Tests
             Assert.Same(result1, result2);
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(null)]
         [InlineData(typeof(int))]
-        public void GetTypeDescriptor_InvokeTypeWithoutParent_CallsTypeObjectOverload_Type(Type objectType)
+        public void GetTypeDescriptor_InvokeTypeWithoutParent_CallsTypeObjectOverload_Type(Type? objectType)
         {
             var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             mockProvider
                 .Setup(p => p.GetTypeDescriptor(objectType, null))
+                .CallBase();
+            mockProvider
+                .Setup(p => p.RequireRegisteredTypes)
                 .CallBase();
             TypeDescriptionProvider provider = mockProvider.Object;
             CustomTypeDescriptor result1 = Assert.IsAssignableFrom<CustomTypeDescriptor>(provider.GetTypeDescriptor(objectType));
@@ -596,7 +624,8 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetTypeDescriptor_TypeWithParent_TestData))]
         public void GetTypeDescriptor_InvokeTypeWithParent_ReturnsExpected(Type objectType, ICustomTypeDescriptor result)
         {
@@ -614,7 +643,8 @@ namespace System.ComponentModel.Tests
             mockParentProvider.Verify(p => p.GetTypeDescriptor(objectType, null), Times.Exactly(2));
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(1)]
         public void GetTypeDescriptor_InvokeObjectWithoutParent_ReturnsExpected(object instance)
         {
@@ -627,13 +657,17 @@ namespace System.ComponentModel.Tests
             Assert.Same(result1, result2);
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(1)]
         public void GetTypeDescriptor_InvokeTypeWithoutParent_CallsTypeObjectOverload_Object(object instance)
         {
             var mockProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
             mockProvider
                 .Setup(p => p.GetTypeDescriptor(instance.GetType(), instance))
+                .CallBase();
+            mockProvider
+                .Setup(p => p.RequireRegisteredTypes)
                 .CallBase();
             TypeDescriptionProvider provider = mockProvider.Object;
             CustomTypeDescriptor result1 = Assert.IsAssignableFrom<CustomTypeDescriptor>(provider.GetTypeDescriptor(instance));
@@ -654,7 +688,8 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetTypeDescriptor_ObjectWithParent_TestData))]
         public void GetTypeDescriptor_InvokeObjectWithParent_ReturnsExpected(object instance, ICustomTypeDescriptor result)
         {
@@ -672,12 +707,13 @@ namespace System.ComponentModel.Tests
             mockParentProvider.Verify(p => p.GetTypeDescriptor(instance.GetType(), instance), Times.Exactly(2));
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(null, null)]
         [InlineData(null, 1)]
         [InlineData(typeof(object), null)]
         [InlineData(typeof(object), 1)]
-        public void GetTypeDescriptor_InvokeTypeObjectWithoutParent_ReturnsExpected(Type objectType, object instance)
+        public void GetTypeDescriptor_InvokeTypeObjectWithoutParent_ReturnsExpected(Type? objectType, object? instance)
         {
             var provider = new SubTypeDescriptionProvider();
             CustomTypeDescriptor result1 = Assert.IsAssignableFrom<CustomTypeDescriptor>(provider.GetTypeDescriptor(objectType, instance));
@@ -699,7 +735,8 @@ namespace System.ComponentModel.Tests
             }
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [MemberData(nameof(GetTypeDescriptor_TypeObjectWithParent_TestData))]
         public void GetTypeDescriptor_InvokeTypeObjectWithParent_ReturnsExpected(Type objectType, object instance, ICustomTypeDescriptor result)
         {
@@ -724,7 +761,8 @@ namespace System.ComponentModel.Tests
             AssertExtensions.Throws<ArgumentNullException>("instance", () => provider.GetTypeDescriptor((object)null));
         }
 
-        [Fact]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         public void GetTypeDescriptor_NullInstanceWithParent_ThrowsArgumentNullException()
         {
             var mockParentProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);
@@ -743,7 +781,8 @@ namespace System.ComponentModel.Tests
             Assert.True(provider.IsSupportedType(type));
         }
 
-        [Theory]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         [InlineData(typeof(int), true)]
         [InlineData(typeof(int), false)]
         public void IsSupportedType_InvokeWithParent_ReturnsExpected(Type type, bool result)
@@ -769,7 +808,8 @@ namespace System.ComponentModel.Tests
             AssertExtensions.Throws<ArgumentNullException>("type", () => provider.IsSupportedType(null));
         }
 
-        [Fact]
+        // Moq heavily utilizes RefEmit, which does not work on most aot workloads
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsReflectionEmitSupported))]
         public void IsSupportedType_NullTypeWithParent_ThrowsArgumentNullException()
         {
             var mockParentProvider = new Mock<TypeDescriptionProvider>(MockBehavior.Strict);

@@ -5,11 +5,15 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Text;
-using Internal.IO;
 
 namespace System.Runtime.Loader
 {
+    [UnsupportedOSPlatform("android")]
+    [UnsupportedOSPlatform("browser")]
+    [UnsupportedOSPlatform("ios")]
+    [UnsupportedOSPlatform("tvos")]
     public sealed class AssemblyDependencyResolver
     {
         /// <summary>
@@ -29,10 +33,7 @@ namespace System.Runtime.Loader
 
         public AssemblyDependencyResolver(string componentAssemblyPath)
         {
-            if (componentAssemblyPath == null)
-            {
-                throw new ArgumentNullException(nameof(componentAssemblyPath));
-            }
+            ArgumentNullException.ThrowIfNull(componentAssemblyPath);
 
             string? assemblyPathsList = null;
             string? nativeSearchPathsList = null;
@@ -44,7 +45,7 @@ namespace System.Runtime.Loader
             {
                 // Setup error writer for this thread. This makes the hostpolicy redirect all error output
                 // to the writer specified. Have to store the previous writer to set it back once this is done.
-                var errorWriter = new Interop.HostPolicy.corehost_error_writer_fn(message => errorMessage.AppendLine(message));
+                var errorWriter = new Interop.HostPolicy.corehost_error_writer_fn(message => errorMessage.AppendLine(Marshal.PtrToStringAuto(message)));
 
                 IntPtr errorWriterPtr = Marshal.GetFunctionPointerForDelegate(errorWriter);
                 IntPtr previousErrorWriterPtr = Interop.HostPolicy.corehost_set_error_writer(errorWriterPtr);
@@ -57,9 +58,9 @@ namespace System.Runtime.Loader
                         componentAssemblyPath,
                         (assemblyPaths, nativeSearchPaths, resourceSearchPaths) =>
                         {
-                            assemblyPathsList = assemblyPaths;
-                            nativeSearchPathsList = nativeSearchPaths;
-                            resourceSearchPathsList = resourceSearchPaths;
+                            assemblyPathsList = Marshal.PtrToStringAuto(assemblyPaths);
+                            nativeSearchPathsList = Marshal.PtrToStringAuto(nativeSearchPaths);
+                            resourceSearchPathsList = Marshal.PtrToStringAuto(resourceSearchPaths);
                         });
                 }
                 finally
@@ -95,21 +96,20 @@ namespace System.Runtime.Loader
             _assemblyPaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             foreach (string assemblyPath in assemblyPaths)
             {
-                _assemblyPaths.Add(Path.GetFileNameWithoutExtension(assemblyPath), assemblyPath);
+                // Add the first entry with the same simple assembly name if there are multiples
+                // and ignore others
+                _assemblyPaths.TryAdd(Path.GetFileNameWithoutExtension(assemblyPath), assemblyPath);
             }
 
             _nativeSearchPaths = SplitPathsList(nativeSearchPathsList);
             _resourceSearchPaths = SplitPathsList(resourceSearchPathsList);
 
-            _assemblyDirectorySearchPaths = new string[1] { Path.GetDirectoryName(componentAssemblyPath)! };
+            _assemblyDirectorySearchPaths = [Path.GetDirectoryName(componentAssemblyPath)!];
         }
 
         public string? ResolveAssemblyToPath(AssemblyName assemblyName)
         {
-            if (assemblyName == null)
-            {
-                throw new ArgumentNullException(nameof(assemblyName));
-            }
+            ArgumentNullException.ThrowIfNull(assemblyName);
 
             // Determine if the assembly name is for a satellite assembly or not
             // This is the same logic as in AssemblyBinder::BindByTpaList in CoreCLR
@@ -157,10 +157,7 @@ namespace System.Runtime.Loader
 
         public string? ResolveUnmanagedDllToPath(string unmanagedDllName)
         {
-            if (unmanagedDllName == null)
-            {
-                throw new ArgumentNullException(nameof(unmanagedDllName));
-            }
+            ArgumentNullException.ThrowIfNull(unmanagedDllName);
 
             string[] searchPaths;
             if (unmanagedDllName.Contains(Path.DirectorySeparatorChar))
@@ -196,7 +193,7 @@ namespace System.Runtime.Loader
         {
             if (pathsList == null)
             {
-                return Array.Empty<string>();
+                return [];
             }
             else
             {

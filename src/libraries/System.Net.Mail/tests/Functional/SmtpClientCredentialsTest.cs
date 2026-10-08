@@ -11,10 +11,11 @@ using Xunit;
 
 namespace System.Net.Mail.Functional.Tests
 {
+    [SkipOnPlatform(TestPlatforms.Browser, "SmtpClient is not supported on Browser")]
     public class SmtpClientCredentialsTest
     {
         private readonly string UserName = "user";
-        private readonly string Password = Guid.NewGuid().ToString(); 
+        private readonly string Password = Guid.NewGuid().ToString();
 
         [Fact]
         public void Credentials_Unset_Null()
@@ -117,7 +118,7 @@ namespace System.Net.Mail.Functional.Tests
 
         private ICredentialsByHost GetTransportCredentials(SmtpClient client)
         {
-            Type smtpTransportType = (typeof(SmtpClient)).Assembly.GetType("System.Net.Mail.SmtpTransport");
+            Type smtpTransportType = Type.GetType("System.Net.Mail.SmtpTransport, System.Net.Mail");
 
             var transport = typeof(SmtpClient)
                 .GetField("_transport", BindingFlags.NonPublic | BindingFlags.GetField | BindingFlags.Instance)

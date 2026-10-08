@@ -5,21 +5,19 @@
 // Portions of the code implemented below are based on the 'Berkeley SoftFloat Release 3e' algorithms.
 // ===================================================================================================
 
-/*============================================================
-**
-** Purpose: Some single-precision floating-point math operations
-**
-===========================================================*/
-
 using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
 using System.Runtime.Intrinsics;
-using System.Runtime.Intrinsics.X86;
 using System.Runtime.Intrinsics.Arm;
+using System.Runtime.Intrinsics.X86;
 
 namespace System
 {
+    /// <summary>
+    /// Provides constants and static methods for trigonometric, logarithmic, and other common mathematical functions.
+    /// </summary>
     public static partial class MathF
     {
         public const float E = 2.71828183f;
@@ -28,15 +26,21 @@ namespace System
 
         public const float Tau = 6.283185307f;
 
-        private const int maxRoundingDigits = 6;
+        // The largest digit count the fast rounding path handles: `10^digits` must be exactly representable
+        // as a `float` (10^10 is the last that is); larger counts use the exact routine.
+        private const int maxFastRoundingDigits = 10;
 
-        // This table is required for the Round function which can specify the number of digits to round to
-        private static readonly float[] roundPower10Single = new float[] {
-            1e0f, 1e1f, 1e2f, 1e3f, 1e4f, 1e5f, 1e6f
-        };
+        // Below this boundary a float may have a fractional portion; at or above it every
+        // representable value is already an integer (2^23).
+        private const float singleIntegerBoundary = 8388608.0f;
 
-        private const float singleRoundLimit = 1e8f;
+        private const float SCALEB_C1 = 1.7014118E+38f; // 0x1p127f
 
+        private const float SCALEB_C2 = 1.1754944E-38f; // 0x1p-126f
+
+        private const float SCALEB_C3 = 16777216f; // 0x1p24f
+
+        [Intrinsic]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float Abs(float x)
         {
@@ -45,17 +49,17 @@ namespace System
 
         public static float BitDecrement(float x)
         {
-            int bits = BitConverter.SingleToInt32Bits(x);
+            uint bits = BitConverter.SingleToUInt32Bits(x);
 
-            if ((bits & 0x7F800000) >= 0x7F800000)
+            if (!float.IsFinite(x))
             {
                 // NaN returns NaN
                 // -Infinity returns -Infinity
-                // +Infinity returns float.MaxValue
-                return (bits == 0x7F800000) ? float.MaxValue : x;
+                // +Infinity returns MaxValue
+                return (bits == float.PositiveInfinityBits) ? float.MaxValue : x;
             }
 
-            if (bits == 0x00000000)
+            if (bits == float.PositiveZeroBits)
             {
                 // +0.0 returns -float.Epsilon
                 return -float.Epsilon;
@@ -64,41 +68,55 @@ namespace System
             // Negative values need to be incremented
             // Positive values need to be decremented
 
-            bits += ((bits < 0) ? +1 : -1);
-            return BitConverter.Int32BitsToSingle(bits);
+            if (float.IsNegative(x))
+            {
+                bits += 1;
+            }
+            else
+            {
+                bits -= 1;
+            }
+            return BitConverter.UInt32BitsToSingle(bits);
         }
 
         public static float BitIncrement(float x)
         {
-            int bits = BitConverter.SingleToInt32Bits(x);
+            uint bits = BitConverter.SingleToUInt32Bits(x);
 
-            if ((bits & 0x7F800000) >= 0x7F800000)
+            if (!float.IsFinite(x))
             {
                 // NaN returns NaN
-                // -Infinity returns float.MinValue
+                // -Infinity returns MinValue
                 // +Infinity returns +Infinity
-                return (bits == unchecked((int)(0xFF800000))) ? float.MinValue : x;
+                return (bits == float.NegativeInfinityBits) ? float.MinValue : x;
             }
 
-            if (bits == unchecked((int)(0x80000000)))
+            if (bits == float.NegativeZeroBits)
             {
-                // -0.0 returns float.Epsilon
+                // -0.0 returns Epsilon
                 return float.Epsilon;
             }
 
             // Negative values need to be decremented
             // Positive values need to be incremented
 
-            bits += ((bits < 0) ? -1 : +1);
-            return BitConverter.Int32BitsToSingle(bits);
+            if (float.IsNegative(x))
+            {
+                bits -= 1;
+            }
+            else
+            {
+                bits += 1;
+            }
+            return BitConverter.UInt32BitsToSingle(bits);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float CopySign(float x, float y)
         {
-            if (Sse.IsSupported || AdvSimd.IsSupported)
+            if (Vector128.IsHardwareAccelerated)
             {
-                return VectorMath.ConditionalSelectBitwise(Vector128.CreateScalarUnsafe(-0.0f), Vector128.CreateScalarUnsafe(y), Vector128.CreateScalarUnsafe(x)).ToScalar();
+                return Vector128.ConditionalSelect(Vector128.CreateScalarUnsafe(-0.0f), Vector128.CreateScalarUnsafe(y), Vector128.CreateScalarUnsafe(x)).ToScalar();
             }
             else
             {
@@ -107,19 +125,14 @@ namespace System
 
             static float SoftwareFallback(float x, float y)
             {
-                const int signMask = 1 << 31;
-
                 // This method is required to work for all inputs,
                 // including NaN, so we operate on the raw bits.
-                int xbits = BitConverter.SingleToInt32Bits(x);
-                int ybits = BitConverter.SingleToInt32Bits(y);
+                uint xbits = BitConverter.SingleToUInt32Bits(x);
+                uint ybits = BitConverter.SingleToUInt32Bits(y);
 
                 // Remove the sign from x, and remove everything but the sign from y
-                xbits &= ~signMask;
-                ybits &= signMask;
-
-                // Simply OR them to get the correct sign
-                return BitConverter.Int32BitsToSingle(xbits | ybits);
+                // Then, simply OR them to get the correct sign
+                return BitConverter.UInt32BitsToSingle((xbits & ~float.SignMask) | (ybits & float.SignMask));
             }
         }
 
@@ -174,6 +187,33 @@ namespace System
             }
         }
 
+        public static int ILogB(float x)
+        {
+            // This code is based on `ilogbf` from amd/aocl-libm-ose
+            // Copyright (C) 2008-2022 Advanced Micro Devices, Inc. All rights reserved.
+            //
+            // Licensed under the BSD 3-Clause "New" or "Revised" License
+            // See THIRD-PARTY-NOTICES.TXT for the full license text
+
+            if (!float.IsNormal(x)) // x is zero, subnormal, infinity, or NaN
+            {
+                if (float.IsZero(x))
+                {
+                    return int.MinValue;
+                }
+
+                if (!float.IsFinite(x)) // infinity or NaN
+                {
+                    return int.MaxValue;
+                }
+
+                Debug.Assert(float.IsSubnormal(x));
+                return float.MinExponent - (BitOperations.LeadingZeroCount(x.TrailingSignificand) - float.BiasedExponentLength);
+            }
+
+            return x.Exponent;
+        }
+
         public static float Log(float x, float y)
         {
             if (float.IsNaN(x))
@@ -199,19 +239,21 @@ namespace System
             return Log(x) / Log(y);
         }
 
+        [Intrinsic]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float Max(float x, float y)
         {
             return Math.Max(x, y);
         }
 
+        [Intrinsic]
         public static float MaxMagnitude(float x, float y)
         {
             // This matches the IEEE 754:2019 `maximumMagnitude` function
             //
             // It propagates NaN inputs back to the caller and
-            // otherwise returns the input with a larger magnitude.
-            // It treats +0 as larger than -0 as per the specification.
+            // otherwise returns the input with a greater magnitude.
+            // It treats +0 as greater than -0 as per the specification.
 
             float ax = Abs(x);
             float ay = Abs(y);
@@ -229,19 +271,21 @@ namespace System
             return y;
         }
 
+        [Intrinsic]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float Min(float x, float y)
         {
             return Math.Min(x, y);
         }
 
+        [Intrinsic]
         public static float MinMagnitude(float x, float y)
         {
             // This matches the IEEE 754:2019 `minimumMagnitude` function
             //
             // It propagates NaN inputs back to the caller and
-            // otherwise returns the input with a larger magnitude.
-            // It treats +0 as larger than -0 as per the specification.
+            // otherwise returns the input with a lesser magnitude.
+            // It treats +0 as greater than -0 as per the specification.
 
             float ax = Abs(x);
             float ay = Abs(y);
@@ -259,73 +303,84 @@ namespace System
             return y;
         }
 
+        /// <summary>Returns an estimate of the reciprocal of a specified number.</summary>
+        /// <param name="x">The number whose reciprocal is to be estimated.</param>
+        /// <returns>An estimate of the reciprocal of <paramref name="x" />.</returns>
+        /// <remarks>
+        ///    <para>On x86/x64 hardware, this may use the <c>RCPSS</c> instruction, which has a maximum relative error of <c>1.5 * 2^-12</c>.</para>
+        ///    <para>On ARM64 hardware, this may use the <c>FRECPE</c> instruction, which performs a single Newton-Raphson iteration.</para>
+        ///    <para>On hardware without specialized support, this may just return <c>1.0 / x</c>.</para>
+        /// </remarks>
+        [Intrinsic]
+        public static float ReciprocalEstimate(float x)
+        {
+#if MONO
+            return 1.0f / x;
+#else
+            return ReciprocalEstimate(x);
+#endif
+        }
+
+        /// <summary>Returns an estimate of the reciprocal square root of a specified number.</summary>
+        /// <param name="x">The number whose reciprocal square root is to be estimated.</param>
+        /// <returns>An estimate of the reciprocal square root <paramref name="x" />.</returns>
+        /// <remarks>
+        ///    <para>On x86/x64 hardware, this may use the <c>RSQRTSS</c> instruction, which has a maximum relative error of <c>1.5 * 2^-12</c>.</para>
+        ///    <para>On ARM64 hardware, this may use the <c>FRSQRTE</c> instruction, which performs a single Newton-Raphson iteration.</para>
+        ///    <para>On hardware without specialized support, this may just return <c>1.0 / Sqrt(x)</c>.</para>
+        /// </remarks>
+        [Intrinsic]
+        public static float ReciprocalSqrtEstimate(float x)
+        {
+#if MONO || TARGET_LOONGARCH64
+            return 1.0f / Sqrt(x);
+#else
+            return ReciprocalSqrtEstimate(x);
+#endif
+        }
+
         [Intrinsic]
         public static float Round(float x)
         {
             // ************************************************************************************
-            // IMPORTANT: Do not change this implementation without also updating MathF.Round(float),
+            // IMPORTANT: Do not change this implementation without also updating Math.Round(float),
             //            FloatingPointUtils::round(double), and FloatingPointUtils::round(float)
             // ************************************************************************************
 
-            // This is based on the 'Berkeley SoftFloat Release 3e' algorithm
+            // This code is based on `nearbyintf` from amd/aocl-libm-ose
+            // Copyright (C) 2008-2022 Advanced Micro Devices, Inc. All rights reserved.
+            //
+            // Licensed under the BSD 3-Clause "New" or "Revised" License
+            // See THIRD-PARTY-NOTICES.TXT for the full license text
 
-            uint bits = (uint)BitConverter.SingleToInt32Bits(x);
-            int exponent = float.ExtractExponentFromBits(bits);
+            // This represents the boundary at which point we can only represent whole integers
+            const float IntegerBoundary = 8388608.0f; // 2^23
 
-            if (exponent <= 0x7E)
+            if (Abs(x) >= IntegerBoundary)
             {
-                if ((bits << 1) == 0)
-                {
-                    // Exactly +/- zero should return the original value
-                    return x;
-                }
-
-                // Any value less than or equal to 0.5 will always round to exactly zero
-                // and any value greater than 0.5 will always round to exactly one. However,
-                // we need to preserve the original sign for IEEE compliance.
-
-                float result = ((exponent == 0x7E) && (float.ExtractSignificandFromBits(bits) != 0)) ? 1.0f : 0.0f;
-                return CopySign(result, x);
-            }
-
-            if (exponent >= 0x96)
-            {
-                // Any value greater than or equal to 2^23 cannot have a fractional part,
-                // So it will always round to exactly itself.
-
+                // Values above this boundary don't have a fractional
+                // portion and so we can simply return them as-is.
                 return x;
             }
 
-            // The absolute value should be greater than or equal to 1.0 and less than 2^23
-            Debug.Assert((0x7F <= exponent) && (exponent <= 0x95));
+            // Otherwise, since floating-point takes the inputs, performs
+            // the computation as if to infinite precision and unbounded
+            // range, and then rounds to the nearest representable result
+            // using the current rounding mode, we can rely on this to
+            // cheaply round.
+            //
+            // In particular, .NET doesn't support changing the rounding
+            // mode and defaults to "round to nearest, ties to even", thus
+            // by adding the original value to the IntegerBoundary we get
+            // an exactly represented whole integer that is precisely the
+            // IntegerBoundary greater in magnitude than the answer we want.
+            //
+            // We can then simply remove that offset to get the correct answer,
+            // noting that we also need to copy back the original sign to
+            // correctly handle -0.0
 
-            // Determine the last bit that represents the integral portion of the value
-            // and the bits representing the fractional portion
-
-            uint lastBitMask = 1U << (0x96 - exponent);
-            uint roundBitsMask = lastBitMask - 1;
-
-            // Increment the first fractional bit, which represents the midpoint between
-            // two integral values in the current window.
-
-            bits += lastBitMask >> 1;
-
-            if ((bits & roundBitsMask) == 0)
-            {
-                // If that overflowed and the rest of the fractional bits are zero
-                // then we were exactly x.5 and we want to round to the even result
-
-                bits &= ~lastBitMask;
-            }
-            else
-            {
-                // Otherwise, we just want to strip the fractional bits off, truncating
-                // to the current integer value.
-
-                bits &= ~roundBitsMask;
-            }
-
-            return BitConverter.Int32BitsToSingle((int)bits);
+            float temp = CopySign(IntegerBoundary, x);
+            return CopySign((x + temp) - temp, x);
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -337,74 +392,70 @@ namespace System
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float Round(float x, MidpointRounding mode)
         {
-            return Round(x, 0, mode);
+            switch (mode)
+            {
+                // Rounds to the nearest value; if the number falls midway,
+                // it is rounded to the nearest value above (for positive numbers) or below (for negative numbers)
+                case MidpointRounding.AwayFromZero:
+                    // For ARM/ARM64 we can lower it down to a single instruction FRINTA
+                    if (AdvSimd.IsSupported)
+                        return AdvSimd.RoundAwayFromZeroScalar(Vector64.CreateScalarUnsafe(x)).ToScalar();
+                    // For other platforms we use a fast managed implementation
+                    // manually fold BitDecrement(0.5)
+                    return Truncate(x + CopySign(0.49999997f, x));
+
+                // Rounds to the nearest value; if the number falls midway,
+                // it is rounded to the nearest value with an even least significant digit
+                case MidpointRounding.ToEven:
+                    return Round(x);
+                // Directed rounding: Round to the nearest value, toward to zero
+                case MidpointRounding.ToZero:
+                    return Truncate(x);
+                // Directed Rounding: Round down to the next value, toward negative infinity
+                case MidpointRounding.ToNegativeInfinity:
+                    return Floor(x);
+                // Directed rounding: Round up to the next value, toward positive infinity
+                case MidpointRounding.ToPositiveInfinity:
+                    return Ceiling(x);
+
+                default:
+                    ThrowHelper.ThrowArgumentException_InvalidEnumValue(mode);
+                    return default;
+            }
         }
 
-        public static unsafe float Round(float x, int digits, MidpointRounding mode)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static float Round(float x, int digits, MidpointRounding mode)
         {
-            if ((digits < 0) || (digits > maxRoundingDigits))
+            if (digits < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(digits), SR.ArgumentOutOfRange_RoundingDigits);
+                ThrowHelper.ThrowArgumentOutOfRange_RoundingDigits(nameof(digits));
             }
 
-            if (mode < MidpointRounding.ToEven || mode > MidpointRounding.ToPositiveInfinity)
+            if ((uint)mode > (uint)MidpointRounding.ToPositiveInfinity)
             {
-                throw new ArgumentException(SR.Format(SR.Argument_InvalidEnumValue, mode, nameof(MidpointRounding)), nameof(mode));
+                ThrowHelper.ThrowArgumentException_InvalidEnumValue(mode);
             }
 
-            if (Abs(x) < singleRoundLimit)
+            // Rounding to zero fractional digits is just rounding to an integer, which the dedicated
+            // overload does with a single hardware instruction on most platforms.
+            if (digits == 0)
             {
-                float power10 = roundPower10Single[digits];
+                return Round(x, mode);
+            }
 
-                x *= power10;
-
-                switch (mode)
+            // Only finite values with a magnitude below the integer boundary can have a fractional
+            // portion to round. All other values (including NaN and Infinity) are returned unchanged;
+            // this comparison is naturally false for those cases.
+            if (Abs(x) < singleIntegerBoundary)
+            {
+                // The fast path only handles the small-digit range where `10^digits` is exactly
+                // representable; larger counts fall back to the exact arbitrary-precision routine.
+                if ((digits > maxFastRoundingDigits) || !Number.TryRoundToDecimalDigitsFast(x, digits, mode, out float rounded))
                 {
-                    // Rounds to the nearest value; if the number falls midway,
-                    // it is rounded to the nearest value with an even least significant digit
-                    case MidpointRounding.ToEven:
-                    {
-                        x = Round(x);
-                        break;
-                    }
-                    // Rounds to the nearest value; if the number falls midway,
-                    // it is rounded to the nearest value above (for positive numbers) or below (for negative numbers)
-                    case MidpointRounding.AwayFromZero:
-                    {
-                        float fraction = ModF(x, &x);
-
-                        if (Abs(fraction) >= 0.5)
-                        {
-                            x += Sign(fraction);
-                        }
-
-                        break;
-                    }
-                    // Directed rounding: Round to the nearest value, toward to zero
-                    case MidpointRounding.ToZero:
-                    {
-                        x = Truncate(x);
-                        break;
-                    }
-                    // Directed Rounding: Round down to the next value, toward negative infinity
-                    case MidpointRounding.ToNegativeInfinity:
-                    {
-                        x = Floor(x);
-                        break;
-                    }
-                    // Directed rounding: Round up to the next value, toward positive infinity
-                    case MidpointRounding.ToPositiveInfinity:
-                    {
-                        x = Ceiling(x);
-                        break;
-                    }
-                    default:
-                    {
-                        throw new ArgumentException(SR.Format(SR.Argument_InvalidEnumValue, mode, nameof(MidpointRounding)), nameof(mode));
-                    }
+                    rounded = Number.RoundToDecimalDigits<float>(x, digits, mode);
                 }
-
-                x /= power10;
+                x = rounded;
             }
 
             return x;
@@ -416,10 +467,53 @@ namespace System
             return Math.Sign(x);
         }
 
+        [Intrinsic]
         public static unsafe float Truncate(float x)
         {
             ModF(x, &x);
             return x;
+        }
+
+        public static float ScaleB(float x, int n)
+        {
+            // Implementation based on https://git.musl-libc.org/cgit/musl/tree/src/math/scalblnf.c
+            //
+            // Performs the calculation x * 2^n efficiently. It constructs a float from 2^n by building
+            // the correct biased exponent. If n is greater than the maximum exponent (127) or less than
+            // the minimum exponent (-126), adjust x and n to compute correct result.
+
+            float y = x;
+            if (n > 127)
+            {
+                y *= SCALEB_C1;
+                n -= 127;
+                if (n > 127)
+                {
+                    y *= SCALEB_C1;
+                    n -= 127;
+                    if (n > 127)
+                    {
+                        n = 127;
+                    }
+                }
+            }
+            else if (n < -126)
+            {
+                y *= SCALEB_C2 * SCALEB_C3;
+                n += 126 - 24;
+                if (n < -126)
+                {
+                    y *= SCALEB_C2 * SCALEB_C3;
+                    n += 126 - 24;
+                    if (n < -126)
+                    {
+                        n = -126;
+                    }
+                }
+            }
+
+            float u = BitConverter.Int32BitsToSingle(((int)(0x7f + n) << 23));
+            return y * u;
         }
     }
 }

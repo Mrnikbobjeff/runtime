@@ -3,8 +3,9 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-class Test 
+public class Test_constructor 
 {
     static string s;
 
@@ -14,19 +15,20 @@ class Test
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    public Test() 
+    public Test_constructor() 
     {
         s = ToString();   // cannot be devirtualized
     }
     
-    static int Main() 
+    [Fact]
+    public static int TestEntryPoint() 
     {
         new Child();
         return (s == "Child" ? 100 : 0);
     }
 }
 
-class Child : Test 
+class Child : Test_constructor 
 {
 
     [MethodImpl(MethodImplOptions.NoInlining)]

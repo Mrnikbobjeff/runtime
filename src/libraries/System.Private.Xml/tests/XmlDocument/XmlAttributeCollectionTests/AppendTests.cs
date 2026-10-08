@@ -3,7 +3,7 @@
 
 using Xunit;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlDocumentTests
 {
     public class AppendTests
     {
@@ -46,7 +46,7 @@ namespace System.Xml.Tests
             const string attributeUri = "existingUri";
             XmlDocument doc = CreateDocumentWithElement();
             XmlElement element = doc.DocumentElement;
-            XmlAttribute existingAttr = element.Attributes.Append(doc.CreateAttribute(attributeName, attributeUri));
+            element.Attributes.Append(doc.CreateAttribute(attributeName, attributeUri));
             XmlAttribute anotherAttr = element.Attributes.Append(doc.CreateAttribute("anotherAttribute"));
 
             var newAttr = doc.CreateAttribute(attributeName, attributeUri);

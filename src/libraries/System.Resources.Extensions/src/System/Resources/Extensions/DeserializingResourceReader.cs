@@ -1,9 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System.ComponentModel;
 using System.IO;
+using System.Resources.Extensions.BinaryFormat;
 using System.Runtime.Serialization;
 using System.Runtime.Serialization.Formatters.Binary;
 
@@ -11,8 +11,9 @@ namespace System.Resources.Extensions
 {
     public partial class DeserializingResourceReader
     {
+        private static readonly bool s_useBinaryFormatter = AppContext.TryGetSwitch("System.Resources.Extensions.UseBinaryFormatter", out bool isEnabled) && isEnabled;
+
         private bool _assumeBinaryFormatter;
-        private BinaryFormatter? _formatter;
 
         private bool ValidateReaderType(string readerType)
         {
@@ -34,22 +35,27 @@ namespace System.Resources.Extensions
             return false;
         }
 
-        // Issue https://github.com/dotnet/runtime/issues/39292 tracks finding an alternative to BinaryFormatter
         private object ReadBinaryFormattedObject()
         {
-            if (_formatter == null)
+            if (!s_useBinaryFormatter)
             {
-                _formatter = new BinaryFormatter()
+                BinaryFormattedObject binaryFormattedObject = new(_store.BaseStream);
+
+                return binaryFormattedObject.Deserialize();
+            }
+            else
+            {
+#pragma warning disable SYSLIB0011
+                BinaryFormatter? formatter = new()
                 {
                     Binder = new UndoTruncatedTypeNameSerializationBinder()
                 };
+                return formatter.Deserialize(_store.BaseStream);
+#pragma warning restore SYSLIB0011
             }
-
-            return _formatter.Deserialize(_store.BaseStream);
         }
 
-
-        internal class UndoTruncatedTypeNameSerializationBinder : SerializationBinder
+        internal sealed class UndoTruncatedTypeNameSerializationBinder : SerializationBinder
         {
             public override Type? BindToType(string assemblyName, string typeName)
             {
@@ -62,7 +68,7 @@ namespace System.Resources.Extensions
                     // incorrect ResXSerialization binder.
                     typeName = typeName + ", " + assemblyName;
 
-                    type = Type.GetType(typeName, throwOnError: false, ignoreCase:false);
+                    type = Type.GetType(typeName, throwOnError: false, ignoreCase: false);
                 }
 
                 // if type is null we'll fall back to the default type binder which is preferable
@@ -168,7 +174,7 @@ namespace System.Resources.Extensions
                             throw new TypeLoadException(SR.Format(SR.TypeLoadException_CannotLoadConverter, type));
                         }
 
-                        value = converter.ConvertFrom(data);
+                        value = converter.ConvertFrom(data)!;
                         break;
                     }
                 case SerializationFormat.TypeConverterString:
@@ -182,7 +188,7 @@ namespace System.Resources.Extensions
                             throw new TypeLoadException(SR.Format(SR.TypeLoadException_CannotLoadConverter, type));
                         }
 
-                        value = converter.ConvertFromInvariantString(stringData);
+                        value = converter.ConvertFromInvariantString(stringData)!;
                         break;
                     }
                 case SerializationFormat.ActivatorStream:
@@ -226,6 +232,5 @@ namespace System.Resources.Extensions
 
             return value;
         }
-
     }
 }

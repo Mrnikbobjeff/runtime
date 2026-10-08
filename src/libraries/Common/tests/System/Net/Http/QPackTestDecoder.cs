@@ -42,7 +42,7 @@ namespace System.Net.Test.Common
                     (int valueLength, string value) = DecodeString(buffer.Slice(nameLength), 0b0111_1111);
 
                     int headerLength = nameLength + valueLength;
-                    var header = new HttpHeaderData(s_staticTable[staticIndex].Name, value, raw: buffer.Slice(0, headerLength).ToArray());
+                    var header = new HttpHeaderData(s_staticTable[staticIndex].Name, value, raw: buffer.Slice(0, headerLength).ToArray(), rawValueStart: nameLength);
 
                     return (headerLength, header);
                 }
@@ -52,7 +52,7 @@ namespace System.Net.Test.Common
                     (int valueLength, string value) = DecodeString(buffer.Slice(nameLength), 0b0111_1111);
 
                     int headerLength = nameLength + valueLength;
-                    var header = new HttpHeaderData(name, value, raw: buffer.Slice(0, headerLength).ToArray());
+                    var header = new HttpHeaderData(name, value, raw: buffer.Slice(0, headerLength).ToArray(), rawValueStart: nameLength);
 
                     return (headerLength, header);
                 }
@@ -92,15 +92,15 @@ namespace System.Net.Test.Common
 
             ulong extra = 0;
             int length = 1;
-            ulong b;
+            byte b;
 
             do
             {
                 // https://http2.github.io/http2-spec/compression.html#integer.representation
                 // HPack encodes integers from the least significant byte to the most.
                 // Every 7-bits of the next byte is shifted by (7 * index) and added to the result.
-                b = (ulong)headerBlock[length++];
-                extra = checked(b << (7 * (length - 2))) | extra;
+                b = headerBlock[length++];
+                extra = checked((ulong)(b & 0x7F) << (7 * (length - 2))) | extra;
             }
             while ((b & 0b10000000) != 0);
 
@@ -205,7 +205,7 @@ namespace System.Net.Test.Common
             new HttpHeaderData("purpose", "prefetch"),
             new HttpHeaderData("server", ""),
             new HttpHeaderData("timing-allow-origin", "*"),
-            new HttpHeaderData("upgrading-insecure-requests", "1"),
+            new HttpHeaderData("upgrade-insecure-requests", "1"),
             new HttpHeaderData("user-agent", ""),
             new HttpHeaderData("x-forwarded-for", ""),
             new HttpHeaderData("x-frame-options", "deny"),

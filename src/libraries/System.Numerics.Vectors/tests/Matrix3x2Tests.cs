@@ -6,7 +6,7 @@ using Xunit;
 
 namespace System.Numerics.Tests
 {
-    public class Matrix3x2Tests
+    public sealed class Matrix3x2Tests
     {
         static Matrix3x2 GenerateIncrementalMatrixNumber(float value = 0.0f)
         {
@@ -25,6 +25,47 @@ namespace System.Numerics.Tests
             Matrix3x2 m = Matrix3x2.CreateRotation(MathHelper.ToRadians(30.0f));
             m.Translation = new Vector2(111.0f, 222.0f);
             return m;
+        }
+
+        [Theory]
+        [InlineData(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f)]
+        [InlineData(1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f)]
+        [InlineData(3.1434343f, 1.1234123f, 0.1234123f, -0.1234123f, 3.1434343f, 1.1234123f)]
+        [InlineData(1.0000001f, 0.0000001f, 2.0000001f, 0.0000002f, 1.0000001f, 0.0000001f)]
+        public void Matrix3x2IndexerGetTest(float m11, float m12, float m21, float m22, float m31, float m32)
+        {
+            var matrix = new Matrix3x2(m11, m12, m21, m22, m31, m32);
+
+            Assert.Equal(m11, matrix[0, 0]);
+            Assert.Equal(m12, matrix[0, 1]);
+            Assert.Equal(m21, matrix[1, 0]);
+            Assert.Equal(m22, matrix[1, 1]);
+            Assert.Equal(m31, matrix[2, 0]);
+            Assert.Equal(m32, matrix[2, 1]);
+        }
+
+        [Theory]
+        [InlineData(0.0f, 1.0f, 0.0f, 1.0f, 0.0f, 1.0f)]
+        [InlineData(1.0f, 0.0f, 1.0f, 0.0f, 1.0f, 0.0f)]
+        [InlineData(3.1434343f, 1.1234123f, 0.1234123f, -0.1234123f, 3.1434343f, 1.1234123f)]
+        [InlineData(1.0000001f, 0.0000001f, 2.0000001f, 0.0000002f, 1.0000001f, 0.0000001f)]
+        public void Matrix3x2IndexerSetTest(float m11, float m12, float m21, float m22, float m31, float m32)
+        {
+            var matrix = new Matrix3x2(0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f);
+
+            matrix[0, 0] = m11;
+            matrix[0, 1] = m12;
+            matrix[1, 0] = m21;
+            matrix[1, 1] = m22;
+            matrix[2, 0] = m31;
+            matrix[2, 1] = m32;
+
+            Assert.Equal(m11, matrix[0, 0]);
+            Assert.Equal(m12, matrix[0, 1]);
+            Assert.Equal(m21, matrix[1, 0]);
+            Assert.Equal(m22, matrix[1, 1]);
+            Assert.Equal(m31, matrix[2, 0]);
+            Assert.Equal(m32, matrix[2, 1]);
         }
 
         // A test for Identity
@@ -166,6 +207,8 @@ namespace System.Numerics.Tests
             Matrix3x2 i = mtx * actual;
             Assert.True(MathHelper.Equal(i, Matrix3x2.Identity));
         }
+
+
 
         // A test for CreateRotation (float)
         [Fact]
@@ -527,12 +570,15 @@ namespace System.Numerics.Tests
         public void Matrix3x2GetHashCodeTest()
         {
             Matrix3x2 target = GenerateIncrementalMatrixNumber();
-            int expected = HashCode.Combine(target.M11, target.M12,
-                                     target.M21, target.M22,
-                                     target.M31, target.M32);
-            int actual;
 
-            actual = target.GetHashCode();
+            int expected = HashCode.Combine(
+                new Vector2(target.M11, target.M12),
+                new Vector2(target.M21, target.M22),
+                new Vector2(target.M31, target.M32)
+            );
+
+            int actual = target.GetHashCode();
+
             Assert.Equal(expected, actual);
         }
 
@@ -942,7 +988,7 @@ namespace System.Numerics.Tests
 
         // A test for Matrix3x2 comparison involving NaN values
         [Fact]
-        public void Matrix3x2EqualsNanTest()
+        public void Matrix3x2EqualsNaNTest()
         {
             Matrix3x2 a = new Matrix3x2(float.NaN, 0, 0, 0, 0, 0);
             Matrix3x2 b = new Matrix3x2(0, float.NaN, 0, 0, 0, 0);
@@ -979,13 +1025,12 @@ namespace System.Numerics.Tests
             Assert.False(e.IsIdentity);
             Assert.False(f.IsIdentity);
 
-            // Counterintuitive result - IEEE rules for NaN comparison are weird!
-            Assert.False(a.Equals(a));
-            Assert.False(b.Equals(b));
-            Assert.False(c.Equals(c));
-            Assert.False(d.Equals(d));
-            Assert.False(e.Equals(e));
-            Assert.False(f.Equals(f));
+            Assert.True(a.Equals(a));
+            Assert.True(b.Equals(b));
+            Assert.True(c.Equals(c));
+            Assert.True(d.Equals(d));
+            Assert.True(e.Equals(e));
+            Assert.True(f.Equals(f));
         }
 
         // A test to make sure these types are blittable directly into GPU buffer memory layouts
@@ -1037,6 +1082,139 @@ namespace System.Numerics.Tests
 
             Assert.Equal(new IntPtr(basePtr + 4), new IntPtr(&mat.M31));
             Assert.Equal(new IntPtr(basePtr + 5), new IntPtr(&mat.M32));
+        }
+
+        [Fact]
+        public void Matrix3x2CreateBroadcastScalarTest()
+        {
+            Matrix3x2 a = Matrix3x2.Create(float.Pi);
+
+            Assert.Equal(Vector2.Pi, a.X);
+            Assert.Equal(Vector2.Pi, a.Y);
+            Assert.Equal(Vector2.Pi, a.Z);
+        }
+
+        [Fact]
+        public void Matrix3x2CreateBroadcastVectorTest()
+        {
+            Matrix3x2 a = Matrix3x2.Create(Vector2.Create(float.Pi, float.E));
+
+            Assert.Equal(Vector2.Create(float.Pi, float.E), a.X);
+            Assert.Equal(Vector2.Create(float.Pi, float.E), a.Y);
+            Assert.Equal(Vector2.Create(float.Pi, float.E), a.Z);
+        }
+
+        [Fact]
+        public void Matrix3x2CreateVectorsTest()
+        {
+            Matrix3x2 a = Matrix3x2.Create(
+                Vector2.Create(11.0f, 12.0f),
+                Vector2.Create(21.0f, 22.0f),
+                Vector2.Create(31.0f, 32.0f)
+            );
+
+            Assert.Equal(Vector2.Create(11.0f, 12.0f), a.X);
+            Assert.Equal(Vector2.Create(21.0f, 22.0f), a.Y);
+            Assert.Equal(Vector2.Create(31.0f, 32.0f), a.Z);
+        }
+
+        [Fact]
+        public void Matrix3x2GetElementTest()
+        {
+            Matrix3x2 a = GenerateTestMatrix();
+
+            Assert.Equal(a.M11, a.X.X);
+            Assert.Equal(a.M11, a[0, 0]);
+            Assert.Equal(a.M11, a.GetElement(0, 0));
+
+            Assert.Equal(a.M12, a.X.Y);
+            Assert.Equal(a.M12, a[0, 1]);
+            Assert.Equal(a.M12, a.GetElement(0, 1));
+
+            Assert.Equal(a.M21, a.Y.X);
+            Assert.Equal(a.M21, a[1, 0]);
+            Assert.Equal(a.M21, a.GetElement(1, 0));
+
+            Assert.Equal(a.M22, a.Y.Y);
+            Assert.Equal(a.M22, a[1, 1]);
+            Assert.Equal(a.M22, a.GetElement(1, 1));
+
+            Assert.Equal(a.M31, a.Z.X);
+            Assert.Equal(a.M31, a[2, 0]);
+            Assert.Equal(a.M31, a.GetElement(2, 0));
+
+            Assert.Equal(a.M32, a.Z.Y);
+            Assert.Equal(a.M32, a[2, 1]);
+            Assert.Equal(a.M32, a.GetElement(2, 1));
+        }
+
+        [Fact]
+        public void Matrix3x2GetRowTest()
+        {
+            Matrix3x2 a = GenerateTestMatrix();
+
+            Vector2 vx = new Vector2(a.M11, a.M12);
+            Assert.Equal(vx, a.X);
+            Assert.Equal(vx, a[0]);
+            Assert.Equal(vx, a.GetRow(0));
+
+            Vector2 vy = new Vector2(a.M21, a.M22);
+            Assert.Equal(vy, a.Y);
+            Assert.Equal(vy, a[1]);
+            Assert.Equal(vy, a.GetRow(1));
+
+            Vector2 vz = new Vector2(a.M31, a.M32);
+            Assert.Equal(vz, a.Z);
+            Assert.Equal(vz, a[2]);
+            Assert.Equal(vz, a.GetRow(2));
+        }
+
+        [Fact]
+        public void Matrix3x2WithElementTest()
+        {
+            Matrix3x2 a = Matrix3x2.Identity;
+
+            a[0, 0] = 11.0f;
+            Assert.Equal(11.5f, a.WithElement(0, 0, 11.5f).M11);
+            Assert.Equal(11.0f, a.M11);
+
+            a[0, 1] = 12.0f;
+            Assert.Equal(12.5f, a.WithElement(0, 1, 12.5f).M12);
+            Assert.Equal(12.0f, a.M12);
+
+            a[1, 0] = 21.0f;
+            Assert.Equal(21.5f, a.WithElement(1, 0, 21.5f).M21);
+            Assert.Equal(21.0f, a.M21);
+
+            a[1, 1] = 22.0f;
+            Assert.Equal(22.5f, a.WithElement(1, 1, 22.5f).M22);
+            Assert.Equal(22.0f, a.M22);
+
+            a[2, 0] = 31.0f;
+            Assert.Equal(31.5f, a.WithElement(2, 0, 31.5f).M31);
+            Assert.Equal(31.0f, a.M31);
+
+            a[2, 1] = 32.0f;
+            Assert.Equal(32.5f, a.WithElement(2, 1, 32.5f).M32);
+            Assert.Equal(32.0f, a.M32);
+        }
+
+        [Fact]
+        public void Matrix3x2WithRowTest()
+        {
+            Matrix3x2 a = Matrix3x2.Identity;
+
+            a[0] = Vector2.Create(11.0f, 12.0f);
+            Assert.Equal(Vector2.Create(11.5f, 12.5f), a.WithRow(0, Vector2.Create(11.5f, 12.5f)).X);
+            Assert.Equal(Vector2.Create(11.0f, 12.0f), a.X);
+
+            a[1] = Vector2.Create(21.0f, 22.0f);
+            Assert.Equal(Vector2.Create(21.5f, 22.5f), a.WithRow(1, Vector2.Create(21.5f, 22.5f)).Y);
+            Assert.Equal(Vector2.Create(21.0f, 22.0f), a.Y);
+
+            a[2] = Vector2.Create(31.0f, 32.0f);
+            Assert.Equal(Vector2.Create(31.5f, 32.5f), a.WithRow(2, Vector2.Create(31.5f, 32.5f)).Z);
+            Assert.Equal(Vector2.Create(31.0f, 32.0f), a.Z);
         }
     }
 }

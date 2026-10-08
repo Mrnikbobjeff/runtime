@@ -141,7 +141,7 @@ namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
             ValidateZeroLengthContent(encodedMessage);
         }
 
-        [ConditionalFact(nameof(SupportsRc4))]
+        [ConditionalFact(typeof(EdgeCasesTests), nameof(SupportsRc4))]
         [OuterLoop(/* Leaks key on disk if interrupted */)]
         public static void Rc4AndCngWrappersDontMixTest()
         {
@@ -534,6 +534,18 @@ namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
             CryptographicAttributeObject cao = new CryptographicAttributeObject(oid);
             Assert.Equal(oid.Value, cao.Oid.Value);
             Assert.Equal(0, cao.Values.Count);
+        }
+
+        [Fact]
+        public static void CryptographicAttributeObjectAsnOidNull()
+        {
+            var oid = new Oid(Oids.Sha1);
+            var asnEncodedData = new AsnEncodedData(new byte[] { 1, 2, 3 });
+
+            AssertExtensions.Throws<ArgumentException, NullReferenceException>("values", () =>
+            {
+                new CryptographicAttributeObject(oid, new AsnEncodedDataCollection(asnEncodedData));
+            });
         }
 
         [Fact]

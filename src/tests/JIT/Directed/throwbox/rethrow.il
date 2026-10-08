@@ -2,20 +2,30 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 .assembly extern mscorlib { }
+.assembly extern xunit.core {}
 .assembly extern System.Console
 {
   .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )
   .ver 4:0:0:0
 }
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
 .assembly 'rethrow' { }
 .namespace JitTest
 {
-  .class private auto ansi beforefieldinit Test
+  .class public auto ansi beforefieldinit Test
          extends [mscorlib]System.Object
   {
-    .method private hidebysig static int32
-            Main() cil managed
+    .method public hidebysig static int32 Main() cil managed
     {
+      .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+          01 00 00 00
+      )
+      .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, class [mscorlib]System.Type, string[]) = {
+          string('https://github.com/dotnet/runtimelab/issues/155: Non-exception throws')
+          type([TestLibrary]TestLibrary.Utilities)
+          string[1] ('IsNativeAot')
+      }
       .entrypoint
       // Code size       120 (0x78)
       .maxstack  2
@@ -57,12 +67,12 @@
           			ldc.r4 1.0
           			ceq
           			brfalse NEXT
-          			
+
           			ldc.i4.1
           			stloc.1
           			ldstr      "inside 1st catch"
           			call       void [System.Console]System.Console::WriteLine(string)
-          			
+
           NEXT:
           			ldloc.3
           			unbox float32
@@ -83,14 +93,14 @@
           			ldc.r4 11.0
           			ceq
           			brfalse NEXT1
-          			
+
         			ldstr      "inside catch"
         			call       void [System.Console]System.Console::WriteLine(string)
         			ldc.i4.1
         			stloc.2
-        			
+
         NEXT1:
-        
+
         			leave.s    IL_004f
 
       }  // end handler
@@ -116,7 +126,7 @@
       IL_0077:  ret
     } // end of method Test::Main
 
-    .method public hidebysig specialname rtspecialname 
+    .method public hidebysig specialname rtspecialname
             instance void .ctor() cil managed
     {
       // Code size       7 (0x7)

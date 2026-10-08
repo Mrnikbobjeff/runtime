@@ -13,8 +13,9 @@ namespace System.Net.Security.Tests
         [Fact]
         public void Constants_Values_AreCorrect()
         {
-            Assert.Equal(new SslApplicationProtocol(new byte[] { 0x68, 0x32 }), SslApplicationProtocol.Http2);
-            Assert.Equal(new SslApplicationProtocol(new byte[] { 0x68, 0x74, 0x74, 0x70, 0x2f, 0x31, 0x2e, 0x31 }), SslApplicationProtocol.Http11);
+            Assert.Equal(new SslApplicationProtocol("h3"u8.ToArray()), SslApplicationProtocol.Http3);
+            Assert.Equal(new SslApplicationProtocol("h2"u8.ToArray()), SslApplicationProtocol.Http2);
+            Assert.Equal(new SslApplicationProtocol("http/1.1"u8.ToArray()), SslApplicationProtocol.Http11);
         }
 
         [Fact]
@@ -41,13 +42,58 @@ namespace System.Net.Security.Tests
         [Fact]
         public void Constructor_ByteArray_Copies()
         {
-            byte[] expected = Encoding.UTF8.GetBytes("hello");
+            byte[] expected = "hello"u8.ToArray();
             SslApplicationProtocol byteProtocol = new SslApplicationProtocol(expected);
 
             ArraySegment<byte> arraySegment;
             Assert.True(MemoryMarshal.TryGetArray(byteProtocol.Protocol, out arraySegment));
             Assert.Equal(expected, arraySegment.Array);
             Assert.NotSame(expected, arraySegment.Array);
+        }
+
+        [Theory]
+        [InlineData(0, true)]
+        [InlineData(1, false)]
+        [InlineData(254, false)]
+        [InlineData(255, false)]
+        [InlineData(256, true)]
+        [InlineData(512, true)]
+        public void Constructor_ProtocolSizeBoundary_ThrowsForInvalidSize(int size, bool shouldThrow)
+        {
+            byte[] protocol = new byte[size];
+            protocol.AsSpan().Fill((byte)'a');
+
+            if (shouldThrow)
+            {
+                AssertExtensions.Throws<ArgumentException>("protocol", () => new SslApplicationProtocol(protocol));
+            }
+            else
+            {
+                SslApplicationProtocol alpn = new SslApplicationProtocol(protocol);
+                Assert.Equal(size, alpn.Protocol.Length);
+            }
+        }
+
+        [Theory]
+        [InlineData(0, true)]
+        [InlineData(1, false)]
+        [InlineData(254, false)]
+        [InlineData(255, false)]
+        [InlineData(256, true)]
+        [InlineData(512, true)]
+        public void Constructor_StringSizeBoundary_ThrowsForInvalidSize(int size, bool shouldThrow)
+        {
+            string protocol = new string('a', size);
+
+            if (shouldThrow)
+            {
+                AssertExtensions.Throws<ArgumentException>("protocol", () => new SslApplicationProtocol(protocol));
+            }
+            else
+            {
+                SslApplicationProtocol alpn = new SslApplicationProtocol(protocol);
+                Assert.Equal(size, alpn.Protocol.Length);
+            }
         }
 
         [Theory]
@@ -75,6 +121,7 @@ namespace System.Net.Security.Tests
         {
             Assert.Equal("http/1.1", SslApplicationProtocol.Http11.ToString());
             Assert.Equal("h2", SslApplicationProtocol.Http2.ToString());
+            Assert.Equal("h3", SslApplicationProtocol.Http3.ToString());
             Assert.Equal("hello", new SslApplicationProtocol("hello").ToString());
             Assert.Equal("0x0b 0xee", new SslApplicationProtocol(new byte[] { 0x0B, 0xEE }).ToString());
             Assert.Equal(string.Empty, default(SslApplicationProtocol).ToString());

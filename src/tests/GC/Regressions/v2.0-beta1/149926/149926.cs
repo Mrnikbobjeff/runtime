@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
+using TestLibrary;
 
 public class ArrayOOM
 {
@@ -44,7 +46,10 @@ public class ArrayOOM
 
 public class ByteArrayOOM
 {
-    public static int Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsArmProcess))]
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         ArrayOOM byteTest = new ArrayOOM();
         if (byteTest.RunTest())

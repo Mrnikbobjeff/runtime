@@ -6,6 +6,8 @@
 using System;
 using System.IO;
 using System.Runtime.CompilerServices;
+using Xunit;
+using TestLibrary;
 
 public class Foo<T>
 {
@@ -96,9 +98,11 @@ public struct InlinedVal<T>
 }
 
 
-public class Test
+public class Test_GenTypeInlined
 {
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 		Foo<int>.Meth_In();
 		Foo<char>.Meth_NotIn();

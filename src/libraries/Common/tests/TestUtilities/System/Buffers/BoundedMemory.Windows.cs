@@ -1,17 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Buffers;
-using System.Runtime.ConstrainedExecution;
 using System.Runtime.InteropServices;
-using System.Security;
 
 namespace System.Buffers
 {
     public static unsafe partial class BoundedMemory
     {
-        private static readonly int SystemPageSize = Environment.SystemPageSize;
-
         private static WindowsImplementation<T> AllocateWithoutDataPopulationWindows<T>(int elementCount, PoisonPagePlacement placement) where T : unmanaged
         {
             long cb, totalBytesToAllocate;
@@ -23,7 +18,7 @@ namespace System.Buffers
                 // We only need to round the count up if it's not an exact multiple
                 // of the system page size.
 
-                var leftoverBytes = totalBytesToAllocate % SystemPageSize;
+                long leftoverBytes = totalBytesToAllocate % SystemPageSize;
                 if (leftoverBytes != 0)
                 {
                     totalBytesToAllocate += SystemPageSize - leftoverBytes;
@@ -35,16 +30,21 @@ namespace System.Buffers
             }
 
             // Reserve and commit the entire range as NOACCESS.
-
-            var handle = UnsafeNativeMethods.VirtualAlloc(
-                lpAddress: IntPtr.Zero,
-                dwSize: (IntPtr)totalBytesToAllocate /* cast throws OverflowException if out of range */,
-                flAllocationType: VirtualAllocAllocationType.MEM_RESERVE | VirtualAllocAllocationType.MEM_COMMIT,
-                flProtect: VirtualAllocProtection.PAGE_NOACCESS);
+            VirtualAllocHandle handle;
+            checked
+            {
+                handle = VirtualAllocHandle.Allocate(
+                    lpAddress: IntPtr.Zero,
+                    dwSize: (IntPtr)totalBytesToAllocate /* cast throws OverflowException if out of range */,
+                    flAllocationType: VirtualAllocAllocationType.MEM_RESERVE | VirtualAllocAllocationType.MEM_COMMIT,
+                    flProtect: VirtualAllocProtection.PAGE_NOACCESS);
+            }
 
             if (handle == null || handle.IsInvalid)
             {
-                Marshal.ThrowExceptionForHR(Marshal.GetHRForLastWin32Error());
+                int lastError = Marshal.GetHRForLastWin32Error();
+                handle?.Dispose();
+                Marshal.ThrowExceptionForHR(lastError);
                 throw new InvalidOperationException("VirtualAlloc failed unexpectedly.");
             }
 
@@ -82,6 +82,8 @@ namespace System.Buffers
 
             public override bool IsReadonly => (Protection != VirtualAllocProtection.PAGE_READWRITE);
 
+            public override int Length => _elementCount;
+
             internal VirtualAllocProtection Protection
             {
                 get
@@ -90,9 +92,10 @@ namespace System.Buffers
                     try
                     {
                         _handle.DangerousAddRef(ref refAdded);
+                        MEMORY_BASIC_INFORMATION memoryInfo;
                         if (UnsafeNativeMethods.VirtualQuery(
                             lpAddress: _handle.DangerousGetHandle() + _byteOffsetIntoHandle,
-                            lpBuffer: out var memoryInfo,
+                            lpBuffer: &memoryInfo,
                             dwLength: (IntPtr)sizeof(MEMORY_BASIC_INFORMATION)) == IntPtr.Zero)
                         {
                             Marshal.ThrowExceptionForHR(Marshal.GetHRForLastWin32Error());
@@ -116,11 +119,12 @@ namespace System.Buffers
                         try
                         {
                             _handle.DangerousAddRef(ref refAdded);
-                            if (!UnsafeNativeMethods.VirtualProtect(
+                            VirtualAllocProtection flOldProtect;
+                            if (UnsafeNativeMethods.VirtualProtect(
                                 lpAddress: _handle.DangerousGetHandle() + _byteOffsetIntoHandle,
                                 dwSize: (IntPtr)(&((T*)null)[_elementCount]),
                                 flNewProtect: value,
-                                lpflOldProtect: out _))
+                                lpflOldProtect: &flOldProtect) == 0)
                             {
                                 Marshal.ThrowExceptionForHR(Marshal.GetHRForLastWin32Error());
                                 throw new InvalidOperationException("VirtualProtect failed unexpectedly.");
@@ -190,10 +194,7 @@ namespace System.Buffers
                     // no-op; the handle will be disposed separately
                 }
 
-                public override Span<T> GetSpan()
-                {
-                    throw new NotImplementedException();
-                }
+                public override Span<T> GetSpan() => _impl.Span;
 
                 public override MemoryHandle Pin(int elementIndex)
                 {
@@ -276,9 +277,16 @@ namespace System.Buffers
         private sealed class VirtualAllocHandle : SafeHandle
         {
             // Called by P/Invoke when returning SafeHandles
-            private VirtualAllocHandle()
+            public VirtualAllocHandle()
                 : base(IntPtr.Zero, ownsHandle: true)
             {
+            }
+
+            internal static VirtualAllocHandle Allocate(IntPtr lpAddress, IntPtr dwSize, VirtualAllocAllocationType flAllocationType, VirtualAllocProtection flProtect)
+            {
+                VirtualAllocHandle retVal = new VirtualAllocHandle();
+                retVal.SetHandle(UnsafeNativeMethods.VirtualAlloc(lpAddress, dwSize, flAllocationType, flProtect));
+                return retVal;
             }
 
             // Do not provide a finalizer - SafeHandle's critical finalizer will
@@ -287,45 +295,28 @@ namespace System.Buffers
             public override bool IsInvalid => (handle == IntPtr.Zero);
 
             protected override bool ReleaseHandle() =>
-                UnsafeNativeMethods.VirtualFree(handle, IntPtr.Zero, VirtualAllocAllocationType.MEM_RELEASE);
+                UnsafeNativeMethods.VirtualFree(handle, IntPtr.Zero, VirtualAllocAllocationType.MEM_RELEASE) != 0;
         }
 
-        [SuppressUnmanagedCodeSecurity]
-        private static class UnsafeNativeMethods
+        private static partial class UnsafeNativeMethods
         {
             private const string KERNEL32_LIB = "kernel32.dll";
 
             // https://msdn.microsoft.com/en-us/library/windows/desktop/aa366887(v=vs.85).aspx
-            [DllImport(KERNEL32_LIB, CallingConvention = CallingConvention.Winapi, SetLastError = true)]
-            public static extern VirtualAllocHandle VirtualAlloc(
-                [In] IntPtr lpAddress,
-                [In] IntPtr dwSize,
-                [In] VirtualAllocAllocationType flAllocationType,
-                [In] VirtualAllocProtection flProtect);
+            [DllImport(KERNEL32_LIB, SetLastError = true)]
+            public static extern IntPtr VirtualAlloc(IntPtr lpAddress, IntPtr dwSize, VirtualAllocAllocationType flAllocationType, VirtualAllocProtection flProtect);
 
             // https://msdn.microsoft.com/en-us/library/windows/desktop/aa366892(v=vs.85).aspx
-            [DllImport(KERNEL32_LIB, CallingConvention = CallingConvention.Winapi, SetLastError = true)]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool VirtualFree(
-                [In] IntPtr lpAddress,
-                [In] IntPtr dwSize,
-                [In] VirtualAllocAllocationType dwFreeType);
+            [DllImport(KERNEL32_LIB, SetLastError = true)]
+            public static extern int VirtualFree(IntPtr lpAddress, IntPtr dwSize, VirtualAllocAllocationType dwFreeType);
 
             // https://msdn.microsoft.com/en-us/library/windows/desktop/aa366898(v=vs.85).aspx
-            [DllImport(KERNEL32_LIB, CallingConvention = CallingConvention.Winapi, SetLastError = true)]
-            [return: MarshalAs(UnmanagedType.Bool)]
-            public static extern bool VirtualProtect(
-                [In] IntPtr lpAddress,
-                [In] IntPtr dwSize,
-                [In] VirtualAllocProtection flNewProtect,
-                [Out] out VirtualAllocProtection lpflOldProtect);
+            [DllImport(KERNEL32_LIB, SetLastError = true)]
+            public static extern int VirtualProtect(IntPtr lpAddress, IntPtr dwSize, VirtualAllocProtection flNewProtect, VirtualAllocProtection* lpflOldProtect);
 
             // https://msdn.microsoft.com/en-us/library/windows/desktop/aa366902(v=vs.85).aspx
-            [DllImport(KERNEL32_LIB, CallingConvention = CallingConvention.Winapi, SetLastError = true)]
-            public static extern IntPtr VirtualQuery(
-                [In] IntPtr lpAddress,
-                [Out] out MEMORY_BASIC_INFORMATION lpBuffer,
-                [In] IntPtr dwLength);
+            [DllImport(KERNEL32_LIB, SetLastError = true)]
+            public static extern IntPtr VirtualQuery(IntPtr lpAddress, MEMORY_BASIC_INFORMATION* lpBuffer, IntPtr dwLength);
         }
     }
 }

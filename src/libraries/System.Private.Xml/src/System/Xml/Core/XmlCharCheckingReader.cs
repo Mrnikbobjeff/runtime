@@ -2,10 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Xml;
-using System.Diagnostics;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Xml;
 
 namespace System.Xml
 {
@@ -39,7 +39,6 @@ namespace System.Xml
         private readonly DtdProcessing _dtdProcessing; // -1 means do nothing
 
         private XmlNodeType _lastNodeType;
-        private XmlCharType _xmlCharType;
 
         private ReadContentAsBinaryHelper? _readBinaryHelper;
 
@@ -60,11 +59,6 @@ namespace System.Xml
             _dtdProcessing = dtdProcessing;
 
             _lastNodeType = XmlNodeType.None;
-
-            if (checkCharacters)
-            {
-                _xmlCharType = XmlCharType.Instance;
-            }
         }
 
         //
@@ -320,7 +314,7 @@ namespace System.Xml
                             if (str != null)
                             {
                                 int i;
-                                if ((i = _xmlCharType.IsPublicId(str)) >= 0)
+                                if ((i = XmlCharType.IsPublicId(str)) >= 0)
                                 {
                                     Throw(SR.Xml_InvalidCharacter, XmlException.BuildCharExceptionArgs(str, i));
                                 }
@@ -484,23 +478,10 @@ namespace System.Xml
 
         public override int ReadElementContentAsBase64(byte[] buffer, int index, int count)
         {
-            // check arguments
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-            if (index < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index));
-            }
-            if (buffer.Length - index < count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+            ArgumentNullException.ThrowIfNull(buffer);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, buffer.Length - index);
 
             if (ReadState != ReadState.Interactive)
             {
@@ -545,23 +526,10 @@ namespace System.Xml
 
         public override int ReadElementContentAsBinHex(byte[] buffer, int index, int count)
         {
-            // check arguments
-            if (buffer == null)
-            {
-                throw new ArgumentNullException(nameof(buffer));
-            }
-            if (count < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-            if (index < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(index));
-            }
-            if (buffer.Length - index < count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+            ArgumentNullException.ThrowIfNull(buffer);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, buffer.Length - index);
             if (ReadState != ReadState.Interactive)
             {
                 return 0;
@@ -622,16 +590,15 @@ namespace System.Xml
         private void CheckWhitespace(string value)
         {
             int i;
-            if ((i = _xmlCharType.IsOnlyWhitespaceWithPos(value)) != -1)
+            if ((i = XmlCharType.IsOnlyWhitespaceWithPos(value)) != -1)
             {
                 Throw(SR.Xml_InvalidWhitespaceCharacter, XmlException.BuildCharExceptionArgs(value, i));
             }
         }
 
-        private void ValidateQName(string name)
+        private static void ValidateQName(string name)
         {
-            string prefix, localName;
-            ValidateNames.ParseQNameThrow(name, out prefix, out localName);
+            ValidateNames.ParseQNameThrow(name);
         }
 
         private void ValidateQName(string prefix, string localName)
@@ -651,7 +618,7 @@ namespace System.Xml
             }
         }
 
-        private void CheckCharacters(string value)
+        private static void CheckCharacters(string value)
         {
             XmlConvert.VerifyCharData(value, ExceptionType.ArgumentException, ExceptionType.XmlException);
         }
@@ -659,17 +626,14 @@ namespace System.Xml
         private void FinishReadBinary()
         {
             _state = State.Interactive;
-            if (_readBinaryHelper != null)
-            {
-                _readBinaryHelper.Finish();
-            }
+            _readBinaryHelper?.Finish();
         }
     }
 
     //
     // XmlCharCheckingReaderWithNS
     //
-    internal class XmlCharCheckingReaderWithNS : XmlCharCheckingReader, IXmlNamespaceResolver
+    internal sealed class XmlCharCheckingReaderWithNS : XmlCharCheckingReader, IXmlNamespaceResolver
     {
         internal IXmlNamespaceResolver readerAsNSResolver;
 

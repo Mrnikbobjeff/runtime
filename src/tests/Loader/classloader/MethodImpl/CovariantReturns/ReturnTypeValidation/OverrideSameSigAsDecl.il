@@ -2,8 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 .assembly extern System.Console { }
-.assembly extern System.Runtime { }
+.assembly extern xunit.core {}
+.assembly extern System.Runtime { .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A ) }
 .assembly extern mscorlib { }
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
 .assembly OverrideSameSigAsDecl { }
 
 // ========================================================================================
@@ -75,14 +78,14 @@
 }
 
 // ========================================================================================
-// Main base type with various virtual methods that will be overriden later
+// Main base type with various virtual methods that will be overridden later
 // ========================================================================================
 
 .class public auto ansi beforefieldinit GenBaseType<A,B>
 {
   .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
 
-  .method public hidebysig newslot virtual instance object MyFunc(string& res) 
+  .method public hidebysig newslot virtual instance object MyFunc(string& res)
   {
     ldarg.1
     ldstr "object GenBaseType.MyFunc()"
@@ -90,7 +93,7 @@
     newobj instance void A::.ctor()
     ret
   }
-  .method public hidebysig newslot virtual instance class B MyFunc(string& res) 
+  .method public hidebysig newslot virtual instance class B MyFunc(string& res)
   {
     ldarg.1
     ldstr "B GenBaseType.MyFunc()"
@@ -98,7 +101,7 @@
     newobj instance void B::.ctor()
     ret
   }
-  .method public hidebysig newslot virtual instance class B GenToNonGen(string& res) 
+  .method public hidebysig newslot virtual instance class B GenToNonGen(string& res)
   {
     ldarg.1
     ldstr "B GenBaseType.GenToNonGen()"
@@ -106,7 +109,7 @@
     newobj instance void B::.ctor()
     ret
   }
-  .method public hidebysig newslot virtual instance class B NonGenThroughGenFunc(string& res) 
+  .method public hidebysig newslot virtual instance class B NonGenThroughGenFunc(string& res)
   {
     ldarg.1
     ldstr "B GenBaseType.NonGenThroughGenFunc()"
@@ -114,7 +117,7 @@
     newobj instance void B::.ctor()
     ret
   }
-  .method public hidebysig newslot virtual instance class GenRetType<int32,object> MyGenFunc(string& res) 
+  .method public hidebysig newslot virtual instance class GenRetType<int32,object> MyGenFunc(string& res)
   {
     ldarg.1
     ldstr "GenRetType<int32,object> GenBaseType.MyGenFunc()"
@@ -122,7 +125,7 @@
     newobj instance void class GenRetType<int32,object>::.ctor()
     ret
   }
-  .method public hidebysig newslot virtual instance class GenRetType<!A, class Dictionary<string,!B>> MyGenFunc(string& res) 
+  .method public hidebysig newslot virtual instance class GenRetType<!A, class Dictionary<string,!B>> MyGenFunc(string& res)
   {
     ldarg.1
     ldstr "GenRetType<!A, class Dictionary<string,!B>> GenBaseType.MyGenFunc()"
@@ -130,7 +133,7 @@
     newobj instance void class GenRetType<!A, class Dictionary<string,!B>>::.ctor()
     ret
   }
-  .method public hidebysig newslot virtual instance class GenRetType<!A,!B> TestNonGenericDerived(string& res) 
+  .method public hidebysig newslot virtual instance class GenRetType<!A,!B> TestNonGenericDerived(string& res)
   {
     ldarg.1
     ldstr "GenRetType<!A,!B> GenBaseType.TestNonGenericDerived()"
@@ -142,7 +145,7 @@
 
 
 // ========================================================================================
-// SECOND LAYER type: overrides all virtuals on GenBaseType using MethodImpls with 
+// SECOND LAYER type: overrides all virtuals on GenBaseType using MethodImpls with
 // covariant return types (more derived return types)
 // ========================================================================================
 
@@ -187,7 +190,7 @@
     ldnull
     ret
   }
-  
+
   .method public hidebysig newslot virtual instance class GenRetType<!U,!V> NewFunc1(string& res)
   {
     .override method instance object class GenBaseType<!U,!V>::MyFunc(string& res)
@@ -197,7 +200,7 @@
     ldnull
     ret
   }
-  
+
   .method public hidebysig newslot virtual instance class C NewFunc2(string& res)
   {
     .override method instance class B class GenBaseType<!U,!V>::MyFunc(string& res)
@@ -279,7 +282,7 @@
     ldnull
     ret
   }
-  
+
   .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed { ret }
 }
 
@@ -299,56 +302,60 @@
 
 .class public auto ansi beforefieldinit CMain extends [mscorlib]System.Object
 {
-  .method public static void RunTest1() noinlining 
+  .method public static void RunTest1() noinlining
   {
     newobj     instance void class Invalid1<int32,object>::.ctor()
     call       void [System.Console]System.Console::WriteLine(object)
     ret
   }
 
-  .method public static void RunTest2() noinlining 
+  .method public static void RunTest2() noinlining
   {
     newobj     instance void class Invalid2<int32,object>::.ctor()
     call       void [System.Console]System.Console::WriteLine(object)
     ret
   }
 
-  .method public static void RunTest3() noinlining 
+  .method public static void RunTest3() noinlining
   {
     newobj     instance void class Invalid3<int32,object>::.ctor()
     call       void [System.Console]System.Console::WriteLine(object)
     ret
   }
 
-  .method public static void RunTest4() noinlining 
+  .method public static void RunTest4() noinlining
   {
     newobj     instance void class Invalid4<int32,object>::.ctor()
     call       void [System.Console]System.Console::WriteLine(object)
     ret
   }
 
-  .method public static void RunTest5() noinlining 
+  .method public static void RunTest5() noinlining
   {
     newobj     instance void class Invalid5<int32,object>::.ctor()
     call       void [System.Console]System.Console::WriteLine(object)
     ret
   }
 
-  .method public static void RunTest6() noinlining 
+  .method public static void RunTest6() noinlining
   {
     newobj     instance void class Invalid6<int32,object>::.ctor()
     call       void [System.Console]System.Console::WriteLine(object)
     ret
   }
 
-  .method public hidebysig static int32  Main( string[] args) cil managed
+  .method public hidebysig static int32  Main() cil managed
   {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
+    .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, class [mscorlib]System.Type, string[]) = {string('Tests that expect TypeLoadException') type([TestLibrary]TestLibrary.Utilities) string[1] ('IsNativeAot') }
     .entrypoint
     .maxstack  2
-    .locals init (bool V_0)    
+    .locals init (bool V_0)
     ldc.i4.1
     stloc.0
-    
+
     T1:
     .try
     {
@@ -360,13 +367,13 @@
         leave.s T2
     }
     catch [mscorlib]System.TypeLoadException
-    {   
+    {
         ldstr "Caught expected TypeLoadException:"
         call       void [System.Console]System.Console::WriteLine(string)
-        call       void [System.Console]System.Console::WriteLine(object)        
+        call       void [System.Console]System.Console::WriteLine(object)
         leave.s T2
     }
-    
+
     T2:
     .try
     {
@@ -378,10 +385,10 @@
         leave.s T3
     }
     catch [mscorlib]System.TypeLoadException
-    {   
+    {
         ldstr "Caught expected TypeLoadException:"
         call       void [System.Console]System.Console::WriteLine(string)
-        call       void [System.Console]System.Console::WriteLine(object)        
+        call       void [System.Console]System.Console::WriteLine(object)
         leave.s T3
     }
 
@@ -396,10 +403,10 @@
         leave.s T4
     }
     catch [mscorlib]System.TypeLoadException
-    {   
+    {
         ldstr "Caught expected TypeLoadException:"
         call       void [System.Console]System.Console::WriteLine(string)
-        call       void [System.Console]System.Console::WriteLine(object)        
+        call       void [System.Console]System.Console::WriteLine(object)
         leave.s T4
     }
 
@@ -414,10 +421,10 @@
         leave.s T5
     }
     catch [mscorlib]System.TypeLoadException
-    {   
+    {
         ldstr "Caught expected TypeLoadException:"
         call       void [System.Console]System.Console::WriteLine(string)
-        call       void [System.Console]System.Console::WriteLine(object)        
+        call       void [System.Console]System.Console::WriteLine(object)
         leave.s T5
     }
 
@@ -432,10 +439,10 @@
         leave.s T6
     }
     catch [mscorlib]System.TypeLoadException
-    {   
+    {
         ldstr "Caught expected TypeLoadException:"
         call       void [System.Console]System.Console::WriteLine(string)
-        call       void [System.Console]System.Console::WriteLine(object)        
+        call       void [System.Console]System.Console::WriteLine(object)
         leave.s T6
     }
 
@@ -450,28 +457,28 @@
         leave.s DONE
     }
     catch [mscorlib]System.TypeLoadException
-    {   
+    {
         ldstr "Caught expected TypeLoadException:"
         call       void [System.Console]System.Console::WriteLine(string)
-        call       void [System.Console]System.Console::WriteLine(object)        
+        call       void [System.Console]System.Console::WriteLine(object)
         leave.s DONE
-    }    
+    }
 
     DONE:
-    
+
     ldloc.0
     brtrue.s   PASS
 
     ldc.i4.s   101
     ret
-    
+
     PASS:
     ldstr      "Test PASSED"
     call       void [System.Console]System.Console::WriteLine(string)
     ldc.i4.s   100
     ret
   }
-  
+
   .method public hidebysig specialname rtspecialname instance void  .ctor() cil managed
   {
     .maxstack  8

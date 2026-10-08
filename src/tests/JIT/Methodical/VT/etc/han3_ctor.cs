@@ -2,15 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
 
-namespace JitTest
+namespace JitTest_han3_ctor_cs
 {
-    internal struct Ring
+    public struct Ring
     {
         public int size;
     }
 
-    internal struct Column
+    public struct Column
     {
         public Ring[] rings;
         private int[] _heightPtr;
@@ -68,12 +69,22 @@ namespace JitTest
             return C;
         }
 
-        private static int Main()
+        public static int Run()
         {
             return move(new Column(17, 17),
                         new Column(17, 0),
                         new Column(17, 0),
                         17) - 130971;
+        }
+    }
+
+    public class Han3CtorTest
+    {
+        [Fact]
+        [OuterLoop]
+        public static int TestEntryPoint()
+        {
+            return Column.Run();
         }
     }
 }

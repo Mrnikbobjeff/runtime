@@ -4,10 +4,15 @@
 
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 public class FinalizeTimeout
 {
-    public static int Main(string[] args)
+    [ActiveIssue("needs triage", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static void TestEntryPoint()
     {
         Console.WriteLine("Main start");
 
@@ -35,7 +40,6 @@ public class FinalizeTimeout
 
         // Create another finalizable object, and immediately return from Main to have finalization occur during shutdown
         finalizableObject = new BlockingFinalizerOnShutdown() { isLastObject = true };
-        return 100;
     }
 
     private static void ThreadMain()

@@ -4,6 +4,8 @@
 using System;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Xunit;
+using TestLibrary;
 
 public class A<T>
 {
@@ -16,7 +18,9 @@ public class A<T>
 
 public class Program
 {
-    public static int Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static int TestEntryPoint()
     {
 	try
 	{

@@ -2,14 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Diagnostics;
 using System.Collections;
-using System.Globalization;
+using System.Diagnostics;
 using System.DirectoryServices;
+using System.Globalization;
 
 namespace System.DirectoryServices.AccountManagement
 {
-    internal class ADEntriesSet : ResultSet
+    internal sealed class ADEntriesSet : ResultSet
     {
         private readonly SearchResultCollection _searchResults;
         private readonly ADStoreCtx _storeCtx;
@@ -48,7 +48,7 @@ namespace System.DirectoryServices.AccountManagement
 
                 // Since this class is only used internally, none of our code should be even calling this
                 // if MoveNext returned false, or before calling MoveNext.
-                Debug.Assert(_endReached == false && _current != null);
+                Debug.Assert(!_endReached && _current != null);
 
                 return ADUtils.SearchResultAsPrincipal(_current, _storeCtx, _discriminant);
             }
@@ -88,8 +88,7 @@ namespace System.DirectoryServices.AccountManagement
             _endReached = false;
             _current = null;
 
-            if (_enumerator != null)
-                _enumerator.Reset();
+            _enumerator?.Reset();
         }
 
         // IDisposable implementation
@@ -113,5 +112,3 @@ namespace System.DirectoryServices.AccountManagement
         }
     }
 }
-
-// #endif // PAPI_AD

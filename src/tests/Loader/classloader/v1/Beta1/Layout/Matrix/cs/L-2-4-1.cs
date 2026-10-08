@@ -12,12 +12,16 @@
 //
 
 using System;
+using Xunit;
+using TestLibrary;
 
-class Test{
-	public static int Main(){
+public class Test_L_2_4_1{
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint(){
 		int mi_RetCode;
 		A a = new A();
-		mi_RetCode = a.Test();
+		mi_RetCode = a.Test_L_2_4_1();
 		
 		if(mi_RetCode == 100)
 			Console.WriteLine("Pass");
@@ -30,7 +34,7 @@ class Test{
 
 struct A{
 //@csharp - C# again, family or famorassem members not allowed in value classes
-	public int Test(){
+	public int Test_L_2_4_1(){
 		int mi_RetCode = 100;
 		
 		/////////////////////////////////
@@ -109,7 +113,7 @@ struct A{
 		
 		////////////////////////////////////////////
 		// Test access from within the nested class
-		if(Nested_Cls.Test() != 100)
+		if(Nested_Cls.Test_L_2_4_1() != 100)
 			mi_RetCode = 0;
 		
 		return mi_RetCode;
@@ -175,7 +179,7 @@ struct A{
 	
 	
 	public struct Cls{
-		public int Test(){
+		public int Test_L_2_4_1(){
 			int mi_RetCode = 100;
 			
 			/////////////////////////////////////////////////////////////////////////
@@ -285,7 +289,7 @@ struct A{
 			
 			////////////////////////////////////////////
 			// Test access from within the nested class
-			if(Nested_Cls2.Test() != 100)
+			if(Nested_Cls2.Test_L_2_4_1() != 100)
 				mi_RetCode = 0;
 			
 			return mi_RetCode;
@@ -350,7 +354,7 @@ struct A{
 		
 		
 		public struct Cls2{
-			public int Test(){
+			public int Test_L_2_4_1(){
 				int mi_RetCode = 100;
 				
 				/////////////////////////////////////////////////////////////////////////

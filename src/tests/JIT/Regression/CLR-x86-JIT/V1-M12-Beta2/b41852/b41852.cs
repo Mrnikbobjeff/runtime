@@ -2,11 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+using TestLibrary;
+namespace b41852
 {
     using System;
 
-    struct BB
+    public struct BB
     {
         private double[] m_adDummyField;
         private ulong[] m_aulField4;
@@ -16,10 +18,10 @@ namespace Test
         {
             param2.Method1(ref param2.m_aulField4);
         }
-        static int Main()
+        [ConditionalFact(typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsVarArgSupported))]
+        public static void TestEntryPoint()
         {
             Method1(new BB(), __arglist());
-            return 100;
         }
     }
 }

@@ -1,4 +1,4 @@
-﻿<root>
+<root>
   <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
     <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
     <xsd:element name="root" msdata:IsDataSet="true">
@@ -80,12 +80,6 @@
   </data>
   <data name="ArgumentOutOfRange_ArrayTooSmall" xml:space="preserve">
     <value>Destination array is not long enough to copy all the required data. Check array length and offset.</value>
-  </data>
-  <data name="ArgumentOutOfRange_NeedNonNegNum" xml:space="preserve">
-    <value>Non-negative number required.</value>
-  </data>
-  <data name="Argument_StringZeroLength" xml:space="preserve">
-    <value>String cannot be of zero length.</value>
   </data>
   <data name="IdentityReference_AccountNameTooLong" xml:space="preserve">
     <value>Account name is too long.</value>

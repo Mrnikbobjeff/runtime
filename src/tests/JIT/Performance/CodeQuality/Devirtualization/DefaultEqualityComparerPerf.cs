@@ -1,13 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Microsoft.Xunit.Performance;
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
+using TestLibrary;
 
 // Performance tests for optimizations related to EqualityComparer<T>.Default
 
@@ -113,82 +111,9 @@ namespace Devirtualization
             BLUE = 2
         }
 
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        static void Consume(bool b) { }
-
-        [Benchmark(InnerIterationCount = Iterations)]
-        public static void ValueTupleCompareNoOpt()
-        {
-            var valueTupleFixture = new EqualityComparerFixture<ValueTuple<byte, E, int>>();
-            var v0 = new ValueTuple<byte, E, int>(3, E.RED, 11);
-            var result = true;
-
-            foreach (var iteration in Benchmark.Iterations)
-            {
-                using (iteration.StartMeasurement())
-                {
-                    result &= valueTupleFixture.BenchCompareNoOpt(ref v0, Benchmark.InnerIterationCount);
-                }
-            }
-
-            Consume(result);
-        }
-
-        [Benchmark(InnerIterationCount = Iterations)]
-        public static void ValueTupleCompare()
-        {
-            var valueTupleFixture = new EqualityComparerFixture<ValueTuple<byte, E, int>>();
-            var v0 = new ValueTuple<byte, E, int>(3, E.RED, 11);
-            var result = true;
-
-            foreach (var iteration in Benchmark.Iterations)
-            {
-                using (iteration.StartMeasurement())
-                {
-                    result &= valueTupleFixture.BenchCompare(ref v0, Benchmark.InnerIterationCount);
-                }
-            }
-
-            Consume(result);
-        }
-
-        [Benchmark(InnerIterationCount = Iterations)]
-        public static void ValueTupleCompareCached()
-        {
-            var valueTupleFixture = new EqualityComparerFixture<ValueTuple<byte, E, int>>();
-            var v0 = new ValueTuple<byte, E, int>(3, E.RED, 11);
-            var result = true;
-
-            foreach (var iteration in Benchmark.Iterations)
-            {
-                using (iteration.StartMeasurement())
-                {
-                    result &= valueTupleFixture.BenchCompareCached(ref v0, Benchmark.InnerIterationCount);
-                }
-            }
-
-            Consume(result);
-        }
-
-        [Benchmark(InnerIterationCount = Iterations)]
-        public static void ValueTupleCompareWrapped()
-        {
-            var valueTupleFixture = new EqualityComparerFixture<ValueTuple<byte, E, int>>();
-            var v0 = new ValueTuple<byte, E, int>(3, E.RED, 11);
-            var result = true;
-
-            foreach (var iteration in Benchmark.Iterations)
-            {
-                using (iteration.StartMeasurement())
-                {
-                    result &= valueTupleFixture.BenchCompareWrapped(ref v0, Benchmark.InnerIterationCount);
-                }
-            }
-
-            Consume(result);
-        }
-
-        public static int Main()
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             var valueTupleFixture = new EqualityComparerFixture<ValueTuple<byte, E, int>>();
             var v0 = new ValueTuple<byte, E, int>(3, E.RED, 11);

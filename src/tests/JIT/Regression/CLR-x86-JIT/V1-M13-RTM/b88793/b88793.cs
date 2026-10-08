@@ -3,6 +3,8 @@
 //
 
 using System;
+using Xunit;
+using TestLibrary;
 
 public class CC
 {
@@ -20,10 +22,10 @@ public class CC
             } while (a);
         }
     }
-    static int Main()
+    [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsVarArgSupported))]
+    public static void TestEntryPoint()
     {
         ulong ul = 0;
         Method1(ref ul, __arglist());
-        return 100;
     }
 }

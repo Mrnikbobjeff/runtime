@@ -2,8 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b00735;
+
 using System;
-struct AA
+using Xunit;
+public struct AA
 {
     static void f()
     {
@@ -17,9 +21,10 @@ struct AA
         }
         do { } while (flag);
     }
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         f();
-        return 100;
     }
 }

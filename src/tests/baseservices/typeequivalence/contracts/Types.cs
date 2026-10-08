@@ -60,4 +60,29 @@ namespace TypeEquivalenceTypes
         int MultiplyBy19(int a);
         int MultiplyBy20(int a);
     }
+
+    [Guid("BD752276-52DF-4CD1-8C62-49D202F15C8D")]
+    public struct TestValueType
+    {
+        public int Field;
+    }
+
+    //
+    // Below types are used in type punning tests and shouldn't be used anywhere else.
+    //
+    [Guid("98CE8975-E734-43C6-9D58-B8062053C6C5")]
+    public struct OnlyLoadOnce_1
+    {
+        public int Field;
+    }
+    [Guid("D3F2B4C3-1CE5-45BB-AC9E-5036E580477F")]
+    public struct OnlyLoadOnce_2
+    {
+        public int Field;
+    }
+    [Guid("690FCAC9-4CEC-406A-88DE-DA86B7914EA7")]
+    public struct OnlyLoadOnce_3
+    {
+        public int Field;
+    }
 }

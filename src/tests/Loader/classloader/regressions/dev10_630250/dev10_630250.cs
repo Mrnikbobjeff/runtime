@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
+using TestLibrary;
 
 public interface I<W> 
 { 
@@ -18,9 +20,11 @@ public class MyClass<T> : MyBase<string, T>, I<T>
     { return "MyClass.Method()"; }
 }
 
-class Test
+public class Test_dev10_630250
 {
-    public static int Main() 
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static int TestEntryPoint() 
     {
         MyClass<string> s1 = new MyClass<string>();
         MyClass<object> s2 = new MyClass<object>();

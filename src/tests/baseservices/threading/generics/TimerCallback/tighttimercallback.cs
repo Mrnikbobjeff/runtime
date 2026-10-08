@@ -3,6 +3,8 @@
 using System;
 using System.Threading;
 using System.Diagnostics;
+using Xunit;
+using TestLibrary;
 
 //namespace TimerCallbackTests ////////////// added this namesp
 
@@ -62,7 +64,8 @@ public class Test
 	public static bool result = true;
 	public static int timeToRun = 5000;
 	
-	public static int Main()
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint()
 	{
 		Gen<int>.ThreadPoolTest();
 		Gen<double>.ThreadPoolTest();

@@ -1,23 +1,16 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Threading.Tasks;
-
-using System;
-using System.IO;
-using System.Text;
-using System.Xml.XPath;
-using System.Xml.Schema;
 using System.Diagnostics;
-using System.Collections.Generic;
-using System.Globalization;
-using System.Runtime.Versioning;
+using System.Threading.Tasks;
+using System.Xml.Schema;
+using System.Xml.XPath;
 
 namespace System.Xml
 {
-    // Represents a writer that provides fast non-cached forward-only way of generating XML streams containing XML documents
-    // that conform to the W3C Extensible Markup Language (XML) 1.0 specification and the Namespaces in XML specification.
+#pragma warning disable PLATDOC002 // Async partial uses established TypeNameAsync.cs naming convention
     public abstract partial class XmlWriter : IDisposable, IAsyncDisposable
+#pragma warning restore PLATDOC002
     {
         // Write methods
         // Writes out the XML declaration with the version "1.0".
@@ -27,7 +20,7 @@ namespace System.Xml
             throw new NotImplementedException();
         }
 
-        //Writes out the XML declaration with the version "1.0" and the speficied standalone attribute.
+        //Writes out the XML declaration with the version "1.0" and the specified standalone attribute.
 
         public virtual Task WriteStartDocumentAsync(bool standalone)
         {
@@ -77,10 +70,8 @@ namespace System.Xml
             {
                 return WriteStringAsync(value).CallTaskFuncWhenFinishAsync(thisRef => thisRef.WriteEndAttributeAsync(), this);
             }
-            else
-            {
-                return WriteAttributeStringAsyncHelper(task, value);
-            }
+
+            return WriteAttributeStringAsyncHelper(task, value);
         }
 
         private async Task WriteAttributeStringAsyncHelper(Task task, string? value)
@@ -188,7 +179,7 @@ namespace System.Xml
             throw new NotImplementedException();
         }
 
-        // Encodes the specified binary bytes as binhex and writes out the resulting text.
+        // Encodes the specified binary bytes as bin hex and writes out the resulting text.
         public virtual Task WriteBinHexAsync(byte[] buffer, int index, int count)
         {
             return BinHexEncoder.EncodeAsync(buffer, index, count, this);
@@ -207,10 +198,7 @@ namespace System.Xml
         // (http://www.w3.org/TR/1998/REC-xml-19980210#NT-Name).
         public virtual Task WriteNmTokenAsync(string name)
         {
-            if (name == null || name.Length == 0)
-            {
-                throw new ArgumentException(SR.Xml_EmptyName);
-            }
+            ArgumentException.ThrowIfNullOrEmpty(name);
             return WriteStringAsync(XmlConvert.VerifyNMTOKEN(name, ExceptionType.ArgumentException));
         }
 
@@ -224,7 +212,7 @@ namespace System.Xml
         // Writes out the specified namespace-qualified name by looking up the prefix that is in scope for the given namespace.
         public virtual async Task WriteQualifiedNameAsync(string localName, string? ns)
         {
-            if (ns != null && ns.Length > 0)
+            if (!string.IsNullOrEmpty(ns))
             {
                 string? prefix = LookupPrefix(ns);
                 if (prefix == null)
@@ -240,49 +228,50 @@ namespace System.Xml
         // XmlReader Helper Methods
 
         // Writes out all the attributes found at the current position in the specified XmlReader.
-        public virtual async Task WriteAttributesAsync(XmlReader reader, bool defattr)
+        public virtual Task WriteAttributesAsync(XmlReader reader, bool defattr)
         {
-            if (null == reader)
-            {
-                throw new ArgumentNullException(nameof(reader));
-            }
+            ArgumentNullException.ThrowIfNull(reader);
+            return Core(reader, defattr);
 
-            if (reader.NodeType == XmlNodeType.Element || reader.NodeType == XmlNodeType.XmlDeclaration)
+            async Task Core(XmlReader reader, bool defattr)
             {
-                if (reader.MoveToFirstAttribute())
+                if (reader.NodeType is XmlNodeType.Element or XmlNodeType.XmlDeclaration)
                 {
-                    await WriteAttributesAsync(reader, defattr).ConfigureAwait(false);
-                    reader.MoveToElement();
-                }
-            }
-            else if (reader.NodeType != XmlNodeType.Attribute)
-            {
-                throw new XmlException(SR.Xml_InvalidPosition, string.Empty);
-            }
-            else
-            {
-                do
-                {
-                    // we need to check both XmlReader.IsDefault and XmlReader.SchemaInfo.IsDefault.
-                    // If either of these is true and defattr=false, we should not write the attribute out
-                    if (defattr || !reader.IsDefaultInternal)
+                    if (reader.MoveToFirstAttribute())
                     {
-                        await WriteStartAttributeAsync(reader.Prefix, reader.LocalName, reader.NamespaceURI).ConfigureAwait(false);
-                        while (reader.ReadAttributeValue())
-                        {
-                            if (reader.NodeType == XmlNodeType.EntityReference)
-                            {
-                                await WriteEntityRefAsync(reader.Name).ConfigureAwait(false);
-                            }
-                            else
-                            {
-                                await WriteStringAsync(reader.Value).ConfigureAwait(false);
-                            }
-                        }
-                        await WriteEndAttributeAsync().ConfigureAwait(false);
+                        await WriteAttributesAsync(reader, defattr).ConfigureAwait(false);
+                        reader.MoveToElement();
                     }
                 }
-                while (reader.MoveToNextAttribute());
+                else if (reader.NodeType != XmlNodeType.Attribute)
+                {
+                    throw new XmlException(SR.Xml_InvalidPosition, string.Empty);
+                }
+                else
+                {
+                    do
+                    {
+                        // we need to check both XmlReader.IsDefault and XmlReader.SchemaInfo.IsDefault.
+                        // If either of these is true and defattr=false, we should not write the attribute out
+                        if (defattr || !reader.IsDefaultInternal)
+                        {
+                            await WriteStartAttributeAsync(reader.Prefix, reader.LocalName, reader.NamespaceURI).ConfigureAwait(false);
+                            while (reader.ReadAttributeValue())
+                            {
+                                if (reader.NodeType == XmlNodeType.EntityReference)
+                                {
+                                    await WriteEntityRefAsync(reader.Name).ConfigureAwait(false);
+                                }
+                                else
+                                {
+                                    await WriteStringAsync(reader.Value).ConfigureAwait(false);
+                                }
+                            }
+                            await WriteEndAttributeAsync().ConfigureAwait(false);
+                        }
+                    }
+                    while (reader.MoveToNextAttribute());
+                }
             }
         }
 
@@ -290,19 +279,14 @@ namespace System.Xml
         // to the corresponding end element.
         public virtual Task WriteNodeAsync(XmlReader reader, bool defattr)
         {
-            if (null == reader)
-            {
-                throw new ArgumentNullException(nameof(reader));
-            }
+            ArgumentNullException.ThrowIfNull(reader);
 
-            if (reader.Settings != null && reader.Settings.Async)
+            if (reader.Settings is { Async: true })
             {
                 return WriteNodeAsync_CallAsyncReader(reader, defattr);
             }
-            else
-            {
-                return WriteNodeAsync_CallSyncReader(reader, defattr);
-            }
+
+            return WriteNodeAsync_CallSyncReader(reader, defattr);
         }
 
 
@@ -323,20 +307,16 @@ namespace System.Xml
                         if (reader.IsEmptyElement)
                         {
                             await WriteEndElementAsync().ConfigureAwait(false);
-                            break;
                         }
                         break;
                     case XmlNodeType.Text:
                         if (canReadChunk)
                         {
-                            if (_writeNodeBuffer == null)
-                            {
-                                _writeNodeBuffer = new char[WriteNodeBufferSize];
-                            }
+                            _writeNodeBuffer ??= new char[WriteNodeBufferSize];
                             int read;
                             while ((read = reader.ReadValueChunk(_writeNodeBuffer, 0, WriteNodeBufferSize)) > 0)
                             {
-                                await this.WriteCharsAsync(_writeNodeBuffer, 0, read).ConfigureAwait(false);
+                                await WriteCharsAsync(_writeNodeBuffer, 0, read).ConfigureAwait(false);
                             }
                         }
                         else
@@ -389,20 +369,16 @@ namespace System.Xml
                         if (reader.IsEmptyElement)
                         {
                             await WriteEndElementAsync().ConfigureAwait(false);
-                            break;
                         }
                         break;
                     case XmlNodeType.Text:
                         if (canReadChunk)
                         {
-                            if (_writeNodeBuffer == null)
-                            {
-                                _writeNodeBuffer = new char[WriteNodeBufferSize];
-                            }
+                            _writeNodeBuffer ??= new char[WriteNodeBufferSize];
                             int read;
                             while ((read = await reader.ReadValueChunkAsync(_writeNodeBuffer, 0, WriteNodeBufferSize).ConfigureAwait(false)) > 0)
                             {
-                                await this.WriteCharsAsync(_writeNodeBuffer, 0, read).ConfigureAwait(false);
+                                await WriteCharsAsync(_writeNodeBuffer, 0, read).ConfigureAwait(false);
                             }
                         }
                         else
@@ -440,88 +416,88 @@ namespace System.Xml
         }
 
         // Copies the current node from the given XPathNavigator to the writer (including child nodes).
-        public virtual async Task WriteNodeAsync(XPathNavigator navigator, bool defattr)
+        public virtual Task WriteNodeAsync(XPathNavigator navigator, bool defattr)
         {
-            if (navigator == null)
+            ArgumentNullException.ThrowIfNull(navigator);
+            return Core(navigator, defattr);
+
+            async Task Core(XPathNavigator navigator, bool defattr)
             {
-                throw new ArgumentNullException(nameof(navigator));
-            }
-            int iLevel = 0;
+                int iLevel = 0;
 
-            navigator = navigator.Clone();
+                navigator = navigator.Clone();
 
-            while (true)
-            {
-                bool mayHaveChildren = false;
-                XPathNodeType nodeType = navigator.NodeType;
-
-                switch (nodeType)
+                while (true)
                 {
-                    case XPathNodeType.Element:
-                        await WriteStartElementAsync(navigator.Prefix, navigator.LocalName, navigator.NamespaceURI).ConfigureAwait(false);
+                    bool mayHaveChildren = false;
+                    XPathNodeType nodeType = navigator.NodeType;
 
-                        // Copy attributes
-                        if (navigator.MoveToFirstAttribute())
-                        {
-                            do
+                    switch (nodeType)
+                    {
+                        case XPathNodeType.Element:
+                            await WriteStartElementAsync(navigator.Prefix, navigator.LocalName, navigator.NamespaceURI).ConfigureAwait(false);
+
+                            // Copy attributes
+                            if (navigator.MoveToFirstAttribute())
                             {
-                                IXmlSchemaInfo? schemaInfo = navigator.SchemaInfo;
-                                if (defattr || (schemaInfo == null || !schemaInfo.IsDefault))
+                                do
                                 {
-                                    await WriteStartAttributeAsync(navigator.Prefix, navigator.LocalName, navigator.NamespaceURI).ConfigureAwait(false);
-                                    // copy string value to writer
-                                    await WriteStringAsync(navigator.Value).ConfigureAwait(false);
-                                    await WriteEndAttributeAsync().ConfigureAwait(false);
-                                }
-                            } while (navigator.MoveToNextAttribute());
-                            navigator.MoveToParent();
-                        }
+                                    IXmlSchemaInfo? schemaInfo = navigator.SchemaInfo;
+                                    if (defattr || (schemaInfo == null || !schemaInfo.IsDefault))
+                                    {
+                                        await WriteStartAttributeAsync(navigator.Prefix, navigator.LocalName, navigator.NamespaceURI).ConfigureAwait(false);
+                                        // copy string value to writer
+                                        await WriteStringAsync(navigator.Value).ConfigureAwait(false);
+                                        await WriteEndAttributeAsync().ConfigureAwait(false);
+                                    }
+                                } while (navigator.MoveToNextAttribute());
+                                navigator.MoveToParent();
+                            }
 
-                        // Copy namespaces
-                        if (navigator.MoveToFirstNamespace(XPathNamespaceScope.Local))
-                        {
-                            await WriteLocalNamespacesAsync(navigator).ConfigureAwait(false);
-                            navigator.MoveToParent();
-                        }
-                        mayHaveChildren = true;
-                        break;
-                    case XPathNodeType.Attribute:
-                        // do nothing on root level attribute
-                        break;
-                    case XPathNodeType.Text:
-                        await WriteStringAsync(navigator.Value).ConfigureAwait(false);
-                        break;
-                    case XPathNodeType.SignificantWhitespace:
-                    case XPathNodeType.Whitespace:
-                        await WriteWhitespaceAsync(navigator.Value).ConfigureAwait(false);
-                        break;
-                    case XPathNodeType.Root:
-                        mayHaveChildren = true;
-                        break;
-                    case XPathNodeType.Comment:
-                        await WriteCommentAsync(navigator.Value).ConfigureAwait(false);
-                        break;
-                    case XPathNodeType.ProcessingInstruction:
-                        await WriteProcessingInstructionAsync(navigator.LocalName, navigator.Value).ConfigureAwait(false);
-                        break;
-                    case XPathNodeType.Namespace:
-                        // do nothing on root level namespace
-                        break;
-                    default:
-                        Debug.Fail($"Unexpected node type {nodeType}");
-                        break;
-                }
-
-                if (mayHaveChildren)
-                {
-                    // If children exist, move down to next level
-                    if (navigator.MoveToFirstChild())
-                    {
-                        iLevel++;
-                        continue;
+                            // Copy namespaces
+                            if (navigator.MoveToFirstNamespace(XPathNamespaceScope.Local))
+                            {
+                                await WriteLocalNamespacesAsync(navigator).ConfigureAwait(false);
+                                navigator.MoveToParent();
+                            }
+                            mayHaveChildren = true;
+                            break;
+                        case XPathNodeType.Attribute:
+                            // do nothing on root level attribute
+                            break;
+                        case XPathNodeType.Text:
+                            await WriteStringAsync(navigator.Value).ConfigureAwait(false);
+                            break;
+                        case XPathNodeType.SignificantWhitespace:
+                        case XPathNodeType.Whitespace:
+                            await WriteWhitespaceAsync(navigator.Value).ConfigureAwait(false);
+                            break;
+                        case XPathNodeType.Root:
+                            mayHaveChildren = true;
+                            break;
+                        case XPathNodeType.Comment:
+                            await WriteCommentAsync(navigator.Value).ConfigureAwait(false);
+                            break;
+                        case XPathNodeType.ProcessingInstruction:
+                            await WriteProcessingInstructionAsync(navigator.LocalName, navigator.Value).ConfigureAwait(false);
+                            break;
+                        case XPathNodeType.Namespace:
+                            // do nothing on root level namespace
+                            break;
+                        default:
+                            Debug.Fail($"Unexpected node type {nodeType}");
+                            break;
                     }
-                    else
+
+                    if (mayHaveChildren)
                     {
+                        // If children exist, move down to next level
+                        if (navigator.MoveToFirstChild())
+                        {
+                            iLevel++;
+                            continue;
+                        }
+
                         // EndElement
                         if (navigator.NodeType == XPathNodeType.Element)
                         {
@@ -535,30 +511,30 @@ namespace System.Xml
                             }
                         }
                     }
-                }
 
-                // No children
-                while (true)
-                {
-                    if (iLevel == 0)
+                    // No children
+                    while (true)
                     {
-                        // The entire subtree has been copied
-                        return;
+                        if (iLevel == 0)
+                        {
+                            // The entire subtree has been copied
+                            return;
+                        }
+
+                        if (navigator.MoveToNext())
+                        {
+                            // Found a sibling, so break to outer loop
+                            break;
+                        }
+
+                        // No siblings, so move up to previous level
+                        iLevel--;
+                        navigator.MoveToParent();
+
+                        // EndElement
+                        if (navigator.NodeType == XPathNodeType.Element)
+                            await WriteFullEndElementAsync().ConfigureAwait(false);
                     }
-
-                    if (navigator.MoveToNext())
-                    {
-                        // Found a sibling, so break to outer loop
-                        break;
-                    }
-
-                    // No siblings, so move up to previous level
-                    iLevel--;
-                    navigator.MoveToParent();
-
-                    // EndElement
-                    if (navigator.NodeType == XPathNodeType.Element)
-                        await WriteFullEndElementAsync().ConfigureAwait(false);
                 }
             }
         }
@@ -569,7 +545,7 @@ namespace System.Xml
         public async Task WriteElementStringAsync(string? prefix, string localName, string? ns, string value)
         {
             await WriteStartElementAsync(prefix, localName, ns).ConfigureAwait(false);
-            if (null != value && 0 != value.Length)
+            if (!string.IsNullOrEmpty(value))
             {
                 await WriteStringAsync(value).ConfigureAwait(false);
             }

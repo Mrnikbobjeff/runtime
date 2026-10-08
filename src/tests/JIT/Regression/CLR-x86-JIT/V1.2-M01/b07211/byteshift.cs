@@ -3,7 +3,8 @@
 //
 
 using System;
-namespace Test
+using Xunit;
+namespace b07211
 {
     public class ShiftTest
     {
@@ -12,7 +13,9 @@ namespace Test
 
     public class Test
     {
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             Console.WriteLine("Both results should be 15");
             // This works

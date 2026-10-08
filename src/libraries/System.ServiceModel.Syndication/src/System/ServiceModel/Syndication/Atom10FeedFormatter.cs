@@ -3,13 +3,13 @@
 
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.Globalization;
-using System.Xml;
-using System.Xml.Serialization;
-using System.Diagnostics.CodeAnalysis;
-using System.Xml.Schema;
-using System.ServiceModel.Channels;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
+using System.ServiceModel.Channels;
+using System.Xml;
+using System.Xml.Schema;
+using System.Xml.Serialization;
 
 namespace System.ServiceModel.Syndication
 {
@@ -35,12 +35,10 @@ namespace System.ServiceModel.Syndication
         {
         }
 
-        public Atom10FeedFormatter(Type feedTypeToCreate) : base()
+        public Atom10FeedFormatter([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type feedTypeToCreate) : base()
         {
-            if (feedTypeToCreate == null)
-            {
-                throw new ArgumentNullException(nameof(feedTypeToCreate));
-            }
+            ArgumentNullException.ThrowIfNull(feedTypeToCreate);
+
             if (!typeof(SyndicationFeed).IsAssignableFrom(feedTypeToCreate))
             {
                 throw new ArgumentException(SR.Format(SR.InvalidObjectTypePassed, nameof(feedTypeToCreate), nameof(SyndicationFeed)), nameof(feedTypeToCreate));
@@ -68,14 +66,12 @@ namespace System.ServiceModel.Syndication
 
         public override string Version => SyndicationVersions.Atom10;
 
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)]
         protected Type FeedType { get; }
 
         public override bool CanRead(XmlReader reader)
         {
-            if (reader == null)
-            {
-                throw new ArgumentNullException(nameof(reader));
-            }
+            ArgumentNullException.ThrowIfNull(reader);
 
             return reader.IsStartElement(Atom10Constants.FeedTag, Atom10Constants.Atom10Namespace);
         }
@@ -84,20 +80,14 @@ namespace System.ServiceModel.Syndication
 
         void IXmlSerializable.ReadXml(XmlReader reader)
         {
-            if (reader == null)
-            {
-                throw new ArgumentNullException(nameof(reader));
-            }
+            ArgumentNullException.ThrowIfNull(reader);
 
             ReadFeed(reader);
         }
 
         void IXmlSerializable.WriteXml(XmlWriter writer)
         {
-            if (writer == null)
-            {
-                throw new ArgumentNullException(nameof(writer));
-            }
+            ArgumentNullException.ThrowIfNull(writer);
 
             WriteFeed(writer);
         }
@@ -114,10 +104,7 @@ namespace System.ServiceModel.Syndication
 
         public override void WriteTo(XmlWriter writer)
         {
-            if (writer == null)
-            {
-                throw new ArgumentNullException(nameof(writer));
-            }
+            ArgumentNullException.ThrowIfNull(writer);
 
             writer.WriteStartElement(Atom10Constants.FeedTag, Atom10Constants.Atom10Namespace);
             WriteFeed(writer);
@@ -378,15 +365,12 @@ namespace System.ServiceModel.Syndication
             return true;
         }
 
-        internal void WriteContentTo(XmlWriter writer, string elementName, SyndicationContent content)
+        internal static void WriteContentTo(XmlWriter writer, string elementName, SyndicationContent content)
         {
-            if (content != null)
-            {
-                content.WriteTo(writer, elementName, Atom10Constants.Atom10Namespace);
-            }
+            content?.WriteTo(writer, elementName, Atom10Constants.Atom10Namespace);
         }
 
-        internal void WriteElement(XmlWriter writer, string elementName, string value)
+        internal static void WriteElement(XmlWriter writer, string elementName, string value)
         {
             if (value != null)
             {
@@ -412,7 +396,7 @@ namespace System.ServiceModel.Syndication
             }
         }
 
-        internal void WriteFeedLastUpdatedTimeTo(XmlWriter writer, DateTimeOffset lastUpdatedTime, bool isRequired)
+        internal static void WriteFeedLastUpdatedTimeTo(XmlWriter writer, DateTimeOffset lastUpdatedTime, bool isRequired)
         {
             if (lastUpdatedTime == DateTimeOffset.MinValue && isRequired)
             {
@@ -447,7 +431,7 @@ namespace System.ServiceModel.Syndication
             }
         }
 
-        internal void WriteItemLastUpdatedTimeTo(XmlWriter writer, DateTimeOffset lastUpdatedTime)
+        internal static void WriteItemLastUpdatedTimeTo(XmlWriter writer, DateTimeOffset lastUpdatedTime)
         {
             if (lastUpdatedTime == DateTimeOffset.MinValue)
             {
@@ -458,7 +442,7 @@ namespace System.ServiceModel.Syndication
                 AsString(lastUpdatedTime));
         }
 
-        internal void WriteLink(XmlWriter writer, SyndicationLink link, Uri baseUri)
+        internal static void WriteLink(XmlWriter writer, SyndicationLink link, Uri baseUri)
         {
             writer.WriteStartElement(Atom10Constants.LinkTag, Atom10Constants.Atom10Namespace);
             Uri baseUriToWrite = FeedUtils.GetBaseUriToWrite(baseUri, link.BaseUri);
@@ -481,7 +465,7 @@ namespace System.ServiceModel.Syndication
             }
             if (link.Length != 0 && !link.AttributeExtensions.ContainsKey(s_atom10Length))
             {
-                writer.WriteAttributeString(Atom10Constants.LengthTag, Convert.ToString(link.Length, CultureInfo.InvariantCulture));
+                writer.WriteAttributeString(Atom10Constants.LengthTag, link.Length.ToString(CultureInfo.InvariantCulture));
             }
             if (!link.AttributeExtensions.ContainsKey(s_atom10Href))
             {
@@ -495,14 +479,8 @@ namespace System.ServiceModel.Syndication
 
         protected virtual SyndicationItem ReadItem(XmlReader reader, SyndicationFeed feed)
         {
-            if (feed == null)
-            {
-                throw new ArgumentNullException(nameof(feed));
-            }
-            if (reader == null)
-            {
-                throw new ArgumentNullException(nameof(reader));
-            }
+            ArgumentNullException.ThrowIfNull(reader);
+            ArgumentNullException.ThrowIfNull(feed);
 
             SyndicationItem item = CreateItem(feed);
             ReadItemFrom(reader, item, feed.BaseUri);
@@ -511,14 +489,8 @@ namespace System.ServiceModel.Syndication
 
         protected virtual IEnumerable<SyndicationItem> ReadItems(XmlReader reader, SyndicationFeed feed, out bool areAllItemsRead)
         {
-            if (feed == null)
-            {
-                throw new ArgumentNullException(nameof(feed));
-            }
-            if (reader == null)
-            {
-                throw new ArgumentNullException(nameof(reader));
-            }
+            ArgumentNullException.ThrowIfNull(reader);
+            ArgumentNullException.ThrowIfNull(feed);
 
             NullNotAllowedCollection<SyndicationItem> items = new NullNotAllowedCollection<SyndicationItem>();
             while (reader.IsStartElement(Atom10Constants.EntryTag, Atom10Constants.Atom10Namespace))
@@ -581,10 +553,7 @@ namespace System.ServiceModel.Syndication
                     if (preserveAttributeExtensions)
                     {
                         string value = reader.Value;
-                        if (attrs == null)
-                        {
-                            attrs = new Dictionary<XmlQualifiedName, string>();
-                        }
+                        attrs ??= new Dictionary<XmlQualifiedName, string>();
                         attrs.Add(new XmlQualifiedName(name, ns), value);
                     }
                 }
@@ -603,9 +572,9 @@ namespace System.ServiceModel.Syndication
             return result;
         }
 
-        private string AsString(DateTimeOffset dateTime)
+        private static string AsString(DateTimeOffset dateTime)
         {
-            if (dateTime.Offset == TimeSpan.Zero)
+            if (dateTime.TotalOffsetMinutes == 0)
             {
                 return dateTime.ToUniversalTime().ToString(Rfc3339UTCDateTimeFormat, CultureInfo.InvariantCulture);
             }
@@ -761,7 +730,7 @@ namespace System.ServiceModel.Syndication
                             }
                             else if (reader.IsStartElement(Atom10Constants.EntryTag, Atom10Constants.Atom10Namespace) && !isSourceFeed)
                             {
-                                feedItems = feedItems ?? new NullNotAllowedCollection<SyndicationItem>();
+                                feedItems ??= new NullNotAllowedCollection<SyndicationItem>();
                                 IEnumerable<SyndicationItem> items = ReadItems(reader, result, out areAllItemsRead);
                                 foreach (SyndicationItem item in items)
                                 {
@@ -1128,14 +1097,14 @@ namespace System.ServiceModel.Syndication
             TextSyndicationContent title = feed.Title;
             if (isElementRequired)
             {
-                title = title ?? new TextSyndicationContent(string.Empty);
+                title ??= new TextSyndicationContent(string.Empty);
             }
             WriteContentTo(writer, Atom10Constants.TitleTag, title);
             WriteContentTo(writer, Atom10Constants.SubtitleTag, feed.Description);
             string id = feed.Id;
             if (isElementRequired)
             {
-                id = id ?? s_idGenerator.Next();
+                id ??= s_idGenerator.Next();
             }
             WriteElement(writer, Atom10Constants.IdTag, id);
             WriteContentTo(writer, Atom10Constants.RightsTag, feed.Copyright);

@@ -36,13 +36,11 @@ To implement these, we need a way for the CLR to specify and optionally verify t
 
 The managed mechanism for calling into native code must also support the special managed calling convention used by `String`'s constructors, where the constructor allocates the memory used by the object (instead of the typical convention where the constructor is called after the GC allocates memory).
 
-The CLR provides a [`mscorlib` binder](https://github.com/dotnet/runtime/blob/master/src/coreclr/src/vm/binder.cpp) internally, providing a mapping between unmanaged types and fields to managed types and fields. The binder will look up and load classes and allows the calling of managed methods. It also performs simple verification to ensure the correctness of any layout information specified in both managed and native code. The binder ensures that the managed class attempting to load exists in mscorlib, has been loaded, and the field offsets are correct. It also needs the ability to differentiate between method overloads with different signatures.
+The CLR provides a [`mscorlib` binder](https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/binder.cpp) internally, providing a mapping between unmanaged types and fields to managed types and fields. The binder will look up and load classes and allows the calling of managed methods. It also performs simple verification to ensure the correctness of any layout information specified in both managed and native code. The binder ensures that the managed class attempting to load exists in mscorlib, has been loaded, and the field offsets are correct. It also needs the ability to differentiate between method overloads with different signatures.
 
 # Calling from managed to native code
 
-Two techniques exist for calling into the CLR from managed code. FCall allows you to call directly into the CLR code, and provides a lot of flexibility in terms of manipulating objects, though it is easy to cause GC holes by not tracking object references correctly. QCall also allows you to call into the CLR via the P/Invoke, but is much harder to accidentally mis-use. FCalls are identified in managed code as extern methods with the [`MethodImplOptions.InternalCall`](https://docs.microsoft.com/dotnet/api/system.runtime.compilerservices.methodimploptions) bit set. QCalls are marked `static extern` methods similar to regular P/Invokes, but are directed toward a library called `"QCall"`.
-
-There is a small variant of FCall called HCall (for Helper call) for implementing JIT helpers. The HCall is intended for doing things like accessing multi-dimensional array elements, range checks, etc. The only difference between HCall and FCall is that HCall methods won't show up in an exception stack trace.
+Two techniques exist for calling into the CLR from managed code. FCall allows you to call directly into the CLR code, and provides a lot of flexibility in terms of manipulating objects, though it is easy to cause GC holes by not tracking object references correctly. QCall also allows you to call into the CLR via the P/Invoke, but is much harder to accidentally mis-use. FCalls are identified in managed code as extern methods with the [`MethodImplOptions.InternalCall`](https://learn.microsoft.com/dotnet/api/system.runtime.compilerservices.methodimploptions) bit set. QCalls are marked `static extern` methods similar to regular P/Invokes, but are directed toward a library called `"QCall"`.
 
 ### Choosing between FCall, QCall, P/Invoke, and writing in managed code
 
@@ -50,13 +48,13 @@ First, remember that you should be writing as much as possible in managed code. 
 
 Reasons to write FCalls in the past generally fell into three camps: missing language features, better performance, or implementing unique interactions with the runtime. C# now has almost every useful language feature that you could get from C++, including unsafe code and stack-allocated buffers, and this eliminates the first two reasons for FCalls. We have ported some parts of the CLR that were heavily reliant on FCalls to managed code in the past (such as Reflection, some Encoding, and String operations) and we intend to continue this momentum.
 
-If the only reason you're defining a FCall method is to call a native method, you should be using P/Invoke to call the method directly. [P/Invoke](https://docs.microsoft.com/dotnet/api/system.runtime.interopservices.dllimportattribute) is the public native method interface and should be doing everything you need in a correct manner.
+If the only reason you're defining a FCall method is to call a native method, you should be using P/Invoke to call the method directly. [P/Invoke](https://learn.microsoft.com/dotnet/api/system.runtime.interopservices.dllimportattribute) is the public native method interface and should be doing everything you need in a correct manner.
 
 If you still need to implement a feature inside the runtime, consider if there is a way to reduce the frequency of transitioning to native code. Can you write the common case in managed and only call into native for some rare corner cases? You're usually best off keeping as much as possible in managed code.
 
-QCalls are the preferred mechanism going forward. You should only use FCalls when you are "forced" to. This happens when there is common "short path" through the code that is important to optimize. This short path should not be more than a few hundred instructions, cannot allocate GC memory, take locks or throw exceptions (`GC_NOTRIGGER`, `NOTHROWS`). In all other circumstances (and especially when you enter a FCall and then simply erect HelperMethodFrame), you should be using QCall.
+QCalls are the preferred mechanism going forward. You should only use FCalls when you are "forced" to. This happens when there is common "short path" through the code that is important to optimize. This short path should not be more than a few hundred instructions, cannot allocate GC memory, take locks or throw exceptions (`GC_NOTRIGGER`, `NOTHROWS`). In all other circumstances, you should be using QCall.
 
-FCalls were specifically designed for short paths of code that must be optimized. They allowed explicit control over when erecting a frame was done. However, it is error prone and not worth the complexity for many APIs. QCalls are essentially P/Invokes into the CLR. In the event the performance of an FCall is required consider creating a QCall and marking it with [`SuppressGCTransitionAttribute`](https://docs.microsoft.com/dotnet/api/system.runtime.interopservices.suppressgctransitionattribute).
+FCalls were specifically designed for short paths of code that must be optimized. They allowed explicit control over when erecting a frame was done. However, it is error prone and not worth the complexity for many APIs. QCalls are essentially P/Invokes into the CLR. In the event the performance of an FCall is required consider creating a QCall and marking it with [`SuppressGCTransitionAttribute`](https://learn.microsoft.com/dotnet/api/system.runtime.interopservices.suppressgctransitionattribute).
 
 As a result, QCalls give you some advantageous marshaling for `SafeHandle`s automatically – your native method just takes a `HANDLE` type, and can be used without worrying whether someone will free the handle while in that method body. The resulting FCall method would need to use a `SafeHandleHolder` and may need to protect the `SafeHandle`, etc. Leveraging the P/Invoke marshaler can avoid this additional plumbing code.
 
@@ -64,44 +62,44 @@ As a result, QCalls give you some advantageous marshaling for `SafeHandle`s auto
 
 QCalls are very much like a normal P/Invoke from CoreLib to CLR. Unlike FCalls, QCalls will marshal all arguments as unmanaged types like a normal P/Invoke. QCall also switch to preemptive GC mode like a normal P/Invoke. These two features should make QCalls easier to write reliably compared to FCalls. QCalls are not prone to GC holes and GC starvation bugs that are common with FCalls.
 
-QCalls perform better than FCalls that erect a `HelperMethodFrame`. The overhead is about 1.4x less compared to FCall w/ `HelperMethodFrame` overhead on x86 and x64.
-
 The preferred types for QCall arguments are primitive types that are efficiently handled by the P/Invoke marshaler (`INT32`, `LPCWSTR`, `BOOL`). Notice that `BOOL` is the correct boolean flavor for QCall arguments. On the other hand, `CLR_BOOL` is the correct boolean flavor for FCall arguments.
 
 The pointers to common unmanaged EE structures should be wrapped into handle types. This is to make the managed implementation type safe and avoid falling into unsafe C# everywhere. See AssemblyHandle in [vm\qcall.h][qcall] for an example.
 
-[qcall]: https://github.com/dotnet/runtime/blob/master/src/coreclr/src/vm/qcall.h
+[qcall]: https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/qcall.h
 
 Passing object references in and out of QCalls is done by wrapping a pointer to a local variable in a handle. It is intentionally cumbersome and should be avoided if reasonably possible. See the `StringHandleOnStack` in the example below. Returning objects, especially strings, from QCalls is the only common pattern where passing the raw objects is widely acceptable. (For reasoning on why this set of restrictions helps make QCalls less prone to GC holes, read the ["GC Holes, FCall, and QCall"](#gcholes) section below.)
+
+QCalls should be implemented with a C-style method signature. This makes it easier for AOT tooling in the future to connect a QCall on the managed side to the implementation on the native side.
 
 ### QCall example - managed
 
 Do not replicate the comments into your actual QCall implementation. This is for illustrative purposes.
 
 ```CSharp
-class Foo
+partial class Foo
 {
-    // All QCalls should have the following DllImport attribute
-    [DllImport(RuntimeHelpers.QCall, CharSet = CharSet.Unicode)]
-
-    // QCalls should always be static extern.
-    private static extern bool BarInternal(int flags, string inString, StringHandleOnStack retString);
+    // QCalls that use BEGIN_QCALL must use the hidden last parameter error handler.
+    [ErrorHandler(typeof(QCallExceptionStatusMarshaller), ErrorLocation.HiddenLastParameter)]
+    [LibraryImport(RuntimeHelpers.QCall, EntryPoint = "Foo_BarInternal", StringMarshalling = StringMarshalling.Utf16)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool BarInternal(int flags, string inString, StringHandleOnStack retString);
 
     // Many QCalls have a thin managed wrapper around them to perform
     // as much work prior to the transition as possible. An example would be
     // argument validation which is easier in managed than native code.
-    public string Bar(int flags)
+    public string Bar(int flags, string inString)
     {
         if (flags != 0)
             throw new ArgumentException("Invalid flags");
 
-        string retString = null;
+        string? retString = null;
         // The strings are returned from QCalls by taking address
-        // of a local variable using StringHandleOnStack
-        if (!BarInternal(flags, this.Id, new StringHandleOnStack(ref retString)))
+        // of a local variable using StringHandleOnStack.
+        if (!BarInternal(flags, inString, new StringHandleOnStack(ref retString)))
             FatalError();
 
-        return retString;
+        return retString!;
     }
 }
 ```
@@ -110,20 +108,14 @@ class Foo
 
 Do not replicate the comments into your actual QCall implementation.
 
-The QCall entrypoint has to be registered in tables in [vm\ecalllist.h][ecalllist] using `QCFuncEntry` macro. See ["Registering your QCall or FCall Method"](#register) below.
+The QCall entrypoint has to be registered in tables in [vm\qcallentrypoints.cpp][qcall-entrypoints] using the `DllImportEntry` macro. See ["Registering your QCall or FCall Method"](#register) below.
 
-[ecalllist]: https://github.com/dotnet/runtime/blob/master/src/coreclr/src/vm/ecalllist.h
+[qcall-entrypoints]: https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/qcallentrypoints.cpp
 
 ```C++
-class FooNative
-{
-public:
-    // All QCalls should be static and tagged with QCALLTYPE
-    static
-    BOOL QCALLTYPE BarInternal(int flags, LPCWSTR wszString, QCall::StringHandleOnStack retString);
-};
-
-BOOL QCALLTYPE FooNative::BarInternal(int flags, LPCWSTR wszString, QCall::StringHandleOnStack retString)
+// All QCalls should be free functions and tagged with QCALLTYPE and extern "C"
+extern "C" BOOL QCALLTYPE Foo_BarInternal(
+    int flags, LPCWSTR wszString, QCall::StringHandleOnStack retString, QCallExceptionStatus* qcallError)
 {
     // All QCalls should have QCALL_CONTRACT.
     // It is alias for THROWS; GC_TRIGGERS; MODE_PREEMPTIVE.
@@ -141,7 +133,7 @@ BOOL QCALLTYPE FooNative::BarInternal(int flags, LPCWSTR wszString, QCall::Strin
     BOOL retVal = FALSE;
 
     // The body has to be enclosed in BEGIN_QCALL/END_QCALL macro.
-    // It is necessary for exception handling.
+    // It initializes qcallError and captures exceptions for the managed error handler.
     BEGIN_QCALL;
 
     // Argument validation would ideally be in managed, but in some cases
@@ -167,21 +159,22 @@ BOOL QCALLTYPE FooNative::BarInternal(int flags, LPCWSTR wszString, QCall::Strin
 }
 ```
 
+QCalls that return before entering `BEGIN_QCALL`, including no-op fast paths and code excluded
+by platform conditionals, must explicitly set `*qcallError = 0` before returning.
+
 ## FCall functional behavior
 
-FCalls allow more flexibility in terms of passing object references around, but with higher code complexity and more opportunities to make mistakes. Additionally, FCall methods must either erect a helper method frame along their common code paths, or for any FCall of non-trivial length, explicitly poll for whether a garbage collection must occur. Failing to do so will lead to starvation issues if managed code repeatedly calls the FCall method in a tight loop, because FCalls execute while the thread only allows the GC to run in a cooperative manner.
+FCalls allow more flexibility in terms of passing object references around, but with higher code complexity and more opportunities to make mistakes. Additionally, for any FCall of non-trivial length, explicitly poll for whether a garbage collection must occur. Failing to do so will lead to starvation issues if managed code repeatedly calls the FCall method in a tight loop, because FCalls execute while the thread only allows the GC to run in a cooperative manner.
 
 FCalls require a lot of boilerplate code, too much to describe here. Refer to [fcall.h][fcall] for details.
 
-[fcall]: https://github.com/dotnet/runtime/blob/master/src/coreclr/src/vm/fcall.h
+[fcall]: https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/fcall.h
 
 ### <a name="gcholes"></a> GC holes, FCall, and QCall
 
 A more complete discussion on GC holes can be found in the [CLR Code Guide](../../../coding-guidelines/clr-code-guide.md). Look for ["Is your code GC-safe?"](../../../coding-guidelines/clr-code-guide.md#2.1). This tailored discussion motivates some of the reasons why FCall and QCall have some of their strange conventions.
 
 Object references passed as parameters to FCall methods are not GC-protected, meaning that if a GC occurs, those references will point to the old location in memory of an object, not the new location. For this reason, FCalls usually follow the discipline of accepting something like `StringObject*` as their parameter type, then explicitly converting that to a `STRINGREF` before doing operations that may trigger a GC. If you expect to use an object reference later, you must GC protect object references before triggering a GC.
-
-All GC heap allocations within an FCall method must happen within a helper method frame. If you allocate memory on the GC heap, the GC may collect dead objects and move objects around in unpredictable ways, with some low probability. For this reason, you must manually report any object references in your method to the GC, so that if a garbage collection occurs, your object reference will be updated to refer to the new location in memory. Any pointers into managed objects (like arrays or Strings) within your code will not be updated automatically, and must be re-fetched after any operation that may allocate memory and before your first usage. Reporting a reference can be done via the `GCPROTECT_*` macros or as parameters when erecting a helper method frame.
 
 Failing to properly report an `OBJECTREF` or to update an interior pointer is commonly referred to as a "GC hole", because the `OBJECTREF` class will do some validation that it points to a valid object every time you dereference it in Debug and Checked builds. When an `OBJECTREF` pointing to an invalid object is dereferenced, an assert will trigger saying something like "Detected an invalid object reference. Possible GC hole?". This assert is unfortunately easy to hit when writing "manually managed" code.
 
@@ -192,8 +185,6 @@ Note that QCall's programming model is restrictive to sidestep GC holes by forci
 The managed stack walker needs to be able to find its way from FCalls. It is relative easy on newer platforms that define conventions for stack unwinding as part of the ABI. The stack unwinding conventions are not defined by an ABI for x86. The runtime works around this by implementing an epilog walker. The epilog walker computes the FCall return address and callee save registers by simulating the FCall execution. This imposes limits on what constructs are allowed in the FCall implementation.
 
 Complex constructs like stack allocated objects with destructors or exception handling in the FCall implementation may confuse the epilog walker. This can lead to GC holes or crashes during stack walking. There is no comprehensive list of what constructs should be avoided to prevent this class of bugs. An FCall implementation that is fine one day may break with the next C++ compiler update. We depend on stress runs and code coverage to find bugs in this area.
-
-Setting a breakpoint inside an FCall implementation may confuse the epilog walker. It leads to an "Invalid breakpoint in a helpermethod frame epilog" assert inside [vm\i386\gmsx86.cpp](https://github.com/dotnet/runtime/blob/master/src/coreclr/src/vm/i386/gmsx86.cpp).
 
 ### FCall example – managed
 
@@ -221,36 +212,27 @@ public partial sealed class String
 
 The FCall entrypoint has to be registered in tables in [vm\ecalllist.h][ecalllist] using `FCFuncEntry` macro. See ["Registering your QCall or FCall Method"](#register).
 
-This method is an instance method in managed code, with the "this" parameter passed as the first argument. We use `StringObject*` as the argument type, then copy it into a `STRINGREF` so we get some error checking when we use it.
+[ecalllist]: https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/ecalllist.h
+
+This example shows an FCall method that takes a managed object (`Object*`) as a raw pointer. These raw inputs are considered "unsafe" and must be validated or converted if they’re used in a GC-sensitive context.
 
 ```C++
-FCIMPL1(Object*, AppDomainNative::IsStringInterned, StringObject* pStringUNSAFE)
+FCIMPL1(FC_BOOL_RET, ExceptionNative::IsImmutableAgileException, Object* pExceptionUNSAFE)
 {
     FCALL_CONTRACT;
 
-    STRINGREF       refString   = ObjectToSTRINGREF(pStringUNSAFE);
-    STRINGREF*      prefRetVal  = NULL;
+    ASSERT(pExceptionUNSAFE != NULL);
 
-    HELPER_METHOD_FRAME_BEGIN_RET_1(refString);
+    OBJECTREF pException = (OBJECTREF) pExceptionUNSAFE;
 
-    if (refString == NULL)
-        COMPlusThrow(kArgumentNullException, W("ArgumentNull_String"));
-
-    prefRetVal = GetAppDomain()->IsStringInterned(&refString);
-
-    HELPER_METHOD_FRAME_END();
-
-    if (prefRetVal == NULL)
-        return NULL;
-
-    return OBJECTREFToObject(*prefRetVal);
+    FC_RETURN_BOOL(CLRException::IsPreallocatedExceptionObject(pException));
 }
 FCIMPLEND
 ```
 
 ## <a name="register"></a> Registering your QCall or FCall method
 
-The CLR must know the name of your QCall and FCall methods, both in terms of the managed class and method names, as well as which native methods to call. That is done in [ecalllist.h][ecalllist], with two arrays. The first array maps namespace and class names to an array of function elements. That array of function elements then maps individual method names and signatures to function pointers.
+The CLR must know the name of your QCall and FCall methods, both in terms of the managed class and method names, as well as which native methods to call. For FCalls, registration is done in [ecalllist.h][ecalllist], with two arrays. The first array maps namespace and class names to an array of function elements. That array of function elements then maps individual method names and signatures to function pointers.
 
 Say we defined an FCall method for `String.IsInterned()`, in the example above. First, we need to ensure that we have an array of function elements for the String class.
 
@@ -271,7 +253,16 @@ FCFuncStart(gStringFuncs)
 FCFuncEnd()
 ```
 
-There is a parallel `QCFuncElement` macro.
+QCalls are registered in [qcallentrypoints.cpp][qcall-entrypoints] in the `s_QCall` array with the `DllImportEntry` macro as follows:
+
+```C++
+static const Entry s_QCall[] =
+{
+    ...
+    DllImportEntry(MyQCall),
+    ...
+};
+```
 
 ## Naming convention
 
@@ -285,9 +276,9 @@ Certain managed types must have a representation available in both managed and n
 
 The CLR provides a binder for this purpose. After you define your managed and native classes, you should provide some clues to the binder to help ensure that the field offsets remain the same to quickly spot when someone accidentally adds a field to only one definition of a type.
 
-In [mscorlib.h][mscorlib.h], use macros ending in "_U" to describe a type, the name of fields in managed code, and the name of fields in a corresponding native data structure. Additionally, you can specify a list of methods, and reference them by name when you attempt to call them later.
+In [corelib.h][corelib.h], use macros ending in "_U" to describe a type, the name of fields in managed code, and the name of fields in a corresponding native data structure. Additionally, you can specify a list of methods, and reference them by name when you attempt to call them later.
 
-[mscorlib.h]: https://github.com/dotnet/runtime/blob/master/src/coreclr/src/vm/mscorlib.h
+[corelib.h]: https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/corelib.h
 
 ``` C++
 DEFINE_CLASS_U(SAFE_HANDLE,         Interop,                SafeHandle,         SafeHandle)
@@ -345,8 +336,8 @@ When the CLR starts up, CoreLib is loaded by a method called `SystemDomain::Load
 
 For FCalls, look in [fcall.h][fcall] for infrastructure, and [ecalllist.h][ecalllist] to properly inform the runtime about your FCall method.
 
-For QCalls, look in [qcall.h][qcall] for associated infrastructure, and [ecalllist.h][ecalllist] to properly inform the runtime about your QCall method.
+For QCalls, look in [qcall.h][qcall] for associated infrastructure, and [qcallentrypoints.cpp][qcall-entrypoints] to properly inform the runtime about your QCall method.
 
 More general infrastructure and some native type definitions can be found in [object.h][object.h]. The binder uses `mscorlib.h` to associate managed and native classes.
 
-[object.h]: https://github.com/dotnet/runtime/blob/master/src/coreclr/src/vm/object.h
+[object.h]: https://github.com/dotnet/runtime/blob/main/src/coreclr/vm/object.h

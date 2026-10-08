@@ -1,8 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b71005;
+
 using System;
-internal class testout1
+using Xunit;
+public class testout1
 {
     private static bool s_static_field_bool;
     private static bool s_static_field_bool_false;
@@ -35,7 +39,9 @@ internal class testout1
         return false;
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int True_Sum = 0;
         int False_Sum = 0;

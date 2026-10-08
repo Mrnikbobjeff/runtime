@@ -1,20 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- Needed for CLRTestEnvironmentVariable, GCStressIncompatible -->
+    <RequiresProcessIsolation>true</RequiresProcessIsolation>
+    <!-- This test creates threads at a very high rate, which can lead to OOM under GC stress -->
+    <GCStressIncompatible>true</GCStressIncompatible>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="$(MSBuildProjectName).cs" />
+
+    <CLRTestEnvironmentVariable Include="DOTNET_Thread_DeadThreadCountThresholdForGCTrigger" Value="8" />
+    <CLRTestEnvironmentVariable Include="DOTNET_Thread_DeadThreadGCTriggerPeriodMilliseconds" Value="3e8" />
   </ItemGroup>
-  <PropertyGroup>
-    <CLRTestBatchPreCommands><![CDATA[
-$(CLRTestBatchPreCommands)
-set COMPlus_Thread_DeadThreadCountThresholdForGCTrigger=8
-set COMPlus_Thread_DeadThreadGCTriggerPeriodMilliseconds=3e8
-]]></CLRTestBatchPreCommands>
-    <BashCLRTestPreCommands><![CDATA[
-$(BashCLRTestPreCommands)
-export COMPlus_Thread_DeadThreadCountThresholdForGCTrigger=8
-export COMPlus_Thread_DeadThreadGCTriggerPeriodMilliseconds=3e8
-]]></BashCLRTestPreCommands>
-  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="$(TestLibraryProjectPath)" />
+  </ItemGroup>
 </Project>

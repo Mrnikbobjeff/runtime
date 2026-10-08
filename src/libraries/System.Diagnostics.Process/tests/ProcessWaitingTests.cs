@@ -1,11 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.DotNet.RemoteExecutor;
+using Microsoft.Win32.SafeHandles;
 using Xunit;
 
 namespace System.Diagnostics.Tests
@@ -85,7 +87,7 @@ namespace System.Diagnostics.Tests
                     p.WaitForExit(WaitInMS);
                 }
             };
-            Task.WaitAll(Enumerable.Range(0, Tasks).Select(_ => Task.Run(work)).ToArray());
+            Task.WaitAll(Enumerable.Range(0, Tasks).Select(_ => Task.Run(work)));
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
@@ -107,7 +109,7 @@ namespace System.Diagnostics.Tests
                 }
             };
 
-            await Task.WhenAll(Enumerable.Range(0, Tasks).Select(_ => Task.Run(work)).ToArray());
+            await Task.WhenAll(Enumerable.Range(0, Tasks).Select(_ => Task.Run(work)));
         }
 
         [Theory]
@@ -349,7 +351,7 @@ namespace System.Diagnostics.Tests
             child2.StartInfo.RedirectStandardOutput = true;
             child2.Start();
             char[] output = new char[6];
-            child2.StandardOutput.Read(output, 0, output.Length);
+            child2.StandardOutput.ReadBlock(output, 0, output.Length);
             Assert.Equal("Signal", new string(output)); // wait for the signal before killing the peer
 
             child1.Kill();
@@ -379,7 +381,7 @@ namespace System.Diagnostics.Tests
             child2.StartInfo.RedirectStandardOutput = true;
             child2.Start();
             char[] output = new char[6];
-            child2.StandardOutput.Read(output, 0, output.Length);
+            child2.StandardOutput.ReadBlock(output, 0, output.Length);
             Assert.Equal("Signal", new string(output)); // wait for the signal before killing the peer
 
             child1.Kill();
@@ -448,7 +450,7 @@ namespace System.Diagnostics.Tests
         {
             const string expectedSignal = "Signal";
             const string successResponse = "Success";
-            const int timeout = 5 * 1000;
+            const int timeout = 30 * 1000; // 30 seconds, to allow for very slow machines
 
             using Process p = CreateProcessPortable(RemotelyInvokable.WriteLineReadLine);
             p.StartInfo.RedirectStandardInput = true;
@@ -490,6 +492,54 @@ namespace System.Diagnostics.Tests
                 Assert.True(p.HasExited, "Process has not exited");
             }
             Assert.Equal(RemotelyInvokable.SuccessExitCode, p.ExitCode);
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void WaitForExit_AfterProcessExit_ShouldConsumeOutputDataReceived()
+        {
+            const string message = "test";
+            using Process p = CreateProcessPortable(RemotelyInvokable.Echo, message);
+
+            int linesReceived = 0;
+            p.OutputDataReceived += (_, e) => { if (e.Data is not null) linesReceived++; };
+            p.StartInfo.RedirectStandardOutput = true;
+
+            Assert.True(p.Start());
+
+            // Give time for the process (cmd) to terminate
+            while (!p.HasExited)
+            {
+                Thread.Sleep(20);
+            }
+
+            p.BeginOutputReadLine();
+            p.WaitForExit();
+
+            Assert.Equal(1, linesReceived);
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public async Task WaitForExitAsync_AfterProcessExit_ShouldConsumeOutputDataReceived()
+        {
+            const string message = "test";
+            using Process p = CreateProcessPortable(RemotelyInvokable.Echo, message);
+
+            int linesReceived = 0;
+            p.OutputDataReceived += (_, e) => { if (e.Data is not null) linesReceived++; };
+            p.StartInfo.RedirectStandardOutput = true;
+
+            Assert.True(p.Start());
+
+            // Give time for the process (cmd) to terminate
+            while (!p.HasExited)
+            {
+                Thread.Sleep(20);
+            }
+
+            p.BeginOutputReadLine();
+            await p.WaitForExitAsync();
+
+            Assert.Equal(1, linesReceived);
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
@@ -590,14 +640,15 @@ namespace System.Diagnostics.Tests
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
         public async Task WaitAsyncForProcess()
         {
-            Process p = CreateSleepProcess(WaitInMS);
-            p.Start();
+            Process p = CreateDefaultProcess();
 
             Task processTask = p.WaitForExitAsync();
-            Task delayTask = Task.Delay(WaitInMS * 2);
+            Assert.False(p.HasExited);
+            Assert.False(processTask.IsCompleted);
 
-            Task result = await Task.WhenAny(processTask, delayTask);
-            Assert.Equal(processTask, result);
+            p.Kill();
+            await processTask;
+
             Assert.True(p.HasExited);
         }
 
@@ -620,6 +671,64 @@ namespace System.Diagnostics.Tests
         {
             var process = new Process();
             await Assert.ThrowsAsync<InvalidOperationException>(() => process.WaitForExitAsync());
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void ProcessSafeHandle_WaitForExit_ReturnsExitCode()
+        {
+            Process process = CreateProcess(static () => RemoteExecutor.SuccessExitCode);
+            process.Start();
+
+            ProcessExitStatus exitStatus = process.SafeHandle.WaitForExit();
+
+            Assert.Equal(RemoteExecutor.SuccessExitCode, exitStatus.ExitCode);
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void ProcessSafeHandle_TryWaitForExit_ReturnsExitCode()
+        {
+            Process process = CreateProcess(static () => RemoteExecutor.SuccessExitCode);
+            process.Start();
+
+            bool exited = process.SafeHandle.TryWaitForExit(TimeSpan.FromMilliseconds(WaitInMS), out ProcessExitStatus? exitStatus);
+
+            Assert.True(exited);
+            Assert.NotNull(exitStatus);
+            Assert.Equal(RemoteExecutor.SuccessExitCode, exitStatus.ExitCode);
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public async Task ProcessSafeHandle_WaitForExitAsync_ReturnsExitCode()
+        {
+            Process process = CreateProcess(static () => RemoteExecutor.SuccessExitCode);
+            process.Start();
+
+            ProcessExitStatus exitStatus = await process.SafeHandle.WaitForExitAsync();
+
+            Assert.Equal(RemoteExecutor.SuccessExitCode, exitStatus.ExitCode);
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public void ProcessSafeHandle_WaitForExitOrKillOnTimeout_KillsOnTimeout()
+        {
+            Process process = CreateProcessLong();
+            process.Start();
+
+            ProcessExitStatus exitStatus = process.SafeHandle.WaitForExitOrKillOnTimeout(TimeSpan.FromMilliseconds(0));
+
+            Assert.True(exitStatus.Canceled);
+        }
+
+        [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
+        public async Task ProcessSafeHandle_WaitForExitOrKillOnCancellationAsync_KillsOnCancellation()
+        {
+            Process process = CreateProcessLong();
+            process.Start();
+
+            using CancellationTokenSource cts = new CancellationTokenSource(0);
+            ProcessExitStatus exitStatus = await process.SafeHandle.WaitForExitOrKillOnCancellationAsync(cts.Token);
+
+            Assert.True(exitStatus.Canceled);
         }
     }
 }

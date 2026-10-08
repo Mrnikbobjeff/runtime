@@ -2,11 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b40141
 {
     using System;
 
-    class BB
+    public class BB
     {
         static int[] Static2() { return new int[100]; }
 
@@ -27,7 +28,8 @@ namespace Test
                 }
             }
         }
-        static int Main()
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

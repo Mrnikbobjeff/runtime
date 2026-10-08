@@ -10,10 +10,7 @@ namespace System.Composition.Hosting.Util
     {
         public static string ReadableList(IEnumerable<string> items)
         {
-            if (items == null)
-            {
-                throw new ArgumentNullException(nameof(items));
-            }
+            ArgumentNullException.ThrowIfNull(items);
 
             string reply = string.Join(SR.Formatter_ListSeparatorWithSpace, items.OrderBy(t => t));
             return !string.IsNullOrEmpty(reply) ? reply : SR.Formatter_None;
@@ -21,10 +18,7 @@ namespace System.Composition.Hosting.Util
 
         public static string Format(Type type)
         {
-            if (type == null)
-            {
-                throw new ArgumentNullException(nameof(type));
-            }
+            ArgumentNullException.ThrowIfNull(type);
 
             if (type.IsConstructedGenericType)
             {
@@ -35,10 +29,7 @@ namespace System.Composition.Hosting.Util
 
         private static string FormatClosedGeneric(Type closedGenericType)
         {
-            if (closedGenericType == null)
-            {
-                throw new ArgumentNullException(nameof(closedGenericType));
-            }
+            ArgumentNullException.ThrowIfNull(closedGenericType);
 
             if (!closedGenericType.IsConstructedGenericType)
             {
@@ -46,8 +37,8 @@ namespace System.Composition.Hosting.Util
             }
 
             var name = closedGenericType.Name.Substring(0, closedGenericType.Name.IndexOf('`'));
-            var args = closedGenericType.GenericTypeArguments.Select(t => Format(t));
-            return string.Format("{0}<{1}>", name, string.Join(", ", args));
+            var args = closedGenericType.GenericTypeArguments.Select(Format);
+            return $"{name}<{string.Join(", ", args)}>";
         }
     }
 }

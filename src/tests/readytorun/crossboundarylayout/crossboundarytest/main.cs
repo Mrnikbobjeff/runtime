@@ -2,12 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using Xunit;
+using TestLibrary;
 
 namespace CrossBoundaryLayout
 {
-    class Program
+    public class Program
     {
-        public static int Main(string[] args)
+        [ActiveIssue("These tests are not supposed to be run with mono.", TestRuntimes.Mono)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             int failure = ATest.Test();
             failure += BTest.Test();

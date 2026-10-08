@@ -1,13 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b601838;
+
 using System;
 using System.Security;
 // using System.Security.Permissions;
 using System.Collections.Generic;
+using Xunit;
 
 // [KeyContainerPermission(SecurityAction.Demand, Flags = KeyContainerPermissionFlags.Delete)]
-internal static class GenericSecurity
+public static class GenericSecurity
 {
     private static int s_result = 99;
 
@@ -24,7 +28,9 @@ internal static class GenericSecurity
         }
     }
 
-    private static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

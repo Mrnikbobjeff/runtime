@@ -5,7 +5,8 @@
 
 using System;
 using System.Runtime.CompilerServices;
-public class BringUpTest
+using Xunit;
+public class BringUpTest_DblMulConst
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -13,7 +14,8 @@ public class BringUpTest
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
     public static double DblMulConst(double r) { return 3.14d *r*r; }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         double y = DblMulConst(10d);
         Console.WriteLine(y);

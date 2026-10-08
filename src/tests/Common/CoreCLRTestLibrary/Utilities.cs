@@ -13,6 +13,7 @@ using System.Runtime.Loader;
 using System.Security;
 using System.Text;
 using System.Threading;
+using Xunit;
 
 namespace TestLibrary
 {
@@ -58,14 +59,17 @@ namespace TestLibrary
         }
 
         public static bool IsX86 => (RuntimeInformation.ProcessArchitecture == Architecture.X86);
+        public static bool IsNotX86 => !IsX86;
         public static bool IsX64 => (RuntimeInformation.ProcessArchitecture == Architecture.X64);
         public static bool IsArm => (RuntimeInformation.ProcessArchitecture == Architecture.Arm);
         public static bool IsArm64 => (RuntimeInformation.ProcessArchitecture == Architecture.Arm64);
+        public static bool IsXArch => IsX86 || IsX64;
 
-        public static bool IsWindows => RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-        public static bool IsLinux => RuntimeInformation.IsOSPlatform(OSPlatform.Linux);
-        public static bool IsMacOSX => RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
-        public static bool IsWindows7 => IsWindows && Environment.OSVersion.Version.Major == 6 && Environment.OSVersion.Version.Minor == 1;
+        public static bool IsWindows => OperatingSystem.IsWindows();
+        public static bool IsLinux => OperatingSystem.IsLinux();
+        public static bool IsFreeBSD => OperatingSystem.IsFreeBSD();
+        public static bool IsOpenBSD => OperatingSystem.IsOSPlatform("OpenBSD");
+        public static bool IsMacOSX => OperatingSystem.IsMacOS();
         public static bool IsWindowsNanoServer => (!IsWindowsIoTCore && GetInstallationType().Equals("Nano Server", StringComparison.OrdinalIgnoreCase));
 
         // Windows 10 October 2018 Update
@@ -89,6 +93,33 @@ namespace TestLibrary
 
         // return whether or not the OS is a 64 bit OS
         public static bool Is64 => (IntPtr.Size == 8);
+        public static bool Is32 => (IntPtr.Size == 4);
+
+        public static bool IsMonoRuntime => Type.GetType("Mono.RuntimeStructs") != null;
+        public static bool IsNotMonoRuntime => !IsMonoRuntime;
+        public static bool IsNativeAot => IsNotMonoRuntime && !IsReflectionEmitSupported;
+        public static bool IsNotNativeAot => !IsNativeAot;
+
+        public static bool IsCoreClrInterpreter
+        {
+            get
+            {
+                if (RuntimeFeature.IsDynamicCodeSupported && !RuntimeFeature.IsDynamicCodeCompiled)
+                    return true;
+                return CoreClrConfigurationDetection.IsCoreClrInterpreter;
+            }
+        }
+
+        public static bool HasAssemblyFiles => !string.IsNullOrEmpty(typeof(Utilities).Assembly.Location);
+        public static bool IsSingleFile => !HasAssemblyFiles;
+
+#if NET
+        public static bool IsReflectionEmitSupported => RuntimeFeature.IsDynamicCodeSupported;
+        public static bool IsNotReflectionEmitSupported => !IsReflectionEmitSupported;
+#else
+        public static bool IsReflectionEmitSupported => true;
+#endif
+        public static bool IsGCStress => (Environment.GetEnvironmentVariable("DOTNET_GCStress") != null);
 
         public static string ByteArrayToString(byte[] bytes)
         {
@@ -143,8 +174,7 @@ namespace TestLibrary
             return returnString;
         }
 
-        // Given a character, display its unicode value in hex format. ProjectN doens't support
-        // unicode category as a Property on Char.
+        // Given a character, display its unicode value in hex format.
         public static string FormatHexStringFromUnicodeChar(char char1, bool includeUnicodeCategory)
         {
             if (includeUnicodeCategory)
@@ -205,7 +235,7 @@ namespace TestLibrary
                 return 0;
             }
 
-            Assert.AreEqual(0, Ntdll.RtlGetVersionEx(out Ntdll.RTL_OSVERSIONINFOEX osvi));
+            Assert.Equal(0, Ntdll.RtlGetVersionEx(out Ntdll.RTL_OSVERSIONINFOEX osvi));
             return osvi.dwMajorVersion;
         }
         internal static uint GetWindowsMinorVersion()
@@ -215,7 +245,7 @@ namespace TestLibrary
                 return 0;
             }
 
-            Assert.AreEqual(0, Ntdll.RtlGetVersionEx(out Ntdll.RTL_OSVERSIONINFOEX osvi));
+            Assert.Equal(0, Ntdll.RtlGetVersionEx(out Ntdll.RTL_OSVERSIONINFOEX osvi));
             return osvi.dwMinorVersion;
         }
         internal static uint GetWindowsBuildNumber()
@@ -225,7 +255,7 @@ namespace TestLibrary
                 return 0;
             }
 
-            Assert.AreEqual(0, Ntdll.RtlGetVersionEx(out Ntdll.RTL_OSVERSIONINFOEX osvi));
+            Assert.Equal(0, Ntdll.RtlGetVersionEx(out Ntdll.RTL_OSVERSIONINFOEX osvi));
             return osvi.dwBuildNumber;
         }
 
@@ -321,7 +351,7 @@ namespace TestLibrary
             public const int PRODUCT_HOME_PREMIUM_N = 0x0000001A;
 
             /// <summary>
-            /// https://docs.microsoft.com/en-us/windows/desktop/api/sysinfoapi/nf-sysinfoapi-getproductinfo
+            /// https://learn.microsoft.com/windows/desktop/api/sysinfoapi/nf-sysinfoapi-getproductinfo
             /// </summary>
             [DllImport(nameof(Kernel32), SetLastError = false)]
             public static extern bool GetProductInfo(
@@ -421,6 +451,8 @@ namespace TestLibrary
 
             exitCode = ExecuteAndUnloadInternal(assemblyPath, args, unloadingCallback, out alcWeakRef);
 
+            // Run the GC and finalizer a few times to ensure that any complicated
+            // object trees and runtime data structures that may keep the ALC alive are freed.
             for (int i = 0; i < 8 && alcWeakRef.IsAlive; i++)
             {
                 GC.Collect();
@@ -438,6 +470,65 @@ namespace TestLibrary
             }
 
             return exitCode;
+        }
+
+        private static void ExecuteAndUnloadInternal(string assemblyPath, string typeName, string methodName, object[] args, out WeakReference alcWeakRef)
+        {
+            AssemblyLoadContext alc = new AssemblyLoadContext($"[{assemblyPath}]{typeName}.{methodName}", true);
+            alcWeakRef = new WeakReference(alc);
+
+            Assembly asm = alc.LoadFromAssemblyPath(assemblyPath);
+            Type testType = asm.GetType(typeName);
+            testType.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static).Invoke(null, args);
+            alc.Unload();
+        }
+
+        public static void ExecuteAndUnload(string assemblyPath, string typeName, string methodName, params object[] args)
+        {
+            WeakReference alcWeakRef;
+            ExecuteAndUnloadInternal(assemblyPath, typeName, methodName, args, out alcWeakRef);
+
+            // Run the GC and finalizer a few times to ensure that any complicated
+            // object trees and runtime data structures that may keep the ALC alive are freed.
+            for (int i = 0; i < 8 && alcWeakRef.IsAlive; i++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+
+            Assert.False(alcWeakRef.IsAlive);
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RLimit
+        {
+            public ulong rlim_cur; // Soft limit
+            public ulong rlim_max; // Hard limit
+        }
+
+        public const int RLIMIT_CORE = 4; // Core file size
+
+        [DllImport("libc", SetLastError = true)]
+        public static extern int setrlimit(int resource, ref RLimit rlim);
+
+        // Ensure that the OS doesn't generate core dump for the current process
+        public static void DisableOSCoreDump()
+        {
+            // At present, RLimit is defined in a way where the fields are always 64-bit.
+            // Before adding support for a new platform, its definition of rlimit should be confirmed.
+            if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+            {
+                RLimit rlimit = new RLimit
+                {
+                    rlim_cur = 0,
+                    rlim_max = 0
+                };
+
+                if (setrlimit(RLIMIT_CORE, ref rlimit) != 0)
+                {
+                    throw new Exception($"Failed to disable core dump, error {Marshal.GetLastPInvokeError()} - {Marshal.GetLastPInvokeErrorMessage()}.");
+                }
+            }
         }
     }
 }

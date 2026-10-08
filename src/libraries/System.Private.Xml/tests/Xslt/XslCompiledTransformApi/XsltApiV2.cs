@@ -1,16 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using Xunit;
-using Xunit.Abstractions;
 using System.IO;
 using System.Text;
+using System.Xml.Tests;
 using System.Xml.XmlDiff;
 using System.Xml.XPath;
 using System.Xml.Xsl;
 using XmlCoreTest.Common;
+using Xunit;
+using Xunit.Abstractions;
 
-namespace System.Xml.Tests
+namespace System.Xml.XslCompiledTransformApiTests
 {
     public enum OutputType
     {
@@ -30,6 +31,14 @@ namespace System.Xml.Tests
     public enum NavType
     {
         XmlDocument, DataDocument, XPathDocument, Unknown
+    }
+
+    internal static class XsltApiTestRequirements
+    {
+        public static bool IsSupported =>
+            PlatformDetection.IsReflectionEmitSupported &&
+            // [ActiveIssue("https://github.com/dotnet/runtime/issues/124344")]
+            !(PlatformDetection.IsAppleMobile && PlatformDetection.IsCoreCLR);
     }
 
     ////////////////////////////////////////////////////////////////
@@ -208,11 +217,11 @@ namespace System.Xml.Tests
             {
                 _output.WriteLine("Expected Exception : {0}", _expectedErrorCode);
                 _output.WriteLine("Actual Exception : {0}", handler.res);
-                Assert.True(false);
+                Assert.Fail();
             }
             if (!result)
             {
-                Assert.True(false);
+                Assert.Fail();
             }
             return;
         }
@@ -225,7 +234,7 @@ namespace System.Xml.Tests
             CExceptionHandler handler = new CExceptionHandler(Path.Combine(_strPath, "Exceptions.xml"), assembly, _output);
             if (!handler.VerifyException(ex, res, strParams))
             {
-                Assert.True(false);
+                Assert.Fail();
             }
             return;
         }
@@ -466,7 +475,7 @@ namespace System.Xml.Tests
             baseline = FullFilePath(baseline);
 
             XmlDiff.XmlDiff diff = new XmlDiff.XmlDiff();
-            diff.Option = XmlDiffOption.IgnoreEmptyElement | XmlDiffOption.IgnoreAttributeOrder | XmlDiffOption.InfosetComparison | XmlDiffOption.IgnoreWhitespace | XmlDiffOption.NormalizeNewline;
+            diff.Option = XmlDiffOption.IgnoreEmptyElement | XmlDiffOption.IgnoreAttributeOrder | XmlDiffOption.InfosetComparison | XmlDiffOption.IgnoreWhitespace | XmlDiffOption.NormalizeNewline | XmlDiffOption.NormalizeSpaces;
             XmlParserContext context = new XmlParserContext(new NameTable(), null, "", XmlSpace.None);
 
             fsExpected = new FileStream(baseline, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -503,7 +512,7 @@ namespace System.Xml.Tests
                     _output.WriteLine(output);
                 }
 
-                using (StreamWriter sw = new StreamWriter(new FileStream("diff.xml", FileMode.Open, FileAccess.Read)))
+                using (StreamWriter sw = new StreamWriter(new FileStream("diff.xml", FileMode.Create, FileAccess.Write)))
                 {
                     sw.WriteLine("<?xml-stylesheet href='diff.xsl' type='text/xsl'?>");
                     sw.WriteLine(diff.ToXml());

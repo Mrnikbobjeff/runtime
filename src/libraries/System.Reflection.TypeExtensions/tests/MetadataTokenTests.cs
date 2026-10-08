@@ -35,7 +35,7 @@ namespace System.Reflection.Tests
         };
 
         [ActiveIssue("https://github.com/mono/mono/issues/15194", TestRuntimes.Mono)]
-        [ConditionalTheory(nameof(GetMetadataTokenSupported))]
+        [ConditionalTheory(typeof(MetadataTokenTests), nameof(GetMetadataTokenSupported))]
         [MemberData(nameof(MembersWithExpectedTableIndex))]
         public void SuccessImpliesNonNilWithCorrectTable(MemberInfo member, int expectedTableIndex)
         {
@@ -45,18 +45,19 @@ namespace System.Reflection.Tests
             Assert.NotEqual(0, TableIndex(token));
         }
 
-        [ConditionalFact(nameof(GetMetadataTokenSupported), nameof(IsReflectionEmitSupported))]
-        public static void UnbakedReflectionEmitType_HasNoMetadataToken()
+        [ConditionalFact(typeof(MetadataTokenTests), nameof(GetMetadataTokenSupported), nameof(IsReflectionEmitSupported))]
+        public static void ReflectionEmitType_HasMetadataToken()
         {
             AssemblyBuilder assembly = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("dynamic"), AssemblyBuilderAccess.Run);
             ModuleBuilder module = assembly.DefineDynamicModule("dynamic.dll");
             TypeBuilder type = module.DefineType("T");
             MethodInfo method = type.DefineMethod("M", MethodAttributes.Public);
-            Assert.False(method.HasMetadataToken());
-            Assert.Throws<InvalidOperationException>(() => method.GetMetadataToken());
+
+            Assert.True(method.HasMetadataToken());
+            Assert.NotEqual(0, method.GetMetadataToken());
         }
 
-        public static bool GetMetadataTokenSupported => true;
+        public static bool GetMetadataTokenSupported => PlatformDetection.IsMetadataTokenSupported;
 
         public static bool IsReflectionEmitSupported => PlatformDetection.IsReflectionEmitSupported;
 

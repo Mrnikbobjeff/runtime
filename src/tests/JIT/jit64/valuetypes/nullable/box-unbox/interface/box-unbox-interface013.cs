@@ -13,8 +13,10 @@
 
 using System.Runtime.InteropServices;
 using System;
+using Xunit;
 
-internal class NullableTest
+namespace box_unbox_interface013;
+public class NullableTest
 {
     private static bool BoxUnboxToNQ(IComparable o)
     {
@@ -26,7 +28,9 @@ internal class NullableTest
         return Helper.Compare((uint?)o, Helper.Create(default(uint)));
     }
 
-    private static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         uint? s = Helper.Create(default(uint));
 

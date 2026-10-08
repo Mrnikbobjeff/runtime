@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System.Globalization;
 using System.IO;
 using System.Text;
@@ -10,9 +9,11 @@ namespace System.Net.NetworkInformation
 {
     internal static class UnixCommandLinePing
     {
-        // Ubuntu has ping under /bin, OSX under /sbin, ArchLinux under /usr/bin.
-        private static readonly string[] s_binFolders = { "/bin/", "/sbin/", "/usr/bin/" };
-        private const string s_ipv4PingFile = "ping";
+        // Ubuntu has ping under /bin, OSX under /sbin, ArchLinux under /usr/bin, Android under /system/bin, NixOS under /run/current-system/sw/bin.
+        private static readonly string[] s_binFolders = { "/bin", "/sbin", "/usr/bin", "/system/bin", "/run/current-system/sw/bin" };
+
+        private const string s_ipv4PingFile = "ping4";
+        private const string s_ipv4v6PingFile = "ping";
         private const string s_ipv6PingFile = "ping6";
 
         private static readonly string? s_discoveredPing4UtilityPath = GetPingUtilityPath(ipv4: true);
@@ -26,10 +27,15 @@ namespace System.Net.NetworkInformation
             string fileName = ipv4 ? s_ipv4PingFile : s_ipv6PingFile;
             foreach (string folder in s_binFolders)
             {
+                string pathv4v6 = Path.Combine(folder, s_ipv4v6PingFile);
                 string path = Path.Combine(folder, fileName);
                 if (File.Exists(path))
                 {
                     return path;
+                }
+                if (File.Exists(pathv4v6))
+                {
+                    return pathv4v6;
                 }
             }
 
@@ -37,14 +43,12 @@ namespace System.Net.NetworkInformation
         }
 
         // Check if found ping is symlink to busybox like alpine /bin/ping -> /bin/busybox
-        private static unsafe bool IsBusyboxPing(string? pingBinary)
+        private static bool IsBusyboxPing(string? pingBinary)
         {
             if (pingBinary != null)
             {
-                string? linkedName = Interop.Sys.ReadLink(pingBinary);
-
-                // If pingBinary is not link linkedName will be null
-                if (linkedName != null && linkedName.EndsWith("busybox", StringComparison.Ordinal))
+                System.IO.FileSystemInfo? linkInfo = File.ResolveLinkTarget(pingBinary, returnFinalTarget: true);
+                if (linkInfo?.Name.EndsWith("busybox", StringComparison.Ordinal) == true)
                 {
                     return true;
                 }
@@ -53,7 +57,12 @@ namespace System.Net.NetworkInformation
             return false;
         }
 
-        public enum PingFragmentOptions { Default, Do, Dont };
+        public enum PingFragmentOptions
+        {
+            Default,
+            Do,
+            Dont
+        };
 
         /// <summary>
         /// The location of the IPv4 ping utility on the current machine.
@@ -91,7 +100,8 @@ namespace System.Net.NetworkInformation
             // OSX: ping requires -W flag which accepts timeout in MILLISECONDS; ping6 doesn't support timeout
             if (OperatingSystem.IsFreeBSD())
             {
-                if (ipv4)
+                // Syntax changed in FreeBSD 13.0 and options are not common for both address families
+                if (ipv4 || Environment.OSVersion.Version.Major > 12)
                 {
                     sb.Append(" -W ");
                 }
@@ -136,7 +146,8 @@ namespace System.Net.NetworkInformation
                 if (OperatingSystem.IsFreeBSD() || OperatingSystem.IsMacOS())
                 {
                     // OSX and FreeBSD use -h to set hop limit for IPv6 and -m ttl for IPv4
-                    if (ipv4)
+                    // Syntax changed in FreeBSD 13.0 and options are not common for both address families
+                    if (ipv4 || (OperatingSystem.IsFreeBSD() && Environment.OSVersion.Version.Major > 12))
                     {
                         sb.Append(" -m ");
                     }

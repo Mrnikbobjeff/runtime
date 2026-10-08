@@ -1,7 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
 using System.Diagnostics;
 using System.Globalization;
 using System.Reflection;
@@ -59,6 +58,7 @@ namespace System.Net
         {
             _length = tokenStream.Length;
             _tokenStream = tokenStream;
+            _value = string.Empty;
         }
 
         internal bool EndOfCookie
@@ -140,7 +140,7 @@ namespace System.Net
             {
                 tokenString = Quoted ?
                     _tokenStream.Substring(_start, _tokenLength) :
-                    _tokenStream.SubstringTrim(_start, _tokenLength);
+                    _tokenStream.AsSpan(_start, _tokenLength).Trim().ToString();
             }
             return tokenString;
         }
@@ -553,9 +553,9 @@ namespace System.Net
                 if (s_isQuotedDomainField == null)
                 {
                     // TODO https://github.com/dotnet/runtime/issues/19348:
-                    FieldInfo? field = typeof(Cookie).GetField("IsQuotedDomain", BindingFlags.Instance | BindingFlags.NonPublic);
-                    Debug.Assert(field != null, "We need to use an internal field named IsQuotedDomain that is declared on Cookie.");
-                    s_isQuotedDomainField = field;
+                    FieldInfo? fieldInfo = typeof(Cookie).GetField("IsQuotedDomain", BindingFlags.Instance | BindingFlags.NonPublic);
+                    Debug.Assert(fieldInfo != null, "We need to use an internal field named IsQuotedDomain that is declared on Cookie.");
+                    s_isQuotedDomainField = fieldInfo;
                 }
 
                 return s_isQuotedDomainField;
@@ -570,9 +570,9 @@ namespace System.Net
                 if (s_isQuotedVersionField == null)
                 {
                     // TODO https://github.com/dotnet/runtime/issues/19348:
-                    FieldInfo? field = typeof(Cookie).GetField("IsQuotedVersion", BindingFlags.Instance | BindingFlags.NonPublic);
-                    Debug.Assert(field != null, "We need to use an internal field named IsQuotedVersion that is declared on Cookie.");
-                    s_isQuotedVersionField = field;
+                    FieldInfo? fieldInfo = typeof(Cookie).GetField("IsQuotedVersion", BindingFlags.Instance | BindingFlags.NonPublic);
+                    Debug.Assert(fieldInfo != null, "We need to use an internal field named IsQuotedVersion that is declared on Cookie.");
+                    s_isQuotedVersionField = fieldInfo;
                 }
 
                 return s_isQuotedVersionField;
@@ -647,7 +647,7 @@ namespace System.Net
                                         expiresSet = true;
 
                                         if (DateTime.TryParse(CheckQuoted(_tokenizer.Value),
-                                            CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces, out DateTime expires))
+                                            CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AdjustToUniversal, out DateTime expires))
                                         {
                                             cookie!.Expires = expires;
                                         }
@@ -665,7 +665,7 @@ namespace System.Net
                                         expiresSet = true;
                                         if (int.TryParse(CheckQuoted(_tokenizer.Value), out int parsed))
                                         {
-                                            cookie!.Expires = DateTime.Now.AddSeconds(parsed);
+                                            cookie!.Expires = DateTime.UtcNow.AddSeconds(parsed);
                                         }
                                         else
                                         {
@@ -775,10 +775,7 @@ namespace System.Net
 
                 if (first && (token == CookieToken.NameValuePair || token == CookieToken.Attribute))
                 {
-                    if (cookie == null)
-                    {
-                        cookie = new Cookie();
-                    }
+                    cookie ??= new Cookie();
                     InternalSetNameMethod(cookie, _tokenizer.Name);
                     cookie.Value = _tokenizer.Value;
                 }
@@ -855,10 +852,9 @@ namespace System.Net
 
         internal static string CheckQuoted(string value)
         {
-            if (value.Length < 2 || value[0] != '\"' || value[value.Length - 1] != '\"')
-                return value;
-
-            return value.Length == 2 ? string.Empty : value.Substring(1, value.Length - 2);
+            return (value.Length >= 2 && value.StartsWith('\"') && value.EndsWith('\"'))
+                ? value.Substring(1, value.Length - 2)
+                : value;
         }
 
         internal bool EndofHeader()

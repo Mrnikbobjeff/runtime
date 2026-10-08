@@ -1,14 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#if SYSTEM_NET_SOCKETS_DLL
 namespace System.Net.Sockets
-#else
-namespace System.Net.Internals
-#endif
 {
+    public
     // Specifies the protocols that the Socket class supports.
-    public enum ProtocolType
+    enum ProtocolType
     {
         IP = 0, // dummy for IP
 

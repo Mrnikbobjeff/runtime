@@ -2,8 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
-using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq.Expressions;
 using Microsoft.Internal;
@@ -102,7 +102,7 @@ namespace System.ComponentModel.Composition.Primitives
                 (cardinality != ImportCardinality.ZeroOrOne)
                 )
             {
-                throw new ArgumentException(SR.Format(SR.ArgumentOutOfRange_InvalidEnum, nameof(cardinality), cardinality, typeof(ImportCardinality).Name), nameof(cardinality));
+                throw new ArgumentException(SR.Format(SR.ArgumentOutOfRange_InvalidEnum, nameof(cardinality), cardinality, nameof(ImportCardinality)), nameof(cardinality));
             }
 
             _contractName = contractName ?? EmptyContractName;
@@ -263,10 +263,7 @@ namespace System.ComponentModel.Composition.Primitives
         {
             Requires.NotNull(exportDefinition, nameof(exportDefinition));
 
-            if (_compiledConstraint == null)
-            {
-                _compiledConstraint = Constraint.Compile();
-            }
+            _compiledConstraint ??= Constraint.Compile();
 
             return _compiledConstraint.Invoke(exportDefinition);
         }

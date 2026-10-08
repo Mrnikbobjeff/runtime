@@ -5,21 +5,9 @@ using System.Runtime.InteropServices;
 using System;
 using System.Reflection;
 using System.Text;
-using TestLibrary;
+using Xunit;
 
-class AnsiBStrTest
+[OuterLoop]
+public partial class StringTests
 {
-    public static int Main()
-    {
-        try
-        {
-            CommonStringTests.RunTests(runStringBuilderTests: false, runStructTests: false);
-        }
-        catch (System.Exception ex)
-        {
-            Console.WriteLine(ex.ToString());
-            return 101;
-        }
-        return 100;
-    }
 }

@@ -3,7 +3,9 @@
 using System.Security;
 using System;
 using System.Runtime.InteropServices; // For SafeHandle
+using Xunit;
 
+namespace SafeHandleDangerousAddRefTest;
 
 [SecurityCritical]
 public class MySafeValidHandle : SafeHandle
@@ -206,7 +208,9 @@ public class SafeHandleDangerousAddRef
 
 
     [SecuritySafeCritical]
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         SafeHandleDangerousAddRef test = new SafeHandleDangerousAddRef();
 

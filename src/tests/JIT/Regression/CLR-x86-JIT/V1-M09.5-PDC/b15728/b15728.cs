@@ -2,13 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace defaultNamespace
+using Xunit;
+namespace b15728
 {
     using System;
 
     public class jitbug
     {
-        public static int Main(String[] args)
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             if ("15.0%Double.PositiveInfinity = " + 15.0 % Double.PositiveInfinity == "15.0%Double.PositiveInfinity = 15")
             {

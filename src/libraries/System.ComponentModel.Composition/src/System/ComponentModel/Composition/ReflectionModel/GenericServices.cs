@@ -2,10 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Linq;
 using System.Reflection;
-using System.Diagnostics.CodeAnalysis;
 
 namespace System.ComponentModel.Composition.ReflectionModel
 {
@@ -13,10 +13,7 @@ namespace System.ComponentModel.Composition.ReflectionModel
     {
         internal static IList<Type> GetPureGenericParameters(this Type type)
         {
-            if (type == null)
-            {
-                throw new ArgumentNullException(nameof(type));
-            }
+            ArgumentNullException.ThrowIfNull(type);
 
             if (type.IsGenericType && type.ContainsGenericParameters)
             {
@@ -38,10 +35,7 @@ namespace System.ComponentModel.Composition.ReflectionModel
 
         internal static int GetPureGenericArity(this Type type)
         {
-            if (type == null)
-            {
-                throw new ArgumentNullException(nameof(type));
-            }
+            ArgumentNullException.ThrowIfNull(type);
 
             int genericArity = 0;
             if (type.IsGenericType && type.ContainsGenericParameters)
@@ -79,7 +73,7 @@ namespace System.ComponentModel.Composition.ReflectionModel
             string[] genericFormatArgs = new string[genericArity];
             for (int i = 0; i < genericParametersOrder.Length; i++)
             {
-                genericFormatArgs[genericParametersOrder[i]] = string.Format(CultureInfo.InvariantCulture, "{{{0}}}", i);
+                genericFormatArgs[genericParametersOrder[i]] = $"{{{i}}}";
             }
             return string.Format(CultureInfo.InvariantCulture, originalGenericName, genericFormatArgs);
         }
@@ -94,7 +88,7 @@ namespace System.ComponentModel.Composition.ReflectionModel
             return genericSpecialization;
         }
 
-        [return: NotNullIfNotNull("types")]
+        [return: NotNullIfNotNull(nameof(types))]
         public static IEnumerable<Type>? CreateTypeSpecializations(this Type[]? types, Type[] specializationTypes)
         {
             if (types == null)
@@ -184,7 +178,7 @@ namespace System.ComponentModel.Composition.ReflectionModel
             if ((attributes & GenericParameterAttributes.DefaultConstructorConstraint) != 0)
             {
                 // value types always have default constructors
-                if (!type.IsValueType && (type.GetConstructor(Type.EmptyTypes) == null))
+                if (!type.IsValueType && ((type.GetConstructor(Type.EmptyTypes) == null) || type.IsAbstract))
                 {
                     return false;
                 }

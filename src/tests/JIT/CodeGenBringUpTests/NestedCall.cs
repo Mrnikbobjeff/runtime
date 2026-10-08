@@ -5,7 +5,8 @@
 
 using System;
 using System.Runtime.CompilerServices;
-public class BringUpTest
+using Xunit;
+public class BringUpTest_NestedCall
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -23,7 +24,8 @@ public class BringUpTest
         return c;
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         int y = NestedCall(2, 3);
         if (y == 97) return Pass;

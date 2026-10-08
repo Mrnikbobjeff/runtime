@@ -7,13 +7,16 @@
   .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )
   .ver 4:0:0:0
 }
-.assembly compat_i4_u { }
-.namespace JitTest
+.assembly ASSEMBLY_NAME { }
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
+.assembly extern xunit.core {}
+.namespace JitTest_compat_i4_u
 {
-  .class private auto ansi beforefieldinit Test
+  .class public auto ansi beforefieldinit Test
          extends [mscorlib]System.Object
   {
-    .method private hidebysig static 
+    .method private hidebysig static
             int32 Method1() il managed
     {
       // Code size       93 (0x5d)
@@ -40,7 +43,7 @@
       IL_005c:  ret
     } // end of method Test::Method1
 
-    .method private hidebysig static 
+    .method private hidebysig static
             native unsigned int Method2() il managed
     {
       // Code size       98 (0x62)
@@ -64,18 +67,24 @@
       IL_0050:  call       void [mscorlib]System.GC::Collect()
       IL_0055:  call       void [mscorlib]System.GC::Collect()
       IL_005a:  tail.
-      IL_005c:  call       int32 JitTest.Test::Method1()
+      IL_005c:  call       int32 JitTest_compat_i4_u.Test::Method1()
       IL_0061:  ret
     } // end of method Test::Method2
 
-    .method private hidebysig static 
+    .method public hidebysig static
             int32 Main() il managed
     {
+      .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = {}
+      .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, class [mscorlib]System.Type, string[]) = {
+          string('https://github.com/dotnet/runtime/issues/91923')
+          type([TestLibrary]TestLibrary.PlatformDetection)
+          string[1] ('IsAppleMobile')
+      }
       .entrypoint
       // Code size       40 (0x28)
       .maxstack  2
       .locals (int32 V_0)
-      IL_0000:  call       native unsigned int JitTest.Test::Method2()
+      IL_0000:  call       native unsigned int JitTest_compat_i4_u.Test::Method2()
       IL_0005:  ldc.i4.s   10
       IL_0007:  beq.s      IL_0017
 
@@ -95,7 +104,7 @@
       IL_0027:  ret
     } // end of method Test::Main
 
-    .method public hidebysig specialname rtspecialname 
+    .method public hidebysig specialname rtspecialname
             instance void .ctor() il managed
     {
       // Code size       7 (0x7)
@@ -107,6 +116,6 @@
 
   } // end of class Test
 
-} // end of namespace JitTest
+} // end of namespace JitTest_compat_i4_u
 
 //*********** DISASSEMBLY COMPLETE ***********************

@@ -1,7 +1,11 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b15539;
+
 using System;
+using Xunit;
 
 internal struct VC
 {
@@ -12,9 +16,11 @@ internal struct VC
 }
 
 
-internal class A
+public class A
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         VC vc = new VC();
         vc.x = 5;
@@ -22,7 +28,7 @@ internal class A
         return test(vc);
     }
 
-    public static int test(VC vc)
+    static int test(VC vc)
     {
         if (vc.x == 5)
         {

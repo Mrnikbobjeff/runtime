@@ -2,16 +2,20 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b140298;
+
 using System;
+using Xunit;
 
 public class History
 {
     private static Object with = null;
 
-    public static int Main()
+    [Fact]
+    public static void TestEntryPoint()
     {
         CreateHistory(null, null, 0, 0, 0, 0, 0, DateTime.Now, 0, "ciao");
-        return 100;
     }
 
     public static History CreateHistory(Object nearobj, Object amode,
@@ -43,7 +47,7 @@ public class History
         return new History();
     }
 
-    public void initHistory
+    internal void initHistory
     (short inCustomerId,
                sbyte inCustomerDistrictId,
                short inCustomerWarehouseId,

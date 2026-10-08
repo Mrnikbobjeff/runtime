@@ -2,13 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using Microsoft.Extensions.FileSystemGlobbing.Abstractions;
 
 namespace Microsoft.Extensions.FileSystemGlobbing
 {
+    /// <summary>
+    /// Provides extensions for configuring and executing a <see cref="Matcher" />.
+    /// </summary>
     public static class MatcherExtensions
     {
         /// <summary>
@@ -51,9 +54,18 @@ namespace Microsoft.Extensions.FileSystemGlobbing
         /// <returns>Absolute file paths of all files matched. Empty enumerable if no files matched given patterns.</returns>
         public static IEnumerable<string> GetResultsInFullPath(this Matcher matcher, string directoryPath)
         {
-            IEnumerable<FilePatternMatch> matches = matcher.Execute(new DirectoryInfoWrapper(new DirectoryInfo(directoryPath))).Files;
-            string[] result = matches.Select(match => Path.GetFullPath(Path.Combine(directoryPath, match.Path))).ToArray();
+            PatternMatchingResult patternMatchingResult = matcher.Execute(new DirectoryInfoWrapper(new DirectoryInfo(directoryPath)));
+            if (!patternMatchingResult.HasMatches)
+            {
+                return Array.Empty<string>();
+            }
 
+            IEnumerable<FilePatternMatch> matches = patternMatchingResult.Files;
+            List<string> result = matches is ICollection matchCollection ? new(matchCollection.Count) : new();
+            foreach (FilePatternMatch match in matches)
+            {
+                result.Add(Path.GetFullPath(Path.Combine(directoryPath, match.Path)));
+            }
             return result;
         }
 
@@ -86,7 +98,7 @@ namespace Microsoft.Extensions.FileSystemGlobbing
         /// <param name="matcher">The matcher that holds the patterns and pattern matching type.</param>
         /// <param name="files">The files to run the matcher against.</param>
         /// <returns>The match results.</returns>
-        public static PatternMatchingResult Match(this Matcher matcher, IEnumerable<string> files)
+        public static PatternMatchingResult Match(this Matcher matcher, IEnumerable<string>? files)
         {
             return Match(matcher, Directory.GetCurrentDirectory(), files);
         }
@@ -98,14 +110,11 @@ namespace Microsoft.Extensions.FileSystemGlobbing
         /// <param name="rootDir">The root directory for the matcher to match the files from.</param>
         /// <param name="files">The files to run the matcher against.</param>
         /// <returns>The match results.</returns>
-        public static PatternMatchingResult Match(this Matcher matcher, string rootDir, IEnumerable<string> files)
+        public static PatternMatchingResult Match(this Matcher matcher, string rootDir, IEnumerable<string>? files)
         {
-            if (matcher == null)
-            {
-                throw new ArgumentNullException(nameof(matcher));
-            }
+            ArgumentNullException.ThrowIfNull(matcher);
 
-            return matcher.Execute(new InMemoryDirectoryInfo(rootDir, files));
+            return matcher.Execute(new InMemoryDirectoryInfo(rootDir, files, matcher.ComparisonType));
         }
     }
 }

@@ -4,20 +4,23 @@
 using System;
 using System.Collections;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.Text.RegularExpressions;
-using System.Xml.Extensions;
 
 namespace System.Xml.Serialization
 {
-    internal class SourceInfo
+    internal sealed partial class SourceInfo
     {
         //a[ia]
         //((global::System.Xml.Serialization.XmlSerializerNamespaces)p[0])
-        private static readonly Regex s_regex = new Regex("([(][(](?<t>[^)]+)[)])?(?<a>[^[]+)[[](?<ia>.+)[]][)]?");
+        [GeneratedRegex("([(][(](?<t>[^)]+)[)])?(?<a>[^[]+)[[](?<ia>.+)[]][)]?")]
+        private static partial Regex Regex1 { get; }
+
         //((global::Microsoft.CFx.Test.Common.TypeLibrary.IXSType_9)o), @"IXSType_9", @"", true, true);
-        private static readonly Regex s_regex2 = new Regex("[(][(](?<cast>[^)]+)[)](?<arg>[^)]+)[)]");
+        [GeneratedRegex("[(][(](?<cast>[^)]+)[)](?<arg>[^)]+)[)]")]
+        private static partial Regex Regex2 { get; }
 
         private static readonly Lazy<MethodInfo> s_iListGetItemMethod = new Lazy<MethodInfo>(
             () =>
@@ -31,6 +34,7 @@ namespace System.Xml.Serialization
         public string Source;
         public readonly string Arg;
         public readonly MemberInfo? MemberInfo;
+
         public readonly Type? Type;
         public readonly CodeGenerator ILG;
 
@@ -45,26 +49,29 @@ namespace System.Xml.Serialization
 
         public SourceInfo CastTo(TypeDesc td)
         {
-            return new SourceInfo("((" + td.CSharpName + ")" + Source + ")", Arg, MemberInfo, td.Type!, ILG);
+            return new SourceInfo($"(({td.CSharpName}){Source})", Arg, MemberInfo, td.Type!, ILG);
         }
 
+        [RequiresUnreferencedCode("calls InternalLoad")]
         public void LoadAddress(Type? elementType)
         {
             InternalLoad(elementType, asAddress: true);
         }
 
+        [RequiresUnreferencedCode("calls InternalLoad")]
         public void Load(Type? elementType)
         {
             InternalLoad(elementType);
         }
 
+        [RequiresUnreferencedCode("calls LoadMemberAddress")]
         private void InternalLoad(Type? elementType, bool asAddress = false)
         {
-            Match match = s_regex.Match(Arg);
+            Match match = Regex1.Match(Arg);
             if (match.Success)
             {
                 object varA = ILG.GetVariable(match.Groups["a"].Value);
-                Type varType = ILG.GetVariableType(varA);
+                Type varType = CodeGenerator.GetVariableType(varA);
                 object varIA = ILG.GetVariable(match.Groups["ia"].Value);
                 if (varType.IsArray)
                 {
@@ -94,7 +101,7 @@ namespace System.Xml.Serialization
                 }
                 else
                 {
-                    ILG.Load(varA);
+                    ILG.LoadAddress(varA);
                     ILG.Load(varIA);
                     MethodInfo get_Item = varType.GetMethod(
                         "get_Item",
@@ -138,7 +145,7 @@ namespace System.Xml.Serialization
                 if (Arg.StartsWith("o.@", StringComparison.Ordinal) || MemberInfo != null)
                 {
                     var = ILG.GetVariable(Arg.StartsWith("o.@", StringComparison.Ordinal) ? "o" : Arg);
-                    varType = ILG.GetVariableType(var);
+                    varType = CodeGenerator.GetVariableType(var);
                     if (varType.IsValueType)
                         ILG.LoadAddress(var);
                     else
@@ -147,7 +154,7 @@ namespace System.Xml.Serialization
                 else
                 {
                     var = ILG.GetVariable(Arg);
-                    varType = ILG.GetVariableType(var);
+                    varType = CodeGenerator.GetVariableType(var);
 
                     if (CodeGenerator.IsNullableGenericType(varType) &&
                         varType.GetGenericArguments()[0] == elementType)
@@ -181,7 +188,7 @@ namespace System.Xml.Serialization
                 }
                 else
                 {
-                    match = s_regex2.Match(Source);
+                    match = Regex2.Match(Source);
                     if (match.Success)
                     {
                         Debug.Assert(match.Groups["arg"].Value == Arg);
@@ -208,7 +215,9 @@ namespace System.Xml.Serialization
             }
         }
 
-        private void ConvertNullableValue(Type nullableType, Type targetType)
+        private void ConvertNullableValue(
+            [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods
+                | DynamicallyAccessedMemberTypes.NonPublicMethods)] Type nullableType, Type targetType)
         {
             System.Diagnostics.Debug.Assert(targetType == nullableType || targetType.IsAssignableFrom(nullableType.GetGenericArguments()[0]));
             if (targetType != nullableType)
@@ -216,7 +225,7 @@ namespace System.Xml.Serialization
                 MethodInfo Nullable_get_Value = nullableType.GetMethod(
                     "get_Value",
                     CodeGenerator.InstanceBindingFlags,
-                    Array.Empty<Type>()
+                    Type.EmptyTypes
                     )!;
                 ILG.Call(Nullable_get_Value);
                 if (targetType != null)
@@ -233,19 +242,19 @@ namespace System.Xml.Serialization
 
         public static bool operator !=(SourceInfo? a, SourceInfo? b)
         {
-            if ((object?)a != null)
+            if (a is not null)
                 return !a.Equals(b);
-            return (object?)b != null;
+            return b is not null;
         }
 
         public static bool operator ==(SourceInfo? a, SourceInfo? b)
         {
-            if ((object?)a != null)
+            if (a is not null)
                 return a.Equals(b);
-            return (object?)b == null;
+            return b is null;
         }
 
-        public override bool Equals(object? obj)
+        public override bool Equals([NotNullWhen(true)] object? obj)
         {
             if (obj == null)
                 return Source == null;

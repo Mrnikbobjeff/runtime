@@ -5,6 +5,8 @@
 // we couldn't load C3
 
 using System;
+using Xunit;
+using TestLibrary;
 
 class C2<T> { }
 class C1<T> : C2<C3> { }
@@ -12,7 +14,7 @@ class C3 : C1<C3> { }
 
                                        
 
-class Test
+public class Test_test188892
 {
 
 	public static void LoadTypes()
@@ -22,7 +24,9 @@ class Test
 		C1<C3> c3 = new C3();
 	}
 	
-    	public static int Main()
+     [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    	[Fact]
+    	public static int TestEntryPoint()
     	{	
     		try
     		{

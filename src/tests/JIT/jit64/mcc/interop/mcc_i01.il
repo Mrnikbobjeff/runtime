@@ -3,23 +3,35 @@
 
 
 .assembly extern System.Runtime.Extensions { auto }
+.assembly extern xunit.core {}
 .assembly extern mscorlib { auto }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
 
-.assembly MCCTest {}
-.module mcc_i01.exe
-
-
-.namespace MCCTest
+.namespace mcc_i01
 {
-  .class MyClass
+  .class public MyClass
   {
     .method assembly static pinvokeimpl("native_i0c" as "#1" cdecl)
         vararg valuetype MCCTest.VType0 Sum(unsigned int64) cil managed preservesig {
     }
 
-    .method private static int32 Main(string[] args)
+    .method public static int32 Main()
     {
-      .entrypoint
+            .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ConditionalFactAttribute::.ctor(class [mscorlib]System.Type, string[]) = {
+            type([TestLibrary]TestLibrary.PlatformDetection)
+            string[1] ('IsVarArgSupported')
+        }
+      .maxstack  1
+
+
+    DoTest:
+      call       int32 mcc_i01.MyClass::Test()
+      ret
+    }
+
+    .method public static int32 Test()
+    {
       .maxstack  64
       .locals init	(
         [0] valuetype MCCTest.VType0 res,
@@ -40,7 +52,7 @@
       ldc.i8 12
       ldc.i8 1
       neg
-      ldftn   vararg valuetype MCCTest.VType0 MCCTest.MyClass::Sum(unsigned int64)
+      ldftn   vararg valuetype MCCTest.VType0 mcc_i01.MyClass::Sum(unsigned int64)
       calli   vararg valuetype MCCTest.VType0(unsigned int64, ...,
                                                 unsigned int64,
                                                 unsigned int64,
@@ -64,8 +76,8 @@
 
       ldloc.s    rc
       ret
-    } // end of method MyClass::Main
+    } // end of method MyClass::Test
 
   } // end of class MyClass
 
-} // end of namespace MCCTest
+} // end of namespace mcc_i01

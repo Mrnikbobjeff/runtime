@@ -2,50 +2,59 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Collections;
-using System.Collections.Specialized;
 using Xunit;
+using Xunit.Sdk;
 
 namespace System.Diagnostics.Tests
 {
     public static class CounterSampleCalculatorTests
     {
-        [ConditionalFact(typeof(Helpers), nameof(Helpers.IsElevatedAndCanWriteToPerfCounters))]
+        [ConditionalFact(typeof(Helpers), nameof(Helpers.IsElevatedAndCanWriteAndReadNetPerfCounters))]
         public static void CounterSampleCalculator_ElapsedTime()
         {
-            var name = nameof(CounterSampleCalculator_ElapsedTime) + "_Counter";
+            string categoryName = nameof(CounterSampleCalculator_ElapsedTime) + "_Category";
 
-            PerformanceCounter counterSample = CreateCounter(name, PerformanceCounterType.ElapsedTime);
+            PerformanceCounter counterSample = CreateCounter(categoryName, PerformanceCounterType.ElapsedTime);
 
-            counterSample.RawValue = Stopwatch.GetTimestamp();
-            DateTime Start = DateTime.Now;
-            Helpers.RetryOnAllPlatforms(() => counterSample.NextValue());
+            try
+            {
+                // Timing comparisons can be flaky under CI load, so retry.
+                RetryHelper.Execute(() =>
+                {
+                    long startTimestamp = Stopwatch.GetTimestamp();
+                    counterSample.RawValue = startTimestamp;
+                    Helpers.RetryOnAllPlatforms(() => counterSample.NextValue());
 
-            System.Threading.Thread.Sleep(500);
+                    System.Threading.Thread.Sleep(500);
 
-            var counterVal = Helpers.RetryOnAllPlatforms(() => counterSample.NextValue());
-            var dateTimeVal = DateTime.Now.Subtract(Start).TotalSeconds;
-            Helpers.DeleteCategory(name);
-            Assert.True(Math.Abs(dateTimeVal - counterVal) < .3);
+                    var counterVal = Helpers.RetryOnAllPlatforms(() => counterSample.NextValue());
+                    var elapsed = (double)(Stopwatch.GetTimestamp() - startTimestamp) / Stopwatch.Frequency;
+                    Assert.True(Math.Abs(elapsed - counterVal) < .3, $"Expected elapsed ({elapsed:F3}s) and counterVal ({counterVal:F3}s) to be within 0.3s");
+                }, maxAttempts: 3, retryWhen: e => e is XunitException);
+            }
+            finally
+            {
+                counterSample.Dispose();
+                Helpers.DeleteCategory(categoryName);
+            }
         }
 
-        public static PerformanceCounter CreateCounter(string name, PerformanceCounterType counterType)
+        public static PerformanceCounter CreateCounter(string categoryName, PerformanceCounterType counterType)
         {
-            var category = name + "_Category";
-            var instance = name + "_Instance";
+            string counterName = categoryName + "_Counter";
 
             CounterCreationDataCollection ccdc = new CounterCreationDataCollection();
             CounterCreationData ccd = new CounterCreationData();
             ccd.CounterType = counterType;
-            ccd.CounterName = name;
+            ccd.CounterName = counterName;
             ccdc.Add(ccd);
 
-            Helpers.DeleteCategory(name);
-            PerformanceCounterCategory.Create(category, "description", PerformanceCounterCategoryType.SingleInstance, ccdc);
+            Helpers.DeleteCategory(categoryName);
+            PerformanceCounterCategory.Create(categoryName, "description", PerformanceCounterCategoryType.SingleInstance, ccdc);
 
-            Assert.True(Helpers.PerformanceCounterCategoryCreated(category));
+            Helpers.VerifyPerformanceCounterCategoryCreated(categoryName);
 
-            return new PerformanceCounter(category, name, false);
+            return new PerformanceCounter(categoryName, counterName, readOnly:false);
         }
     }
 }

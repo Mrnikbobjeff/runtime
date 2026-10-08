@@ -4,8 +4,10 @@
 
 using System.Runtime.InteropServices;
 using System;
+using Xunit;
 
-internal class NullableTest
+namespace box_unbox_null018;
+public class NullableTest
 {
     private static bool BoxUnboxToNQGen<T>(T o)
     {
@@ -27,7 +29,9 @@ internal class NullableTest
         return ((ByteE?)o) == null;
     }
 
-    private static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         ByteE? s = null;
 

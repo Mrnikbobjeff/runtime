@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 public class Test12224
 {    
@@ -27,7 +29,10 @@ public class Test12224
         }
     }
 
-    public static int Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+    public static int TestEntryPoint()
     {
         Thread thread = new Thread(new ParameterizedThreadStart(Test12224.ExecuteTest));
         thread.IsBackground = true;

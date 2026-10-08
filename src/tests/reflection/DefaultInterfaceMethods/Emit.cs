@@ -5,10 +5,14 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Reflection.Emit;
+using Xunit;
+using TestLibrary;
 
-class Program
+public class Program
 {
-    static int Main()
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/36113", TestRuntimes.Mono)]
+    [ConditionalFact(typeof(Utilities), nameof(Utilities.IsReflectionEmitSupported))]
+    public static int TestEntryPoint()
     {
         var ab = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("Mine"), AssemblyBuilderAccess.Run);
         var modb = ab.DefineDynamicModule("Mine.dll");
@@ -117,7 +121,7 @@ class Program
             {
                 ifooType.GetMethod("DefaultMethod").Invoke(o, null);
             }
-            catch (EntryPointNotFoundException)
+            catch (TargetInvocationException ie) when (ie.InnerException is EntryPointNotFoundException)
             {
                 result |= 0x10;
             }
@@ -126,7 +130,7 @@ class Program
             {
                 ifooType.GetMethod("InterfaceMethod").Invoke(o, null);
             }
-            catch (EntryPointNotFoundException)
+            catch (TargetInvocationException ie) when (ie.InnerException is EntryPointNotFoundException)
             {
                 result |= 0x20;
             }

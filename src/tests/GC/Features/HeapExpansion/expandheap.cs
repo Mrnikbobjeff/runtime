@@ -8,13 +8,13 @@ This test stimulates heap expansion on the finalizer thread
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Xunit;
 
-public class Test
+public class Test_expandheap
 {
-
-
-
-    public static int Main()
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static void TestEntryPoint()
     {
         Console.WriteLine("First Alloc");
         GCUtil.Alloc(1024*1024*4, 30);
@@ -28,10 +28,5 @@ public class Test
         GCUtil.FreePins();
 
         Console.WriteLine("Test passed");
-        return 100;
-
     }
-
-   
-
 }

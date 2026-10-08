@@ -1,13 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
 using System.Runtime.Serialization;
 
 namespace System.Net.Mail
 {
     [Serializable]
     [System.Runtime.CompilerServices.TypeForwardedFrom("System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public class SmtpException : Exception, ISerializable
+    public class SmtpException : Exception
     {
         private SmtpStatusCode _statusCode = SmtpStatusCode.GeneralFailure;
 
@@ -21,6 +22,9 @@ namespace System.Net.Mail
             switch (statusCode)
             {
                 default:
+                    return SR.SmtpUnknownStatusCode;
+                case SmtpStatusCode.GeneralFailure:
+                    return SR.SmtpGeneralFailure;
                 case SmtpStatusCode.CommandUnrecognized:
                     return SR.SmtpCommandUnrecognized;
                 case SmtpStatusCode.SyntaxError:
@@ -45,6 +49,8 @@ namespace System.Net.Mail
                     return SR.SmtpOK;
                 case SmtpStatusCode.UserNotLocalWillForward:
                     return SR.SmtpUserNotLocalWillForward;
+                case SmtpStatusCode.CannotVerifyUserWillAttemptDelivery:
+                    return SR.SmtpCannotVerifyUserWillAttemptDelivery;
                 case SmtpStatusCode.MailboxBusy:
                     return SR.SmtpMailboxBusy;
                 case SmtpStatusCode.MailboxUnavailable:
@@ -92,12 +98,14 @@ namespace System.Net.Mail
         {
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         protected SmtpException(SerializationInfo serializationInfo, StreamingContext streamingContext) : base(serializationInfo, streamingContext)
         {
             _statusCode = (SmtpStatusCode)serializationInfo.GetInt32("Status");
         }
 
-        internal SmtpException(SmtpStatusCode statusCode, string? serverMessage, bool serverResponse) : base(GetMessageForStatus(statusCode, serverMessage))
+        internal SmtpException(SmtpStatusCode statusCode, string? serverMessage, bool _) : base(GetMessageForStatus(statusCode, serverMessage))
         {
             _statusCode = statusCode;
         }
@@ -106,11 +114,8 @@ namespace System.Net.Mail
         {
         }
 
-        void ISerializable.GetObjectData(SerializationInfo serializationInfo, StreamingContext streamingContext)
-        {
-            GetObjectData(serializationInfo, streamingContext);
-        }
-
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public override void GetObjectData(SerializationInfo serializationInfo, StreamingContext streamingContext)
         {
             base.GetObjectData(serializationInfo, streamingContext);

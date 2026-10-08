@@ -2,15 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Numerics;
+using Xunit;
 
-namespace VectorMathTests
+namespace SIMDTests.BugWithAVXTests
 {
-    class Program
+    public class Program
     {
-        static int Main(string[] args)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             int Count = System.Numerics.Vector<int>.Count;
-            return 100;
         }
     }
 }

@@ -59,14 +59,18 @@ namespace System.Diagnostics
                 _state = ProcessWaitState.AddRef(processId, isNewChild, usesTerminal);
             }
 
+            private Holder(ProcessWaitState source) => _state = source;
+
+            /// <summary>Creates an additional holder for the same wait state, incrementing the ref count.</summary>
+            internal Holder IncrementRefCount()
+            {
+                _state.IncrementRefCount();
+                return new(_state);
+            }
+
             ~Holder()
             {
-                // Don't try to Dispose resources (like ManualResetEvents) if
-                // the process is shutting down.
-                if (_state != null && !Environment.HasShutdownStarted)
-                {
-                    _state.ReleaseRef();
-                }
+                _state?.ReleaseRef();
             }
 
             public void Dispose()
@@ -154,6 +158,16 @@ namespace System.Diagnostics
             }
         }
 
+        /// <summary>Increments the ref count for this wait state object.</summary>
+        internal void IncrementRefCount()
+        {
+            Dictionary<int, ProcessWaitState> waitStates = _isChild ? s_childProcessWaitStates : s_processWaitStates;
+            lock (waitStates)
+            {
+                _outstandingRefCount++;
+            }
+        }
+
         /// <summary>
         /// Decrements the ref count on the wait state object, and if it's the last one,
         /// removes it from the table.
@@ -165,7 +179,6 @@ namespace System.Diagnostics
             lock (waitStates)
             {
                 bool foundState = waitStates.TryGetValue(_processId, out pws);
-                Debug.Assert(foundState);
                 if (foundState)
                 {
                     --_outstandingRefCount;
@@ -194,21 +207,24 @@ namespace System.Diagnostics
         /// </summary>
         private readonly object _gate = new object();
         /// <summary>ID of the associated process.</summary>
-        private readonly int _processId;
+        internal readonly int _processId;
         /// <summary>Associated process is a child process.</summary>
-        private readonly bool _isChild;
+        internal readonly bool _isChild;
         /// <summary>Associated process is a child that can use the terminal.</summary>
         private readonly bool _usesTerminal;
+        /// <summary>A value indicating whether the process has been terminated due to timeout or cancellation.</summary>
+        internal bool _canceled;
 
-        /// <summary>If a wait operation is in progress, the Task that represents it; otherwise, null.</summary>
-        private Task? _waitInProgress;
+        /// <summary>An in-progress or completed wait operation.</summary>
+        /// <remarks>A completed task does not mean the process has exited.</remarks>
+        private Task _waitInProgress = Task.CompletedTask;
         /// <summary>The number of alive users of this object.</summary>
         private int _outstandingRefCount;
 
         /// <summary>Whether the associated process exited.</summary>
         private bool _exited;
-        /// <summary>If the process exited, it's exit code, or null if we were unable to determine one.</summary>
-        private int? _exitCode;
+        /// <summary>If the process exited, its exit status, or null if we were unable to determine one.</summary>
+        private ProcessExitStatus? _exitStatus;
         /// <summary>
         /// The approximate time the process exited.  We do not have the ability to know exact time a process
         /// exited, so we approximate it by storing the time that we discovered it exited.
@@ -260,7 +276,6 @@ namespace System.Diagnostics
         }
 
         /// <summary>Ensures an exited event has been initialized and returns it.</summary>
-        /// <returns></returns>
         internal ManualResetEvent EnsureExitedEvent()
         {
             Debug.Assert(!Monitor.IsEntered(_gate));
@@ -278,12 +293,11 @@ namespace System.Diagnostics
                         if (!_isChild)
                         {
                             // If we haven't exited, we need to spin up an asynchronous operation that
-                            // will completed the exitedEvent when the other process exits. If there's already
-                            // another operation underway, then we'll just tack ours onto the end of it.
-                            _waitInProgress = _waitInProgress == null ?
-                                WaitForExitAsync() :
-                                _waitInProgress.ContinueWith((_, state) => ((ProcessWaitState)state!).WaitForExitAsync(),
-                                    this, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default).Unwrap();
+                            // will complete the _exitedEvent when the other process exits. If there's already
+                            // another operation underway, then WaitForExitAsync will just tack ours onto the
+                            // end of it; we can't be sure it'll actually monitor the process until it exits,
+                            // as it may have been created with a cancelable token.
+                            _waitInProgress = WaitForExitAsync(CancellationToken.None);
                         }
                     }
                 }
@@ -307,27 +321,26 @@ namespace System.Diagnostics
         {
             get
             {
-                int? ignored;
-                return GetExited(out ignored, refresh: true);
+                return GetExited(out _, refresh: true);
             }
         }
 
-        internal bool GetExited(out int? exitCode, bool refresh)
+        internal bool GetExited(out ProcessExitStatus? exitStatus, bool refresh)
         {
             lock (_gate)
             {
                 // Have we already exited?  If so, return the cached results.
                 if (_exited)
                 {
-                    exitCode = _exitCode;
+                    exitStatus = _exitStatus;
                     return true;
                 }
 
                 // Is another wait operation in progress?  If so, then we haven't exited,
                 // and that task owns the right to call CheckForNonChildExit.
-                if (_waitInProgress != null)
+                if (!_waitInProgress.IsCompleted)
                 {
-                    exitCode = null;
+                    exitStatus = null;
                     return false;
                 }
 
@@ -339,8 +352,8 @@ namespace System.Diagnostics
                 }
 
                 // We now have an up-to-date snapshot for whether we've exited,
-                // and if we have, what the exit code is (if we were able to find out).
-                exitCode = _exitCode;
+                // and if we have, what the exit status is (if we were able to find out).
+                exitStatus = _exitStatus;
                 return _exited;
             }
         }
@@ -353,7 +366,7 @@ namespace System.Diagnostics
                 bool exited;
                 // We won't be able to get an exit code, but we'll at least be able to determine if the process is
                 // still running.
-                int killResult = Interop.Sys.Kill(_processId, Interop.Sys.Signals.None); // None means don't send a signal
+                int killResult = Interop.Sys.Kill(_processId, 0); // 0 means don't send a signal, used to check if process is still alive
                 if (killResult == 0)
                 {
                     // Process is still running.  This could also be a defunct process that has completed
@@ -421,12 +434,12 @@ namespace System.Diagnostics
                 {
                     bool createdTask = false;
                     CancellationTokenSource? cts = null;
-                    Task waitTask;
+                    Task? waitTask;
 
                     // We're in a polling loop... determine how much time remains
                     int remainingTimeout = millisecondsTimeout == Timeout.Infinite ?
                         Timeout.Infinite :
-                        (int)Math.Max(millisecondsTimeout - ((Stopwatch.GetTimestamp() - startTime) / (double)Stopwatch.Frequency * 1000), 0);
+                        (int)Math.Max(millisecondsTimeout - Stopwatch.GetElapsedTime(startTime).TotalMilliseconds, 0);
 
                     lock (_gate)
                     {
@@ -442,7 +455,7 @@ namespace System.Diagnostics
                         {
                             // If there's currently a wait-in-progress, then we know the other process
                             // hasn't exited (barring races and the polling interval).
-                            if (_waitInProgress != null)
+                            if (!_waitInProgress.IsCompleted)
                             {
                                 return false;
                             }
@@ -459,17 +472,14 @@ namespace System.Diagnostics
                         // If there's already a wait in progress, we'll do so later
                         // by waiting on that existing task.  Otherwise, we'll spin up
                         // such a task.
-                        if (_waitInProgress != null)
-                        {
-                            waitTask = _waitInProgress;
-                        }
-                        else
+                        waitTask = _waitInProgress;
+                        if (waitTask.IsCompleted)
                         {
                             createdTask = true;
                             CancellationToken token = remainingTimeout == Timeout.Infinite ?
                                 CancellationToken.None :
                                 (cts = new CancellationTokenSource(remainingTimeout)).Token;
-                            waitTask = WaitForExitAsync(token);
+                            _waitInProgress = waitTask = WaitForExitAsync(token);
                         }
                     } // lock(_gate)
 
@@ -500,59 +510,70 @@ namespace System.Diagnostics
         /// <summary>Spawns an asynchronous polling loop for process completion.</summary>
         /// <param name="cancellationToken">A token to monitor to exit the polling loop.</param>
         /// <returns>The task representing the loop.</returns>
-        private Task WaitForExitAsync(CancellationToken cancellationToken = default)
+        /// <remarks>
+        /// If there was a previous waiting task, this method will first wait for it to complete
+        /// before proceeding to poll.  That waiting does not happen with the supplied cancellation
+        /// token, so if the caller is providing a token and a previous task, it should wait on the
+        /// returned task with the token in order to avoid delayed wake-ups.
+        /// </remarks>
+        private async Task WaitForExitAsync(CancellationToken cancellationToken)
         {
             Debug.Assert(Monitor.IsEntered(_gate));
-            Debug.Assert(_waitInProgress == null);
             Debug.Assert(!_isChild);
 
-            return _waitInProgress = Task.Run(async delegate // Task.Run used because of potential blocking in CheckForNonChildExit
+            // Wait for the previous waiting task to complete. We need to ensure that this call completes asynchronously,
+            // in order to escape the caller's lock and avoid blocking the caller by any work in the below loop, so
+            // we use ForceYielding.
+            await _waitInProgress.ConfigureAwait(ConfigureAwaitOptions.ForceYielding | ConfigureAwaitOptions.SuppressThrowing);
+
+            // Arbitrary values chosen to balance delays with polling overhead.  Start with fast polling
+            // to handle quickly completing processes, but fall back to longer polling to minimize
+            // overhead for those that take longer to complete.
+            const int StartingPollingIntervalMs = 1, MaxPollingIntervalMs = 100;
+            int pollingIntervalMs = StartingPollingIntervalMs;
+
+            // Poll until either cancellation is requested or the process exits.
+            while (!cancellationToken.IsCancellationRequested)
             {
-                // Arbitrary values chosen to balance delays with polling overhead.  Start with fast polling
-                // to handle quickly completing processes, but fall back to longer polling to minimize
-                // overhead for those that take longer to complete.
-                const int StartingPollingIntervalMs = 1, MaxPollingIntervalMs = 100;
-                int pollingIntervalMs = StartingPollingIntervalMs;
-
-                try
+                lock (_gate)
                 {
-                    // While we're not canceled
-                    while (!cancellationToken.IsCancellationRequested)
+                    if (!_exited)
                     {
-                        // Poll
-                        lock (_gate)
-                        {
-                            if (!_exited)
-                            {
-                                CheckForNonChildExit();
-                            }
-                            if (_exited) // may have been updated by CheckForNonChildExit
-                            {
-                                return;
-                            }
-                        }
+                        CheckForNonChildExit();
+                    }
 
-                        // Wait
-                        try
-                        {
-                            await Task.Delay(pollingIntervalMs, cancellationToken).ConfigureAwait(false);
-                            pollingIntervalMs = Math.Min(pollingIntervalMs * 2, MaxPollingIntervalMs);
-                        }
-                        catch (OperationCanceledException) { }
+                    if (_exited) // may have been updated by CheckForNonChildExit
+                    {
+                        return;
                     }
                 }
-                finally
-                {
-                    // Task is no longer active
-                    lock (_gate)
-                    {
-                        _waitInProgress = null;
-                    }
-                }
-            }, cancellationToken);
+
+                // Pause asynchronously to avoid spinning too fast and tying up a thread.
+                await Task.Delay(pollingIntervalMs, cancellationToken).ConfigureAwait(ConfigureAwaitOptions.SuppressThrowing);
+                pollingIntervalMs = Math.Min(pollingIntervalMs * 2, MaxPollingIntervalMs);
+            }
         }
 
-        private bool TryReapChild()
+        private void ChildReaped(int exitCode, int terminatingSignal, bool configureConsole)
+        {
+            lock (_gate)
+            {
+                Debug.Assert(!_exited);
+
+                PosixSignal? signal = terminatingSignal != 0 ? (PosixSignal)terminatingSignal : null;
+                _exitStatus = new ProcessExitStatus(exitCode, canceled: _canceled && signal is PosixSignal.SIGKILL, signal);
+
+                if (_usesTerminal)
+                {
+                    // Update terminal settings before calling SetExited.
+                    ProcessUtils.ConfigureTerminalForChildProcesses(-1, configureConsole);
+                }
+
+                SetExited();
+            }
+        }
+
+        private bool TryReapChild(bool configureConsole)
         {
             lock (_gate)
             {
@@ -563,20 +584,12 @@ namespace System.Diagnostics
 
                 // Try to get the state of the child process
                 int exitCode;
-                int waitResult = Interop.Sys.WaitPidExitedNoHang(_processId, out exitCode);
+                int terminatingSignal;
+                int waitResult = Interop.Sys.WaitPidExitedNoHang(_processId, out exitCode, out terminatingSignal);
 
                 if (waitResult == _processId)
                 {
-                    _exitCode = exitCode;
-
-                    if (_usesTerminal)
-                    {
-                        // Update terminal settings before calling SetExited.
-                        Process.ConfigureTerminalForChildProcesses(-1);
-                    }
-
-                    SetExited();
-
+                    ChildReaped(exitCode, terminatingSignal, configureConsole);
                     return true;
                 }
                 else if (waitResult == 0)
@@ -593,7 +606,7 @@ namespace System.Diagnostics
             }
         }
 
-        internal static void CheckChildren(bool reapAll)
+        internal static void CheckChildren(bool reapAll, bool configureConsole)
         {
             // This is called on SIGCHLD from a native thread.
             // A lock in Process ensures no new processes are spawned while we are checking.
@@ -612,7 +625,7 @@ namespace System.Diagnostics
                         if (s_childProcessWaitStates.TryGetValue(pid, out ProcessWaitState? pws))
                         {
                             // Known Process.
-                            if (pws.TryReapChild())
+                            if (pws.TryReapChild(configureConsole))
                             {
                                 pws.ReleaseRef();
                             }
@@ -637,7 +650,7 @@ namespace System.Diagnostics
                     }
                 } while (pid > 0);
 
-                if (checkAll)
+                if (checkAll && !reapAll)
                 {
                     // We track things to unref so we don't invalidate our iterator by changing s_childProcessWaitStates.
                     ProcessWaitState? firstToRemove = null;
@@ -645,7 +658,7 @@ namespace System.Diagnostics
                     foreach (KeyValuePair<int, ProcessWaitState> kv in s_childProcessWaitStates)
                     {
                         ProcessWaitState pws = kv.Value;
-                        if (pws.TryReapChild())
+                        if (pws.TryReapChild(configureConsole))
                         {
                             if (firstToRemove == null)
                             {
@@ -653,10 +666,7 @@ namespace System.Diagnostics
                             }
                             else
                             {
-                                if (additionalToRemove == null)
-                                {
-                                    additionalToRemove = new List<ProcessWaitState>();
-                                }
+                                additionalToRemove ??= new List<ProcessWaitState>();
                                 additionalToRemove.Add(pws);
                             }
                         }
@@ -680,8 +690,20 @@ namespace System.Diagnostics
                     do
                     {
                         int exitCode;
-                        pid = Interop.Sys.WaitPidExitedNoHang(-1, out exitCode);
-                    } while (pid > 0);
+                        int terminatingSignal;
+                        pid = Interop.Sys.WaitPidExitedNoHang(-1, out exitCode, out terminatingSignal);
+                        if (pid <= 0)
+                        {
+                            break;
+                        }
+
+                        // Check if the process is a child that has just terminated.
+                        if (s_childProcessWaitStates.TryGetValue(pid, out ProcessWaitState? pws))
+                        {
+                            pws.ChildReaped(exitCode, terminatingSignal, configureConsole);
+                            pws.ReleaseRef();
+                        }
+                    } while (true);
                 }
             }
         }

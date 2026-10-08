@@ -2,15 +2,14 @@
   <Import Project="$([MSBuild]::GetPathOfFileAbove(Directory.Build.props, $(MSBuildThisFileDirectory)..))" />
 
   <PropertyGroup>
-    <TestDir>$(InstallerProjectRoot)tests\</TestDir>
-    <TestAssetsDir>$(TestDir)Assets\</TestAssetsDir>
-    <TestStabilizedLegacyPackagesDir>$(ArtifactsObjDir)TestStabilizedPackages\</TestStabilizedLegacyPackagesDir>
-    <TestRestorePackagesPath>$(ArtifactsObjDir)TestPackageCache\</TestRestorePackagesPath>
-    <TestRestoreNuGetConfigFile>$(ArtifactsObjDir)TestNuGetConfig\NuGet.config</TestRestoreNuGetConfigFile>
-    <InternalNupkgCacheDir>$(ArtifactsObjDir)ExtraNupkgsForTestRestore\</InternalNupkgCacheDir>
-    <TestArchitectures>$(TargetArchitecture)</TestArchitectures>
-    <TestInfraTargetFramework>$(NetCoreAppCurrent)</TestInfraTargetFramework>
-    <TestRunnerAdditionalArguments>-notrait category=failing</TestRunnerAdditionalArguments>
+    <TestArtifactsOutputRoot>$(ArtifactsDir)tests\host\$(TargetOS).$(TargetArchitecture).$(Configuration)\</TestArtifactsOutputRoot>
+    <TestInfraTargetFramework>$(NetCoreAppToolCurrent)</TestInfraTargetFramework>
+    <TestCaseFilter>/[category!=failing]</TestCaseFilter>
+    <TestRunnerAdditionalArguments>--filter-query $(TestCaseFilter)</TestRunnerAdditionalArguments>
+    <!-- Enable crash and hang dumps -->
+    <TestRunnerAdditionalArguments>$(TestRunnerAdditionalArguments) --crashdump</TestRunnerAdditionalArguments>
+    <TestRunnerAdditionalArguments>$(TestRunnerAdditionalArguments) --hangdump --hangdump-timeout 8m --hangdump-type full</TestRunnerAdditionalArguments>
+    <RunAnalyzers>false</RunAnalyzers>
   </PropertyGroup>
 
 </Project>

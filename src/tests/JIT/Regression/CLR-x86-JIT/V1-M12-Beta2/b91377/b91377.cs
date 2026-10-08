@@ -3,14 +3,19 @@
 //
 
 //COMMAND LINE: csc /nologo /optimize- /debug- /w:0 bug.cs
+
+namespace b91377;
+
 using System;
+using Xunit;
 public class BB
 {
     byte Method1(sbyte[,][][,] param2)
     {
         return new byte[][, ,] { }[0][Math.Sign(1), Math.Sign(1), Math.Min(0, 0)];
     }
-    static int Main()
+    [Fact]
+    public static void TestEntryPoint()
     {
         try
         {
@@ -22,6 +27,5 @@ public class BB
         }
         catch (Exception x) { }
         Console.WriteLine("Passed.");
-        return 100;
     }
 }

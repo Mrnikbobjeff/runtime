@@ -2,6 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 interface IGen
 {
@@ -13,15 +15,15 @@ class Gen : IGen
 	public virtual void Target<U>(object p)
 	{		
 		//dummy line to avoid warnings
-		Test.Eval(typeof(U)!=p.GetType());
-		if (Test.Xcounter>=Test.nThreads)
+		Test_thread18.Eval(typeof(U)!=p.GetType());
+		if (Test_thread18.Xcounter>=Test_thread18.nThreads)
 		{
 			ManualResetEvent evt = (ManualResetEvent) p;	
 			evt.Set();
 		}
 		else
 		{
-			Interlocked.Increment(ref Test.Xcounter);	
+			Interlocked.Increment(ref Test_thread18.Xcounter);	
 		}
 	}
 	
@@ -32,16 +34,16 @@ class Gen : IGen
 		IGen obj = new Gen();
 
 		TimerCallback tcb = new TimerCallback(obj.Target<U>);
-		Timer timer = new Timer(tcb,evt,Test.delay,Test.period);
+		Timer timer = new Timer(tcb,evt,Test_thread18.delay,Test_thread18.period);
 	
 		evt.WaitOne();
 		timer.Dispose();
-		Test.Eval(Test.Xcounter>=Test.nThreads);
-		Test.Xcounter = 0;
+		Test_thread18.Eval(Test_thread18.Xcounter>=Test_thread18.nThreads);
+		Test_thread18.Xcounter = 0;
 	}
 }
 
-public class Test
+public class Test_thread18
 {
 	public static int delay = 0;
 	public static int period = 2;
@@ -60,7 +62,8 @@ public class Test
 	
 	}
 	
-	public static int Main()
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint()
 	{
 		Gen.ThreadPoolTest<object>();
 		Gen.ThreadPoolTest<string>();

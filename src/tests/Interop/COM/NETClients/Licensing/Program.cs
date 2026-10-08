@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Xunit;
 namespace NetClient
 {
     using System;
@@ -10,10 +11,11 @@ namespace NetClient
     using System.Runtime.InteropServices;
 
     using TestLibrary;
+    using Xunit;
     using Server.Contract;
     using Server.Contract.Servers;
 
-    class Program
+    public class Program
     {
         static readonly string DefaultLicKey = "__MOCK_LICENSE_KEY__";
         static void ActivateLicensedObject()
@@ -21,19 +23,19 @@ namespace NetClient
             Console.WriteLine($"Calling {nameof(ActivateLicensedObject)}...");
 
             // Validate activation
-            var licenseTesting = (LicenseTesting)new LicenseTestingClass();
+            var licenseTesting = new LicenseTesting();
 
             // Validate license denial
             licenseTesting.SetNextDenyLicense(true);
             try
             {
-                var tmp = (LicenseTesting)new LicenseTestingClass();
+                var tmp = new LicenseTesting();
                 Assert.Fail("Activation of licensed class should fail");
             }
             catch (COMException e)
             {
                 const int CLASS_E_NOTLICENSED = unchecked((int)0x80040112);
-                Assert.AreEqual(CLASS_E_NOTLICENSED, e.HResult);
+                Assert.Equal(CLASS_E_NOTLICENSED, e.HResult);
             }
             finally
             {
@@ -73,9 +75,9 @@ namespace NetClient
             }
         }
 
-        static void ActivateUnderDesigntimeContext()
+        static void ActivateUnderDesignTimeContext()
         {
-            Console.WriteLine($"Calling {nameof(ActivateUnderDesigntimeContext)}...");
+            Console.WriteLine($"Calling {nameof(ActivateUnderDesignTimeContext)}...");
 
             LicenseContext prev = LicenseManager.CurrentContext;
             try
@@ -84,13 +86,13 @@ namespace NetClient
                 LicenseManager.CurrentContext = new MockLicenseContext(typeof(LicenseTestingClass), LicenseUsageMode.Designtime);
                 LicenseManager.CurrentContext.SetSavedLicenseKey(typeof(LicenseTestingClass), licKey);
 
-                var licenseTesting = (LicenseTesting)new LicenseTestingClass();
+                var licenseTesting = new LicenseTesting();
 
                 // During design time the IClassFactory::CreateInstance will be called - no license
-                Assert.AreEqual(null, licenseTesting.GetLicense());
+                Assert.Null(licenseTesting.GetLicense());
 
                 // Verify the value retrieved from the IClassFactory2::RequestLicKey was what was set
-                Assert.AreEqual(DefaultLicKey, LicenseManager.CurrentContext.GetSavedLicenseKey(typeof(LicenseTestingClass), resourceAssembly: null));
+                Assert.Equal(DefaultLicKey, LicenseManager.CurrentContext.GetSavedLicenseKey(typeof(LicenseTestingClass), resourceAssembly: null));
             }
             finally
             {
@@ -109,10 +111,10 @@ namespace NetClient
                 LicenseManager.CurrentContext = new MockLicenseContext(typeof(LicenseTestingClass), LicenseUsageMode.Runtime);
                 LicenseManager.CurrentContext.SetSavedLicenseKey(typeof(LicenseTestingClass), licKey);
 
-                var licenseTesting = (LicenseTesting)new LicenseTestingClass();
+                var licenseTesting = new LicenseTesting();
 
                 // During runtime the IClassFactory::CreateInstance2 will be called with license from context
-                Assert.AreEqual(licKey, licenseTesting.GetLicense());
+                Assert.Equal(licKey, licenseTesting.GetLicense());
             }
             finally
             {
@@ -120,7 +122,8 @@ namespace NetClient
             }
         }
 
-        static int Main(string[] doNotUse)
+        [Fact]
+        public static int TestEntryPoint()
         {
             // RegFree COM is not supported on Windows Nano
             if (Utilities.IsWindowsNanoServer)
@@ -131,7 +134,7 @@ namespace NetClient
             try
             {
                 ActivateLicensedObject();
-                ActivateUnderDesigntimeContext();
+                ActivateUnderDesignTimeContext();
                 ActivateUnderRuntimeContext();
             }
             catch (Exception e)

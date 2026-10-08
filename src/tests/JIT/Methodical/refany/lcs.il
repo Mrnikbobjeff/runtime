@@ -14,13 +14,15 @@
 .assembly extern mscorlib
 {
 }
-.assembly lcs// as "lcs"
+.assembly ASSEMBLY_NAME
 {
 }
-.module lcs.exe
-.namespace JitTest
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
+.namespace JitTest_lcs_refany_il
 {
-  .class private auto ansi LCS
+  .class public auto ansi LCS
          extends [mscorlib]System.Object
   {
     .field private static literal int32 RANK = int32(0x00000004)
@@ -140,7 +142,7 @@
       IL_00a7:  ldarg.0
       IL_00a8:  ldarg.1
       IL_00a9:  ldarg.2
-      IL_00aa:  call       string JitTest.LCS::buildLCS(typedref,
+      IL_00aa:  call       string JitTest_lcs_refany_il.LCS::buildLCS(typedref,
                                                                      typedref,
                                                                      typedref)
       IL_00af:  ldarg.1
@@ -178,7 +180,7 @@
       IL_00e6:  ldarg.0
       IL_00e7:  ldarg.1
       IL_00e8:  ldarg.2
-      IL_00e9:  call       string JitTest.LCS::buildLCS(typedref,
+      IL_00e9:  call       string JitTest_lcs_refany_il.LCS::buildLCS(typedref,
                                                                      typedref,
                                                                      typedref)
       IL_00ee:  ret
@@ -203,16 +205,24 @@
                int32[] V_6,
                int32 V_7)
 
-		ldarg.0 refanytype
+		ldarg.0
+		refanytype
 		call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle )
-		ldarg.1 refanytype
+
+		ldarg.1
+		refanytype
 		call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle )
-		ldarg.2 refanytype
-		call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle )
-		ldarg.3 refanytype
-		call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle )
-		ceq		
 		ceq
+
+		ldarg.2
+		refanytype
+		call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle )
+
+		ldarg.3
+		refanytype
+		call class [mscorlib]System.Type [mscorlib]System.Type::GetTypeFromHandle(valuetype [mscorlib]System.RuntimeTypeHandle )
+		ceq
+
 		ceq
 		pop
 
@@ -585,10 +595,17 @@
       IL_01e2:  ret
     } // end of method LCS::findLCS
 
-    .method private hidebysig static int32
+    .method public hidebysig static int32
             Main() il managed
     {
-      .entrypoint
+      .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+          01 00 00 00
+      )
+      .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, valuetype [Microsoft.DotNet.XUnitExtensions]Xunit.TestRuntimes) = {
+        string('https://github.com/dotnet/runtime/issues/34196')
+        int32(0x2) // Mono
+      }
+    .entrypoint
       .maxstack  5
       .locals (string[] V_0,
                int32[] V_1,
@@ -700,7 +717,7 @@
       IL_00a1:  mkrefany   wchar[][]
       IL_00a6:  ldloca.s   V_1
       IL_00a8:  mkrefany   int32[]
-      IL_00ad:  call       void JitTest.LCS::findLCS(typedref,
+      IL_00ad:  call       void JitTest_lcs_refany_il.LCS::findLCS(typedref,
                                                      typedref,
                                                      typedref,
                                                      typedref)
@@ -737,7 +754,7 @@
       IL_00e6:  mkrefany   wchar[]
       IL_00eb:  ldloca.s   V_1
       IL_00ed:  mkrefany   int32[]
-      IL_00f2:  call       string JitTest.LCS::buildLCS(typedref,
+      IL_00f2:  call       string JitTest_lcs_refany_il.LCS::buildLCS(typedref,
                                                                      typedref,
                                                                      typedref)
       IL_00f7:  call       bool [mscorlib]System.String::Equals(string,
@@ -766,5 +783,5 @@
 
   } // end of class LCS
 
-} // end of namespace JitTest
+} // end of namespace JitTest_lcs_refany_il
 

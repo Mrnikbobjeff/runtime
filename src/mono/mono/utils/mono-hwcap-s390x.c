@@ -157,6 +157,7 @@ mono_hwcap_arch_init (void)
 
 	mono_hwcap_s390x_has_fpe  = facs.fpe;
 	mono_hwcap_s390x_has_vec  = facs.vec;
+	mono_hwcap_s390x_has_ve1  = facs.ve1;
 	mono_hwcap_s390x_has_mlt  = facs.multi;
 	mono_hwcap_s390x_has_ia   = facs.ia;
 	mono_hwcap_s390x_has_gie  = facs.gie;
@@ -165,4 +166,5 @@ mono_hwcap_arch_init (void)
 	mono_hwcap_s390x_has_gs   = facs.gs;
 	mono_hwcap_s390x_has_vef2 = facs.vef2;
 	mono_hwcap_s390x_has_eif  = facs.eif;
+	mono_hwcap_s390x_has_lsoc2 = facs.lsoc2;
 }

@@ -2,12 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using Microsoft.Xunit.Performance;
 using System;
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
+using TestLibrary;
 
 namespace SIMD
 {
@@ -66,7 +65,16 @@ namespace SIMD
             Console.WriteLine("In benchmark mode, a larger set is computed but nothing is dumped.");
         }
 
-        private static int Main(string[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [Fact]
+        public static int TestEntryPoint()
+        {
+            Bench(0, -1);
+            return Pass;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static int Test(string[] args)
         {
             try
             {
@@ -143,7 +151,7 @@ namespace SIMD
             float ymin = YC - Range;
             float ymax = YC + Range;
             float step = Range / 1000f; // This will render one million pixels
-            float warm = Range / 100f; // To warm up, just render 10000 pixels :-)
+            float warm = Range / 50f; // To warm up, just render 2500 pixels :-)
             Algorithms.FractalRenderer.Render[] renderers = new Algorithms.FractalRenderer.Render[24];
             // Warm up each renderer
             if (!s_silent)
@@ -174,6 +182,10 @@ namespace SIMD
             {
                 Console.WriteLine(" Run Type                       :      Min      Max    Average    Std-Dev");
             }
+
+            // iters == 0: just do warmup runs
+            if (iters == 0) return;
+
             for (int i = firstRenderer; i <= lastRenderer; i++)
             {
                 long totalTime = 0;
@@ -204,49 +216,6 @@ namespace SIMD
                         UsesADT(i) ? "ADT " : "Raw ",
                         IsMulti(i) ? "Multi  " : "Single ",
                         min, max, avg, stdDev);
-                }
-            }
-        }
-
-        public static void XBench(int iters, int which)
-        {
-            float XC = -1.248f;
-            float YC = -.0362f;
-            float Range = .001f;
-            float xmin = XC - Range;
-            float xmax = XC + Range;
-            float ymin = YC - Range;
-            float ymax = YC + Range;
-            float step = Range / 100f;
-
-            Algorithms.FractalRenderer.Render renderer = GetRenderer(DoNothing, which);
-
-            for (int count = 0; count < iters; count++)
-            {
-                renderer(xmin, xmax, ymin, ymax, step);
-            }
-        }
-
-        [Benchmark]
-        public static void VectorFloatSinglethreadRawNoInt()
-        {
-            foreach (var iteration in Benchmark.Iterations)
-            {
-                using (iteration.StartMeasurement())
-                {
-                    XBench(10, 8);
-                }
-            }
-        }
-
-        [Benchmark]
-        public static void VectorFloatSinglethreadADTNoInt()
-        {
-            foreach (var iteration in Benchmark.Iterations)
-            {
-                using (iteration.StartMeasurement())
-                {
-                    XBench(10, 9);
                 }
             }
         }

@@ -2,18 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Diagnostics;
-using System.Collections.Generic;
-using System.Globalization;
-using System.Runtime.InteropServices;
-using System.DirectoryServices;
-using System.Text;
-using System.Net;
 using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.DirectoryServices;
+using System.Globalization;
+using System.Net;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace System.DirectoryServices.AccountManagement
 {
-    internal class dSPropertyCollection
+    internal sealed class dSPropertyCollection
     {
         private readonly PropertyCollection _pc;
         private readonly ResultPropertyCollection _rp;
@@ -41,7 +41,7 @@ namespace System.DirectoryServices.AccountManagement
         }
     }
 
-    internal class dSPropertyValueCollection
+    internal sealed class dSPropertyValueCollection
     {
         private readonly PropertyValueCollection _pc;
         private readonly ResultPropertyValueCollection _rc;

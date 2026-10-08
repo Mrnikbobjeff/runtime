@@ -1,24 +1,21 @@
 <Project Sdk="Microsoft.NET.Sdk">
+
   <PropertyGroup>
+    <TargetFrameworks>$(NetCoreAppCurrent)-windows;$(NetCoreAppCurrent)</TargetFrameworks>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <TargetFrameworks>$(NetCoreAppCurrent)-Windows_NT;$(NetCoreAppCurrent)-Unix;netstandard2.0;netcoreapp2.0-Windows_NT;netcoreapp2.0-Unix;netcoreapp2.1-Windows_NT;netcoreapp2.1-Unix;net461-Windows_NT</TargetFrameworks>
-    <ExcludeCurrentNetCoreAppFromPackage>true</ExcludeCurrentNetCoreAppFromPackage>
-    <Nullable>enable</Nullable>
+    <UseCompilerGeneratedDocXmlFile>false</UseCompilerGeneratedDocXmlFile>
   </PropertyGroup>
+
   <!-- DesignTimeBuild requires all the TargetFramework Derived Properties to not be present in the first property group. -->
   <PropertyGroup>
-    <IsPartialFacadeAssembly Condition="$(TargetFramework.StartsWith('net4'))">true</IsPartialFacadeAssembly>
-    <OmitResources Condition="$(TargetFramework.StartsWith('net4'))">true</OmitResources>
-  </PropertyGroup>
-
-  <PropertyGroup Condition="'$(TargetsWindows)' != 'true'">
+    <TargetPlatformIdentifier>$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)'))</TargetPlatformIdentifier>
+    <GeneratePlatformNotSupportedAssemblyMessage Condition="'$(TargetPlatformIdentifier)' != 'windows'">SR.PlatformNotSupported_Principal</GeneratePlatformNotSupportedAssemblyMessage>
     <!-- Work around 'notsupported.cs' source generation of explicit interface implementations issue -->
     <!-- https://github.com/dotnet/arcade/issues/4722 -->
-    <GeneratePlatformNotSupportedAssemblyMessage>SR.PlatformNotSupported_Principal</GeneratePlatformNotSupportedAssemblyMessage>
-    <Nullable>annotations</Nullable>
+    <Nullable Condition="'$(GeneratePlatformNotSupportedAssemblyMessage)' != ''">annotations</Nullable>
   </PropertyGroup>
 
-  <ItemGroup Condition="($(TargetFramework.StartsWith('$(NetCoreAppCurrent)')) or $(TargetFramework.StartsWith('netcoreapp2'))) and '$(TargetsWindows)' == 'true'">
+  <ItemGroup Condition="'$(TargetPlatformIdentifier)' == 'windows'">
     <Compile Include="Microsoft\Win32\SafeHandles\SafeAccessTokenHandle.cs" />
     <Compile Include="System\Security\Principal\IdentityNotMappedException.cs" />
     <Compile Include="System\Security\Principal\IdentityReference.cs" />
@@ -29,8 +26,18 @@
     <Compile Include="System\Security\Principal\Win32.cs" />
     <Compile Include="System\Security\Principal\WindowsIdentity.cs" />
     <Compile Include="System\Security\Principal\WindowsPrincipal.cs" />
+    <Compile Include="$(CommonPath)System\Obsoletions.cs"
+             Link="Common\System\Obsoletions.cs" />
+    <Compile Include="$(CommonPath)DisableRuntimeMarshalling.cs"
+             Link="Common\DisableRuntimeMarshalling.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\Interop.Libraries.cs"
-             Link="Common\Interop\Interop.Libraries.cs" />
+             Link="Common\Interop\Windows\Interop.Libraries.cs" />
+    <Compile Include="$(CommonPath)Interop\Windows\Interop.BOOL.cs"
+             Link="Common\Interop\Windows\Advapi32\Interop.BOOL.cs" />
+    <Compile Include="$(CommonPath)Interop\Windows\Interop.BOOLEAN.cs"
+             Link="Common\Interop\Windows\Advapi32\Interop.BOOLEAN.cs" />
+    <Compile Include="$(CommonPath)Interop\Windows\Interop.SECURITY_QUALITY_OF_SERVICE.cs"
+             Link="Common\Interop\Windows\Advapi32\Interop.SECURITY_QUALITY_OF_SERVICE.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\Interop.UNICODE_STRING.cs"
              Link="Common\Interop\Windows\Advapi32\Interop.UNICODE_STRING.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\Interop.OBJECT_ATTRIBUTES.cs"
@@ -47,7 +54,7 @@
              Link="Common\Interop\Interop.LSAStructs.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\SspiCli\Interop.SECURITY_LOGON_SESSION_DATA.cs"
              Link="Common\Interop\Interop.SECURITY_LOGON_SESSION_DATA.cs" />
-    <Compile Include="$(CommonPath)Interop\Windows\Kernel32\Interop.GetCurrentProcess_IntPtr.cs"
+    <Compile Include="$(CommonPath)Interop\Windows\Kernel32\Interop.GetCurrentProcess.cs"
              Link="Common\Interop\Interop.GetCurrentProcess.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\Kernel32\Interop.GetCurrentThread.cs"
              Link="Common\Interop\Interop.GetCurrentThread.cs" />
@@ -57,10 +64,12 @@
              Link="Common\Interop\Interop.OpenProcessToken.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\Advapi32\Interop.GetTokenInformation.cs"
              Link="Common\Interop\Interop.GetTokenInformation.cs" />
+    <Compile Include="$(CommonPath)Interop\Windows\Advapi32\Interop.GetTokenInformation_SafeLocalAllocHandle.cs"
+             Link="Common\Interop\Interop.GetTokenInformation_SafeLocalAllocHandle.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\Advapi32\Interop.DuplicateTokenEx.cs"
              Link="Common\Interop\Interop.DuplicateTokenEx.cs" />
-    <Compile Include="$(CommonPath)Interop\Windows\Kernel32\Interop.DuplicateHandle.cs"
-             Link="Common\Interop\Interop.DuplicateHandle.cs" />
+    <Compile Include="$(CommonPath)Interop\Windows\Kernel32\Interop.DuplicateHandle_SafeAccessTokenHandle.cs"
+             Link="Common\Interop\Interop.DuplicateHandle_SafeAccessTokenHandle.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\Kernel32\Interop.CloseHandle.cs"
              Link="Common\Interop\Interop.CloseHandle.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\SspiCli\Interop.LsaGetLogonSessionData.cs"
@@ -87,8 +96,8 @@
              Link="Common\Interop\Interop.IsWellKnownSid.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\Advapi32\Interop.IsEqualDomainSid.cs"
              Link="Common\Interop\Interop.IsEqualDomainSid.cs" />
-    <Compile Include="$(CommonPath)Interop\Windows\Advapi32\Interop.OpenThreadToken.cs"
-             Link="Common\Interop\Interop.OpenThreadToken.cs" />
+    <Compile Include="$(CommonPath)Interop\Windows\Advapi32\Interop.OpenThreadToken_SafeAccessTokenHandle.cs"
+             Link="Common\Interop\Interop.OpenThreadToken_SafeAccessTokenHandle.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\Advapi32\Interop.RevertToSelf.cs"
              Link="Common\Interop\Interop.RevertToSelf.cs" />
     <Compile Include="$(CommonPath)Interop\Windows\Advapi32\Interop.ImpersonateLoggedOnUser.cs"
@@ -129,23 +138,18 @@
              Link="Common\Microsoft\Win32\SafeHandles\SafeLsaPolicyHandle.cs" />
     <Compile Include="$(CommonPath)Microsoft\Win32\SafeHandles\SafeLsaReturnBufferHandle.cs"
              Link="Common\Microsoft\Win32\SafeHandles\SafeLsaReturnBufferHandle.cs" />
-  </ItemGroup>
-  <ItemGroup Condition="($(TargetFramework.StartsWith('$(NetCoreAppCurrent)')) or $(TargetFramework.StartsWith('netcoreapp2'))) and '$(TargetsWindows)' == 'true'">
     <Compile Include="$(CommonPath)Interop\Windows\Advapi32\Interop.CheckTokenMembership.cs"
              Link="Common\Interop\Interop.CheckTokenMembership.cs" />
   </ItemGroup>
-  <ItemGroup Condition="$(TargetFramework.StartsWith('$(NetCoreAppCurrent)')) or
-                        $(TargetFramework.StartsWith('netcoreapp2'))">
-    <Reference Include="Microsoft.Win32.Primitives" />
-    <Reference Include="System.Collections" />
-    <Reference Include="System.Diagnostics.Debug" />
-    <Reference Include="System.Diagnostics.Tools" />
-    <Reference Include="System.Resources.ResourceManager" />
-    <Reference Include="System.Runtime" />
-    <Reference Include="System.Runtime.Extensions" />
-    <Reference Include="System.Runtime.InteropServices" />
-    <Reference Include="System.Security.Claims" />
-    <Reference Include="System.Security.Principal" />
-    <Reference Include="System.Threading" />
+
+  <ItemGroup>
+    <ProjectReference Include="$(LibrariesProjectRoot)Microsoft.Win32.Primitives\src\Microsoft.Win32.Primitives.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Collections\src\System.Collections.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Memory\src\System.Memory.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Runtime\src\System.Runtime.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Runtime.InteropServices\src\System.Runtime.InteropServices.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Security.Claims\src\System.Security.Claims.csproj" />
+    <ProjectReference Include="$(LibrariesProjectRoot)System.Threading\src\System.Threading.csproj" />
   </ItemGroup>
+
 </Project>

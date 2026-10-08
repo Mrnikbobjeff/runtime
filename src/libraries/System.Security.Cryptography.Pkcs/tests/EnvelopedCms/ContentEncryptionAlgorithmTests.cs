@@ -11,10 +11,11 @@ namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
 {
     public static partial class ContentEncryptionAlgorithmTests
     {
+        public static bool SupportsRc2 => PlatformSupport.IsRC2Supported;
         public static bool SupportsRc4 => PlatformDetection.IsWindows;
         public static bool DoesNotSupportRc4 => !SupportsRc4;
 
-        [Fact]
+        [ConditionalFact(typeof(ContentEncryptionAlgorithmTests), nameof(SupportsRc2))]
         public static void EncryptionAlgorithmRc2_InvalidKeyLength()
         {
             // For .NET Framework compat, variable key length ciphers throw an error if the key length provided
@@ -29,7 +30,7 @@ namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(ContentEncryptionAlgorithmTests), nameof(SupportsRc2))]
         public static void DecodeAlgorithmRc2_128_RoundTrip()
         {
             AlgorithmIdentifier algorithm = new AlgorithmIdentifier(new Oid(Oids.Rc2));
@@ -88,7 +89,7 @@ namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
             Assert.Equal(40, algorithm.KeyLength);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(ContentEncryptionAlgorithmTests), nameof(SupportsRc2))]
         [OuterLoop(/* Leaks key on disk if interrupted */)]
         public static void DecodeAlgorithmRc2_40_RoundTrip()
         {
@@ -111,7 +112,7 @@ namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
             Assert.Equal(40, algorithm.KeyLength);
         }
 
-        [ConditionalFact(nameof(SupportsRc4))]
+        [ConditionalFact(typeof(ContentEncryptionAlgorithmTests), nameof(SupportsRc4))]
         [OuterLoop(/* Leaks key on disk if interrupted */)]
         public static void DecodeAlgorithmRc4_40_RoundTrip()
         {
@@ -135,7 +136,7 @@ namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
         }
 
 
-        [ConditionalFact(nameof(DoesNotSupportRc4))]
+        [ConditionalFact(typeof(ContentEncryptionAlgorithmTests), nameof(DoesNotSupportRc4))]
         [OuterLoop(/* Leaks key on disk if interrupted */)]
         public static void DecodeAlgorithmRc4_40_PlatformNotSupported()
         {
@@ -228,7 +229,7 @@ namespace System.Security.Cryptography.Pkcs.EnvelopedCmsTests.Tests
             Assert.Equal(192, algorithm.KeyLength);
         }
 
-        [ConditionalFact(nameof(SupportsRc4))]
+        [ConditionalFact(typeof(ContentEncryptionAlgorithmTests), nameof(SupportsRc4))]
         public static void DecodeAlgorithmRc4_RoundTrip()
         {
             AlgorithmIdentifier algorithm = new AlgorithmIdentifier(new Oid(Oids.Rc4));

@@ -1,11 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
-using System.IO;
-using System.Text;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
+using System.Text;
 
 namespace System.Xml
 {
@@ -13,7 +12,7 @@ namespace System.Xml
     //
     // This class does special handling of text content for XML.  For example
     // it will replace special characters with entities whenever necessary.
-    internal class XmlTextEncoder
+    internal sealed class XmlTextEncoder
     {
         //
         // Fields
@@ -31,9 +30,6 @@ namespace System.Xml
         private StringBuilder? _attrValue;
         private bool _cacheAttrValue;
 
-        // XmlCharType
-        private XmlCharType _xmlCharType;
-
         //
         // Constructor
         //
@@ -41,7 +37,6 @@ namespace System.Xml
         {
             _textWriter = textWriter;
             _quoteChar = '"';
-            _xmlCharType = XmlCharType.Instance;
         }
 
         //
@@ -114,25 +109,11 @@ namespace System.Xml
 
         internal void Write(char[] array, int offset, int count)
         {
-            if (null == array)
-            {
-                throw new ArgumentNullException(nameof(array));
-            }
+            ArgumentNullException.ThrowIfNull(array);
 
-            if (0 > offset)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            }
-
-            if (0 > count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-
-            if (count > array.Length - offset)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(offset);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, array.Length - offset);
 
             if (_cacheAttrValue)
             {
@@ -146,7 +127,7 @@ namespace System.Xml
             while (true)
             {
                 int startPos = i;
-                while (i < endPos && _xmlCharType.IsAttributeValueChar(ch = array[i]))
+                while (i < endPos && XmlCharType.IsAttributeValueChar(ch = array[i]))
                 {
                     i++;
                 }
@@ -224,7 +205,7 @@ namespace System.Xml
                         }
                         else
                         {
-                            Debug.Assert((ch < 0x20 && !_xmlCharType.IsWhiteSpace(ch)) || (ch > 0xFFFD));
+                            Debug.Assert((ch < 0x20 && !XmlCharType.IsWhiteSpace(ch)) || (ch > 0xFFFD));
                             WriteCharEntityImpl(ch);
                         }
                         break;
@@ -254,9 +235,9 @@ namespace System.Xml
             _textWriter.Write(';');
         }
 
-        internal void Write(string text)
+        internal void Write(ReadOnlySpan<char> text)
         {
-            if (text == null)
+            if (text.IsEmpty)
             {
                 return;
             }
@@ -274,7 +255,7 @@ namespace System.Xml
             char ch = (char)0;
             while (true)
             {
-                while (i < len && _xmlCharType.IsAttributeValueChar(ch = text[i]))
+                while (i < len && XmlCharType.IsAttributeValueChar(ch = text[i]))
                 {
                     i++;
                 }
@@ -305,13 +286,13 @@ namespace System.Xml
                 break;
             }
 
-            char[] helperBuffer = new char[256];
             while (true)
             {
                 if (startPos < i)
                 {
-                    WriteStringFragment(text, startPos, i - startPos, helperBuffer);
+                    _textWriter.Write(text.Slice(startPos, i - startPos));
                 }
+
                 if (i == len)
                 {
                     break;
@@ -380,14 +361,14 @@ namespace System.Xml
                         }
                         else
                         {
-                            Debug.Assert((ch < 0x20 && !_xmlCharType.IsWhiteSpace(ch)) || (ch > 0xFFFD));
+                            Debug.Assert((ch < 0x20 && !XmlCharType.IsWhiteSpace(ch)) || (ch > 0xFFFD));
                             WriteCharEntityImpl(ch);
                         }
                         break;
                 }
                 i++;
                 startPos = i;
-                while (i < len && _xmlCharType.IsAttributeValueChar(ch = text[i]))
+                while (i < len && XmlCharType.IsAttributeValueChar(ch = text[i]))
                 {
                     i++;
                 }
@@ -413,7 +394,7 @@ namespace System.Xml
 
             while (true)
             {
-                while (i < len && (_xmlCharType.IsCharData((ch = text[i])) || ch < 0x20))
+                while (i < len && (XmlCharType.IsCharData((ch = text[i])) || ch < 0x20))
                 {
                     i++;
                 }
@@ -454,25 +435,11 @@ namespace System.Xml
 
         internal void WriteRaw(char[] array, int offset, int count)
         {
-            if (null == array)
-            {
-                throw new ArgumentNullException(nameof(array));
-            }
+            ArgumentNullException.ThrowIfNull(array);
 
-            if (0 > count)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
-
-            if (0 > offset)
-            {
-                throw new ArgumentOutOfRangeException(nameof(offset));
-            }
-
-            if (count > array.Length - offset)
-            {
-                throw new ArgumentOutOfRangeException(nameof(count));
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfNegative(offset);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, array.Length - offset);
 
             if (_cacheAttrValue)
             {
@@ -520,27 +487,6 @@ namespace System.Xml
         //
         // Private implementation methods
         //
-        // This is a helper method to workaround the fact that TextWriter does not have a Write method
-        // for fragment of a string such as Write( string, offset, count).
-        // The string fragment will be written out by copying into a small helper buffer and then
-        // calling textWriter to write out the buffer.
-        private void WriteStringFragment(string str, int offset, int count, char[] helperBuffer)
-        {
-            int bufferSize = helperBuffer.Length;
-            while (count > 0)
-            {
-                int copyCount = count;
-                if (copyCount > bufferSize)
-                {
-                    copyCount = bufferSize;
-                }
-
-                str.CopyTo(offset, helperBuffer, 0, copyCount);
-                _textWriter.Write(helperBuffer, 0, copyCount);
-                offset += copyCount;
-                count -= copyCount;
-            }
-        }
 
         private void WriteCharEntityImpl(char ch)
         {

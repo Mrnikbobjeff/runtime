@@ -1,0 +1,79 @@
+﻿// Licensed to the .NET Foundation under one or more agreements.
+// The .NET Foundation licenses this file to you under the MIT license.
+
+namespace Microsoft.Interop
+{
+    public sealed class BlittableMarshaller : IUnboundMarshallingGenerator
+    {
+        public ManagedTypeInfo AsNativeType(TypePositionInfo info)
+        {
+            return info.ManagedType;
+        }
+
+        public SignatureBehavior GetNativeSignatureBehavior(TypePositionInfo info)
+        {
+            return info.IsByRef ? SignatureBehavior.PointerToNativeType : SignatureBehavior.NativeType;
+        }
+
+        public ValueBoundaryBehavior GetValueBoundaryBehavior(TypePositionInfo info, StubCodeContext context)
+        {
+            if (!info.IsByRef)
+            {
+                return ValueBoundaryBehavior.ManagedIdentifier;
+            }
+            else if (context.SingleFrameSpansNativeContext && !context.IsInStubReturnPosition(info))
+            {
+                return ValueBoundaryBehavior.NativeIdentifier;
+            }
+            return ValueBoundaryBehavior.AddressOfNativeIdentifier;
+        }
+
+        public void Generate(IndentedTextWriter writer, TypePositionInfo info, StubCodeContext codeContext, StubIdentifierContext context)
+        {
+            if (!info.IsByRef || codeContext.IsInStubReturnPosition(info))
+                return;
+
+            (string managedIdentifier, string nativeIdentifier) = context.GetIdentifiers(info);
+
+            if (codeContext.SingleFrameSpansNativeContext)
+            {
+                if (context.CurrentStage == StubIdentifierContext.Stage.Pin)
+                {
+                    writer.WriteLine($"fixed ({AsNativeType(info).FullTypeName}* {nativeIdentifier} = &{managedIdentifier})");
+                }
+                return;
+            }
+
+            MarshalDirection direction = MarshallerHelpers.GetMarshalDirection(info, codeContext);
+
+            switch (context.CurrentStage)
+            {
+                case StubIdentifierContext.Stage.Setup:
+                    break;
+                case StubIdentifierContext.Stage.Marshal:
+                    if (direction is MarshalDirection.ManagedToUnmanaged or MarshalDirection.Bidirectional && info.IsByRef)
+                    {
+                        writer.WriteLine($"{nativeIdentifier} = {managedIdentifier};");
+                    }
+
+                    break;
+                case StubIdentifierContext.Stage.Unmarshal:
+                    if (direction is MarshalDirection.UnmanagedToManaged or MarshalDirection.Bidirectional && info.IsByRef)
+                    {
+                        writer.WriteLine($"{managedIdentifier} = {nativeIdentifier};");
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        public bool UsesNativeIdentifier(TypePositionInfo info, StubCodeContext context)
+        {
+            return info.IsByRef && !context.IsInStubReturnPosition(info) && !context.SingleFrameSpansNativeContext;
+        }
+
+        public ByValueMarshalKindSupport SupportsByValueMarshalKind(ByValueContentsMarshalKind marshalKind, TypePositionInfo info, out GeneratorDiagnostic? diagnostic)
+            => ByValueMarshalKindSupportDescriptor.Default.GetSupport(marshalKind, info, out diagnostic);
+    }
+}

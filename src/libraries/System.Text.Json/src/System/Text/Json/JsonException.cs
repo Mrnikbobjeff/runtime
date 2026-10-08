@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
 using System.Runtime.Serialization;
 
 namespace System.Text.Json
@@ -26,7 +27,7 @@ namespace System.Text.Json
         /// <remarks>
         /// Note that the <paramref name="bytePositionInLine"/> counts the number of bytes (i.e. UTF-8 code units) and not characters or scalars.
         /// </remarks>
-        public JsonException(string? message, string path, long? lineNumber, long? bytePositionInLine, Exception? innerException) : base(message, innerException)
+        public JsonException(string? message, string? path, long? lineNumber, long? bytePositionInLine, Exception? innerException) : base(message, innerException)
         {
             _message = message;
             LineNumber = lineNumber;
@@ -84,6 +85,10 @@ namespace System.Text.Json
         /// <exception cref="ArgumentNullException">
         /// Thrown when <paramref name="info"/> is <see langword="null" />.
         /// </exception>
+#if NET
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+#endif
         protected JsonException(SerializationInfo info, StreamingContext context) : base(info, context)
         {
             LineNumber = (long?)info.GetValue("LineNumber", typeof(long?));
@@ -102,6 +107,10 @@ namespace System.Text.Json
         /// </summary>
         /// <param name="info">The <see cref="SerializationInfo"/> that holds the serialized object data about the exception being thrown.</param>
         /// <param name="context">The <see cref="StreamingContext"/> that contains contextual information about the source or destination.</param>
+#if NET
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+#endif
         public override void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             base.GetObjectData(info, context);

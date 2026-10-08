@@ -7,8 +7,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using Xunit;
+using TestLibrary;
 
-internal class Program
+public class Program
 {
     public static int CompareDLLs(string folder1, string folder2)
     {
@@ -63,7 +65,7 @@ internal class Program
         return result;
     }
 
-    public static string OSExeSuffix(string path) => (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? path + ".exe" : path);
+    public static string OSExeSuffix(string path) => (OperatingSystem.IsWindows() ? path + ".exe" : path);
 
     private static void PrepareCompilationInputFolder(string coreRootFolder, string compilationInputFolder)
     {
@@ -93,7 +95,7 @@ internal class Program
             Directory.Delete(outDir, true);
         }
         Directory.CreateDirectory(outDir);
-        ProcessStartInfo processStartInfo = new ProcessStartInfo(coreRunPath, $"{superIlcPath} compile-directory -cr {coreRootPath} -in {compilationInputFolder} --nojit --noexe --large-bubble --release --nocleanup -out {outDir}");
+        ProcessStartInfo processStartInfo = new ProcessStartInfo(coreRunPath, $"{superIlcPath} compile-directory -cr {coreRootPath} -in {compilationInputFolder} --nojit --noexe --large-bubble --release --nocleanup -ct 30 -out {outDir}");
         var process = Process.Start(processStartInfo);
         process.WaitForExit();
         if (process.ExitCode != 0)
@@ -103,7 +105,10 @@ internal class Program
         return 0 == process.ExitCode;
     }
 
-    public static int Main()
+    [ActiveIssue("These tests are not supposed to be run with mono.", TestRuntimes.Mono)]
+    [SkipOnCoreClr("Running Crossgen2 under GC stress takes too long.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         string coreRootPath = Environment.GetEnvironmentVariable("CORE_ROOT");
         string compilationInputFolder = "TestAssemblies";

@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Immutable;
+using System.IO;
 using System.Reflection.Metadata;
 
 namespace System.Reflection.Internal
@@ -14,7 +15,7 @@ namespace System.Reflection.Internal
         /// <summary>
         /// Pointer to the underlying data (not valid after disposal).
         /// </summary>
-        public unsafe abstract byte* Pointer { get; }
+        public abstract unsafe byte* Pointer { get; }
 
         /// <summary>
         /// Size of the block.
@@ -22,6 +23,11 @@ namespace System.Reflection.Internal
         public abstract int Size { get; }
 
         public unsafe BlobReader GetReader() => new BlobReader(Pointer, Size);
+
+        /// <summary>
+        /// Creates a new stream wrapping the block's memory.
+        /// </summary>
+        public unsafe Stream GetStream() => new UnmanagedMemoryStream(Pointer, Size);
 
         /// <summary>
         /// Returns the content of the entire memory block.
@@ -32,9 +38,9 @@ namespace System.Reflection.Internal
         /// Only creates a copy of the data if they are not represented by a managed byte array,
         /// or if the specified range doesn't span the entire block.
         /// </remarks>
-        public unsafe virtual ImmutableArray<byte> GetContentUnchecked(int start, int length)
+        public virtual unsafe ImmutableArray<byte> GetContentUnchecked(int start, int length)
         {
-            var result = BlobUtilities.ReadImmutableBytes(Pointer + start, length);
+            var result = new ReadOnlySpan<byte>(Pointer + start, length).ToImmutableArray();
             GC.KeepAlive(this);
             return result;
         }

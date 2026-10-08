@@ -1,7 +1,8 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
 
 #if NETSTANDARD2_0 || NETFRAMEWORK
@@ -19,7 +20,12 @@ namespace System
     /// int[] subArray2 = someArray[1..^0]; // { 2, 3, 4, 5 }
     /// </code>
     /// </remarks>
-    public readonly struct Range : IEquatable<Range>
+#if SYSTEM_PRIVATE_CORELIB || MICROSOFT_BCL_MEMORY
+    public
+#else
+    internal
+#endif
+    readonly struct Range : IEquatable<Range>
     {
         /// <summary>Represent the inclusive start index of the Range.</summary>
         public Index Start { get; }
@@ -38,7 +44,7 @@ namespace System
 
         /// <summary>Indicates whether the current Range object is equal to another object of the same type.</summary>
         /// <param name="value">An object to compare with this object</param>
-        public override bool Equals(object? value) =>
+        public override bool Equals([NotNullWhen(true)] object? value) =>
             value is Range r &&
             r.Start.Equals(Start) &&
             r.End.Equals(End);
@@ -58,7 +64,7 @@ namespace System
         }
 
         /// <summary>Converts the value of the current Range object to its equivalent string representation.</summary>
-        public override string ToString()
+        public override unsafe string ToString()
         {
 #if (!NETSTANDARD2_0 && !NETFRAMEWORK)
             Span<char> span = stackalloc char[2 + (2 * 11)]; // 2 for "..", then for each index 1 for '^' and 10 for longest possible uint
@@ -109,26 +115,20 @@ namespace System
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public (int Offset, int Length) GetOffsetAndLength(int length)
         {
-            int start;
-            Index startIndex = Start;
-            if (startIndex.IsFromEnd)
-                start = length - startIndex.Value;
-            else
-                start = startIndex.Value;
-
-            int end;
-            Index endIndex = End;
-            if (endIndex.IsFromEnd)
-                end = length - endIndex.Value;
-            else
-                end = endIndex.Value;
+            int start = Start.GetOffset(length);
+            int end = End.GetOffset(length);
 
             if ((uint)end > (uint)length || (uint)start > (uint)end)
             {
-                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.length);
+                ThrowArgumentOutOfRangeException();
             }
 
             return (start, end - start);
+        }
+
+        private static void ThrowArgumentOutOfRangeException()
+        {
+            throw new ArgumentOutOfRangeException("length");
         }
     }
 }

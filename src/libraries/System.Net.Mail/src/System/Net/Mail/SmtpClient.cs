@@ -2,10 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.ComponentModel;
+using System.Collections.Generic;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Net.NetworkInformation;
+using System.Runtime.ExceptionServices;
+using System.Runtime.Versioning;
 using System.Security;
 using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
@@ -31,33 +34,25 @@ namespace System.Net.Mail
         International = 1, // SMTPUTF8 - Email Address Internationalization (EAI)
     }
 
+    [UnsupportedOSPlatform("browser")]
     public class SmtpClient : IDisposable
     {
         private string? _host;
         private int _port;
         private int _timeout = 100000;
         private bool _inCall;
-        private bool _cancelled;
         private bool _timedOut;
         private string? _targetName;
+        private const string DefaultTargetNamePrefix = "SMTPSVC/";
         private SmtpDeliveryMethod _deliveryMethod = SmtpDeliveryMethod.Network;
         private SmtpDeliveryFormat _deliveryFormat = SmtpDeliveryFormat.SevenBit; // Non-EAI default
         private string? _pickupDirectoryLocation;
         private SmtpTransport _transport;
-        private MailMessage? _message; //required to prevent premature finalization
-        private MailWriter? _writer;
-        private MailAddressCollection? _recipients;
-        private SendOrPostCallback _onSendCompletedDelegate;
-        private Timer? _timer;
-        private ContextAwareResult? _operationCompletedResult;
-        private AsyncOperation? _asyncOp;
-        private static readonly AsyncCallback s_contextSafeCompleteCallback = new AsyncCallback(ContextSafeCompleteCallback);
         private const int DefaultPort = 25;
         internal string _clientDomain;
         private bool _disposed;
+        private CancellationTokenSource _pendingSendCts;
         private ServicePoint? _servicePoint;
-        // (async only) For when only some recipients fail.  We still send the e-mail to the others.
-        private SmtpFailedRecipientException? _failedRecipientException;
         // ports above this limit are invalid
         private const int MaxPortValue = 65535;
         public event SendCompletedEventHandler? SendCompleted;
@@ -79,10 +74,7 @@ namespace System.Net.Mail
         {
             try
             {
-                if (port < 0)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(port));
-                }
+                ArgumentOutOfRangeException.ThrowIfNegative(port);
 
                 _host = host;
                 _port = port;
@@ -94,15 +86,15 @@ namespace System.Net.Mail
         }
 
         [MemberNotNull(nameof(_transport))]
-        [MemberNotNull(nameof(_onSendCompletedDelegate))]
         [MemberNotNull(nameof(_clientDomain))]
+        [MemberNotNull(nameof(_pendingSendCts))]
         private void Initialize()
         {
             _transport = new SmtpTransport(this);
+            _pendingSendCts = new CancellationTokenSource();
             if (NetEventSource.Log.IsEnabled()) NetEventSource.Associate(this, _transport);
-            _onSendCompletedDelegate = new SendOrPostCallback(SendCompletedWaitCallback);
 
-            if (_host != null && _host.Length != 0)
+            if (!string.IsNullOrEmpty(_host))
             {
                 _host = _host.Trim();
             }
@@ -112,8 +104,7 @@ namespace System.Net.Mail
                 _port = DefaultPort;
             }
 
-            if (_targetName == null)
-                _targetName = "SMTPSVC/" + _host;
+            _targetName ??= DefaultTargetNamePrefix + _host;
 
             if (_clientDomain == null)
             {
@@ -142,7 +133,7 @@ namespace System.Net.Mail
                 for (int i = 0; i < clientDomainRaw.Length; i++)
                 {
                     ch = clientDomainRaw[i];
-                    if ((ushort)ch <= 0x7F)
+                    if (Ascii.IsValid(ch))
                         sb.Append(ch);
                 }
                 if (sb.Length > 0)
@@ -161,27 +152,31 @@ namespace System.Net.Mail
             }
             set
             {
-                if (InCall)
+                if (_inCall)
                 {
                     throw new InvalidOperationException(SR.SmtpInvalidOperationDuringSend);
                 }
 
-                if (value == null)
-                {
-                    throw new ArgumentNullException(nameof(value));
-                }
-
-                if (value.Length == 0)
-                {
-                    throw new ArgumentException(SR.net_emptystringset, nameof(value));
-                }
+                ArgumentException.ThrowIfNullOrEmpty(value);
 
                 value = value.Trim();
 
                 if (value != _host)
                 {
+                    // If TargetName is still the default derived from the current host, keep it in
+                    // sync with the new host so Negotiate/NTLM authentication uses the correct SPN.
+                    // A TargetName explicitly set by the caller (not matching the default) is left
+                    // untouched.
+                    if (_targetName == DefaultTargetNamePrefix + _host)
+                    {
+                        _targetName = DefaultTargetNamePrefix + value;
+                    }
+
                     _host = value;
                     _servicePoint = null;
+                    // The cached connection targets the previous host, so invalidate it to force
+                    // a new connection to be established on the next send.
+                    _transport.InvalidateCachedConnection();
                 }
             }
         }
@@ -194,20 +189,20 @@ namespace System.Net.Mail
             }
             set
             {
-                if (InCall)
+                if (_inCall)
                 {
                     throw new InvalidOperationException(SR.SmtpInvalidOperationDuringSend);
                 }
 
-                if (value <= 0)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(value));
-                }
+                ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
 
                 if (value != _port)
                 {
                     _port = value;
                     _servicePoint = null;
+                    // The cached connection targets the previous port, so invalidate it to force
+                    // a new connection to be established on the next send.
+                    _transport.InvalidateCachedConnection();
                 }
             }
         }
@@ -220,7 +215,7 @@ namespace System.Net.Mail
             }
             set
             {
-                if (InCall)
+                if (_inCall)
                 {
                     throw new InvalidOperationException(SR.SmtpInvalidOperationDuringSend);
                 }
@@ -238,7 +233,7 @@ namespace System.Net.Mail
             }
             set
             {
-                if (InCall)
+                if (_inCall)
                 {
                     throw new InvalidOperationException(SR.SmtpInvalidOperationDuringSend);
                 }
@@ -261,15 +256,12 @@ namespace System.Net.Mail
             }
             set
             {
-                if (InCall)
+                if (_inCall)
                 {
                     throw new InvalidOperationException(SR.SmtpInvalidOperationDuringSend);
                 }
 
-                if (value < 0)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(value));
-                }
+                ArgumentOutOfRangeException.ThrowIfNegative(value);
 
                 _timeout = value;
             }
@@ -288,7 +280,7 @@ namespace System.Net.Mail
                 // be usable, whereas in .NET Framework it throws an exception that "This property is not supported for
                 // protocols that do not use URI."
 #pragma warning disable SYSLIB0014
-                return _servicePoint ??= ServicePointManager.FindServicePoint(new Uri("mailto:" + _host + ":" + _port));
+                return _servicePoint ??= ServicePointManager.FindServicePoint(new Uri($"mailto:{_host}:{_port}"));
 #pragma warning restore SYSLIB0014
             }
         }
@@ -340,6 +332,11 @@ namespace System.Net.Mail
             }
             set
             {
+                if (_inCall)
+                {
+                    throw new InvalidOperationException(SR.SmtpInvalidOperationDuringSend);
+                }
+
                 _transport.EnableSsl = value;
             }
         }
@@ -358,7 +355,21 @@ namespace System.Net.Mail
         public string? TargetName
         {
             get { return _targetName; }
-            set { _targetName = value; }
+            set
+            {
+                if (_inCall)
+                {
+                    throw new InvalidOperationException(SR.SmtpInvalidOperationDuringSend);
+                }
+
+                if (value != _targetName)
+                {
+                    _targetName = value;
+                    // The target name is the SPN used during authentication, so invalidate any
+                    // cached connection to force a new one on the next send.
+                    _transport.InvalidateCachedConnection();
+                }
+            }
         }
 
         private bool ServerSupportsEai
@@ -391,7 +402,7 @@ namespace System.Net.Mail
             string pathAndFilename;
             while (true)
             {
-                filename = Guid.NewGuid().ToString() + ".eml";
+                filename = $"{Guid.NewGuid()}.eml";
                 pathAndFilename = Path.Combine(pickupDirectory, filename);
                 if (!File.Exists(pathAndFilename))
                     break;
@@ -406,27 +417,37 @@ namespace System.Net.Mail
             SendCompleted?.Invoke(this, e);
         }
 
-        private void SendCompletedWaitCallback(object? operationState)
-        {
-            OnSendCompleted((AsyncCompletedEventArgs)operationState!);
-        }
-
         public void Send(string from, string recipients, string? subject, string? body)
         {
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(GetType().FullName);
-            }
-            //validation happends in MailMessage constructor
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            //validation happens in MailMessage constructor
             MailMessage mailMessage = new MailMessage(from, recipients, subject, body);
             Send(mailMessage);
         }
-
         public void Send(MailMessage message)
+        {
+            (Exception? ex, bool _) = SendAsyncInternal<SyncReadWriteAdapter>(message, false, null).GetAwaiter().GetResult();
+            if (ex != null)
+            {
+                ExceptionDispatchInfo.Throw(ex);
+            }
+        }
+
+        /// <summary>
+        /// Sends the specified message asynchronously.
+        /// </summary>
+        /// <typeparam name="TIOAdapter">The type of the I/O adapter to use for sending the message.</typeparam>
+        /// <param name="message">The <see cref="MailMessage"/> to send.</param>
+        /// <param name="invokeSendCompleted">Whether to invoke the SendCompleted event after sending. This applies only to asynchronous completions of the operations, synchronous failures (such as argument validations) are thrown directly from this method.</param>
+        /// <param name="userToken">An optional user token to pass to the SendCompleted event, ignored if <paramref name="invokeSendCompleted"/> is false.</param>
+        /// <param name="forceWrapExceptions">If true, wrap exceptions in SmtpException.</param>
+        /// <param name="cancellationToken">A cancellation token to cancel the send operation.</param>
+        private async Task<(Exception? ex, bool synchronous)> SendAsyncInternal<TIOAdapter>(MailMessage message, bool invokeSendCompleted, object? userToken, bool forceWrapExceptions = false, CancellationToken cancellationToken = default)
+            where TIOAdapter : IReadWriteAdapter
         {
             if (_disposed)
             {
-                throw new ObjectDisposedException(GetType().FullName);
+                return (ExceptionDispatchInfo.SetCurrentStackTrace(new ObjectDisposedException(typeof(SmtpClient).FullName)), true);
             }
 
             if (NetEventSource.Log.IsEnabled())
@@ -435,66 +456,79 @@ namespace System.Net.Mail
                 NetEventSource.Associate(this, message);
             }
 
-            SmtpFailedRecipientException? recipientException = null;
-
-            if (InCall)
+            CancellationTokenSource? cts = null;
+            if (cancellationToken.CanBeCanceled)
             {
-                throw new InvalidOperationException(SR.net_inasync);
+                // If the caller provided a cancellation token, we link it to our pending send cancellation token source.
+                cts = CancellationTokenSource.CreateLinkedTokenSource(_pendingSendCts.Token, cancellationToken);
+                cancellationToken = cts.Token;
+            }
+            else
+            {
+                cancellationToken = _pendingSendCts.Token;
             }
 
-            if (message == null)
+            if (Interlocked.Exchange(ref _inCall, true))
             {
-                throw new ArgumentNullException(nameof(message));
+                return (ExceptionDispatchInfo.SetCurrentStackTrace(new InvalidOperationException(SR.net_inasync)), true);
             }
 
-            if (DeliveryMethod == SmtpDeliveryMethod.Network)
-                CheckHostAndPort();
-
-            MailAddressCollection recipients = new MailAddressCollection();
-
-            if (message.From == null)
-            {
-                throw new InvalidOperationException(SR.SmtpFromRequired);
-            }
-
-            if (message.To != null)
-            {
-                foreach (MailAddress address in message.To)
-                {
-                    recipients.Add(address);
-                }
-            }
-            if (message.Bcc != null)
-            {
-                foreach (MailAddress address in message.Bcc)
-                {
-                    recipients.Add(address);
-                }
-            }
-            if (message.CC != null)
-            {
-                foreach (MailAddress address in message.CC)
-                {
-                    recipients.Add(address);
-                }
-            }
-
-            if (recipients.Count == 0)
-            {
-                throw new InvalidOperationException(SR.SmtpRecipientRequired);
-            }
-
-            _transport.IdentityRequired = false;  // everything completes on the same thread.
-
+            // initial exceptions should be thrown directly, not via callback
+            bool synchronous = true;
+            bool canceled = false;
+            Timer? timer = null;
+            Exception? exception = null;
             try
             {
-                InCall = true;
+                ArgumentNullException.ThrowIfNull(message);
+
+                if (DeliveryMethod == SmtpDeliveryMethod.Network)
+                    CheckHostAndPort();
+
+                MailAddressCollection recipients = new MailAddressCollection();
+
+                if (message.From == null)
+                {
+                    throw new InvalidOperationException(SR.SmtpFromRequired);
+                }
+
+                if (message.To != null)
+                {
+                    foreach (MailAddress address in message.To)
+                    {
+                        recipients.Add(address);
+                    }
+                }
+                if (message.Bcc != null)
+                {
+                    foreach (MailAddress address in message.Bcc)
+                    {
+                        recipients.Add(address);
+                    }
+                }
+                if (message.CC != null)
+                {
+                    foreach (MailAddress address in message.CC)
+                    {
+                        recipients.Add(address);
+                    }
+                }
+
+                if (recipients.Count == 0)
+                {
+                    throw new InvalidOperationException(SR.SmtpRecipientRequired);
+                }
+
+                // argument validation is done, wrap all exceptions below this point
+                forceWrapExceptions = true;
+
                 _timedOut = false;
-                _timer = new Timer(new TimerCallback(TimeOutCallback), null, Timeout, Timeout);
+                timer = new Timer(new TimerCallback(TimeOutCallback), null, Timeout, Timeout);
                 bool allowUnicode = false;
                 string? pickupDirectory = PickupDirectoryLocation;
 
                 MailWriter writer;
+                List<SmtpFailedRecipientException>? failedRecipientExceptions = null;
                 switch (DeliveryMethod)
                 {
                     case SmtpDeliveryMethod.PickupDirectoryFromIis:
@@ -506,205 +540,106 @@ namespace System.Net.Mail
                             throw new SmtpException(SR.SmtpPickupDirectoryDoesnotSupportSsl);
                         }
 
-                        allowUnicode = IsUnicodeSupported(); // Determend by the DeliveryFormat paramiter
+                        allowUnicode = IsUnicodeSupported(); // Determined by the DeliveryFormat parameter
                         ValidateUnicodeRequirement(message, recipients, allowUnicode);
                         writer = GetFileMailWriter(pickupDirectory);
                         break;
 
                     case SmtpDeliveryMethod.Network:
                     default:
-                        GetConnection();
-                        // Detected durring GetConnection(), restrictable using the DeliveryFormat paramiter
+                        synchronous = false;
+                        await EnsureConnection<TIOAdapter>(cancellationToken).ConfigureAwait(false);
+                        // Detected during EnsureConnection(), restrictable using the DeliveryFormat parameter
                         allowUnicode = IsUnicodeSupported();
                         ValidateUnicodeRequirement(message, recipients, allowUnicode);
-                        writer = _transport.SendMail(message.Sender ?? message.From, recipients,
-                            message.BuildDeliveryStatusNotificationString(), allowUnicode, out recipientException);
+                        (writer, failedRecipientExceptions) = await _transport.SendMailAsync<TIOAdapter>(message.Sender ?? message.From, recipients,
+                            message.BuildDeliveryStatusNotificationString(), allowUnicode, cancellationToken).ConfigureAwait(false);
                         break;
                 }
-                _message = message;
-                message.Send(writer, DeliveryMethod != SmtpDeliveryMethod.Network, allowUnicode);
+                synchronous = false;
+                await message.SendAsync<TIOAdapter>(writer, DeliveryMethod != SmtpDeliveryMethod.Network, allowUnicode, cancellationToken).ConfigureAwait(false);
                 writer.Close();
 
                 //throw if we couldn't send to any of the recipients
-                if (DeliveryMethod == SmtpDeliveryMethod.Network && recipientException != null)
+                if (failedRecipientExceptions != null)
                 {
-                    throw recipientException;
+                    var e = failedRecipientExceptions.Count == 1
+                        ? failedRecipientExceptions[0]
+                        : new SmtpFailedRecipientsException(failedRecipientExceptions, false);
+                    throw e;
                 }
             }
             catch (Exception e)
             {
                 if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(this, e);
 
-                if (e is SmtpFailedRecipientException && !((SmtpFailedRecipientException)e).fatal)
+                exception = ProcessException(e, ref canceled, forceWrapExceptions, _timedOut);
+                Exception ProcessException(Exception e, ref bool canceled, bool forceWrapExceptions, bool timedOut)
                 {
-                    throw;
-                }
+                    if (e is SmtpFailedRecipientException && !((SmtpFailedRecipientException)e).fatal)
+                    {
+                        return e;
+                    }
 
-                Abort();
-                if (_timedOut)
-                {
-                    throw new SmtpException(SR.net_timeout);
-                }
+                    canceled = e is OperationCanceledException;
 
-                if (e is SecurityException ||
-                    e is AuthenticationException ||
-                    e is SmtpException)
-                {
-                    throw;
-                }
+                    Abort();
+                    if (timedOut)
+                    {
+                        return ExceptionDispatchInfo.SetCurrentStackTrace(new SmtpException(SR.net_timeout));
+                    }
 
-                throw new SmtpException(SR.SmtpSendMailFailure, e);
+                    if (!forceWrapExceptions ||
+                        // for compatibility reasons, don't wrap these exceptions during sync executions
+                        (typeof(TIOAdapter) == typeof(SyncReadWriteAdapter) && (e is SecurityException or AuthenticationException)) ||
+                        e is SmtpException ||
+                        e is OperationCanceledException)
+                    {
+                        return e;
+                    }
+
+                    return ExceptionDispatchInfo.SetCurrentStackTrace(new SmtpException(SR.SmtpSendMailFailure, e));
+                }
             }
             finally
             {
-                InCall = false;
-                if (_timer != null)
+                _inCall = false;
+                timer?.Dispose();
+
+                // SendCompleted event should ever be invoked only for asynchronous send completions.
+                if (invokeSendCompleted && !synchronous)
                 {
-                    _timer.Dispose();
+                    AsyncCompletedEventArgs eventArgs = new(canceled ? null : exception, canceled, userToken);
+                    OnSendCompleted(eventArgs);
                 }
             }
+
+            return (exception, synchronous);
         }
 
         public void SendAsync(string from, string recipients, string? subject, string? body, object? userToken)
         {
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(GetType().FullName);
-            }
+            ObjectDisposedException.ThrowIf(_disposed, this);
             SendAsync(new MailMessage(from, recipients, subject, body), userToken);
         }
 
         public void SendAsync(MailMessage message, object? userToken)
         {
-            if (_disposed)
+            Task<(Exception? ex, bool _)> task = SendAsyncInternal<AsyncReadWriteAdapter>(message, true, userToken, true);
+
+            if (task.IsCompleted)
             {
-                throw new ObjectDisposedException(GetType().FullName);
-            }
+                // If the task completed unwrap the exception (if any)
+                var (ex, sync) = task.GetAwaiter().GetResult();
 
-
-            try
-            {
-                if (InCall)
+                if (ex != null && sync)
                 {
-                    throw new InvalidOperationException(SR.net_inasync);
+                    ExceptionDispatchInfo.Throw(ex);
                 }
-
-                if (message == null)
-                {
-                    throw new ArgumentNullException(nameof(message));
-                }
-
-                if (DeliveryMethod == SmtpDeliveryMethod.Network)
-                    CheckHostAndPort();
-
-                _recipients = new MailAddressCollection();
-
-                if (message.From == null)
-                {
-                    throw new InvalidOperationException(SR.SmtpFromRequired);
-                }
-
-                if (message.To != null)
-                {
-                    foreach (MailAddress address in message.To)
-                    {
-                        _recipients.Add(address);
-                    }
-                }
-                if (message.Bcc != null)
-                {
-                    foreach (MailAddress address in message.Bcc)
-                    {
-                        _recipients.Add(address);
-                    }
-                }
-                if (message.CC != null)
-                {
-                    foreach (MailAddress address in message.CC)
-                    {
-                        _recipients.Add(address);
-                    }
-                }
-
-                if (_recipients.Count == 0)
-                {
-                    throw new InvalidOperationException(SR.SmtpRecipientRequired);
-                }
-
-                InCall = true;
-                _cancelled = false;
-                _message = message;
-                string? pickupDirectory = PickupDirectoryLocation;
-
-                CredentialCache? cache;
-                // Skip token capturing if no credentials are used or they don't include a default one.
-                // Also do capture the token if ICredential is not of CredentialCache type so we don't know what the exact credential response will be.
-                _transport.IdentityRequired = Credentials != null && (ReferenceEquals(Credentials, CredentialCache.DefaultNetworkCredentials) || (cache = Credentials as CredentialCache) == null || IsSystemNetworkCredentialInCache(cache));
-
-                _asyncOp = AsyncOperationManager.CreateOperation(userToken);
-                switch (DeliveryMethod)
-                {
-                    case SmtpDeliveryMethod.PickupDirectoryFromIis:
-                        throw new NotSupportedException(SR.SmtpGetIisPickupDirectoryNotSupported);
-
-                    case SmtpDeliveryMethod.SpecifiedPickupDirectory:
-                        {
-                            if (EnableSsl)
-                            {
-                                throw new SmtpException(SR.SmtpPickupDirectoryDoesnotSupportSsl);
-                            }
-
-                            _writer = GetFileMailWriter(pickupDirectory);
-                            bool allowUnicode = IsUnicodeSupported();
-                            ValidateUnicodeRequirement(message, _recipients, allowUnicode);
-                            message.Send(_writer, true, allowUnicode);
-
-                            if (_writer != null)
-                                _writer.Close();
-
-                            AsyncCompletedEventArgs eventArgs = new AsyncCompletedEventArgs(null, false, _asyncOp.UserSuppliedState);
-                            InCall = false;
-                            _asyncOp.PostOperationCompleted(_onSendCompletedDelegate, eventArgs);
-                            break;
-                        }
-
-                    case SmtpDeliveryMethod.Network:
-                    default:
-                        _operationCompletedResult = new ContextAwareResult(_transport.IdentityRequired, true, null, this, s_contextSafeCompleteCallback);
-                        lock (_operationCompletedResult.StartPostingAsyncOp())
-                        {
-                            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"Calling BeginConnect. Transport: {_transport}");
-                            _transport.BeginGetConnection(_operationCompletedResult, ConnectCallback, _operationCompletedResult, Host!, Port);
-                            _operationCompletedResult.FinishPostingAsyncOp();
-                        }
-                        break;
-                }
-            }
-            catch (Exception e)
-            {
-                InCall = false;
-
-                if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(this, e);
-
-                if (e is SmtpFailedRecipientException && !((SmtpFailedRecipientException)e).fatal)
-                {
-                    throw;
-                }
-
-                Abort();
-
-                if (e is SecurityException ||
-                    e is AuthenticationException ||
-                    e is SmtpException)
-                {
-                    throw;
-                }
-
-                throw new SmtpException(SR.SmtpSendMailFailure, e);
             }
         }
 
-        private bool IsSystemNetworkCredentialInCache(CredentialCache cache)
+        private static bool IsSystemNetworkCredentialInCache(CredentialCache cache)
         {
             // Check if SystemNetworkCredential is in given cache.
             foreach (NetworkCredential credential in cache)
@@ -720,18 +655,18 @@ namespace System.Net.Mail
 
         public void SendAsyncCancel()
         {
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(GetType().FullName);
-            }
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
-            if (!InCall || _cancelled)
+            if (!_inCall)
             {
                 return;
             }
 
-            _cancelled = true;
-            Abort();
+            // With every request we link this cancellation token source.
+            CancellationTokenSource currentCts = Interlocked.Exchange(ref _pendingSendCts, new CancellationTokenSource());
+
+            currentCts.Cancel();
+            currentCts.Dispose();
         }
 
 
@@ -760,85 +695,43 @@ namespace System.Net.Mail
                 return Task.FromCanceled(cancellationToken);
             }
 
-            // Create a TaskCompletionSource to represent the operation
-            var tcs = new TaskCompletionSource();
+            Task<(Exception?, bool)> task = SendAsyncInternal<AsyncReadWriteAdapter>(message, false, null, true, cancellationToken);
 
-            CancellationTokenRegistration ctr = default;
-
-            // Indicates whether the CTR has been set - captured in handler
-            int state = 0;
-
-            // Register a handler that will transfer completion results to the TCS Task
-            SendCompletedEventHandler? handler = null;
-            handler = (sender, e) =>
+            if (task.IsCompleted)
             {
-                if (e.UserState == tcs)
+                // If the task completed unwrap the exception (if any)
+                var (ex, sync) = task.GetAwaiter().GetResult();
+
+                if (ex != null)
                 {
-                    try
+                    if (sync)
                     {
-                        ((SmtpClient)sender).SendCompleted -= handler;
-                        if (Interlocked.Exchange(ref state, 1) != 0)
-                        {
-                            // A CTR has been set, we have to wait until it completes before completing the task
-                            ctr.Dispose();
-                        }
+                        ExceptionDispatchInfo.Throw(ex);
                     }
-                    catch (ObjectDisposedException) { } // SendAsyncCancel will throw if SmtpClient was disposed
-                    finally
-                    {
-                        if (e.Error != null) tcs.TrySetException(e.Error);
-                        else if (e.Cancelled) tcs.TrySetCanceled();
-                        else tcs.TrySetResult();
-                    }
+
+                    return Task.FromException(ex);
                 }
-            };
-            SendCompleted += handler;
 
-            // Start the async operation.
-            try
-            {
-                SendAsync(message, tcs);
-            }
-            catch
-            {
-                SendCompleted -= handler;
-                throw;
+                return Task.CompletedTask;
             }
 
-            ctr = cancellationToken.Register(s =>
+            return WaitAndRethrowIfNeeded(task);
+            static async Task WaitAndRethrowIfNeeded(Task<(Exception? ex, bool _)> task)
             {
-                ((SmtpClient)s!).SendAsyncCancel();
-            }, this);
-
-            if (Interlocked.Exchange(ref state, 1) != 0)
-            {
-                // SendCompleted was already invoked, ensure the CTR completes before returning the task
-                ctr.Dispose();
+                var (ex, _) = await task.ConfigureAwait(false);
+                if (ex != null)
+                {
+                    ExceptionDispatchInfo.Throw(ex);
+                }
             }
-
-            // Return the task to represent the asynchronous operation
-            return tcs.Task;
         }
-
 
         //*********************************
         // private methods
         //********************************
-        internal bool InCall
-        {
-            get
-            {
-                return _inCall;
-            }
-            set
-            {
-                _inCall = value;
-            }
-        }
-
         private void CheckHostAndPort()
         {
-            if (_host == null || _host.Length == 0)
+            if (string.IsNullOrEmpty(_host))
             {
                 throw new InvalidOperationException(SR.UnspecifiedHost);
             }
@@ -857,144 +750,10 @@ namespace System.Net.Mail
             }
         }
 
-        private void Complete(Exception? exception, IAsyncResult result)
-        {
-            ContextAwareResult operationCompletedResult = (ContextAwareResult)result.AsyncState!;
-            try
-            {
-                if (_cancelled)
-                {
-                    //any exceptions were probably caused by cancellation, clear it.
-                    exception = null;
-                    Abort();
-                }
-                // An individual failed recipient exception is benign, only abort here if ALL the recipients failed.
-                else if (exception != null && (!(exception is SmtpFailedRecipientException) || ((SmtpFailedRecipientException)exception).fatal))
-                {
-                    if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(this, exception);
-                    Abort();
-
-                    if (!(exception is SmtpException))
-                    {
-                        exception = new SmtpException(SR.SmtpSendMailFailure, exception);
-                    }
-                }
-                else
-                {
-                    if (_writer != null)
-                    {
-                        try
-                        {
-                            _writer.Close();
-                        }
-                        // Close may result in a DataStopCommand and the server may return error codes at this time.
-                        catch (SmtpException se)
-                        {
-                            exception = se;
-                        }
-                    }
-                }
-            }
-            finally
-            {
-                operationCompletedResult.InvokeCallback(exception);
-            }
-
-            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, "Complete");
-        }
-
-        private static void ContextSafeCompleteCallback(IAsyncResult ar)
-        {
-            ContextAwareResult result = (ContextAwareResult)ar;
-            SmtpClient client = (SmtpClient)ar.AsyncState!;
-            Exception? exception = result.Result as Exception;
-            AsyncOperation asyncOp = client._asyncOp!;
-            AsyncCompletedEventArgs eventArgs = new AsyncCompletedEventArgs(exception, client._cancelled, asyncOp.UserSuppliedState);
-            client.InCall = false;
-            client._failedRecipientException = null; // Reset before the next send.
-            asyncOp.PostOperationCompleted(client._onSendCompletedDelegate, eventArgs);
-        }
-
-        private void SendMessageCallback(IAsyncResult result)
-        {
-            try
-            {
-                _message!.EndSend(result);
-                // If some recipients failed but not others, throw AFTER sending the message.
-                Complete(_failedRecipientException, result);
-            }
-            catch (Exception e)
-            {
-                Complete(e, result);
-            }
-        }
-
-
-        private void SendMailCallback(IAsyncResult result)
-        {
-            try
-            {
-                _writer = _transport.EndSendMail(result);
-                // If some recipients failed but not others, send the e-mail anyways, but then return the
-                // "Non-fatal" exception reporting the failures.  The sync code path does it this way.
-                // Fatal exceptions would have thrown above at transport.EndSendMail(...)
-                SendMailAsyncResult sendResult = (SendMailAsyncResult)result;
-                // Save these and throw them later in SendMessageCallback, after the message has sent.
-                _failedRecipientException = sendResult.GetFailedRecipientException();
-            }
-            catch (Exception e)
-            {
-                Complete(e, result);
-                return;
-            }
-
-            try
-            {
-                if (_cancelled)
-                {
-                    Complete(null, result);
-                }
-                else
-                {
-                    _message!.BeginSend(_writer, DeliveryMethod != SmtpDeliveryMethod.Network,
-                        IsUnicodeSupported(), new AsyncCallback(SendMessageCallback), result.AsyncState!);
-                }
-            }
-            catch (Exception e)
-            {
-                Complete(e, result);
-            }
-        }
-
-        private void ConnectCallback(IAsyncResult result)
-        {
-            try
-            {
-                _transport.EndGetConnection(result);
-                if (_cancelled)
-                {
-                    Complete(null, result);
-                }
-                else
-                {
-                    // Detected durring Begin/EndGetConnection, restrictable using DeliveryFormat
-                    bool allowUnicode = IsUnicodeSupported();
-                    ValidateUnicodeRequirement(_message!, _recipients!, allowUnicode);
-                    _transport.BeginSendMail(_message!.Sender ?? _message.From!, _recipients!,
-                        _message.BuildDeliveryStatusNotificationString(), allowUnicode,
-                        new AsyncCallback(SendMailCallback), result.AsyncState!);
-                }
-            }
-            catch (Exception e)
-            {
-                Complete(e, result);
-            }
-        }
-
-        // After we've estabilished a connection and initilized ServerSupportsEai,
+        // After we've estabilished a connection and initialized ServerSupportsEai,
         // check all the addresses for one that contains unicode in the username/localpart.
-        // The localpart is the only thing we cannot succesfully downgrade.
-        private void ValidateUnicodeRequirement(MailMessage message, MailAddressCollection recipients, bool allowUnicode)
+        // The localpart is the only thing we cannot successfully downgrade.
+        private static void ValidateUnicodeRequirement(MailMessage message, MailAddressCollection recipients, bool allowUnicode)
         {
             // Check all recipients, to, from, sender, bcc, cc, etc...
             // GetSmtpAddress will throw if !allowUnicode and the username contains non-ascii
@@ -1015,6 +774,16 @@ namespace System.Net.Mail
             }
         }
 
+        private Task EnsureConnection<TIOAdapter>(CancellationToken cancellationToken) where TIOAdapter : IReadWriteAdapter
+        {
+            if (_transport.IsConnected)
+            {
+                return Task.CompletedTask;
+            }
+
+            return _transport.GetConnectionAsync<TIOAdapter>(_host!, _port, cancellationToken);
+        }
+
         private void Abort() => _transport.Abort();
 
         public void Dispose()
@@ -1027,17 +796,16 @@ namespace System.Net.Mail
         {
             if (disposing && !_disposed)
             {
-                if (InCall && !_cancelled)
+                _disposed = true;
+                if (_inCall)
                 {
-                    _cancelled = true;
+                    _pendingSendCts.Cancel();
                     Abort();
                 }
                 else
                 {
                     _transport?.ReleaseConnection();
                 }
-                _timer?.Dispose();
-                _disposed = true;
             }
         }
     }

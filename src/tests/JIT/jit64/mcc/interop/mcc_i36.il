@@ -3,15 +3,14 @@
 
 
 .assembly extern System.Runtime.Extensions { auto }
+.assembly extern xunit.core {}
 .assembly extern mscorlib { auto }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
 
-.assembly MCCTest {}
-.module mcc_i36.exe
-
-
-.namespace MCCTest
+.namespace mcc_i36
 {
-  .class MyClass
+  .class public MyClass
   {
     .method assembly static pinvokeimpl("native_i3s" as "#1" stdcall)
         valuetype MCCTest.VType3 Sum(unsigned int64, valuetype MCCTest.VType3, float64,	valuetype MCCTest.VType3, float32, valuetype MCCTest.VType3,
@@ -91,7 +90,7 @@
       conv.i2
       ldloc.s    v12
       tail.
-      call       valuetype MCCTest.VType3 MCCTest.MyClass::Sum(	unsigned int64,	valuetype MCCTest.VType3,
+      call       valuetype MCCTest.VType3 mcc_i36.MyClass::Sum(	unsigned int64,	valuetype MCCTest.VType3,
                                                                 float64,		valuetype MCCTest.VType3,
                                                                 float32,		valuetype MCCTest.VType3,
                                                                 int32,			valuetype MCCTest.VType3,
@@ -114,21 +113,35 @@
       ret
     } // end of method MyClass::.ctor
 
-    .method private static int32 Main(string[] args)
+    .method public static int32 Main()
     {
-      .entrypoint
+        .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+          01 00 00 00
+      )
+      .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.PlatformSpecificAttribute::.ctor(valuetype [Microsoft.DotNet.XUnitExtensions]Xunit.TestPlatforms) = {
+            int32 (1) // TestPlatforms.Windows
+        }
+      .maxstack  1
+
+    DoTest:
+      call       int32 mcc_i36.MyClass::Test()
+      ret
+    }
+
+    .method public static int32 Test()
+    {
       .maxstack  64
       .locals init	(
-        [0] class MCCTest.MyClass me,
+        [0] class mcc_i36.MyClass me,
         [1] valuetype MCCTest.VType3 res,
         [2] int32 rc
       )
 
-      newobj     instance void MCCTest.MyClass::.ctor()
+      newobj     instance void mcc_i36.MyClass::.ctor()
       stloc.s    me
 
       ldloc.s    me
-      call   instance valuetype MCCTest.VType3 MCCTest.MyClass::GetSum()
+      call   instance valuetype MCCTest.VType3 mcc_i36.MyClass::GetSum()
       stloc.s    res
 
       // Check Result
@@ -139,8 +152,11 @@
 
       ldloc.s    rc
       ret
-    } // end of method MyClass::Main
+    } // end of method MyClass::Test
 
   } // end of class MyClass
 
-} // end of namespace MCCTest
+} // end of namespace mcc_i36
+
+
+

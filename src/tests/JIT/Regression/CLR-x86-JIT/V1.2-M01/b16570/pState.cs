@@ -1,8 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b16570;
+
 using System;
-internal class test
+using Xunit;
+public class test
 {
     public struct VT
     {
@@ -51,7 +55,9 @@ internal class test
         return Convert.ToDouble((((vtstatic.a4 * clstatic.a5) + (asgop0 - (0.25F - 0.235290527F))) / (cl.arr3d[4, 0, 3] - (vt.a1))));
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         double retval = Func();
         if ((retval > -191) && (retval < -188))

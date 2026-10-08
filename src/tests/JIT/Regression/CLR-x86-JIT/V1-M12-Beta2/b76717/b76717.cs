@@ -1,12 +1,18 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b76717;
+
 using System;
 using System.Text;
+using Xunit;
 
 public class rep
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         char[] chars = new char[] { (char)0x800 };
         byte[] bytes = new byte[20];
@@ -19,7 +25,6 @@ public class rep
         if (chars2[0] != chars[0])
             throw new Exception("Char differed after being roundtripped!  got: U+" + ((short)chars2[0]).ToString("x"));
         Console.WriteLine("looks good.");
-        return 100;
     }
 }
 

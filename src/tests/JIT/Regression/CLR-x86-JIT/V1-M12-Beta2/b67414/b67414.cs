@@ -1,15 +1,20 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b67414;
+
 using System;
 using System.Reflection;
 using System.Reflection.Emit;
 using System.IO;
+using Xunit;
 
-internal class bug
+public class bug
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
-        return 100;
     }
 }

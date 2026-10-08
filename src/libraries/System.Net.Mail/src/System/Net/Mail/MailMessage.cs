@@ -7,13 +7,19 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Net.Mime;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace System.Net.Mail
 {
     [Flags]
     public enum DeliveryNotificationOptions
     {
-        None = 0, OnSuccess = 1, OnFailure = 2, Delay = 4, Never = (int)0x08000000
+        None = 0,
+        OnSuccess = 1,
+        OnFailure = 2,
+        Delay = 4,
+        Never = (int)0x08000000
     }
 
     public class MailMessage : IDisposable
@@ -37,17 +43,8 @@ namespace System.Net.Mail
 
         public MailMessage(string from, string to)
         {
-            if (from == null)
-                throw new ArgumentNullException(nameof(from));
-
-            if (to == null)
-                throw new ArgumentNullException(nameof(to));
-
-            if (from.Length == 0)
-                throw new ArgumentException(SR.Format(SR.net_emptystringcall, nameof(from)), nameof(from));
-
-            if (to.Length == 0)
-                throw new ArgumentException(SR.Format(SR.net_emptystringcall, nameof(to)), nameof(to));
+            ArgumentException.ThrowIfNullOrEmpty(from);
+            ArgumentException.ThrowIfNullOrEmpty(to);
 
             _message = new Message(from, to);
             if (NetEventSource.Log.IsEnabled()) NetEventSource.Associate(this, _message);
@@ -63,11 +60,8 @@ namespace System.Net.Mail
 
         public MailMessage(MailAddress from, MailAddress to)
         {
-            if (from == null)
-                throw new ArgumentNullException(nameof(from));
-
-            if (to == null)
-                throw new ArgumentNullException(nameof(to));
+            ArgumentNullException.ThrowIfNull(from);
+            ArgumentNullException.ThrowIfNull(to);
 
             _message = new Message(from, to);
         }
@@ -81,10 +75,7 @@ namespace System.Net.Mail
             }
             set
             {
-                if (value == null)
-                {
-                    throw new ArgumentNullException(nameof(value));
-                }
+                ArgumentNullException.ThrowIfNull(value);
                 _message.From = value;
             }
         }
@@ -102,7 +93,7 @@ namespace System.Net.Mail
             }
         }
 
-        [Obsolete("ReplyTo is obsoleted for this type.  Please use ReplyToList instead which can accept multiple addresses. https://go.microsoft.com/fwlink/?linkid=14202")]
+        [Obsolete("ReplyTo has been deprecated. Use ReplyToList instead, which can accept multiple addresses.")]
         public MailAddress? ReplyTo
         {
             get
@@ -180,7 +171,7 @@ namespace System.Net.Mail
         {
             get
             {
-                return (_message.Subject != null ? _message.Subject : string.Empty);
+                return _message.Subject ?? string.Empty;
             }
             set
             {
@@ -225,7 +216,7 @@ namespace System.Net.Mail
         {
             get
             {
-                return (_body != null ? _body : string.Empty);
+                return _body ?? string.Empty;
             }
 
             set
@@ -288,10 +279,7 @@ namespace System.Net.Mail
         {
             get
             {
-                if (_disposed)
-                {
-                    throw new ObjectDisposedException(GetType().FullName);
-                }
+                ObjectDisposedException.ThrowIf(_disposed, this);
 
                 return _attachments ??= new AttachmentCollection();
             }
@@ -300,10 +288,7 @@ namespace System.Net.Mail
         {
             get
             {
-                if (_disposed)
-                {
-                    throw new ObjectDisposedException(GetType().FullName);
-                }
+                ObjectDisposedException.ThrowIf(_disposed, this);
 
                 return _views ??= new AlternateViewCollection();
             }
@@ -320,18 +305,9 @@ namespace System.Net.Mail
             {
                 _disposed = true;
 
-                if (_views != null)
-                {
-                    _views.Dispose();
-                }
-                if (_attachments != null)
-                {
-                    _attachments.Dispose();
-                }
-                if (_bodyView != null)
-                {
-                    _bodyView.Dispose();
-                }
+                _views?.Dispose();
+                _attachments?.Dispose();
+                _bodyView?.Dispose();
             }
         }
 
@@ -383,7 +359,7 @@ namespace System.Net.Mail
             {
                 // we should not unnecessarily use Multipart/Mixed
                 // When there is no attachement and all the alternative views are of "Alternative" types.
-                MimeMultiPart? part = null;
+                MimeMultiPart? part;
                 MimeMultiPart viewsPart = new MimeMultiPart(MimeMultiPartType.Alternative);
 
                 if (!string.IsNullOrEmpty(_body))
@@ -426,17 +402,15 @@ namespace System.Net.Mail
                     part = new MimeMultiPart(MimeMultiPartType.Mixed);
                     part.Parts.Add(viewsPart);
 
-                    MimeMultiPart attachmentsPart = new MimeMultiPart(MimeMultiPartType.Mixed);
                     foreach (Attachment attachment in Attachments)
                     {
                         if (attachment != null)
                         {
                             //ensure we can read from the stream.
                             attachment.PrepareForSending(allowUnicode);
-                            attachmentsPart.Parts.Add(attachment.MimePart);
+                            part.Parts.Add(attachment.MimePart);
                         }
                     }
-                    part.Parts.Add(attachmentsPart);
                     _message.Content = part;
                 }
                 // If there is no Attachement, AND only "1" Alternate View AND !!no body!!
@@ -457,22 +431,11 @@ namespace System.Net.Mail
             }
         }
 
-        internal void Send(BaseWriter writer, bool sendEnvelope, bool allowUnicode)
+        internal async Task SendAsync<TIOAdapter>(BaseWriter writer, bool sendEnvelope, bool allowUnicode, CancellationToken cancellationToken = default)
+            where TIOAdapter : IReadWriteAdapter
         {
             SetContent(allowUnicode);
-            _message.Send(writer, sendEnvelope, allowUnicode);
-        }
-
-        internal IAsyncResult BeginSend(BaseWriter writer, bool sendEnvelope, bool allowUnicode,
-            AsyncCallback? callback, object? state)
-        {
-            SetContent(allowUnicode);
-            return _message.BeginSend(writer, sendEnvelope, allowUnicode, callback, state);
-        }
-
-        internal void EndSend(IAsyncResult asyncResult)
-        {
-            _message.EndSend(asyncResult);
+            await _message.SendAsync<TIOAdapter>(writer, sendEnvelope, allowUnicode, cancellationToken).ConfigureAwait(false);
         }
 
         internal string BuildDeliveryStatusNotificationString()

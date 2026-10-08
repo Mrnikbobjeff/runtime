@@ -3,6 +3,8 @@
 
 using System;
 using System.Threading;
+using TestLibrary;
+using Xunit;
 
 class UserException1 : Exception {
 	public int ExceptionId;
@@ -40,12 +42,15 @@ class UserException4 : Exception {
 public class NestedException {
 	private int ThreadId;
 
-	public NestedException(int id){
+	public NestedException() { }
+
+	private NestedException(int id){
 		ThreadId = id;
 	}
 		
 	
-	public static int Main(String []args) {
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint() {
 		String s = "Done";
 		int retVal = 100;
 		Thread mv_Thread;

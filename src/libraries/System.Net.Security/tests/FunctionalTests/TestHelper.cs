@@ -1,13 +1,20 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Net.Sockets;
 using System.Net.Test.Common;
+using System.Security.Authentication;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Security.Cryptography.X509Certificates.Tests.Common;
+using System.Runtime.CompilerServices;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using Xunit;
 
 namespace System.Net.Security.Tests
 {
@@ -26,13 +33,29 @@ namespace System.Net.Security.Tests
                 },
                 false);
 
+        private static readonly X509EnhancedKeyUsageExtension s_tlsClientEku =
+            new X509EnhancedKeyUsageExtension(
+                new OidCollection
+                {
+                    new Oid("1.3.6.1.5.5.7.3.2", null)
+                },
+                false);
+
         private static readonly X509BasicConstraintsExtension s_eeConstraints =
             new X509BasicConstraintsExtension(false, false, 0, false);
 
-        public static (SslStream ClientStream, SslStream ServerStream) GetConnectedSslStreams()
+        public static readonly byte[] s_ping = "PING"u8.ToArray();
+        public static readonly byte[] s_pong = "PONG"u8.ToArray();
+
+        public static bool AllowAnyServerCertificate(object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
+        {
+            return true;
+        }
+
+        public static (SslStream ClientStream, SslStream ServerStream) GetConnectedSslStreams(bool leaveInnerStreamOpen = false)
         {
             (Stream clientStream, Stream serverStream) = GetConnectedStreams();
-            return (new SslStream(clientStream), new SslStream(serverStream));
+            return (new SslStream(clientStream, leaveInnerStreamOpen), new SslStream(serverStream, leaveInnerStreamOpen));
         }
 
         public static (Stream ClientStream, Stream ServerStream) GetConnectedStreams()
@@ -43,7 +66,7 @@ namespace System.Net.Security.Tests
                 return GetConnectedTcpStreams();
             }
 
-            return GetConnectedVirtualStreams();
+            return ConnectedStreams.CreateBidirectional(initialBufferSize: 4096, maxBufferSize: int.MaxValue);
         }
 
         internal static (NetworkStream ClientStream, NetworkStream ServerStream) GetConnectedTcpStreams()
@@ -62,22 +85,33 @@ namespace System.Net.Security.Tests
 
                 return (new NetworkStream(clientSocket, ownsSocket: true), new NetworkStream(serverSocket, ownsSocket: true));
             }
-
         }
 
-        internal static (VirtualNetworkStream ClientStream, VirtualNetworkStream ServerStream) GetConnectedVirtualStreams()
+        internal static async Task<(NetworkStream ClientStream, NetworkStream ServerStream)> GetConnectedTcpStreamsAsync()
         {
-            VirtualNetwork vn = new VirtualNetwork();
+            using (Socket listener = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+            {
+                listener.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+                listener.Listen(1);
 
-            return (new VirtualNetworkStream(vn, isServer: false), new VirtualNetworkStream(vn, isServer: true));
+                var clientSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                Task<Socket> acceptTask = listener.AcceptAsync(CancellationToken.None).AsTask();
+                await clientSocket.ConnectAsync(listener.LocalEndPoint).WaitAsync(TestConfiguration.PassingTestTimeout);
+                Socket serverSocket = await acceptTask.WaitAsync(TestConfiguration.PassingTestTimeout);
+
+                serverSocket.NoDelay = true;
+                clientSocket.NoDelay = true;
+
+                return (new NetworkStream(clientSocket, ownsSocket: true), new NetworkStream(serverSocket, ownsSocket: true));
+            }
         }
 
-        internal static void CleanupCertificates(string testName)
+        internal static void CleanupCertificates([CallerMemberName] string? testName = null, StoreName storeName = StoreName.CertificateAuthority)
         {
             string caName = $"O={testName}";
             try
             {
-                using (X509Store store = new X509Store(StoreName.CertificateAuthority, StoreLocation.LocalMachine))
+                using (X509Store store = new X509Store(storeName, StoreLocation.LocalMachine))
                 {
                     store.Open(OpenFlags.ReadWrite);
                     foreach (X509Certificate2 cert in store.Certificates)
@@ -86,6 +120,7 @@ namespace System.Net.Security.Tests
                         {
                             store.Remove(cert);
                         }
+                        cert.Dispose();
                     }
                 }
             }
@@ -93,7 +128,7 @@ namespace System.Net.Security.Tests
 
             try
             {
-                using (X509Store store = new X509Store(StoreName.CertificateAuthority, StoreLocation.CurrentUser))
+                using (X509Store store = new X509Store(storeName, StoreLocation.CurrentUser))
                 {
                     store.Open(OpenFlags.ReadWrite);
                     foreach (X509Certificate2 cert in store.Certificates)
@@ -102,52 +137,146 @@ namespace System.Net.Security.Tests
                         {
                             store.Remove(cert);
                         }
+                        cert.Dispose();
                     }
                 }
             }
             catch { };
         }
-        internal static (X509Certificate2 certificate, X509Certificate2Collection) GenerateCertificates(string targetName, string? testName = null)
+
+        internal static async Task PingPong(SslStream client, SslStream server, CancellationToken cancellationToken = default)
         {
-            if (PlatformDetection.IsWindows && testName != null)
+            byte[] buffer = new byte[s_ping.Length];
+            ValueTask t = client.WriteAsync(s_ping, cancellationToken);
+
+            int remains = s_ping.Length;
+            while (remains > 0)
             {
-                CleanupCertificates(testName);
+                int readLength = await server.ReadAsync(buffer, buffer.Length - remains, remains, cancellationToken);
+                Assert.True(readLength > 0);
+                remains -= readLength;
+            }
+            Assert.Equal(s_ping, buffer);
+            await t;
+
+            t = server.WriteAsync(s_pong, cancellationToken);
+            remains = s_pong.Length;
+            while (remains > 0)
+            {
+                int readLength = await client.ReadAsync(buffer, buffer.Length - remains, remains, cancellationToken);
+                Assert.True(readLength > 0);
+                remains -= readLength;
             }
 
-            X509Certificate2Collection chain = new X509Certificate2Collection();
-            X509ExtensionCollection extensions = new X509ExtensionCollection();
+            Assert.Equal(s_pong, buffer);
+            await t;
+        }
 
-            SubjectAlternativeNameBuilder builder = new SubjectAlternativeNameBuilder();
-            builder.AddDnsName(targetName);
-            extensions.Add(builder.Build());
-            extensions.Add(s_eeConstraints);
-            extensions.Add(s_eeKeyUsage);
-            extensions.Add(s_tlsServerEku);
-
-            CertificateAuthority.BuildPrivatePki(
-                PkiOptions.IssuerRevocationViaCrl,
-                out RevocationResponder responder,
-                out CertificateAuthority root,
-                out CertificateAuthority intermediate,
-                out X509Certificate2 endEntity,
-                subjectName: targetName,
-                testName: testName,
-                keySize: 2048,
-                extensions: extensions);
-
-            chain.Add(intermediate.CloneIssuerCert());
-            chain.Add(root.CloneIssuerCert());
-
-            responder.Dispose();
-            root.Dispose();
-            intermediate.Dispose();
-
-            if (PlatformDetection.IsWindows)
+        internal static string GetTestSNIName(string testMethodName, params SslProtocols?[] protocols)
+        {
+            static string ProtocolToString(SslProtocols? protocol)
             {
-                endEntity = new X509Certificate2(endEntity.Export(X509ContentType.Pfx));
+                return (protocol?.ToString() ?? "null").Replace(", ", "-");
             }
 
-            return (endEntity, chain);
+            var args = string.Join(".", protocols.Select(p => ProtocolToString(p)));
+            var name = testMethodName.Length > 63 ? testMethodName.Substring(0, 63) : testMethodName;
+
+            name = $"{name}.{args}";
+            if (PlatformDetection.IsAndroid)
+            {
+                // Android does not support underscores in host names
+                name = name.Replace("_", string.Empty);
+            }
+
+            return name;
+        }
+
+        internal static async Task<Exception> WaitForSecureConnection(SslStream client, SslClientAuthenticationOptions clientOptions, SslStream server, SslServerAuthenticationOptions serverOptions)
+        {
+            Task serverTask = null;
+            Task clientTask = null;
+
+            // check if failed synchronously
+            try
+            {
+                serverTask = server.AuthenticateAsServerAsync(serverOptions, CancellationToken.None);
+                clientTask = client.AuthenticateAsClientAsync(clientOptions, CancellationToken.None);
+            }
+            catch (Exception e)
+            {
+                client.Close();
+                server.Close();
+
+                if (!(e is AuthenticationException || e is Win32Exception))
+                {
+                    throw;
+                }
+
+                if (serverTask != null)
+                {
+                    // i.e. for server we used DEFAULT options but for client we chose not supported cipher suite
+                    //      this will cause client to fail synchronously while server awaits connection
+                    try
+                    {
+                        // since we broke connection the server should finish
+                        await serverTask;
+                    }
+                    catch (AuthenticationException) { }
+                    catch (Win32Exception) { }
+                    catch (IOException) { }
+                }
+
+                return e;
+            }
+
+            // Since we got here it means client and server have at least 1 choice
+            // of cipher suite
+            // Now we expect both sides to fail or both to succeed
+
+            Exception failure = null;
+            Task task = null;
+
+            try
+            {
+                task = await Task.WhenAny(serverTask, clientTask).WaitAsync(TestConfiguration.PassingTestTimeout);
+                await task;
+            }
+            catch (Exception e) when (e is AuthenticationException || e is Win32Exception)
+            {
+                failure = e;
+                // avoid client waiting for server's response
+                if (task == serverTask)
+                {
+                    server.Close();
+                }
+                else
+                {
+                    client.Close();
+                }
+            }
+
+            try
+            {
+                // Now wait for the other task to finish.
+                task = (task == serverTask ? clientTask : serverTask);
+                await task.WaitAsync(TestConfiguration.PassingTestTimeout);
+
+                // Fail if server has failed but client has succeeded
+                Assert.Null(failure);
+            }
+            catch (Exception e) when (e is AuthenticationException || e is Win32Exception || e is IOException)
+            {
+                // Fail if server has succeeded but client has failed
+                Assert.NotNull(failure);
+
+                if (e.GetType() != typeof(IOException))
+                {
+                    failure = new AggregateException(new Exception[] { failure, e });
+                }
+            }
+
+            return failure;
         }
     }
 }

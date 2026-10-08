@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 /*
+using TestLibrary;
 We are testing the following scenario:
 
 
@@ -18,6 +19,8 @@ class D<T> : C<T>, I<T> {virtual methods}
 */
 
 using System;
+using Xunit;
+using TestLibrary;
 
 
 
@@ -106,7 +109,7 @@ public class CC4<T> : C4<T>, IGen<T>
 }
 
 
-public class Test
+public class Test_Class2_ImplicitOverrideVirtual_Interface
 {
 
 	public static int counter = 0;
@@ -248,7 +251,9 @@ public class Test
 
 
 	
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[Fact]
+	public static int TestEntryPoint()
 	{
 
 		TestNonGenInterface_NonGenType();

@@ -2,9 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b309539;
+
 using System;
 using System.Collections;
 using System.Runtime.InteropServices;
+using Xunit;
 
 [StructLayout(LayoutKind.Sequential)]
 public struct AA
@@ -53,7 +57,8 @@ public struct AA
 [StructLayout(LayoutKind.Sequential)]
 public class App
 {
-    static int Main()
+    [Fact]
+    public static void TestEntryPoint()
     {
         App.m_bFwd6 = false;
 
@@ -82,7 +87,6 @@ public class App
             Console.WriteLine("Exception handled: " + x.ToString());
         }
         Console.WriteLine("Passed.");
-        return 100;
     }
     public static char m_chFwd1;
     public static Array[][] m_axFwd2;

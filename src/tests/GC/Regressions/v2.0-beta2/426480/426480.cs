@@ -5,6 +5,7 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 
 public class Bug426480
@@ -33,7 +34,9 @@ public class Bug426480
     }
 
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
-    public static int Main(String[] args)
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {

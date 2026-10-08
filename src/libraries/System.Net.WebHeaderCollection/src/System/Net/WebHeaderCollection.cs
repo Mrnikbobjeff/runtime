@@ -4,11 +4,12 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Runtime.Serialization;
 using System.Text;
-using System.Diagnostics.CodeAnalysis;
 
 namespace System.Net
 {
@@ -26,8 +27,8 @@ namespace System.Net
         private WebHeaderCollectionType _type;
         private NameValueCollection? _innerCollection;
 
-        private static HeaderInfoTable? _headerInfo;
-
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         protected WebHeaderCollection(SerializationInfo serializationInfo, StreamingContext streamingContext)
         {
             throw new PlatformNotSupportedException();
@@ -45,27 +46,9 @@ namespace System.Net
             }
         }
 
-        private static HeaderInfoTable HeaderInfo
-        {
-            get
-            {
-                if (_headerInfo == null)
-                {
-                    _headerInfo = new HeaderInfoTable();
-                }
-                return _headerInfo;
-            }
-        }
+        private static HeaderInfoTable HeaderInfo => field ??= new HeaderInfoTable();
 
-        private NameValueCollection InnerCollection
-        {
-            get
-            {
-                if (_innerCollection == null)
-                    _innerCollection = new NameValueCollection(ApproxHighAvgNumHeaders, CaseInsensitiveAscii.StaticInstance);
-                return _innerCollection;
-            }
-        }
+        private NameValueCollection InnerCollection => _innerCollection ??= new NameValueCollection(ApproxHighAvgNumHeaders, StringComparer.OrdinalIgnoreCase);
 
         private bool AllowHttpResponseHeader
         {
@@ -152,6 +135,8 @@ namespace System.Net
             this.Set(header.GetName(), value);
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public override void GetObjectData(SerializationInfo serializationInfo, StreamingContext streamingContext)
         {
             throw new PlatformNotSupportedException();
@@ -278,10 +263,7 @@ namespace System.Net
         public override void Clear()
         {
             InvalidateCachedArrays();
-            if (_innerCollection != null)
-            {
-                _innerCollection.Clear();
-            }
+            _innerCollection?.Clear();
         }
 
         public override string? Get(int index)
@@ -344,14 +326,7 @@ namespace System.Net
         public override void Add(string name, string? value)
 #pragma warning restore CS8765
         {
-            if (name == null)
-            {
-                throw new ArgumentNullException(nameof(name));
-            }
-            if (name.Length == 0)
-            {
-                throw new ArgumentException(SR.Format(SR.net_emptyStringCall, nameof(name)), nameof(name));
-            }
+            ArgumentException.ThrowIfNullOrEmpty(name);
 
             name = HttpValidationHelpers.CheckBadHeaderNameChars(name);
             value = HttpValidationHelpers.CheckBadHeaderValueChars(value);

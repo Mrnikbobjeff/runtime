@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 /* TEST:        delete_next_card_table
+using TestLibrary;
  * SDET:        clyon
  * DESCRIPTION: gains 14 blocks in gc.cpp
                 mscorwks!WKS::delete_next_card_table: (7 blocks, 11 arcs)
@@ -10,13 +11,17 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Xunit;
+using TestLibrary;
 
 public class delete_next_card_table
 {
-    public static int Main()
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static void TestEntryPoint()
     {
         new delete_next_card_table().DoMemoryChurn();
-        return 100;
     }
 
     // this function attempts to allocate & free large amounts

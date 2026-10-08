@@ -2,9 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Formats.Asn1;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Xunit;
+
+// PQC types are used throughout, but only when the caller requests them.
+#pragma warning disable SYSLIB5006
 
 namespace System.Security.Cryptography.X509Certificates.Tests.Common
 {
@@ -42,7 +47,8 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
         private static readonly Asn1Tag s_context0 = new Asn1Tag(TagClass.ContextSpecific, 0);
         private static readonly Asn1Tag s_context1 = new Asn1Tag(TagClass.ContextSpecific, 1);
         private static readonly Asn1Tag s_context2 = new Asn1Tag(TagClass.ContextSpecific, 2);
-        private static readonly Asn1Tag s_context4 = new Asn1Tag(TagClass.ContextSpecific, 4);
+        private static readonly KeyFactory[] s_variantKeyFactories = KeyFactory.BuildVariantFactories();
+        private static readonly KeyFactory[] s_tlsVariantKeyFactories = KeyFactory.BuildTlsVariantFactories();
 
         private static readonly X500DistinguishedName s_nonParticipatingName =
             new X500DistinguishedName("CN=The Ghost in the Machine");
@@ -80,7 +86,7 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
         private byte[] _certData;
         private X509Extension _cdpExtension;
         private X509Extension _aiaExtension;
-        private X509Extension _akidExtension;
+        private X509AuthorityKeyIdentifierExtension _akidExtension;
 
         private List<(byte[], DateTimeOffset)> _revocationList;
         private byte[] _crl;
@@ -118,6 +124,7 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
         public void Dispose()
         {
             _cert.Dispose();
+            _ocspResponder?.Dispose();
         }
 
         internal string SubjectName => _cert.Subject;
@@ -126,7 +133,7 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
 
         internal X509Certificate2 CloneIssuerCert()
         {
-            return new X509Certificate2(_cert.RawData);
+            return X509CertificateLoader.LoadCertificate(_cert.RawData);
         }
 
         internal void Revoke(X509Certificate2 certificate, DateTimeOffset revocationTime)
@@ -141,15 +148,25 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
                 _revocationList = new List<(byte[], DateTimeOffset)>();
             }
 
-            byte[] serial = certificate.GetSerialNumber();
-            Array.Reverse(serial);
+            byte[] serial = certificate.SerialNumberBytes.ToArray();
             _revocationList.Add((serial, revocationTime));
             _crl = null;
         }
 
         internal X509Certificate2 CreateSubordinateCA(
             string subject,
-            RSA publicKey,
+            PublicKey publicKey,
+            int? depthLimit = null)
+        {
+            return CreateSubordinateCA(
+                new X500DistinguishedName(subject),
+                publicKey,
+                depthLimit);
+        }
+
+        internal X509Certificate2 CreateSubordinateCA(
+            X500DistinguishedName subject,
+            PublicKey publicKey,
             int? depthLimit = null)
         {
             return CreateCertificate(
@@ -165,7 +182,22 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
                     s_caKeyUsage });
         }
 
-        internal X509Certificate2 CreateEndEntity(string subject, RSA publicKey, X509ExtensionCollection extensions)
+        internal X509Certificate2 CreateEndEntity(
+            string subject,
+            PublicKey publicKey,
+            X509ExtensionCollection extensions)
+        {
+            return CreateCertificate(
+                new X500DistinguishedName(subject),
+                publicKey,
+                TimeSpan.FromSeconds(2),
+                extensions);
+        }
+
+        internal X509Certificate2 CreateEndEntity(
+            X500DistinguishedName subject,
+            PublicKey publicKey,
+            X509ExtensionCollection extensions)
         {
             return CreateCertificate(
                 subject,
@@ -176,11 +208,18 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
 
         internal X509Certificate2 CreateOcspSigner(string subject, RSA publicKey)
         {
+            return CreateOcspSigner(
+                subject,
+                X509SignatureGenerator.CreateForRSA(publicKey, RSASignaturePadding.Pkcs1).PublicKey);
+        }
+
+        internal X509Certificate2 CreateOcspSigner(string subject, PublicKey publicKey)
+        {
             return CreateCertificate(
                 subject,
                 publicKey,
                 TimeSpan.FromSeconds(1),
-                new X509ExtensionCollection() { s_eeConstraints, s_eeKeyUsage, s_ocspResponderEku},
+                new X509ExtensionCollection() { s_eeConstraints, s_eeKeyUsage, s_ocspResponderEku },
                 ocspResponder: true);
         }
 
@@ -208,7 +247,7 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
                 throw new InvalidOperationException();
             }
 
-            var req = new CertificateRequest(subjectName, _cert.PublicKey, HashAlgorithmName.SHA256);
+            var req = new CertificateRequest(subjectName, _cert.PublicKey, HashAlgorithmIfNeeded(_cert.GetKeyAlgorithm()));
 
             foreach (X509Extension ext in _cert.Extensions)
             {
@@ -218,27 +257,38 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
             req.CertificateExtensions.Add(cdpExtension);
             req.CertificateExtensions.Add(aiaExtension);
 
-            byte[] serial = _cert.GetSerialNumber();
-            Array.Reverse(serial);
+            byte[] serial = _cert.SerialNumberBytes.ToArray();
 
             X509Certificate2 dispose = _cert;
 
             using (dispose)
-            using (RSA rsa = _cert.GetRSAPrivateKey())
+            using (KeyHolder key = new KeyHolder(_cert))
             using (X509Certificate2 tmp = req.Create(
                 subjectName,
-                X509SignatureGenerator.CreateForRSA(rsa, RSASignaturePadding.Pkcs1),
+                key.GetGenerator(),
                 new DateTimeOffset(_cert.NotBefore),
                 new DateTimeOffset(_cert.NotAfter),
                 serial))
             {
-                _cert = tmp.CopyWithPrivateKey(rsa);
+                _cert = key.OntoCertificate(tmp);
             }
         }
 
         private X509Certificate2 CreateCertificate(
             string subject,
-            RSA publicKey,
+            PublicKey publicKey,
+            TimeSpan nestingBuffer,
+            X509ExtensionCollection extensions,
+            bool ocspResponder = false)
+        {
+            X500DistinguishedName name = new(subject);
+
+            return CreateCertificate(name, publicKey, nestingBuffer, extensions, ocspResponder);
+        }
+
+        private X509Certificate2 CreateCertificate(
+            X500DistinguishedName subject,
+            PublicKey publicKey,
             TimeSpan nestingBuffer,
             X509ExtensionCollection extensions,
             bool ocspResponder = false)
@@ -261,7 +311,7 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
             CertificateRequest request = new CertificateRequest(
                 subject,
                 publicKey,
-                HashAlgorithmName.SHA256,
+                HashAlgorithmIfNeeded(_cert.GetKeyAlgorithm()),
                 RSASignaturePadding.Pkcs1);
 
             foreach (X509Extension extension in extensions)
@@ -284,11 +334,15 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
             byte[] serial = new byte[sizeof(long)];
             RandomNumberGenerator.Fill(serial);
 
-            return request.Create(
-                _cert,
-                _cert.NotBefore.Add(nestingBuffer),
-                _cert.NotAfter.Subtract(nestingBuffer),
-                serial);
+            using (KeyHolder key = new KeyHolder(_cert))
+            {
+                return request.Create(
+                    _cert.SubjectName,
+                    key.GetGenerator(),
+                    _cert.NotBefore.Add(nestingBuffer),
+                    _cert.NotAfter.Subtract(nestingBuffer),
+                    serial);
+            }
         }
 
         internal byte[] GetCertData()
@@ -307,17 +361,71 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
             }
 
             DateTimeOffset newExpiry = now.AddSeconds(2);
+            X509AuthorityKeyIdentifierExtension akid = _akidExtension ??= CreateAkidExtension();
 
-            AsnWriter writer = new AsnWriter(AsnEncodingRules.DER);
-
-            using (writer.PushSequence())
+            if (OmitNextUpdateInCrl)
             {
-                writer.WriteObjectIdentifier("1.2.840.113549.1.1.11");
-                writer.WriteNull();
+                crl = BuildCrlManually(now, newExpiry, akid);
+            }
+            else
+            {
+                CertificateRevocationListBuilder builder = new CertificateRevocationListBuilder();
+
+                if (_revocationList is not null)
+                {
+                    foreach ((byte[] serial, DateTimeOffset when) in _revocationList)
+                    {
+                        builder.AddEntry(serial, when);
+                    }
+                }
+
+                DateTimeOffset thisUpdate;
+                DateTimeOffset nextUpdate;
+
+                if (RevocationExpiration.HasValue)
+                {
+                    nextUpdate = RevocationExpiration.GetValueOrDefault();
+                    thisUpdate = _cert.NotBefore;
+                }
+                else
+                {
+                    thisUpdate = now;
+                    nextUpdate = newExpiry;
+                }
+
+                using (KeyHolder key = new KeyHolder(_cert))
+                {
+                    crl = builder.Build(
+                        CorruptRevocationIssuerName ? s_nonParticipatingName : _cert.SubjectName,
+                        key.GetGenerator(),
+                        _crlNumber,
+                        nextUpdate,
+                        HashAlgorithmIfNeeded(key.ToPublicKey().Oid.Value),
+                        _akidExtension,
+                        thisUpdate);
+                }
             }
 
-            byte[] signatureAlgId = writer.Encode();
-            writer.Reset();
+            if (CorruptRevocationSignature)
+            {
+                crl[^2] ^= 0xFF;
+            }
+
+            _crl = crl;
+            _crlExpiry = newExpiry;
+            _crlNumber++;
+            return crl;
+        }
+
+        private byte[] BuildCrlManually(
+            DateTimeOffset now,
+            DateTimeOffset newExpiry,
+            X509AuthorityKeyIdentifierExtension akidExtension)
+        {
+            using KeyHolder key = new KeyHolder(_cert);
+            byte[] signatureAlgId = key.GetSignatureAlgorithmIdentifier();
+
+            AsnWriter writer = new AsnWriter(AsnEncodingRules.DER);
 
             // TBSCertList
             using (writer.PushSequence())
@@ -385,22 +493,17 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
                     // Extensions (SEQUENCE OF)
                     using (writer.PushSequence())
                     {
-                        if (_akidExtension == null)
-                        {
-                            _akidExtension = CreateAkidExtension();
-                        }
-
                         // Authority Key Identifier Extension
                         using (writer.PushSequence())
                         {
-                            writer.WriteObjectIdentifier(_akidExtension.Oid.Value);
+                            writer.WriteObjectIdentifier(akidExtension.Oid.Value);
 
-                            if (_akidExtension.Critical)
+                            if (akidExtension.Critical)
                             {
                                 writer.WriteBoolean(true);
                             }
 
-                            writer.WriteOctetString(_akidExtension.RawData);
+                            writer.WriteOctetString(akidExtension.RawData);
                         }
 
                         // CRL Number Extension
@@ -420,17 +523,11 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
             byte[] tbsCertList = writer.Encode();
             writer.Reset();
 
-            byte[] signature;
+            byte[] signature = key.Sign(tbsCertList);
 
-            using (RSA key = _cert.GetRSAPrivateKey())
+            if (CorruptRevocationSignature)
             {
-                signature =
-                    key.SignData(tbsCertList, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-
-                if (CorruptRevocationSignature)
-                {
-                    signature[5] ^= 0xFF;
-                }
+                signature[^2] ^= 0xFF;
             }
 
             // CertificateList
@@ -441,11 +538,7 @@ namespace System.Security.Cryptography.X509Certificates.Tests.Common
                 writer.WriteBitString(signature);
             }
 
-            _crl = writer.Encode();
-
-            _crlExpiry = newExpiry;
-            _crlNumber++;
-            return _crl;
+            return writer.Encode();
         }
 
         internal void DesignateOcspResponder(X509Certificate2 responder)
@@ -518,7 +611,17 @@ SingleResponse ::= SEQUENCE {
                         else if (status == CertStatus.Revoked)
                         {
                             writer.PushSequence(s_context1);
-                            writer.WriteGeneralizedTime(revokedTime);
+
+                            // Fractional seconds "MUST NOT" be used here. Android and macOS 13+ enforce this and
+                            // reject GeneralizedTime's with fractional seconds, so omit them.
+                            // RFC 6960: 4.2.2.1:
+                            // The format for GeneralizedTime is as specified in Section 4.1.2.5.2 of [RFC5280].
+                            // RFC 5280 4.1.2.5.2:
+                            // For the purposes of this profile, GeneralizedTime values MUST be
+                            // expressed in Greenwich Mean Time (Zulu) and MUST include seconds
+                            // (i.e., times are YYYYMMDDHHMMSSZ), even where the number of seconds
+                            // is zero. GeneralizedTime values MUST NOT include fractional seconds.
+                            writer.WriteGeneralizedTime(revokedTime, omitFractionalSeconds: true);
                             writer.PopSequence(s_context1);
                         }
                         else
@@ -571,22 +674,15 @@ SingleResponse ::= SEQUENCE {
             {
                 writer.WriteEncodedValue(tbsResponseData);
 
-                using (writer.PushSequence())
+                using (KeyHolder key = new KeyHolder(responder))
                 {
-                    writer.WriteObjectIdentifier("1.2.840.113549.1.1.11");
-                    writer.WriteNull();
-                }
+                    writer.WriteEncodedValue(key.GetSignatureAlgorithmIdentifier());
 
-                using (RSA rsa = responder.GetRSAPrivateKey())
-                {
-                    byte[] signature = rsa.SignData(
-                        tbsResponseData,
-                        HashAlgorithmName.SHA256,
-                        RSASignaturePadding.Pkcs1);
+                    byte[] signature = key.Sign(tbsResponseData);
 
                     if (CorruptRevocationSignature)
                     {
-                        signature[5] ^= 0xFF;
+                        signature[^2] ^= 0xFF;
                     }
 
                     writer.WriteBitString(signature);
@@ -642,10 +738,7 @@ SingleResponse ::= SEQUENCE {
 
             if (_dnHash == null)
             {
-                using (HashAlgorithm hash = SHA1.Create())
-                {
-                    _dnHash = hash.ComputeHash(_cert.SubjectName.RawData);
-                }
+                _dnHash = SHA1.HashData(_cert.SubjectName.RawData);
             }
 
             if (!idReader.TryReadPrimitiveOctetString(out ReadOnlyMemory<byte> reqDn))
@@ -689,122 +782,41 @@ SingleResponse ::= SEQUENCE {
 
         private static X509Extension CreateAiaExtension(string certLocation, string ocspStem)
         {
-            AsnWriter writer = new AsnWriter(AsnEncodingRules.DER);
+            string[] ocsp = null;
+            string[] caIssuers = null;
 
-            // AuthorityInfoAccessSyntax (SEQUENCE OF)
-            using (writer.PushSequence())
+            if (ocspStem is not null)
             {
-                if (!string.IsNullOrEmpty(ocspStem))
-                {
-                    // AccessDescription for id-ad-ocsp
-                    using (writer.PushSequence())
-                    {
-                        writer.WriteObjectIdentifier("1.3.6.1.5.5.7.48.1");
-
-                        writer.WriteCharacterString(
-                            UniversalTagNumber.IA5String,
-                            ocspStem,
-                            new Asn1Tag(TagClass.ContextSpecific, 6));
-                    }
-                }
-
-                if (!string.IsNullOrEmpty(certLocation))
-                {
-                    // AccessDescription for id-ad-caIssuers
-                    using (writer.PushSequence())
-                    {
-                        writer.WriteObjectIdentifier("1.3.6.1.5.5.7.48.2");
-
-                        writer.WriteCharacterString(
-                            UniversalTagNumber.IA5String,
-                            certLocation,
-                            new Asn1Tag(TagClass.ContextSpecific, 6));
-                    }
-                }
+                ocsp = new[] { ocspStem };
             }
 
-            return new X509Extension("1.3.6.1.5.5.7.1.1", writer.Encode(), false);
+            if (certLocation is not null)
+            {
+                caIssuers = new[] { certLocation };
+            }
+
+            return new X509AuthorityInformationAccessExtension(ocsp, caIssuers);
         }
 
         private static X509Extension CreateCdpExtension(string cdp)
         {
-            AsnWriter writer = new AsnWriter(AsnEncodingRules.DER);
-
-            // SEQUENCE OF
-            using (writer.PushSequence())
-            {
-                // DistributionPoint
-                using (writer.PushSequence())
-                {
-                    // Because DistributionPointName is a CHOICE type this tag is explicit.
-                    // (ITU-T REC X.680-201508 C.3.2.2(g)(3rd bullet))
-                    // distributionPoint [0] DistributionPointName
-                    using (writer.PushSequence(s_context0))
-                    {
-                        // [0] DistributionPointName (GeneralNames (SEQUENCE OF))
-                        using (writer.PushSequence(s_context0))
-                        {
-                            // GeneralName ([6]  IA5String)
-                            writer.WriteCharacterString(
-                                UniversalTagNumber.IA5String,
-                                cdp,
-                                new Asn1Tag(TagClass.ContextSpecific, 6));
-                        }
-                    }
-                }
-            }
-
-            return new X509Extension("2.5.29.31", writer.Encode(), false);
+            return CertificateRevocationListBuilder.BuildCrlDistributionPointExtension(new[] { cdp });
         }
 
-        private X509Extension CreateAkidExtension()
+        private X509AuthorityKeyIdentifierExtension CreateAkidExtension()
         {
             X509SubjectKeyIdentifierExtension skid =
                 _cert.Extensions.OfType<X509SubjectKeyIdentifierExtension>().SingleOrDefault();
 
-            AsnWriter writer = new AsnWriter(AsnEncodingRules.DER);
-
-            // AuthorityKeyIdentifier
-            using (writer.PushSequence())
+            if (skid is null)
             {
-                if (skid == null)
-                {
-                    // authorityCertIssuer [1] GeneralNames (SEQUENCE OF)
-                    using (writer.PushSequence(s_context1))
-                    {
-                        // directoryName [4] Name
-                        byte[] dn = _cert.SubjectName.RawData;
-
-                        if (s_context4.Encode(dn) != 1)
-                        {
-                            throw new InvalidOperationException();
-                        }
-
-                        writer.WriteEncodedValue(dn);
-                    }
-
-                    // authorityCertSerialNumber [2] CertificateSerialNumber (INTEGER)
-                    byte[] serial = _cert.GetSerialNumber();
-                    Array.Reverse(serial);
-                    writer.WriteInteger(serial, s_context2);
-                }
-                else
-                {
-                    // keyIdentifier [0] KeyIdentifier (OCTET STRING)
-                    AsnReader reader = new AsnReader(skid.RawData, AsnEncodingRules.BER);
-                    ReadOnlyMemory<byte> contents;
-
-                    if (!reader.TryReadPrimitiveOctetString(out contents))
-                    {
-                        throw new InvalidOperationException();
-                    }
-
-                    reader.ThrowIfNotEmpty();
-                    writer.WriteOctetString(contents.Span, s_context0);
-                }
+                return X509AuthorityKeyIdentifierExtension.CreateFromCertificate(
+                    _cert,
+                    includeKeyIdentifier: false,
+                    includeIssuerAndSerial: true);
             }
 
-            return new X509Extension("2.5.29.35", writer.Encode(), false);
+            return X509AuthorityKeyIdentifierExtension.CreateFromSubjectKeyIdentifier(skid);
         }
 
         private enum OcspResponseStatus
@@ -823,13 +835,83 @@ SingleResponse ::= SEQUENCE {
             PkiOptions pkiOptions,
             out RevocationResponder responder,
             out CertificateAuthority rootAuthority,
-            out CertificateAuthority intermediateAuthority,
+            out CertificateAuthority[] intermediateAuthorities,
             out X509Certificate2 endEntityCert,
+            int intermediateAuthorityCount,
             string testName = null,
             bool registerAuthorities = true,
             bool pkiOptionsInSubject = false,
             string subjectName = null,
-            int keySize = DefaultKeySize,
+            KeyFactory keyFactory = null,
+            bool forTls = false,
+            X509ExtensionCollection extensions = null)
+        {
+            BuildPrivatePkiCore(
+                pkiOptions,
+                out responder,
+                out rootAuthority,
+                out intermediateAuthorities,
+                out endEntityCert,
+                BuildSubject("A Revocation Test Root", testName, pkiOptions, pkiOptionsInSubject),
+                index => BuildSubject($"A Revocation Test CA {index}", testName, pkiOptions, pkiOptionsInSubject),
+                intermediateAuthorityCount,
+                BuildSubject(subjectName ?? "A Revocation Test Cert", testName, pkiOptions, pkiOptionsInSubject),
+                keyFactoryHashSubjectName: subjectName,
+                testName,
+                registerAuthorities,
+                keyFactory,
+                forTls,
+                extensions);
+        }
+
+        internal static void BuildPrivatePki(
+            PkiOptions pkiOptions,
+            out RevocationResponder responder,
+            X500DistinguishedName rootName,
+            out CertificateAuthority rootAuthority,
+            X500DistinguishedName[] intermediateNames,
+            out CertificateAuthority[] intermediateAuthorities,
+            X500DistinguishedName endEntityName,
+            out X509Certificate2 endEntityCert,
+            string testName = null,
+            bool registerAuthorities = true,
+            KeyFactory keyFactory = null,
+            bool forTls = false,
+            X509ExtensionCollection extensions = null)
+        {
+            BuildPrivatePkiCore(
+                pkiOptions,
+                out responder,
+                out rootAuthority,
+                out intermediateAuthorities,
+                out endEntityCert,
+                rootName,
+                index => intermediateNames[index],
+                intermediateNames.Length,
+                endEntityName: endEntityName,
+                keyFactoryHashSubjectName: null,
+                testName,
+                registerAuthorities,
+                keyFactory,
+                forTls,
+                extensions);
+        }
+
+        private static void BuildPrivatePkiCore(
+            PkiOptions pkiOptions,
+            out RevocationResponder responder,
+            out CertificateAuthority rootAuthority,
+            out CertificateAuthority[] intermediateAuthorities,
+            out X509Certificate2 endEntityCert,
+            X500DistinguishedName rootName,
+            Func<int, X500DistinguishedName> intermediateAuthorityNameFactory,
+            int intermediateAuthorityCount,
+            X500DistinguishedName endEntityName,
+            string keyFactoryHashSubjectName,
+            string testName = null,
+            bool registerAuthorities = true,
+            KeyFactory keyFactory = null,
+            bool forTls = false,
             X509ExtensionCollection extensions = null)
         {
             bool rootDistributionViaHttp = !pkiOptions.HasFlag(PkiOptions.NoRootCertDistributionUri);
@@ -844,21 +926,41 @@ SingleResponse ::= SEQUENCE {
                     endEntityRevocationViaCrl || endEntityRevocationViaOcsp,
                 "At least one revocation mode is enabled");
 
-            if (extensions == null)
+            // default to client
+            extensions ??= new X509ExtensionCollection() { s_eeConstraints, s_eeKeyUsage, s_tlsClientEku };
+
+            if (keyFactory is null)
             {
-                // default to client
-                extensions = new X509ExtensionCollection() { s_eeConstraints, s_eeKeyUsage, s_tlsClientEku };
+                // This could use any of the non-cryptographic hashes, but that complicates the code sharing for this file,
+                // so use IncrementalHash(SHA256) as it's inbox.
+                //
+                // System.HashCode isn't suitable because it's randomized, and we want the algorithm to
+                // be consistent for any given test from run to run.
+                using (IncrementalHash hasher = IncrementalHash.CreateHash(HashAlgorithmName.SHA256))
+                {
+                    // The use of AsBytes means that the hash value will differ between Big and Little Endian
+                    // platforms, but that's OK: a failing test in a given configuration will continue to fail
+                    // in that configuration.
+                    hasher.AppendData(MemoryMarshal.AsBytes(new ReadOnlySpan<PkiOptions>(ref pkiOptions)));
+                    hasher.AppendData(MemoryMarshal.AsBytes(new ReadOnlySpan<int>(ref intermediateAuthorityCount)));
+                    hasher.AppendData(MemoryMarshal.AsBytes(testName.AsSpan()));
+                    hasher.AppendData(MemoryMarshal.AsBytes(keyFactoryHashSubjectName.AsSpan()));
+
+                    Span<byte> hash = stackalloc byte[256 / 8];
+                    int written = hasher.GetCurrentHash(hash);
+                    Debug.Assert(written == hash.Length);
+
+                    // Using mod here will create an imbalance any time the key factories array isn't a power of 2,
+                    // but that's OK.
+                    KeyFactory[] keyFactories = forTls ? s_tlsVariantKeyFactories : s_variantKeyFactories;
+                    keyFactory = keyFactories[hash[0] % keyFactories.Length];
+                }
             }
 
-            using (RSA rootKey = RSA.Create(keySize))
-            using (RSA intermedKey = RSA.Create(keySize))
-            using (RSA eeKey = RSA.Create(keySize))
+            using (KeyHolder rootKey = KeyHolder.CreateKey(keyFactory))
+            using (KeyHolder eeKey = KeyHolder.CreateKey(keyFactory))
             {
-                var rootReq = new CertificateRequest(
-                    BuildSubject("A Revocation Test Root", testName, pkiOptions, pkiOptionsInSubject),
-                    rootKey,
-                    HashAlgorithmName.SHA256,
-                    RSASignaturePadding.Pkcs1);
+                CertificateRequest rootReq = rootKey.CreateRequest(rootName);
 
                 X509BasicConstraintsExtension caConstraints =
                     new X509BasicConstraintsExtension(true, false, 0, true);
@@ -882,61 +984,289 @@ SingleResponse ::= SEQUENCE {
                 rootAuthority = new CertificateAuthority(
                     rootCert,
                     rootDistributionViaHttp ? certUrl : null,
-                    issuerRevocationViaCrl ? cdpUrl : null,
-                    issuerRevocationViaOcsp ? ocspUrl : null);
+                    issuerRevocationViaCrl || (endEntityRevocationViaCrl && intermediateAuthorityCount == 0) ? cdpUrl : null,
+                    issuerRevocationViaOcsp || (endEntityRevocationViaOcsp && intermediateAuthorityCount == 0) ? ocspUrl : null);
 
-                // Don't dispose this, it's being transferred to the CertificateAuthority
-                X509Certificate2 intermedCert;
+                CertificateAuthority issuingAuthority = rootAuthority;
+                intermediateAuthorities = new CertificateAuthority[intermediateAuthorityCount];
 
+                for (int intermediateIndex = 0; intermediateIndex < intermediateAuthorityCount; intermediateIndex++)
                 {
-                    X509Certificate2 intermedPub = rootAuthority.CreateSubordinateCA(
-                        BuildSubject("A Revocation Test CA", testName, pkiOptions, pkiOptionsInSubject),
-                        intermedKey);
+                    using KeyHolder intermediateKey = KeyHolder.CreateKey(keyFactory);
 
-                    intermedCert = intermedPub.CopyWithPrivateKey(intermedKey);
-                    intermedPub.Dispose();
+                    // Don't dispose this, it's being transferred to the CertificateAuthority
+                    X509Certificate2 intermedCert;
+
+                    {
+                        X509Certificate2 intermedPub = issuingAuthority.CreateSubordinateCA(
+                            intermediateAuthorityNameFactory(intermediateIndex),
+                            intermediateKey.ToPublicKey());
+                        intermedCert = intermediateKey.OntoCertificate(intermedPub);
+                        intermedPub.Dispose();
+                    }
+
+                    X509SubjectKeyIdentifierExtension intermedSkid =
+                        intermedCert.Extensions.OfType<X509SubjectKeyIdentifierExtension>().Single();
+
+                    certUrl = $"{responder.UriPrefix}cert/{intermedSkid.SubjectKeyIdentifier}.cer";
+                    cdpUrl = $"{responder.UriPrefix}crl/{intermedSkid.SubjectKeyIdentifier}.crl";
+                    ocspUrl = $"{responder.UriPrefix}ocsp/{intermedSkid.SubjectKeyIdentifier}";
+
+                    CertificateAuthority intermediateAuthority = new CertificateAuthority(
+                        intermedCert,
+                        issuerDistributionViaHttp ? certUrl : null,
+                        endEntityRevocationViaCrl ? cdpUrl : null,
+                        endEntityRevocationViaOcsp ? ocspUrl : null);
+
+                    issuingAuthority = intermediateAuthority;
+                    intermediateAuthorities[intermediateIndex] = intermediateAuthority;
                 }
 
-                X509SubjectKeyIdentifierExtension intermedSkid =
-                    intermedCert.Extensions.OfType<X509SubjectKeyIdentifierExtension>().Single();
+                endEntityCert = issuingAuthority.CreateEndEntity(
+                    endEntityName,
+                    eeKey.ToPublicKey(),
+                    extensions);
 
-                certUrl = $"{responder.UriPrefix}cert/{intermedSkid.SubjectKeyIdentifier}.cer";
-                cdpUrl = $"{responder.UriPrefix}crl/{intermedSkid.SubjectKeyIdentifier}.crl";
-                ocspUrl = $"{responder.UriPrefix}ocsp/{intermedSkid.SubjectKeyIdentifier}";
-
-                intermediateAuthority = new CertificateAuthority(
-                    intermedCert,
-                    issuerDistributionViaHttp ? certUrl : null,
-                    endEntityRevocationViaCrl ? cdpUrl : null,
-                    endEntityRevocationViaOcsp ? ocspUrl : null);
-
-                endEntityCert = intermediateAuthority.CreateEndEntity(
-                        BuildSubject(subjectName ?? "A Revocation Test Cert", testName, pkiOptions, pkiOptionsInSubject),
-                        eeKey,
-                        extensions);
-
-                endEntityCert = endEntityCert.CopyWithPrivateKey(eeKey);
+                X509Certificate2 tmp = endEntityCert;
+                endEntityCert = eeKey.OntoCertificate(endEntityCert);
+                tmp.Dispose();
             }
 
             if (registerAuthorities)
             {
                 responder.AddCertificateAuthority(rootAuthority);
-                responder.AddCertificateAuthority(intermediateAuthority);
+
+                foreach (CertificateAuthority authority in intermediateAuthorities)
+                {
+                    responder.AddCertificateAuthority(authority);
+                }
             }
         }
 
-        private static string BuildSubject(
+        internal static void BuildPrivatePki(
+            PkiOptions pkiOptions,
+            out RevocationResponder responder,
+            out CertificateAuthority rootAuthority,
+            out CertificateAuthority intermediateAuthority,
+            out X509Certificate2 endEntityCert,
+            string testName = null,
+            bool registerAuthorities = true,
+            bool pkiOptionsInSubject = false,
+            string subjectName = null,
+            KeyFactory keyFactory = null,
+            bool forTls = false,
+            X509ExtensionCollection extensions = null)
+        {
+            BuildPrivatePki(
+                pkiOptions,
+                out responder,
+                out rootAuthority,
+                out CertificateAuthority[] intermediateAuthorities,
+                out endEntityCert,
+                intermediateAuthorityCount: 1,
+                testName: testName,
+                registerAuthorities: registerAuthorities,
+                pkiOptionsInSubject: pkiOptionsInSubject,
+                subjectName: subjectName,
+                keyFactory: keyFactory,
+                forTls: forTls,
+                extensions: extensions);
+
+            intermediateAuthority = intermediateAuthorities.Single();
+        }
+
+        private static X500DistinguishedName BuildSubject(
             string cn,
             string testName,
             PkiOptions pkiOptions,
             bool includePkiOptions)
         {
-            if (includePkiOptions)
+            string testNamePart = !string.IsNullOrWhiteSpace(testName) ? $", O=\"{testName}\"" : "";
+            string pkiOptionsPart = includePkiOptions ? $", OU=\"{pkiOptions}\"" : "";
+
+            string subject = $"CN=\"{cn}\"" + testNamePart + pkiOptionsPart;
+            return new X500DistinguishedName(subject);
+        }
+
+        private static HashAlgorithmName HashAlgorithmIfNeeded(string publicKeyOid)
+        {
+            const string Rsa = "1.2.840.113549.1.1.1";
+            const string RsaPss = "1.2.840.113549.1.1.10";
+            const string EcPublicKey = "1.2.840.10045.2.1";
+            const string Dsa = "1.2.840.10040.4.1";
+
+            return publicKeyOid switch
             {
-                return $"CN=\"{cn}\", O=\"{testName}\", OU=\"{pkiOptions}\"";
+                Rsa or RsaPss or EcPublicKey or Dsa => HashAlgorithmName.SHA256,
+                _ => default,
+            };
+        }
+
+        internal static X509Certificate2 CloneWithPrivateKey(X509Certificate2 cert, object key)
+        {
+            return key switch
+            {
+                RSA rsa => cert.CopyWithPrivateKey(rsa),
+                ECDsa ecdsa => cert.CopyWithPrivateKey(ecdsa),
+                MLDsa mldsa => cert.CopyWithPrivateKey(mldsa),
+                SlhDsa slhDsa => cert.CopyWithPrivateKey(slhDsa),
+                DSA dsa => cert.CopyWithPrivateKey(dsa),
+                _ => throw new InvalidOperationException(
+                    $"Had no handler for key of type {key?.GetType().FullName ?? "null"}")
+            };
+        }
+
+        internal sealed class KeyFactory
+        {
+            internal static KeyFactory RSA { get; } =
+                new(() => Cryptography.RSA.Create(DefaultKeySize));
+
+            internal static KeyFactory ECDsa { get; } =
+                new(() => Cryptography.ECDsa.Create(ECCurve.NamedCurves.nistP384));
+
+            internal static KeyFactory MLDsa { get; } =
+                new(() => Cryptography.MLDsa.GenerateKey(MLDsaAlgorithm.MLDsa65));
+
+            internal static KeyFactory SlhDsa { get; } =
+                new(() => Cryptography.SlhDsa.GenerateKey(SlhDsaAlgorithm.SlhDsaSha2_128f));
+
+            private Func<IDisposable> _factory;
+
+            private KeyFactory(Func<IDisposable> factory)
+            {
+                _factory = factory;
             }
 
-            return $"CN=\"{cn}\", O=\"{testName}\"";
+            internal IDisposable CreateKey()
+            {
+                return _factory();
+            }
+
+            internal static KeyFactory RSASize(int keySize)
+            {
+                return new KeyFactory(() => Cryptography.RSA.Create(keySize));
+            }
+
+            internal static KeyFactory[] BuildVariantFactories()
+            {
+                List<KeyFactory> factories = [RSA, ECDsa];
+
+                if (Cryptography.MLDsa.IsSupported)
+                {
+                    factories.Add(MLDsa);
+                }
+
+                if (Cryptography.SlhDsa.IsSupported)
+                {
+                    factories.Add(SlhDsa);
+                }
+
+                return factories.ToArray();
+            }
+
+            internal static KeyFactory[] BuildTlsVariantFactories()
+            {
+                List<KeyFactory> factories = [RSASize(2048), ECDsa];
+
+                if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                {
+                    if (Cryptography.MLDsa.IsSupported)
+                    {
+                        factories.Add(MLDsa);
+                    }
+
+                    // OpenSSL default provider does not advertise SLH-DSA in TLS-SIGALG capability,
+                    // causing it to not recognize SLH-DSA certificates for use in TLS connections
+                    // [ActiveIssue("https://github.com/dotnet/runtime/issues/119573")]
+                    if (!PlatformDetection.IsOpenSslSupported && Cryptography.SlhDsa.IsSupported)
+                    {
+                        factories.Add(SlhDsa);
+                    }
+                }
+
+                return factories.ToArray();
+            }
+        }
+
+        private sealed class KeyHolder : IDisposable
+        {
+            private readonly IDisposable _key;
+            private X509SignatureGenerator _generator;
+
+            internal KeyHolder(IDisposable key)
+            {
+                _key = key;
+            }
+
+            internal KeyHolder(X509Certificate2 cert)
+            {
+                // We're always in the context of signing something, so EC-DH does not apply.
+                _key =
+                    cert.GetRSAPrivateKey() ??
+                    cert.GetECDsaPrivateKey() ??
+                    cert.GetMLDsaPrivateKey() ??
+                    cert.GetSlhDsaPrivateKey() ??
+                    (IDisposable)cert.GetDSAPrivateKey() ??
+                    throw new NotSupportedException();
+            }
+
+            public void Dispose()
+            {
+                _key?.Dispose();
+            }
+
+            internal static KeyHolder CreateKey(KeyFactory factory)
+            {
+                return new KeyHolder(factory.CreateKey());
+            }
+
+            internal CertificateRequest CreateRequest(X500DistinguishedName subject)
+            {
+                return _key switch
+                {
+                    RSA rsa => new CertificateRequest(subject, rsa, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1),
+                    ECDsa ecdsa => new CertificateRequest(subject, ecdsa, HashAlgorithmName.SHA256),
+                    MLDsa mldsa => new CertificateRequest(subject, mldsa),
+                    SlhDsa slhDsa => new CertificateRequest(subject, slhDsa),
+                    _ => throw new NotSupportedException(),
+                };
+            }
+
+            internal X509SignatureGenerator GetGenerator()
+            {
+                return _generator ??= _key switch
+                {
+                    RSA rsa => X509SignatureGenerator.CreateForRSA(rsa, RSASignaturePadding.Pkcs1),
+                    ECDsa ecdsa => X509SignatureGenerator.CreateForECDsa(ecdsa),
+                    MLDsa mldsa => X509SignatureGenerator.CreateForMLDsa(mldsa),
+                    SlhDsa slhDsa => X509SignatureGenerator.CreateForSlhDsa(slhDsa),
+                    _ => throw new NotSupportedException(),
+                };
+            }
+
+            internal PublicKey ToPublicKey()
+            {
+                return GetGenerator().PublicKey;
+            }
+
+            internal X509Certificate2 OntoCertificate(X509Certificate2 cert)
+            {
+                return CloneWithPrivateKey(cert, _key);
+            }
+
+            internal byte[] Sign(byte[] data)
+            {
+                X509SignatureGenerator generator = GetGenerator();
+                return generator.SignData(data, HashAlgorithmIfNeeded(generator.PublicKey.Oid.Value));
+            }
+
+            internal byte[] GetSignatureAlgorithmIdentifier()
+            {
+                X509SignatureGenerator generator = GetGenerator();
+
+                return generator.GetSignatureAlgorithmIdentifier(
+                    HashAlgorithmIfNeeded(generator.PublicKey.Oid.Value));
+            }
         }
     }
 }

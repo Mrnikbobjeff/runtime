@@ -6,8 +6,9 @@
   .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )
   .ver 4:0:0:0
 }
+.assembly extern xunit.core {}
 .assembly extern mscorlib {}
-.assembly vt4 {}
+.assembly ASSEMBLY_NAME {}
 .class interface private abstract auto ansi IncrDecr
 {
   .method public hidebysig newslot abstract virtual 
@@ -295,11 +296,14 @@
 
 } 
 
-.class private auto ansi beforefieldinit test
+.class public auto ansi beforefieldinit test
        extends [mscorlib]System.Object
 {
   .method public hidebysig static int32  Main() cil managed
   {
+    .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+        01 00 00 00
+    )
     .entrypoint
     .maxstack  3
     .locals init (class MyCounter<valuetype MyInt> V_0,

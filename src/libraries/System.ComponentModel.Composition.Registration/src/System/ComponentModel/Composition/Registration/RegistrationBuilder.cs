@@ -11,7 +11,7 @@ namespace System.ComponentModel.Composition.Registration
 {
     public class RegistrationBuilder : CustomReflectionContext
     {
-        internal class InnerRC : ReflectionContext
+        internal sealed class InnerRC : ReflectionContext
         {
             public override TypeInfo MapType(TypeInfo t) { return t; }
             public override Assembly MapAssembly(Assembly a) { return a; }
@@ -20,7 +20,7 @@ namespace System.ComponentModel.Composition.Registration
         private static readonly ReflectionContext s_inner = new InnerRC();
         private static readonly List<object> s_emptyList = new List<object>();
 
-        private readonly Lock _lock = new Lock();
+        private readonly ReadWriteLock _lock = new ReadWriteLock();
         private readonly List<PartBuilder> _conventions = new List<PartBuilder>();
 
         private readonly Dictionary<MemberInfo, List<Attribute>> _memberInfos = new Dictionary<MemberInfo, List<Attribute>>();
@@ -40,8 +40,7 @@ namespace System.ComponentModel.Composition.Registration
 
         public PartBuilder ForTypesDerivedFrom(Type type)
         {
-            if (type == null)
-                throw new ArgumentNullException(nameof(type));
+            ArgumentNullException.ThrowIfNull(type);
 
             var partBuilder = new PartBuilder((t) => type != t && type.IsAssignableFrom(t));
             _conventions.Add(partBuilder);
@@ -59,8 +58,7 @@ namespace System.ComponentModel.Composition.Registration
 
         public PartBuilder ForType(Type type)
         {
-            if (type == null)
-                throw new ArgumentNullException(nameof(type));
+            ArgumentNullException.ThrowIfNull(type);
 
             var partBuilder = new PartBuilder((t) => t == type);
             _conventions.Add(partBuilder);
@@ -70,8 +68,7 @@ namespace System.ComponentModel.Composition.Registration
 
         public PartBuilder<T> ForTypesMatching<T>(Predicate<Type> typeFilter)
         {
-            if (typeFilter == null)
-                throw new ArgumentNullException(nameof(typeFilter));
+            ArgumentNullException.ThrowIfNull(typeFilter);
 
             var partBuilder = new PartBuilder<T>(typeFilter);
             _conventions.Add(partBuilder);
@@ -81,8 +78,7 @@ namespace System.ComponentModel.Composition.Registration
 
         public PartBuilder ForTypesMatching(Predicate<Type> typeFilter)
         {
-            if (typeFilter == null)
-                throw new ArgumentNullException(nameof(typeFilter));
+            ArgumentNullException.ThrowIfNull(typeFilter);
 
             var partBuilder = new PartBuilder(typeFilter);
             _conventions.Add(partBuilder);
@@ -90,7 +86,7 @@ namespace System.ComponentModel.Composition.Registration
             return partBuilder;
         }
 
-        private IEnumerable<Tuple<object, List<Attribute>>> EvaluateThisTypeAgainstTheConvention(Type type)
+        private List<Tuple<object, List<Attribute>>> EvaluateThisTypeAgainstTheConvention(Type type)
         {
             List<Attribute> attributes = new List<Attribute>();
 

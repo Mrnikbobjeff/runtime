@@ -3,7 +3,6 @@
 
 using System.Buffers;
 using System.Diagnostics;
-using System.Security;
 
 using ZErrorCode = System.IO.Compression.ZLibNative.ErrorCode;
 using ZFlushCode = System.IO.Compression.ZLibNative.FlushCode;
@@ -24,69 +23,13 @@ namespace System.IO.Compression
         // Note, DeflateStream or the deflater do not try to be thread safe.
         // The lock is just used to make writing to unmanaged structures atomic to make sure
         // that they do not get inconsistent fields that may lead to an unmanaged memory violation.
-        // To prevent *managed* buffer corruption or other weird behaviour users need to synchronise
+        // To prevent *managed* buffer corruption or other weird behavior users need to synchronize
         // on the stream explicitly.
         private object SyncLock => this;
 
-        internal Deflater(CompressionLevel compressionLevel, int windowBits)
+        private Deflater(ZLibNative.ZLibStreamHandle zlibStream)
         {
-            Debug.Assert(windowBits >= minWindowBits && windowBits <= maxWindowBits);
-            ZLibNative.CompressionLevel zlibCompressionLevel;
-            int memLevel;
-
-            switch (compressionLevel)
-            {
-                // See the note in ZLibNative.CompressionLevel for the recommended combinations.
-
-                case CompressionLevel.Optimal:
-                    zlibCompressionLevel = ZLibNative.CompressionLevel.DefaultCompression;
-                    memLevel = ZLibNative.Deflate_DefaultMemLevel;
-                    break;
-
-                case CompressionLevel.Fastest:
-                    zlibCompressionLevel = ZLibNative.CompressionLevel.BestSpeed;
-                    memLevel = ZLibNative.Deflate_DefaultMemLevel;
-                    break;
-
-                case CompressionLevel.NoCompression:
-                    zlibCompressionLevel = ZLibNative.CompressionLevel.NoCompression;
-                    memLevel = ZLibNative.Deflate_NoCompressionMemLevel;
-                    break;
-
-                default:
-                    throw new ArgumentOutOfRangeException(nameof(compressionLevel));
-            }
-
-            ZLibNative.CompressionStrategy strategy = ZLibNative.CompressionStrategy.DefaultStrategy;
-
-            ZErrorCode errC;
-            try
-            {
-                errC = ZLibNative.CreateZLibStreamForDeflate(out _zlibStream, zlibCompressionLevel,
-                                                             windowBits, memLevel, strategy);
-            }
-            catch (Exception cause)
-            {
-                throw new ZLibException(SR.ZLibErrorDLLLoadError, cause);
-            }
-
-            switch (errC)
-            {
-                case ZErrorCode.Ok:
-                    return;
-
-                case ZErrorCode.MemError:
-                    throw new ZLibException(SR.ZLibErrorNotEnoughMemory, "deflateInit2_", (int)errC, _zlibStream.GetErrorMessage());
-
-                case ZErrorCode.VersionError:
-                    throw new ZLibException(SR.ZLibErrorVersionMismatch, "deflateInit2_", (int)errC, _zlibStream.GetErrorMessage());
-
-                case ZErrorCode.StreamError:
-                    throw new ZLibException(SR.ZLibErrorIncorrectInitParameters, "deflateInit2_", (int)errC, _zlibStream.GetErrorMessage());
-
-                default:
-                    throw new ZLibException(SR.ZLibErrorUnexpected, "deflateInit2_", (int)errC, _zlibStream.GetErrorMessage());
-            }
+            _zlibStream = zlibStream;
         }
 
         ~Deflater()
@@ -105,9 +48,12 @@ namespace System.IO.Compression
             if (!_isDisposed)
             {
                 if (disposing)
+                {
                     _zlibStream.Dispose();
+                }
 
-                DeallocateInputBufferHandle();
+                // Unpin the input buffer, but avoid modifying the ZLibStreamHandle (which may have been disposed of).
+                DeallocateInputBufferHandle(resetStreamHandle: false);
                 _isDisposed = true;
             }
         }
@@ -117,10 +63,7 @@ namespace System.IO.Compression
         internal unsafe void SetInput(ReadOnlyMemory<byte> inputBuffer)
         {
             Debug.Assert(NeedsInput(), "We have something left in previous input!");
-            if (0 == inputBuffer.Length)
-            {
-                return;
-            }
+            Debug.Assert(!inputBuffer.IsEmpty);
 
             lock (SyncLock)
             {
@@ -135,11 +78,7 @@ namespace System.IO.Compression
         {
             Debug.Assert(NeedsInput(), "We have something left in previous input!");
             Debug.Assert(inputBufferPtr != null);
-
-            if (count == 0)
-            {
-                return;
-            }
+            Debug.Assert(count > 0);
 
             lock (SyncLock)
             {
@@ -164,7 +103,7 @@ namespace System.IO.Compression
                 // Before returning, make sure to release input buffer if necessary:
                 if (0 == _zlibStream.AvailIn)
                 {
-                    DeallocateInputBufferHandle();
+                    DeallocateInputBufferHandle(resetStreamHandle: true);
                 }
             }
         }
@@ -214,14 +153,44 @@ namespace System.IO.Compression
             return ReadDeflateOutput(outputBuffer, ZFlushCode.SyncFlush, out bytesRead) == ZErrorCode.Ok;
         }
 
-        private void DeallocateInputBufferHandle()
+        /// <summary>
+        /// Discards any unconsumed input previously set via SetInput, releasing the pinned reference (if any).
+        /// Must be called if an in-progress operation is abandoned (e.g. due to an exception or cancellation) so
+        /// the deflater doesn't retain a dangling reference to a buffer the caller may have since reused or freed.
+        /// </summary>
+        internal void UnsetInput()
         {
             lock (SyncLock)
             {
+                // On the common success path all input has already been consumed (NeedsInput() is true),
+                // so there is nothing to abandon and no cleanup is necessary. Only when an operation is
+                // abandoned mid-input do we need to reset state and release any pinned reference. This check
+                // must happen under the lock so it can't race with a concurrent SetInput/Dispose call.
+                if (!NeedsInput())
+                {
+                    DeallocateInputBufferHandleCore(resetStreamHandle: true);
+                }
+            }
+        }
+
+        private void DeallocateInputBufferHandle(bool resetStreamHandle)
+        {
+            lock (SyncLock)
+            {
+                DeallocateInputBufferHandleCore(resetStreamHandle);
+            }
+        }
+
+        // Must be called while holding SyncLock.
+        private void DeallocateInputBufferHandleCore(bool resetStreamHandle)
+        {
+            if (resetStreamHandle)
+            {
                 _zlibStream.AvailIn = 0;
                 _zlibStream.NextIn = ZLibNative.ZNullPtr;
-                _inputBufferHandle.Dispose();
             }
+
+            _inputBufferHandle.Dispose();
         }
 
         private ZErrorCode Deflate(ZFlushCode flushCode)
@@ -251,6 +220,15 @@ namespace System.IO.Compression
                 default:
                     throw new ZLibException(SR.ZLibErrorUnexpected, "deflate", (int)errC, _zlibStream.GetErrorMessage());
             }
+        }
+
+        public static Deflater CreateDeflater(ZLibNative.CompressionLevel compressionLevel, ZLibNative.CompressionStrategy strategy, int windowBits, int memLevel)
+        {
+            Debug.Assert(windowBits >= minWindowBits && windowBits <= maxWindowBits);
+
+            ZLibNative.ZLibStreamHandle zlibStream = ZLibNative.ZLibStreamHandle.CreateForDeflate(compressionLevel, windowBits, memLevel, strategy);
+
+            return new Deflater(zlibStream);
         }
     }
 }

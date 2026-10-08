@@ -22,7 +22,7 @@ namespace Microsoft.Extensions.Configuration.Json.Test
 
             var jsonConfigSource = new JsonConfigurationProvider(new JsonConfigurationSource());
             jsonConfigSource.Load(TestStreamHelpers.StringToStream(json));
-            
+
             Assert.Equal("1.2.3.4", jsonConfigSource.Get("ip:0"));
             Assert.Equal("7.8.9.10", jsonConfigSource.Get("ip:1"));
             Assert.Equal("11.12.13.14", jsonConfigSource.Get("ip:2"));
@@ -58,11 +58,11 @@ namespace Microsoft.Extensions.Configuration.Json.Test
         {
             var json = @"{
                 ""ip"": [
-                    [ 
+                    [
                         ""1.2.3.4"",
                         ""5.6.7.8""
                     ],
-                    [ 
+                    [
                         ""9.10.11.12"",
                         ""13.14.15.16""
                     ]
@@ -235,11 +235,11 @@ namespace Microsoft.Extensions.Configuration.Json.Test
         {
             var json = @"{
                 ""ip"": [
-                    [ 
+                    [
                         ""1.2.3.4"",
                         ""5.6.7.8"",
                     ],
-                    [ 
+                    [
                         ""9.10.11.12"",
                         ""13.14.15.16"",
                     ],
@@ -253,6 +253,38 @@ namespace Microsoft.Extensions.Configuration.Json.Test
             Assert.Equal("5.6.7.8", jsonConfigSource.Get("ip:0:1"));
             Assert.Equal("9.10.11.12", jsonConfigSource.Get("ip:1:0"));
             Assert.Equal("13.14.15.16", jsonConfigSource.Get("ip:1:1"));
+        }
+
+        [Fact]
+        public void EmptyArrayNotIgnored()
+        {
+            var json = @"{
+                ""ip"": {
+                    ""array"": [
+                    ],
+                    ""object"":{
+                    }
+                }
+            }";
+
+            var jsonConfigSource = new JsonConfigurationSource { FileProvider = TestStreamHelpers.StringToFileProvider(json) };
+
+            var configurationBuilder = new ConfigurationBuilder();
+            configurationBuilder.Add(jsonConfigSource);
+            var config = configurationBuilder.Build();
+
+            var configurationSection = config.GetSection("ip");
+
+            var ipSectionChildren = configurationSection.GetChildren().ToArray();
+
+            Assert.Equal(1, config.GetChildren().Count());
+            Assert.Equal(2, ipSectionChildren.Count());
+            Assert.Equal("array", ipSectionChildren[0].Key);
+            Assert.Equal(string.Empty, ipSectionChildren[0].Value);
+            Assert.Equal("object", ipSectionChildren[1].Key);
+            Assert.Null(ipSectionChildren[1].Value);
+            Assert.Equal(0, ipSectionChildren[0].GetChildren().Count());
+            Assert.Equal(0, ipSectionChildren[1].GetChildren().Count());
         }
     }
 }

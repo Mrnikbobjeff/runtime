@@ -2,9 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using System;
 
-class A
+namespace b28042;
+
+using System;
+using Xunit;
+
+public class A
 {
     public static int[] B = new int[2];
 
@@ -14,13 +18,13 @@ class A
         int n;
         for (aa = new A[7]; true; n = B[2] + B[2]) ;
     }
-    static int Main()
+    [Fact]
+    public static void TestEntryPoint()
     {
         try
         {
             Test();
         }
         catch (IndexOutOfRangeException) { }
-        return 100;
     }
 }

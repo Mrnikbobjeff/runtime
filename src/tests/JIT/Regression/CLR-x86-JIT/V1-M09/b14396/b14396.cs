@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b14396
 {
     //@BEGINRENAME; Verify this renames
     //@ENDRENAME; Verify this renames
@@ -10,7 +11,9 @@ namespace DefaultNamespace
 
     public class Bug
     {
-        public static int Main(String[] args)
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
 
             byte x = 0xFF;		//	ANDREIS: Added cast operator due compiler error SC0031

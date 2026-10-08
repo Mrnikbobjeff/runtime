@@ -2,9 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b309548;
+
 using System;
 using System.Collections;
 using System.Runtime.InteropServices;
+using Xunit;
 public enum TestEnum
 {
     red = 1,
@@ -35,7 +39,9 @@ public class AA
 
 public class App
 {
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         try
         {
@@ -48,7 +54,6 @@ public class App
         }
 
         Console.WriteLine("Passed.");
-        return 100;
     }
 
 }

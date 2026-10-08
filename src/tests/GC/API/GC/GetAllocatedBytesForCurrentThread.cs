@@ -6,8 +6,10 @@ using System;
 using System.Diagnostics;
 using System.Collections.Generic;
 using System.Reflection;
+using Xunit;
+using TestLibrary;
 
-public class Test 
+public class Test_GetAllocatedBytesForCurrentThread 
 {
     static Random Rand = new Random();
 
@@ -98,7 +100,11 @@ public class Test
         return true;
     }
 
-    public static int Main() 
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/", typeof(PlatformDetection), nameof(PlatformDetection.IsArmProcess))]
+    [ActiveIssue("needs triage", TestRuntimes.Mono)]
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint() 
     {
         // First test with collection
         if (!TestCore1(true))

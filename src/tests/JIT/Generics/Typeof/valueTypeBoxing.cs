@@ -2,11 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Generics_Typeof_valueTypeBoxing;
+
 /* Unboxing where a parameter is types as System.ValueType, or System.Enum, and then is unboxed to its scalar type 
  */
 using System;
 using System.Reflection;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 interface X
 {
@@ -57,7 +60,7 @@ enum DS
     Day = 1, Night = 0
 };
 
-struct mainMethod
+public struct mainMethod
 {
     public static bool failed = false;
     public static void checkGetTypeValueType(System.ValueType x)
@@ -223,7 +226,9 @@ int tmp = 1;
         Console.WriteLine("-----------{0}", i++);
     }
 
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         callCheckGetTypeValueType();
         callCheckIsValueType();

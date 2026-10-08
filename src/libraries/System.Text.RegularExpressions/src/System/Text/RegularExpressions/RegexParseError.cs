@@ -10,7 +10,12 @@ namespace System.Text.RegularExpressions
     /// <remarks>
     /// This information is made available through <see cref="RegexParseException.Error"/>.
     /// </remarks>
-    public enum RegexParseError
+#if SYSTEM_TEXT_REGULAREXPRESSIONS
+    public
+#else
+    internal
+#endif
+    enum RegexParseError
     {
         /// <summary>
         /// An unknown regular expression parse error.
@@ -121,7 +126,7 @@ namespace System.Text.RegularExpressions
         /// </summary>
         InsufficientClosingParentheses,
         /// <summary>
-        /// A quantifier range in a regular expression is inverse, like <code>{10,1}</code> instead of <code>(1,10}</code>.
+        /// A quantifier range in a regular expression is inverse, like <c>{10,1}</c> instead of <c>{1,10}</c>.
         /// </summary>
         ReversedQuantifierRange,
         /// <summary>

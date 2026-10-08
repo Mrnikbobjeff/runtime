@@ -47,7 +47,7 @@ namespace System.IO.Pipelines.Tests
             try
             {
                 writer.Write(new Span<byte>(array, offset, length));
-                Assert.True(false);
+                Assert.Fail();
             }
             catch (Exception ex)
             {
@@ -163,6 +163,71 @@ namespace System.IO.Pipelines.Tests
         }
 
         [Fact]
+        public async Task WriteNothingThenWriteToNewSegment()
+        {
+            // Regression test: write nothing to force a segment to be created, then do a large write that's larger than the currently empty segment to force another new segment
+            // Verify that no 0 length segments are returned from the Reader.
+            PipeWriter buffer = Pipe.Writer;
+            Memory<byte> memory = buffer.GetMemory();
+            buffer.Advance(0); // doing nothing, the hard way
+            await buffer.FlushAsync();
+
+            memory = buffer.GetMemory(memory.Length + 1);
+            buffer.Advance(memory.Length);
+            await buffer.FlushAsync();
+
+            var res = await Pipe.Reader.ReadAsync();
+            Assert.True(res.Buffer.IsSingleSegment);
+            Assert.Equal(memory.Length, res.Buffer.Length);
+        }
+
+        [Fact]
+        public async Task WriteNothingBetweenTwoFullWrites()
+        {
+            int totalWrittenLength = 0;
+            PipeWriter buffer = Pipe.Writer;
+            Memory<byte> memory = buffer.GetMemory();
+            buffer.Advance(memory.Length); // doing nothing, the hard way
+            totalWrittenLength += memory.Length;
+            await buffer.FlushAsync();
+
+            memory = buffer.GetMemory();
+            buffer.Advance(0); // doing nothing, the hard way
+            await buffer.FlushAsync();
+
+            memory = buffer.GetMemory(memory.Length + 1);
+            buffer.Advance(memory.Length);
+            totalWrittenLength += memory.Length;
+            await buffer.FlushAsync();
+
+            var res = await Pipe.Reader.ReadAsync();
+            var segmentCount = 0;
+            foreach (ReadOnlyMemory<byte> _ in res.Buffer)
+            {
+                segmentCount++;
+            }
+            Assert.Equal(2, segmentCount);
+            Assert.Equal(totalWrittenLength, res.Buffer.Length);
+        }
+
+        [Fact]
+        public async Task WriteNothingThenWriteSomeBytes()
+        {
+            PipeWriter buffer = Pipe.Writer;
+            _ = buffer.GetMemory();
+            buffer.Advance(0); // doing nothing, the hard way
+            await buffer.FlushAsync();
+
+            var memory = buffer.GetMemory();
+            buffer.Advance(memory.Length);
+            await buffer.FlushAsync();
+
+            var res = await Pipe.Reader.ReadAsync();
+            Assert.True(res.Buffer.IsSingleSegment);
+            Assert.Equal(memory.Length, res.Buffer.Length);
+        }
+
+        [Fact]
         public void EmptyWriteDoesNotThrow()
         {
             Pipe.Writer.Write(new byte[0]);
@@ -185,7 +250,7 @@ namespace System.IO.Pipelines.Tests
         [Fact]
         public async Task WritesUsingGetSpanWorks()
         {
-            var bytes = Encoding.ASCII.GetBytes("abcdefghijklmnopqrstuvwzyz");
+            byte[] bytes = "abcdefghijklmnopqrstuvwzyz"u8.ToArray();
             var pipe = new Pipe(new PipeOptions(pool: new HeapBufferPool(), minimumSegmentSize: 1));
             PipeWriter writer = pipe.Writer;
 
@@ -197,7 +262,7 @@ namespace System.IO.Pipelines.Tests
 
             await writer.FlushAsync();
             writer.Complete();
-
+            Assert.Equal(0, writer.UnflushedBytes);
             ReadResult readResult = await pipe.Reader.ReadAsync();
             Assert.Equal(bytes, readResult.Buffer.ToArray());
             pipe.Reader.AdvanceTo(readResult.Buffer.End);
@@ -208,7 +273,7 @@ namespace System.IO.Pipelines.Tests
         [Fact]
         public async Task WritesUsingGetMemoryWorks()
         {
-            var bytes = Encoding.ASCII.GetBytes("abcdefghijklmnopqrstuvwzyz");
+            byte[] bytes = "abcdefghijklmnopqrstuvwzyz"u8.ToArray();
             var pipe = new Pipe(new PipeOptions(pool: new HeapBufferPool(), minimumSegmentSize: 1));
             PipeWriter writer = pipe.Writer;
 
@@ -220,7 +285,7 @@ namespace System.IO.Pipelines.Tests
 
             await writer.FlushAsync();
             writer.Complete();
-
+            Assert.Equal(0, writer.UnflushedBytes);
             ReadResult readResult = await pipe.Reader.ReadAsync();
             Assert.Equal(bytes, readResult.Buffer.ToArray());
             pipe.Reader.AdvanceTo(readResult.Buffer.End);
@@ -228,33 +293,35 @@ namespace System.IO.Pipelines.Tests
             pipe.Reader.Complete();
         }
 
-        [Fact]
-        [PlatformSpecific(~TestPlatforms.Browser)] // allocates too much memory
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task CompleteWithLargeWriteThrows()
         {
+            var completeDelay = TimeSpan.FromMilliseconds(10);
+            var testTimeout = TimeSpan.FromMilliseconds(10000);
             var pipe = new Pipe();
             pipe.Reader.Complete();
 
             var task = Task.Run(async () =>
             {
-                await Task.Delay(10);
+                await Task.Delay(completeDelay);
                 pipe.Writer.Complete();
             });
 
-            try
+            // Complete while writing
+            await Assert.ThrowsAsync<InvalidOperationException>(async () =>
             {
-                for (int i = 0; i < 1000; i++)
+                var testStartTime = DateTime.UtcNow;
+                var buffer = new byte[10000000];
+                ulong i = 0;
+                while (true)
                 {
-                    var buffer = new byte[10000000];
                     await pipe.Writer.WriteAsync(buffer);
-                }
-            }
-            catch (InvalidOperationException)
-            {
-                // Complete while writing
-            }
 
-            await task;
+                    // abort test if we're executing for more than the testTimeout (check every 10000th iteration)
+                    if (i++ % 10000 == 0 && DateTime.UtcNow - testStartTime > testTimeout)
+                        break;
+                }
+            });
         }
 
         [Fact]
@@ -290,6 +357,100 @@ namespace System.IO.Pipelines.Tests
             Assert.Equal(1, pool.CurrentlyRentedBlocks);
             pipe.Writer.Complete();
             Assert.Equal(0, pool.CurrentlyRentedBlocks);
+            Assert.Equal(0, Pipe.Writer.UnflushedBytes);
+        }
+
+        [Fact]
+        public void UnflushedBytes_HandlesLargeValues()
+        {
+            int bufferSize = 10000;
+            using (SingleBufferMemoryPool pool = new(bufferSize))
+            {
+                PipeWriter writer = PipeWriter.Create(Stream.Null, new StreamPipeWriterOptions(pool));
+
+                while (writer.UnflushedBytes >= 0 && writer.UnflushedBytes <= int.MaxValue)
+                {
+                    writer.GetMemory(bufferSize);
+                    writer.Advance(bufferSize);
+                }
+
+                Assert.Equal(2147490000, writer.UnflushedBytes);
+            }
+        }
+
+        internal class SingleBufferMemoryPool : MemoryPool<byte>
+        {
+            private readonly int _maxBufferSize;
+            private byte[] _buffer;
+            private bool _disposed;
+
+            internal SingleBufferMemoryPool(int maxBufferSize)
+            {
+                _maxBufferSize = maxBufferSize;
+                _buffer = new byte[maxBufferSize];
+            }
+
+            public override int MaxBufferSize => _maxBufferSize;
+
+            public override IMemoryOwner<byte> Rent(int minBufferSize = -1)
+            {
+                if (minBufferSize > _maxBufferSize)
+                {
+                    throw new ArgumentOutOfRangeException(nameof(minBufferSize), $"{nameof(minBufferSize)} should be less than {_maxBufferSize}");
+                }
+
+                return new BufferMemoryOwner(minBufferSize, _maxBufferSize, _buffer);
+            }
+
+            protected override void Dispose(bool disposing)
+            {
+                if (!_disposed)
+                {
+                    return;
+                }
+
+                if (disposing)
+                {
+                    _buffer = null;
+                }
+
+                _disposed = true;
+            }
+        }
+
+        internal class BufferMemoryOwner : MemoryManager<byte>
+        {
+            private int _minBufferSize;
+            private byte[] _buffer;
+            private bool _disposed;
+
+            public BufferMemoryOwner(int minBufferSize, int maxBufferSize, byte[] buffer)
+            {
+                _minBufferSize = minBufferSize <= 0 ? maxBufferSize : minBufferSize;
+                _buffer = buffer;   
+            }
+
+            public override Span<byte> GetSpan() => new(_buffer, 0, _minBufferSize);
+
+            public override Memory<byte> Memory => new(_buffer, 0, _minBufferSize);
+
+            public override MemoryHandle Pin(int elementIndex = 0) => throw new NotImplementedException();
+            public override void Unpin() => throw new NotImplementedException();
+
+            protected override void Dispose(bool disposing)
+            {
+                if (!_disposed)
+                {
+                    return;
+                }
+
+                if (disposing)    
+                {
+                    _buffer = null;
+                }
+
+                _disposed = true;
+            }
         }
     }
 }

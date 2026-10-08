@@ -8,10 +8,14 @@
 //  We want to hit PendingArgsStack::pasEnumGCoffs
 //                 PendingArgsStack::pasEnumGCoffsCount
 
+
+namespace b338014;
+
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-class My
+public class My
 {
 
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
@@ -30,12 +34,12 @@ class My
         return null;
     }
 
-    static int Main()
+    [OuterLoop]
+    [Fact]
+    public static void TestEntryPoint()
     {
         Object o = new Object();
         foo(o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, o, bar(o), o);
-
-        return 100;
     }
 }
 

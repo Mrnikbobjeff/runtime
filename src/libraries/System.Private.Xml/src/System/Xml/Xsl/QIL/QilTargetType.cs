@@ -3,8 +3,8 @@
 
 using System;
 using System.Collections.Generic;
-using System.Xml.Schema;
 using System.Diagnostics;
+using System.Xml.Schema;
 
 namespace System.Xml.Xsl.Qil
 {
@@ -14,7 +14,7 @@ namespace System.Xml.Xsl.Qil
     /// <remarks>
     /// Don't construct QIL nodes directly; instead, use the <see cref="QilFactory">QilFactory</see>.
     /// </remarks>
-    internal class QilTargetType : QilBinary
+    internal sealed class QilTargetType : QilBinary
     {
         //-----------------------------------------------
         // Constructor

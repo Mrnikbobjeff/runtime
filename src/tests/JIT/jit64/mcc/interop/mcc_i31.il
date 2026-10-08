@@ -3,23 +3,35 @@
 
 
 .assembly extern System.Runtime.Extensions { auto }
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
 .assembly extern mscorlib { auto }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
 
-.assembly MCCTest {}
-.module mcc_i31.exe
-
-
-.namespace MCCTest
+.namespace mcc_i31
 {
-  .class MyClass
+  .class public MyClass
   {
     .method assembly static pinvokeimpl("native_i3c" as "#1" cdecl)
         vararg valuetype MCCTest.VType3 Sum(float64, int32, int64, float32, int16, float64) cil managed preservesig {
     }
 
-    .method private static int32 Main(string[] args)
+    .method public static int32 Main()
     {
-      .entrypoint
+            .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ConditionalFactAttribute::.ctor(class [mscorlib]System.Type, string[]) = {
+            type([TestLibrary]TestLibrary.PlatformDetection)
+            string[1] ('IsVarArgSupported')
+        }
+      .maxstack  1
+
+
+    DoTest:
+      call       int32 mcc_i31.MyClass::Test()
+      ret
+    }
+
+    .method public static int32 Test()
+    {
       .maxstack  64
       .locals init	(
         [0] valuetype MCCTest.VType3 res,
@@ -83,7 +95,7 @@
       ldloc.s    v10
       ldloc.s    v11
       ldloc.s    v12
-      ldftn      vararg valuetype MCCTest.VType3 MCCTest.MyClass::Sum(float64, int32, int64, float32, int16, float64)
+      ldftn      vararg valuetype MCCTest.VType3 mcc_i31.MyClass::Sum(float64, int32, int64, float32, int16, float64)
       calli      vararg valuetype MCCTest.VType3(float64, int32, int64, float32, int16, float64, ...,
                                                                 valuetype MCCTest.VType3,
                                                                 valuetype MCCTest.VType3,
@@ -108,8 +120,8 @@
 
       ldloc.s    rc
       ret
-    } // end of method MyClass::Main
+    } // end of method MyClass::Test
 
   } // end of class MyClass
 
-} // end of namespace MCCTest
+} // end of namespace mcc_i31

@@ -24,7 +24,7 @@ namespace System.Text
     //      Forms D & KD have things like 0934, which decomposes to 0933 + 093C, so not normal.
     //      Form IDNA has the above problems plus case mapping, so false (like most encodings)
     //
-    internal class ISCIIEncoding : EncodingNLS, ISerializable
+    internal sealed class ISCIIEncoding : EncodingNLS, ISerializable
     {
         // Constants
         private const int CodeDevanagari = 2;    // 0x42 57002
@@ -58,7 +58,7 @@ namespace System.Text
 
             // Legal windows code pages are between Devanagari and Punjabi
             Debug.Assert(_defaultCodePage >= CodeDevanagari && _defaultCodePage <= CodePunjabi,
-                "[ISCIIEncoding] Code page (" + codePage + " isn't supported by ISCIIEncoding!");
+                $"[ISCIIEncoding] Code page ({codePage} isn't supported by ISCIIEncoding!");
 
             // This shouldn't really be possible
             if (_defaultCodePage < CodeDevanagari || _defaultCodePage > CodePunjabi)
@@ -203,7 +203,7 @@ namespace System.Text
                 }
 
                 // Its in the Unicode Indic script range
-                int indicInfo = s_UnicodeToIndicChar[ch - IndicBegin];
+                int indicInfo = UnicodeToIndicChar[ch - IndicBegin];
                 byte byteIndic = (byte)indicInfo;
                 int indicScript = (0x000f & (indicInfo >> 8));
                 int indicTwoBytes = (0xf000 & indicInfo);
@@ -237,7 +237,7 @@ namespace System.Text
 
                     // We only know how to map from Unicode to pages from Devanagari to Punjabi (2 to 11)
                     Debug.Assert(currentCodePage >= CodeDevanagari && currentCodePage <= CodePunjabi,
-                        "[ISCIIEncoding.GetBytes]Code page (" + currentCodePage + " shouldn't appear in ISCII from Unicode table!");
+                        $"[ISCIIEncoding.GetBytes]Code page ({currentCodePage} shouldn't appear in ISCII from Unicode table!");
                 }
 
                 // Safe to add our byte now
@@ -252,10 +252,10 @@ namespace System.Text
                 {
                     // This one needs another byte
                     Debug.Assert((indicTwoBytes >> 12) > 0 && (indicTwoBytes >> 12) <= 3,
-                        "[ISCIIEncoding.GetBytes]Expected indicTwoBytes from 1-3, not " + (indicTwoBytes >> 12));
+                        $"[ISCIIEncoding.GetBytes]Expected indicTwoBytes from 1-3, not {(indicTwoBytes >> 12)}");
 
                     // Already did buffer checking, but...
-                    if (!buffer.AddByte(s_SecondIndicByte[indicTwoBytes >> 12]))
+                    if (!buffer.AddByte(SecondIndicByte[indicTwoBytes >> 12]))
                         break;
                 }
             }
@@ -350,11 +350,11 @@ namespace System.Text
             // Get our current code page index (some code pages are dups)
             int currentCodePageIndex = -1;
             Debug.Assert(currentCodePage >= CodeDevanagari && currentCodePage <= CodePunjabi,
-                "[ISCIIEncoding.GetChars]Decoder code page must be >= Devanagari and <= Punjabi, not " + currentCodePage);
+                $"[ISCIIEncoding.GetChars]Decoder code page must be >= Devanagari and <= Punjabi, not {currentCodePage}");
 
             if (currentCodePage >= CodeDevanagari && currentCodePage <= CodePunjabi)
             {
-                currentCodePageIndex = s_IndicMappingIndex[currentCodePage];
+                currentCodePageIndex = IndicMappingIndex[currentCodePage];
             }
 
             // Loop through our input
@@ -381,7 +381,7 @@ namespace System.Text
                         {
                             // Remember the code page
                             currentCodePage = b & 0xf;
-                            currentCodePageIndex = s_IndicMappingIndex[currentCodePage];
+                            currentCodePageIndex = IndicMappingIndex[currentCodePage];
                             // No longer last ATR
                             bLastATR = false;
                             continue;
@@ -395,7 +395,7 @@ namespace System.Text
 
                             if (currentCodePage >= CodeDevanagari && currentCodePage <= CodePunjabi)
                             {
-                                currentCodePageIndex = s_IndicMappingIndex[currentCodePage];
+                                currentCodePageIndex = IndicMappingIndex[currentCodePage];
                             }
                             // No longer last ATR
                             bLastATR = false;
@@ -410,7 +410,7 @@ namespace System.Text
 
                             if (currentCodePage >= CodeDevanagari && currentCodePage <= CodePunjabi)
                             {
-                                currentCodePageIndex = s_IndicMappingIndex[currentCodePage];
+                                currentCodePageIndex = IndicMappingIndex[currentCodePage];
                             }
 
                             // Even though we don't know how to support Roman, windows didn't add a ? so we don't either.
@@ -428,8 +428,8 @@ namespace System.Text
                         bLastATR = false;
 
                         // we know we can't have any of these other modes
-                        Debug.Assert(bLastVirama == false, "[ISCIIEncoding.GetChars] Expected no bLastVirama in bLastATR mode");
-                        Debug.Assert(bLastDevenagariStressAbbr == false, "[ISCIIEncoding.GetChars] Expected no bLastDevenagariStressAbbr in bLastATR mode");
+                        Debug.Assert(!bLastVirama, "[ISCIIEncoding.GetChars] Expected no bLastVirama in bLastATR mode");
+                        Debug.Assert(!bLastDevenagariStressAbbr, "[ISCIIEncoding.GetChars] Expected no bLastDevenagariStressAbbr in bLastATR mode");
                         Debug.Assert(cLastCharForNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNextNukta in bLastATR mode");
                         Debug.Assert(cLastCharForNoNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNoNextNukta in bLastATR mode");
                         // Keep processing this byte
@@ -459,8 +459,8 @@ namespace System.Text
                         bLastVirama = false;
 
                         // We know we can't have any of these other modes
-                        Debug.Assert(bLastATR == false, "[ISCIIEncoding.GetChars] Expected no bLastATR in bLastVirama mode");
-                        Debug.Assert(bLastDevenagariStressAbbr == false, "[ISCIIEncoding.GetChars] Expected no bLastDevenagariStressAbbr in bLastVirama mode");
+                        Debug.Assert(!bLastATR, "[ISCIIEncoding.GetChars] Expected no bLastATR in bLastVirama mode");
+                        Debug.Assert(!bLastDevenagariStressAbbr, "[ISCIIEncoding.GetChars] Expected no bLastDevenagariStressAbbr in bLastVirama mode");
                         Debug.Assert(cLastCharForNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNextNukta in bLastVirama mode");
                         Debug.Assert(cLastCharForNoNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNoNextNukta in bLastVirama mode");
                     }
@@ -495,8 +495,8 @@ namespace System.Text
                         // (last character was added when mode was set)
                         bLastDevenagariStressAbbr = false;
 
-                        Debug.Assert(bLastATR == false, "[ISCIIEncoding.GetChars] Expected no bLastATR in bLastDevenagariStressAbbr mode");
-                        Debug.Assert(bLastVirama == false, "[ISCIIEncoding.GetChars] Expected no bLastVirama in bLastDevenagariStressAbbr mode");
+                        Debug.Assert(!bLastATR, "[ISCIIEncoding.GetChars] Expected no bLastATR in bLastDevenagariStressAbbr mode");
+                        Debug.Assert(!bLastVirama, "[ISCIIEncoding.GetChars] Expected no bLastVirama in bLastDevenagariStressAbbr mode");
                         Debug.Assert(cLastCharForNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNextNukta in bLastDevenagariStressAbbr mode");
                         Debug.Assert(cLastCharForNoNextNukta == (char)0, "[ISCIIEncoding.GetChars] Expected no cLastCharForNoNextNukta in bLastDevenagariStressAbbr mode");
                     }
@@ -525,9 +525,9 @@ namespace System.Text
                         // Keep processing this byte, turn off mode.
                         cLastCharForNextNukta = cLastCharForNoNextNukta = '\0';
 
-                        Debug.Assert(bLastATR == false, "[ISCIIEncoding.GetChars] Expected no bLastATR in cLastCharForNextNukta mode");
-                        Debug.Assert(bLastVirama == false, "[ISCIIEncoding.GetChars] Expected no bLastVirama in cLastCharForNextNukta mode");
-                        Debug.Assert(bLastDevenagariStressAbbr == false, "[ISCIIEncoding.GetChars] Expected no bLastDevenagariStressAbbr in cLastCharForNextNukta mode");
+                        Debug.Assert(!bLastATR, "[ISCIIEncoding.GetChars] Expected no bLastATR in cLastCharForNextNukta mode");
+                        Debug.Assert(!bLastVirama, "[ISCIIEncoding.GetChars] Expected no bLastVirama in cLastCharForNextNukta mode");
+                        Debug.Assert(!bLastDevenagariStressAbbr, "[ISCIIEncoding.GetChars] Expected no bLastDevenagariStressAbbr in cLastCharForNextNukta mode");
                     }
                 }
 
@@ -691,7 +691,7 @@ namespace System.Text
             return _defaultCodePage + EncoderFallback.GetHashCode() + DecoderFallback.GetHashCode();
         }
 
-        internal class ISCIIEncoder : EncoderNLS
+        internal sealed class ISCIIEncoder : EncoderNLS
         {
             // Need to remember the default code page (for HasState)
             internal int defaultCodePage;
@@ -714,8 +714,7 @@ namespace System.Text
             {
                 bLastVirama = false;
                 charLeftOver = (char)0;
-                if (m_fallbackBuffer != null)
-                    m_fallbackBuffer.Reset();
+                m_fallbackBuffer?.Reset();
             }
 
             // Anything left in our encoder?
@@ -729,7 +728,7 @@ namespace System.Text
             }
         }
 
-        internal class ISCIIDecoder : DecoderNLS
+        internal sealed class ISCIIDecoder : DecoderNLS
         {
             // Need a place to store any our current code page and last ATR flag
             internal int currentCodePage;
@@ -754,8 +753,7 @@ namespace System.Text
                 bLastDevenagariStressAbbr = false;
                 cLastCharForNextNukta = '\0';
                 cLastCharForNoNextNukta = '\0';
-                if (m_fallbackBuffer != null)
-                    m_fallbackBuffer.Reset();
+                m_fallbackBuffer?.Reset();
             }
 
             // Anything left in our decoder?
@@ -791,8 +789,8 @@ namespace System.Text
         //
         ////////////////////////////////////////////////////////////////////////////
 
-        private static readonly int[] s_UnicodeToIndicChar =
-        {
+        private static ReadOnlySpan<int> UnicodeToIndicChar =>
+        [
             0x02a1,  // U+0901 : Devanagari Sign Candrabindu
             0x02a2,  // U+0902 : Devanagari Sign Anusvara
             0x02a3,  // U+0903 : Devanagari Sign Visarga
@@ -1928,7 +1926,7 @@ namespace System.Text
             0x09f8,  // U+0d6d : Malayalam Digit Seven
             0x09f9,  // U+0d6e : Malayalam Digit Eight
             0x09fa   // U+0d6f : Malayalam Digit Nine
-        };
+        ];
 
         ////////////////////////////////////////////////////////////////////////////
         // SecondIndicByte
@@ -1936,13 +1934,13 @@ namespace System.Text
         // This is used if the UnicodeToIndic table 4 high bits are set, this is
         // the value of the second Indic byte when applicable.
         ////////////////////////////////////////////////////////////////////////////
-        private static readonly byte[] s_SecondIndicByte =
-        {
+        private static ReadOnlySpan<byte> SecondIndicByte =>
+        [
             0x00,
             0xe9,
             0xb8,             // U+0952 == 0xf0_0xb8
             0xbf              // U+0970 == 0xf0_0xbf
-        };
+        ];
 
         ////////////////////////////////////////////////////////////////////////////
         // IndicMapping
@@ -1951,8 +1949,8 @@ namespace System.Text
         // There are 0x60 characters in each table.  The tables are in pairs of 2
         // (1st char, 2nd char) and there are 10 tables (1 for each code page "font")
         ////////////////////////////////////////////////////////////////////////////
-        private static readonly int[] s_IndicMappingIndex =
-        {
+        private static ReadOnlySpan<int> IndicMappingIndex =>
+        [
             -1,       //  0 DEF 0X40 Default        // Not a real code page
             -1,       //  1 RMN 0X41 Roman          // Transliteration not supported
             0,        //  2 DEV 0X42 Devanagari
@@ -1965,7 +1963,7 @@ namespace System.Text
             6,        //  9 MLM 0X49 Malayalam
             7,        // 10 GJR 0X4A Gujarati
             8         // 11 PNJ 0X4B Punjabi (Gurmukhi)
-        };
+        ];
 
         ////////////////////////////////////////////////////////////////////////////
         // IndicMapping

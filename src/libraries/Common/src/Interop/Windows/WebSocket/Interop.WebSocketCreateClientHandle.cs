@@ -10,10 +10,11 @@ internal static partial class Interop
 {
     internal static partial class WebSocket
     {
-        [DllImport(Libraries.WebSocket)]
-        internal static extern int WebSocketCreateClientHandle(
-           [In] Property[] properties,
-           [In] uint propertyCount,
-           [Out] out SafeWebSocketHandle webSocketHandle);
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [LibraryImport(Libraries.WebSocket)]
+        internal static partial int WebSocketCreateClientHandle(
+           Property[] properties,
+           uint propertyCount,
+           out SafeWebSocketHandle webSocketHandle);
     }
 }

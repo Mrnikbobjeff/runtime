@@ -6,9 +6,12 @@
 
 using System;
 using System.Runtime.InteropServices;
-public class Test
+using Xunit;
+public class Test_PinnedMany
 {
-    public static int Main()
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         int NUM = 2500;
         int[][] arr = new int[NUM][];

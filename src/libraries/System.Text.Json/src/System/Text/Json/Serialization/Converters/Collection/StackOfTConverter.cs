@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 
 namespace System.Text.Json.Serialization.Converters
 {
@@ -9,55 +10,26 @@ namespace System.Text.Json.Serialization.Converters
         : IEnumerableDefaultConverter<TCollection, TElement>
         where TCollection : Stack<TElement>
     {
+        internal override bool CanPopulate => true;
+
         protected override void Add(in TElement value, ref ReadStack state)
         {
             ((TCollection)state.Current.ReturnValue!).Push(value);
         }
 
-        protected override void CreateCollection(ref Utf8JsonReader reader, ref ReadStack state, JsonSerializerOptions options)
+        protected override void CreateCollection(ref Utf8JsonReader reader, scoped ref ReadStack state, JsonSerializerOptions options)
         {
-            if (state.Current.JsonClassInfo.CreateObject == null)
+            if (state.ParentProperty?.TryGetPrePopulatedValue(ref state) == true)
             {
-                ThrowHelper.ThrowNotSupportedException_SerializationNotSupported(state.Current.JsonClassInfo.Type);
+                return;
             }
 
-            state.Current.ReturnValue = state.Current.JsonClassInfo.CreateObject();
-        }
-
-        protected override bool OnWriteResume(Utf8JsonWriter writer, TCollection value, JsonSerializerOptions options, ref WriteStack state)
-        {
-            IEnumerator<TElement> enumerator;
-            if (state.Current.CollectionEnumerator == null)
+            if (state.Current.JsonTypeInfo.CreateObject is null)
             {
-                enumerator = value.GetEnumerator();
-                if (!enumerator.MoveNext())
-                {
-                    return true;
-                }
-            }
-            else
-            {
-                enumerator = (IEnumerator<TElement>)state.Current.CollectionEnumerator;
+                ThrowHelper.ThrowNotSupportedException_SerializationNotSupported(state.Current.JsonTypeInfo.Type);
             }
 
-            JsonConverter<TElement> converter = GetElementConverter(ref state);
-            do
-            {
-                if (ShouldFlush(writer, ref state))
-                {
-                    state.Current.CollectionEnumerator = enumerator;
-                    return false;
-                }
-
-                TElement element = enumerator.Current;
-                if (!converter.TryWrite(writer, element, options, ref state))
-                {
-                    state.Current.CollectionEnumerator = enumerator;
-                    return false;
-                }
-            } while (enumerator.MoveNext());
-
-            return true;
+            state.Current.ReturnValue = state.Current.JsonTypeInfo.CreateObject();
         }
     }
 }

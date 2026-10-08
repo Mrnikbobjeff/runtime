@@ -4,12 +4,17 @@
 
 //Testing the special values
 
+namespace JitTest_Directed_intrinsic_pow_pow1;
+
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
 
-internal class pow1
+public class pow1
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         double x, y, z;
         bool pass = true;

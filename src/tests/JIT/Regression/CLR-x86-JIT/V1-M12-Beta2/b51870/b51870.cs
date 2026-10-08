@@ -2,15 +2,18 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b51870
 {
     using System;
 
-    struct BB
+    public struct BB
     {
         int m_iField4;
 
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             BB local3 = new BB();
             bool b = false;
@@ -21,7 +24,6 @@ namespace Test
                     while (b) { }
                 }
             }
-            return 100;
         }
     }
 }

@@ -7,9 +7,9 @@
 //
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
+using System.Diagnostics;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Diagnostics;
 
 namespace System.Linq.Parallel
 {
@@ -82,6 +82,9 @@ namespace System.Linq.Parallel
         //     taskScheduler   - the task manager on which to execute
         //
 
+#if !FEATURE_WASM_MANAGED_THREADS
+        [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
+#endif
         internal static void SpoolPipeline<TInputOutput, TIgnoreKey>(
             QueryTaskGroupState groupState, PartitionedStream<TInputOutput, TIgnoreKey> partitions,
             AsynchronousChannel<TInputOutput>[] channels, TaskScheduler taskScheduler)
@@ -175,7 +178,7 @@ namespace System.Linq.Parallel
     /// </summary>
     /// <typeparam name="TInputOutput"></typeparam>
     /// <typeparam name="TIgnoreKey"></typeparam>
-    internal class StopAndGoSpoolingTask<TInputOutput, TIgnoreKey> : SpoolingTaskBase
+    internal sealed class StopAndGoSpoolingTask<TInputOutput, TIgnoreKey> : SpoolingTaskBase
     {
         // The data source from which to pull data.
         private readonly QueryOperatorEnumerator<TInputOutput, TIgnoreKey> _source;
@@ -245,10 +248,7 @@ namespace System.Linq.Parallel
             base.SpoolingFinally();
 
             // Signal that we are done, in the case of asynchronous consumption.
-            if (_destination != null)
-            {
-                _destination.SetDone();
-            }
+            _destination?.SetDone();
 
             // Dispose of the source enumerator *after* signaling that the task is done.
             // We call Dispose() last to ensure that if it throws an exception, we will not cause a deadlock.
@@ -264,7 +264,10 @@ namespace System.Linq.Parallel
     /// </summary>
     /// <typeparam name="TInputOutput"></typeparam>
     /// <typeparam name="TIgnoreKey"></typeparam>
-    internal class PipelineSpoolingTask<TInputOutput, TIgnoreKey> : SpoolingTaskBase
+#if !FEATURE_WASM_MANAGED_THREADS
+    [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
+#endif
+    internal sealed class PipelineSpoolingTask<TInputOutput, TIgnoreKey> : SpoolingTaskBase
     {
         // The data source from which to pull data.
         private readonly QueryOperatorEnumerator<TInputOutput, TIgnoreKey> _source;
@@ -336,10 +339,7 @@ namespace System.Linq.Parallel
             base.SpoolingFinally();
 
             // Signal that we are done, in the case of asynchronous consumption.
-            if (_destination != null)
-            {
-                _destination.SetDone();
-            }
+            _destination?.SetDone();
 
             // Dispose of the source enumerator *after* signaling that the task is done.
             // We call Dispose() last to ensure that if it throws an exception, we will not cause a deadlock.
@@ -355,7 +355,7 @@ namespace System.Linq.Parallel
     /// </summary>
     /// <typeparam name="TInputOutput"></typeparam>
     /// <typeparam name="TIgnoreKey"></typeparam>
-    internal class ForAllSpoolingTask<TInputOutput, TIgnoreKey> : SpoolingTaskBase
+    internal sealed class ForAllSpoolingTask<TInputOutput, TIgnoreKey> : SpoolingTaskBase
     {
         // The data source from which to pull data.
         private readonly QueryOperatorEnumerator<TInputOutput, TIgnoreKey> _source;

@@ -2,12 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-using Microsoft.Xunit.Performance;
 using System;
 using System.Runtime.CompilerServices;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
+using TestLibrary;
 
 namespace Benchstone.BenchI
 {
@@ -55,7 +53,7 @@ public static class Array2
 
         return true;
     }
-
+    
     [MethodImpl(MethodImplOptions.NoInlining)]
     static bool Bench(int loop) {
 
@@ -79,22 +77,10 @@ public static class Array2
         return result;
     }
 
-    [Benchmark]
-    public static void Test() {
-        foreach (var iteration in Benchmark.Iterations) {
-            using (iteration.StartMeasurement()) {
-                Bench(Iterations);
-            }
-        }
-    }
-
-    static bool TestBase() {
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+    [Fact]
+    public static int TestEntryPoint() {
         bool result = Bench(Iterations);
-        return result;
-    }
-
-    public static int Main() {
-        bool result = TestBase();
         return (result ? 100 : -1);
     }
 }

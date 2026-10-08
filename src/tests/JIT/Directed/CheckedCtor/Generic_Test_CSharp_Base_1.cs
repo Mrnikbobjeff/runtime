@@ -11,16 +11,18 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-namespace Test
+namespace JitTest_Directed_CheckedCtor_Generic_Test_CSharp_Base_1
 {
-    static class App
+    public static class App
     {
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             new DerivedClass<int>(3);
             new DerivedClass<int>(8);
-            return 100;
         }
     }
 
@@ -36,4 +38,3 @@ namespace Test
         public DerivedClass(int selector) : base((selector < 4) ? "LessThan4" : "AtLeast4") { }
     }
 }
-

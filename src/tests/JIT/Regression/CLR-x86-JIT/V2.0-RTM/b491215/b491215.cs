@@ -1,13 +1,17 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+
+namespace b491215;
+
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using Xunit;
 
 public class Test
 {
-    public static void IsType<T>(object o, bool expectedValue)
+    internal static void IsType<T>(object o, bool expectedValue)
     {
         bool isType = o is T;
         Console.WriteLine("{0} is {1} (expected {2}): {3}", o.GetType(), typeof(T), expectedValue, isType);
@@ -15,7 +19,8 @@ public class Test
             throw new Exception("Casting failed");
     }
 
-    public static int Main(string[] args)
+    [Fact]
+    public static int TestEntryPoint()
     {
         Object o = null;
 

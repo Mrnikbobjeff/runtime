@@ -1,9 +1,9 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using StringBuilder = System.Text.StringBuilder;
 using System.Threading;
 using System.Threading.Tasks;
+using StringBuilder = System.Text.StringBuilder;
 
 namespace System.Xml.Linq
 {
@@ -20,7 +20,8 @@ namespace System.Xml.Linq
         /// <param name="value">The string that contains the value of the text node.</param>
         public XText(string value)
         {
-            if (value == null) throw new ArgumentNullException(nameof(value));
+            ArgumentNullException.ThrowIfNull(value);
+
             text = value;
         }
 
@@ -30,7 +31,8 @@ namespace System.Xml.Linq
         /// <param name="other">The text node to copy from.</param>
         public XText(XText other)
         {
-            if (other == null) throw new ArgumentNullException(nameof(other));
+            ArgumentNullException.ThrowIfNull(other);
+
             text = other.text;
         }
 
@@ -65,7 +67,7 @@ namespace System.Xml.Linq
             }
             set
             {
-                if (value == null) throw new ArgumentNullException(nameof(value));
+                ArgumentNullException.ThrowIfNull(value);
                 bool notify = NotifyChanging(this, XObjectChangeEventArgs.Value);
                 text = value;
                 if (notify) NotifyChanged(this, XObjectChangeEventArgs.Value);
@@ -80,7 +82,8 @@ namespace System.Xml.Linq
         /// </param>
         public override void WriteTo(XmlWriter writer)
         {
-            if (writer == null) throw new ArgumentNullException(nameof(writer));
+            ArgumentNullException.ThrowIfNull(writer);
+
             if (parent is XDocument)
             {
                 writer.WriteWhitespace(text);
@@ -102,8 +105,8 @@ namespace System.Xml.Linq
         /// </param>
         public override Task WriteToAsync(XmlWriter writer, CancellationToken cancellationToken)
         {
-            if (writer == null)
-                throw new ArgumentNullException(nameof(writer));
+            ArgumentNullException.ThrowIfNull(writer);
+
             if (cancellationToken.IsCancellationRequested)
                 return Task.FromCanceled(cancellationToken);
 

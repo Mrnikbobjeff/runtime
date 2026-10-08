@@ -91,7 +91,7 @@ namespace System.Collections.Tests
             AssertExtensions.Throws<ArgumentNullException>("col", () => new Queue(null)); // Collection is null
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public static void DebuggerAttribute()
         {
             DebuggerAttributes.ValidateDebuggerDisplayReferences(new Queue());
@@ -109,20 +109,11 @@ namespace System.Collections.Tests
             Assert.Equal(testQueue.ToArray(), items);
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsDebuggerTypeProxyAttributeSupported))]
         public static void DebuggerAttribute_NullQueue_ThrowsArgumentNullException()
         {
-            bool threwNull = false;
-            try
-            {
-                DebuggerAttributes.ValidateDebuggerTypeProxyProperties(typeof(Queue), null);
-            }
-            catch (TargetInvocationException ex)
-            {
-                threwNull = ex.InnerException is ArgumentNullException;
-            }
-
-            Assert.True(threwNull);
+            TargetInvocationException tie = Assert.Throws<TargetInvocationException>(() => DebuggerAttributes.CreateDebuggerTypeProxyWithNullArgument(typeof(Queue)));
+            Assert.IsType<ArgumentNullException>(tie.InnerException);
         }
 
         [Theory]
@@ -839,7 +830,7 @@ namespace System.Collections.Tests
         private Queue _queueDaughter;
         private Queue _queueGrandDaughter;
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void SyncRoot()
         {
             var queueMother = new Queue();
@@ -912,7 +903,7 @@ namespace System.Collections.Tests
             }
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public void SynchronizedEnqueue()
         {
             // Enqueue

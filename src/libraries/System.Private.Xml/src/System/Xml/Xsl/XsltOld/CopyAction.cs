@@ -1,15 +1,15 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
+using System.Diagnostics;
+using System.Xml;
+using System.Xml.XPath;
+using MS.Internal.Xml.XPath;
+
 namespace System.Xml.Xsl.XsltOld
 {
-    using System;
-    using System.Diagnostics;
-    using System.Xml;
-    using System.Xml.XPath;
-    using MS.Internal.Xml.XPath;
-
-    internal class CopyAction : ContainerAction
+    internal sealed class CopyAction : ContainerAction
     {
         // Local execution states
         private const int NamespaceCopy = 5;
@@ -36,7 +36,6 @@ namespace System.Xml.Xsl.XsltOld
         internal override bool CompileAttribute(Compiler compiler)
         {
             string name = compiler.Input.LocalName;
-            string value = compiler.Input.Value;
             if (Ref.Equal(name, compiler.Atoms.UseAttributeSets))
             {
                 AddAction(compiler.CreateUseAttributeSetsAction());
@@ -64,7 +63,7 @@ namespace System.Xml.Xsl.XsltOld
                             break;
                         }
 
-                        if (processor.CopyBeginEvent(frame.Node!, _empty) == false)
+                        if (!processor.CopyBeginEvent(frame.Node!, _empty))
                         {
                             // This event wasn't processed
                             break;

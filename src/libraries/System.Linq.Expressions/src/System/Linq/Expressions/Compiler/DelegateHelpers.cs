@@ -2,11 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.ObjectModel;
-using System.Runtime.CompilerServices;
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic;
 using System.Dynamic.Utils;
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 
 namespace System.Linq.Expressions.Compiler
 {
@@ -18,6 +19,7 @@ namespace System.Linq.Expressions.Compiler
         /// We take the read-only collection of Expression explicitly to avoid allocating memory (an array
         /// of types) on lookup of delegate types.
         /// </summary>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         internal static Type MakeCallSiteDelegate(ReadOnlyCollection<Expression> types, Type returnType)
         {
             lock (_DelegateCache)
@@ -52,6 +54,7 @@ namespace System.Linq.Expressions.Compiler
         /// We take the array of MetaObject explicitly to avoid allocating memory (an array of types) on
         /// lookup of delegate types.
         /// </summary>
+        [RequiresDynamicCode(Expression.DelegateCreationRequiresDynamicCode)]
         internal static Type MakeDeferredSiteDelegate(DynamicMetaObject[] args, Type returnType)
         {
             lock (_DelegateCache)
@@ -107,26 +110,27 @@ namespace System.Linq.Expressions.Compiler
             return mo.Expression is ParameterExpression pe && pe.IsByRef;
         }
 
-#if FEATURE_COMPILE
-        private const MethodAttributes CtorAttributes = MethodAttributes.RTSpecialName | MethodAttributes.HideBySig | MethodAttributes.Public;
-        private const MethodImplAttributes ImplAttributes = MethodImplAttributes.Runtime | MethodImplAttributes.Managed;
-        private const MethodAttributes InvokeAttributes = MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual;
-        private static readonly Type[] s_delegateCtorSignature = { typeof(object), typeof(IntPtr) };
-#endif
-
-        private static Type MakeNewCustomDelegate(Type[] types)
+        private static System.Reflection.TypeInfo MakeNewCustomDelegate(Type[] types)
         {
-#if FEATURE_COMPILE
-            Type returnType = types[types.Length - 1];
-            Type[] parameters = types.RemoveLast();
+            if (RuntimeFeature.IsDynamicCodeSupported)
+            {
+                Type returnType = types[types.Length - 1];
+                Type[] parameters = types.RemoveLast();
+                Type[] delegateCtorSignature = { typeof(object), typeof(IntPtr) };
 
-            TypeBuilder builder = AssemblyGen.DefineDelegateType("Delegate" + types.Length);
-            builder.DefineConstructor(CtorAttributes, CallingConventions.Standard, s_delegateCtorSignature).SetImplementationFlags(ImplAttributes);
-            builder.DefineMethod("Invoke", InvokeAttributes, returnType, parameters).SetImplementationFlags(ImplAttributes);
-            return builder.CreateTypeInfo()!;
-#else
-            throw new PlatformNotSupportedException();
-#endif
+                const MethodAttributes ctorAttributes = MethodAttributes.RTSpecialName | MethodAttributes.HideBySig | MethodAttributes.Public;
+                const MethodImplAttributes implAttributes = MethodImplAttributes.Runtime | MethodImplAttributes.Managed;
+                const MethodAttributes invokeAttributes = MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.NewSlot | MethodAttributes.Virtual;
+
+                TypeBuilder builder = AssemblyGen.DefineDelegateType("Delegate" + types.Length);
+                builder.DefineConstructor(ctorAttributes, CallingConventions.Standard, delegateCtorSignature).SetImplementationFlags(implAttributes);
+                builder.DefineMethod("Invoke", invokeAttributes, returnType, parameters).SetImplementationFlags(implAttributes);
+                return builder.CreateTypeInfo();
+            }
+            else
+            {
+                throw new PlatformNotSupportedException();
+            }
         }
     }
 }

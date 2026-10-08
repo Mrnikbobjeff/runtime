@@ -2,10 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-class ovf
+
+namespace b102886;
+
+using Xunit;
+public class ovf
 {
 
-    public static void f()
+    internal static void f()
     {
 
         uint x = 0xfffffffe;
@@ -19,7 +23,8 @@ class ovf
 
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         try { f(); }
         catch (System.OverflowException) { return 100; }

@@ -103,6 +103,8 @@ namespace Microsoft.VisualBasic.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/50572", TestPlatforms.Android)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51392", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void Command()
         {
             var expected = Environment.CommandLine;
@@ -332,7 +334,7 @@ namespace Microsoft.VisualBasic.Tests
         [InlineData(new object[] { true, "red", false, "green", false, "blue" }, "red")]
         [InlineData(new object[] { false, "red", true, "green", false, "blue" }, "green")]
         [InlineData(new object[] { false, "red", false, "green", true, "blue" }, "blue")]
-        public void Switch(object[] VarExpr, object expected)
+        public void Switch(object[]? VarExpr, object? expected)
         {
             Assert.Equal(expected, Interaction.Switch(VarExpr));
         }

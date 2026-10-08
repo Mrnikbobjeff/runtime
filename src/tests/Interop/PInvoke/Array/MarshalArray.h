@@ -1,7 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#pragma once 
+#pragma once
 #include <stdio.h>
 #include <stdlib.h> // required by itoa
 #include <iostream>
@@ -10,11 +10,10 @@
 //////////////////////////////////////////////////////////////////////////////
 // Macro definitions
 //////////////////////////////////////////////////////////////////////////////
-#define ARRAY_SIZE 100
+#define ARRAY_LENGTH 100
 #define ROWS 2
 #define COLUMNS 3
 
-#define COUNTOF(__arr) sizeof(__arr) / sizeof(__arr[0])
 #define ELEM_PER_ROW_2D(__arr) (&(__arr[1][0]) - &(__arr[0][0]))
 #define ROWS_2D(__arr) sizeof(__arr) / (ELEM_PER_ROW_2D(__arr) * sizeof(__arr[0][0]))
 
@@ -122,8 +121,8 @@ bool IsObjectEquals(const BSTR& o1, const BSTR& o2)
         return false;
     }
 
-    UINT uLen1 = SysStringLen(o1);
-    UINT uLen2 = SysStringLen(o2);
+    uint32_t uLen1 = SysStringLen(o1);
+    uint32_t uLen2 = SysStringLen(o2);
 
     if (uLen1 != uLen2 )
     {
@@ -177,7 +176,7 @@ struct TestStruct
 
     int x;
     double d;
-    LONG64 l;
+    int64_t l;
     LPSTR str;
 
     inline bool operator==(const TestStruct &other) const
@@ -191,16 +190,16 @@ struct TestStruct
 
 typedef struct S2
 {
-    INT i32;
-    UINT ui32;
-    SHORT s1;
-    WORD us1;
-    BYTE b;
+    int32_t i32;
+    uint32_t ui32;
+    int16_t s1;
+    uint16_t us1;
+    uint8_t b;
     CHAR sb;
-    SHORT i16;
-    WORD ui16;
-    LONG64 i64;
-    ULONG64 ui64;
+    int16_t i16;
+    uint16_t ui16;
+    int64_t i64;
+    uint64_t ui64;
     FLOAT sgl;
     DOUBLE d;
 }S2;
@@ -224,8 +223,8 @@ std::ostream &operator<<(std::ostream &ostr, BSTR &b)
 #endif
 
 //////////////////////////////////method for struct S2////////////////////////////////////////////////
-void InstanceS2(S2 * pREC, int i32,UINT ui32,SHORT s1,WORD us1,BYTE b,CHAR sb,SHORT i16,WORD ui16,
-                LONG64 i64,ULONG64 ui64,FLOAT sgl,DOUBLE d)
+void InstanceS2(S2 * pREC, int i32,uint32_t ui32,int16_t s1,uint16_t us1,uint8_t b,CHAR sb,int16_t i16,uint16_t ui16,
+                int64_t i64,uint64_t ui64,FLOAT sgl,DOUBLE d)
 {
     pREC->i32 = i32;
     pREC->ui32 = ui32;
@@ -261,7 +260,7 @@ bool ValidateS2LPArray(S2 * pREC, S2 * pRECCorrect, int numArrElement)
         }
         else if(pREC[i].s1 != pRECCorrect[i].s1)
         {
-            printf("\t The field of short is not the expected!");
+            printf("\t The field of int16_t is not the expected!");
             printf("\t\tpREC[%d].s1 = %d\n", i, pREC[i].s1);
             printf("\t\tpRECCorrect[%d].s1 = %d\n", i, pRECCorrect[i].s1);
             return false;
@@ -304,15 +303,15 @@ bool ValidateS2LPArray(S2 * pREC, S2 * pRECCorrect, int numArrElement)
         else if(pREC[i].i64 != pRECCorrect[i].i64)
         {
             printf("\t The field of Int64 is not the expected!");
-            printf("\t\tpREC[%d].i64 = %lld\n", i, pREC[i].i64);
-            printf("\t\tpRECCorrect[%d].i64 = %lld\n", i, pRECCorrect[i].i64);
+            printf("\t\tpREC[%d].i64 = %" PRIi64 "\n", i, pREC[i].i64);
+            printf("\t\tpRECCorrect[%d].i64 = %" PRIi64 "\n", i, pRECCorrect[i].i64);
             return false;
         }
         else if(pREC[i].ui64 != pRECCorrect[i].ui64)
         {
             printf("\t The field of UInt64 is not the expected!");
-            printf("\t\tpREC[%d].ui64 = %llu\n", i, pREC[i].ui64);
-            printf("\t\tpRECCorrect[%d].ui64 = %llu\n", i, pRECCorrect[i].ui64);
+            printf("\t\tpREC[%d].ui64 = %" PRIi64 "\n", i, pREC[i].ui64);
+            printf("\t\tpRECCorrect[%d].ui64 = %" PRIi64 "\n", i, pRECCorrect[i].ui64);
             return false;
         }
         else if(pREC[i].sgl != pRECCorrect[i].sgl)

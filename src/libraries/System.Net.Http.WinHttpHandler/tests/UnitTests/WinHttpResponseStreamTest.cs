@@ -278,14 +278,14 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         }
 
         [Fact]
-        public void ReadAsync_PriorReadInProgress_ThrowsInvalidOperationException()
+        public async Task ReadAsync_PriorReadInProgress_ThrowsInvalidOperationException()
         {
             Stream stream = MakeResponseStream();
 
             TestControl.WinHttpReadData.Pause();
             Task t1 = stream.ReadAsync(new byte[1], 0, 1);
 
-            Assert.Throws<InvalidOperationException>(() => { Task t2 = stream.ReadAsync(new byte[1], 0, 1); });
+            await Assert.ThrowsAsync<InvalidOperationException>(async () => await stream.ReadAsync(new byte[1], 0, 1));
 
             TestControl.WinHttpReadData.Resume();
             t1.Wait();
@@ -331,7 +331,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         public void Read_NoOffsetAndNotEndOfData_FillsBuffer()
         {
             Stream stream = MakeResponseStream();
-            byte[] testData = Encoding.UTF8.GetBytes("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+            byte[] testData = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"u8.ToArray();
             TestServer.ResponseBody = testData;
 
             byte[] buffer = new byte[testData.Length];
@@ -348,7 +348,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
         public void Read_UsingOffsetAndNotEndOfData_FillsBufferFromOffset()
         {
             Stream stream = MakeResponseStream();
-            byte[] testData = Encoding.UTF8.GetBytes("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+            byte[] testData = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"u8.ToArray();
             TestServer.ResponseBody = testData;
 
             byte[] buffer = new byte[testData.Length];
@@ -376,7 +376,7 @@ namespace System.Net.Http.WinHttpHandlerUnitTests
             handle.Context = state.ToIntPtr();
             state.RequestHandle = handle;
 
-            return new WinHttpResponseStream(handle, state);
+            return new WinHttpResponseStream(handle, state, new HttpResponseMessage());
         }
     }
 }

@@ -59,7 +59,7 @@ namespace System.Threading.Tests
             Assert.True(tlocal.IsValueCreated);
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public static void RunThreadLocalTest4_Value()
         {
             ThreadLocal<string> tlocal = null;
@@ -108,7 +108,7 @@ namespace System.Threading.Tests
             });
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(ThreadLocalTests), nameof(IsThreadingAndPreciseGcSupported))]
         public static void RunThreadLocalTest5_Dispose()
         {
             // test recycling the combination index;
@@ -128,15 +128,15 @@ namespace System.Threading.Tests
             // it to be run on another thread.
             new Task(() => { threadLocal.Value = new SetMreOnFinalize(mres); }, TaskCreationOptions.LongRunning).Start(TaskScheduler.Default);
 
-            SpinWait.SpinUntil(() =>
-            {
-                GC.Collect();
-                GC.WaitForPendingFinalizers();
-                GC.Collect();
-                return mres.IsSet;
-            }, 5000);
-
-            Assert.True(mres.IsSet);
+            ThreadTestHelpers.WaitForConditionWithCustomDelay(
+                () => mres.IsSet,
+                () =>
+                {
+                    Thread.Sleep(1);
+                    GC.Collect();
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect();
+                });
         }
 
         [Fact]
@@ -223,7 +223,8 @@ namespace System.Threading.Tests
             threadLocalWeakReferenceTest.Run();
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/43981", TestRuntimes.Mono)]
         public static void RunThreadLocalTest8_Values()
         {
             // Test adding values and updating values
@@ -272,7 +273,7 @@ namespace System.Threading.Tests
                             }
                         }
                     }
-                    Assert.True(false, message);
+                    Assert.Fail(message);
                 }
                 for (int i = 0; i < 1000; i++)
                 {
@@ -314,6 +315,7 @@ namespace System.Threading.Tests
             Assert.Throws<ObjectDisposedException>(() => values = tl.Values);
         }
 
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/114096", typeof(PlatformDetection), nameof(PlatformDetection.IsBrowser), nameof(PlatformDetection.IsCoreCLR))]
         [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsPreciseGcSupported))]
         public static void RunThreadLocalTest8_Values_NegativeCases()
         {
@@ -328,7 +330,7 @@ namespace System.Threading.Tests
                     GC.WaitForPendingFinalizers();
                     GC.Collect();
                     return mres.IsSet;
-                }, 5000);
+                }, ThreadTestHelpers.UnexpectedTimeoutMilliseconds);
 
                 Assert.True(mres.IsSet, "RunThreadLocalTest8_Values: Expected thread local to release the object and for it to be finalized");
             }
@@ -366,7 +368,7 @@ namespace System.Threading.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [OuterLoop]
         public static void ValuesGetterDoesNotThrowUnexpectedExceptionWhenDisposed()
         {
@@ -434,6 +436,37 @@ namespace System.Threading.Tests
             Assert.False(failed);
         }
 
+        private enum UniqueEnumUsedOnlyWithNonInterferenceTest { True, False }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        public static void TestUnrelatedThreadLocalDoesNotInterfereWithTrackAllValues()
+        {
+            ThreadLocal<UniqueEnumUsedOnlyWithNonInterferenceTest> localThatDoesNotTrackValues = new ThreadLocal<UniqueEnumUsedOnlyWithNonInterferenceTest>(false);
+            ThreadLocal<UniqueEnumUsedOnlyWithNonInterferenceTest> localThatDoesTrackValues = new ThreadLocal<UniqueEnumUsedOnlyWithNonInterferenceTest>(true);
+
+            for (int i = 0; i < 10; i++)
+            {
+                Thread t = new Thread(Work);
+                t.Start();
+                t.Join();
+            }
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            int count = 0;
+            foreach (var x in localThatDoesTrackValues.Values)
+            {
+                if (x == UniqueEnumUsedOnlyWithNonInterferenceTest.True)
+                    count++;
+            }
+
+            Assert.Equal(10, count);
+            void Work()
+            {
+                localThatDoesNotTrackValues.Value = UniqueEnumUsedOnlyWithNonInterferenceTest.True;
+                localThatDoesTrackValues.Value = UniqueEnumUsedOnlyWithNonInterferenceTest.True;
+            }
+        }
+
         private class SetMreOnFinalize
         {
             private ManualResetEventSlim _mres;
@@ -446,5 +479,8 @@ namespace System.Threading.Tests
                 _mres.Set();
             }
         }
+
+        public static bool IsThreadingAndPreciseGcSupported =>
+            PlatformDetection.IsMultithreadingSupported && PlatformDetection.IsPreciseGcSupported;
     }
 }

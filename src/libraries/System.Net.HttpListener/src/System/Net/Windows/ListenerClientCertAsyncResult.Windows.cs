@@ -9,7 +9,7 @@ using System.Threading;
 
 namespace System.Net
 {
-    internal unsafe class ListenerClientCertAsyncResult : LazyAsyncResult
+    internal sealed unsafe class ListenerClientCertAsyncResult : LazyAsyncResult
     {
         private ThreadPoolBoundHandle? _boundHandle;
         private NativeOverlapped* _pOverlapped;
@@ -35,7 +35,7 @@ namespace System.Net
 
         private static readonly IOCompletionCallback s_IOCallback = new IOCompletionCallback(WaitCallback);
 
-        internal ListenerClientCertAsyncResult(ThreadPoolBoundHandle boundHandle, object asyncObject, object userState, AsyncCallback callback, uint size) : base(asyncObject, userState, callback)
+        internal ListenerClientCertAsyncResult(ThreadPoolBoundHandle boundHandle, object asyncObject, object? userState, AsyncCallback? callback, uint size) : base(asyncObject, userState, callback)
         {
             // we will use this overlapped structure to issue async IO to ul
             // the event handle will be put in by the BeginHttpApi2.ERROR_SUCCESS() method
@@ -66,7 +66,7 @@ namespace System.Net
             _memoryBlob = (Interop.HttpApi.HTTP_SSL_CLIENT_CERT_INFO*)Marshal.UnsafeAddrOfPinnedArrayElement(_backingBuffer, 0);
         }
 
-        internal unsafe void IOCompleted(uint errorCode, uint numBytes)
+        internal void IOCompleted(uint errorCode, uint numBytes)
         {
             IOCompleted(this, errorCode, numBytes);
         }
@@ -123,7 +123,7 @@ namespace System.Net
                             {
                                 byte[] certEncoded = new byte[pClientCertInfo->CertEncodedSize];
                                 Marshal.Copy((IntPtr)pClientCertInfo->pCertEncoded, certEncoded, 0, certEncoded.Length);
-                                result = httpListenerRequest.ClientCertificate = new X509Certificate2(certEncoded);
+                                result = httpListenerRequest.ClientCertificate = X509CertificateLoader.LoadCertificate(certEncoded);
                             }
                             catch (CryptographicException exception)
                             {

@@ -5,6 +5,7 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 public struct Point
 {
@@ -132,7 +133,7 @@ public struct PointDbl
 
 }
 
-public class BringUpTest
+public class BringUpTest_OpMembersOfStructLocal
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -267,7 +268,8 @@ public class BringUpTest
     }
     
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {       
        return OpMembersOfStructLocal();
     }

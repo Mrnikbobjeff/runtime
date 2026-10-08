@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.Serialization;
 
 namespace System.Reflection
@@ -11,40 +12,53 @@ namespace System.Reflection
     {
         // CoreCLR: Do not add or remove fields without updating the ReflectionPointer class in runtimehandles.h
         private readonly void* _ptr;
-        private readonly Type _ptrType;
+        private readonly RuntimeType _ptrType;
 
-        private Pointer(void* ptr, Type ptrType)
+        private Pointer(void* ptr, RuntimeType ptrType)
         {
-            Debug.Assert(ptrType.IsRuntimeImplemented()); // CoreCLR: For CoreRT's sake, _ptrType has to be declared as "Type", but in fact, it is always a RuntimeType. Code on CoreCLR expects this.
             _ptr = ptr;
             _ptrType = ptrType;
         }
 
         public static object Box(void* ptr, Type type)
         {
-            if (type == null)
-                throw new ArgumentNullException(nameof(type));
+            ArgumentNullException.ThrowIfNull(type);
+
             if (!type.IsPointer)
                 throw new ArgumentException(SR.Arg_MustBePointer, nameof(ptr));
-            if (!type.IsRuntimeImplemented())
-                throw new ArgumentException(SR.Arg_MustBeType, nameof(ptr));
+            if (type is not RuntimeType rtType)
+                throw new ArgumentException(SR.Arg_MustBeType, nameof(type));
 
-            return new Pointer(ptr, type);
+            return new Pointer(ptr, rtType);
         }
 
+        /// <safety>Returns the pointer value previously stored in the boxed Pointer instance; it reads only a managed field and performs no dereference of the pointer.</safety>
         public static void* Unbox(object ptr)
         {
-            if (!(ptr is Pointer))
-                throw new ArgumentException(SR.Arg_MustBePointer, nameof(ptr));
-            return ((Pointer)ptr)._ptr;
+            if (ptr is Pointer p)
+                return p._ptr;
+
+            throw new ArgumentException(SR.Arg_MustBePointer, nameof(ptr));
         }
+
+        public override bool Equals([NotNullWhen(true)] object? obj)
+        {
+            if (obj is Pointer pointer)
+            {
+                return _ptr == pointer._ptr;
+            }
+
+            return false;
+        }
+
+        public override int GetHashCode() => ((nuint)_ptr).GetHashCode();
 
         void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
         {
             throw new PlatformNotSupportedException();
         }
 
-        internal Type GetPointerType() => _ptrType;
+        internal RuntimeType GetPointerType() => _ptrType;
         internal IntPtr GetPointerValue() => (IntPtr)_ptr;
     }
 }

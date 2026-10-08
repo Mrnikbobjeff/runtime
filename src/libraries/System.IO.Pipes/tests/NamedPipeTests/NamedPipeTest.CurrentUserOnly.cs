@@ -10,26 +10,30 @@ namespace System.IO.Pipes.Tests
     /// <summary>
     /// Tests for the constructors for NamedPipeClientStream
     /// </summary>
-    public class NamedPipeTest_CurrentUserOnly : NamedPipeTestBase
+    public class NamedPipeTest_CurrentUserOnly
     {
         [Fact]
         public static void CreateClient_CurrentUserOnly()
         {
             // Should not throw.
-            new NamedPipeClientStream(".", GetUniquePipeName(), PipeDirection.InOut, PipeOptions.CurrentUserOnly).Dispose();
+            new NamedPipeClientStream(".", PipeStreamConformanceTests.GetUniquePipeName(), PipeDirection.InOut, PipeOptions.CurrentUserOnly).Dispose();
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77469", TestPlatforms.iOS | TestPlatforms.tvOS)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77470", TestPlatforms.LinuxBionic)]
         public static void CreateServer_CurrentUserOnly()
         {
             // Should not throw.
-            new NamedPipeServerStream(GetUniquePipeName(), PipeDirection.InOut, 2, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly).Dispose();
+            new NamedPipeServerStream(PipeStreamConformanceTests.GetUniquePipeName(), PipeDirection.InOut, 2, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly).Dispose();
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77469", TestPlatforms.iOS | TestPlatforms.tvOS)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77470", TestPlatforms.LinuxBionic)]
         public static void CreateServer_ConnectClient()
         {
-            string name = GetUniquePipeName();
+            string name = PipeStreamConformanceTests.GetUniquePipeName();
             using (var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly))
             {
                 using (var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.CurrentUserOnly))
@@ -41,9 +45,11 @@ namespace System.IO.Pipes.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77469", TestPlatforms.iOS | TestPlatforms.tvOS)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77470", TestPlatforms.LinuxBionic)]
         public static void CreateServer_ConnectClient_UsingUnixAbsolutePath()
         {
-            string name = Path.Combine("/tmp", GetUniquePipeName());
+            string name = Path.Combine(Path.GetTempPath(), PipeStreamConformanceTests.GetUniquePipeName());
             using (var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly))
             {
                 using (var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.CurrentUserOnly))
@@ -54,13 +60,21 @@ namespace System.IO.Pipes.Tests
         }
 
         [Theory]
-        [InlineData(PipeOptions.None, PipeOptions.CurrentUserOnly)]
-        [InlineData(PipeOptions.CurrentUserOnly, PipeOptions.None)]
-        public static void Connection_UnderSameUser_SingleSide_CurrentUserOnly_Works(PipeOptions serverPipeOptions, PipeOptions clientPipeOptions)
+        [InlineData(PipeOptions.None, PipeOptions.None, PipeDirection.In)]
+        [InlineData(PipeOptions.None, PipeOptions.None, PipeDirection.InOut)]
+        [InlineData(PipeOptions.None, PipeOptions.CurrentUserOnly, PipeDirection.In)]
+        [InlineData(PipeOptions.None, PipeOptions.CurrentUserOnly, PipeDirection.InOut)]
+        [InlineData(PipeOptions.CurrentUserOnly, PipeOptions.None, PipeDirection.In)]
+        [InlineData(PipeOptions.CurrentUserOnly, PipeOptions.None, PipeDirection.InOut)]
+        [InlineData(PipeOptions.CurrentUserOnly, PipeOptions.CurrentUserOnly, PipeDirection.In)]
+        [InlineData(PipeOptions.CurrentUserOnly, PipeOptions.CurrentUserOnly, PipeDirection.InOut)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77469", TestPlatforms.iOS | TestPlatforms.tvOS)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77470", TestPlatforms.LinuxBionic)]
+        public static void Connection_UnderSameUser_CurrentUserOnly_Works(PipeOptions serverPipeOptions, PipeOptions clientPipeOptions, PipeDirection clientDirection)
         {
-            string name = GetUniquePipeName();
+            string name = PipeStreamConformanceTests.GetUniquePipeName();
             using (var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, serverPipeOptions))
-            using (var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, clientPipeOptions))
+            using (var client = new NamedPipeClientStream(".", name, clientDirection, clientPipeOptions))
             {
                 Task[] tasks = new[]
                 {
@@ -73,11 +87,13 @@ namespace System.IO.Pipes.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77469", TestPlatforms.iOS | TestPlatforms.tvOS)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77470", TestPlatforms.LinuxBionic)]
         public static void CreateMultipleServers_ConnectMultipleClients()
         {
-            string name1 = GetUniquePipeName();
-            string name2 = GetUniquePipeName();
-            string name3 = GetUniquePipeName();
+            string name1 = PipeStreamConformanceTests.GetUniquePipeName();
+            string name2 = PipeStreamConformanceTests.GetUniquePipeName();
+            string name3 = PipeStreamConformanceTests.GetUniquePipeName();
             using (var server1 = new NamedPipeServerStream(name1, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly))
             using (var server2 = new NamedPipeServerStream(name2, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly))
             using (var server3 = new NamedPipeServerStream(name3, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly))
@@ -94,6 +110,8 @@ namespace System.IO.Pipes.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77469", TestPlatforms.iOS | TestPlatforms.tvOS)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77470", TestPlatforms.LinuxBionic)]
         public static void CreateMultipleServers_ConnectMultipleClients_MultipleThreads()
         {
             List<Task> tasks = new List<Task>();
@@ -101,7 +119,7 @@ namespace System.IO.Pipes.Tests
             {
                 tasks.Add(Task.Run(() =>
                 {
-                    var name = GetUniquePipeName();
+                    var name = PipeStreamConformanceTests.GetUniquePipeName();
                     using (var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.CurrentUserOnly))
                     {
                         using (var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.CurrentUserOnly))
@@ -113,12 +131,14 @@ namespace System.IO.Pipes.Tests
                 }));
             }
 
-            Task.WaitAll(tasks.ToArray());
+            Task.WaitAll(tasks);
         }
 
         [Theory]
         [InlineData(PipeOptions.CurrentUserOnly)]
         [InlineData(PipeOptions.None)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77469", TestPlatforms.iOS | TestPlatforms.tvOS)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/77470", TestPlatforms.LinuxBionic)]
         public static void CreateMultipleConcurrentServers_ConnectMultipleClients(PipeOptions extraPipeOptions)
         {
             var pipeServers = new NamedPipeServerStream[5];
@@ -126,7 +146,7 @@ namespace System.IO.Pipes.Tests
 
             try
             {
-                string pipeName = GetUniquePipeName();
+                string pipeName = PipeStreamConformanceTests.GetUniquePipeName();
                 for (var i = 0; i < pipeServers.Length; i++)
                 {
                     pipeServers[i] = new NamedPipeServerStream(

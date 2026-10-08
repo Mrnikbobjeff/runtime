@@ -2,7 +2,10 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Generics_ConstrainedCall_vt4;
+
 using System;
+using Xunit;
 interface IncrDecr
 {
     void Incr(int a);
@@ -44,7 +47,7 @@ class MyCounter<T> where T : IncrDecr, new()
         T2[] cnters = new T2[1];
         cnters[index] = (T2)(IncrDecr)counters[index];
         cnters[index].Decr(100);
-        counters[index] = (T)(IncrDecr)cnters[index]; ;
+        counters[index] = (T)(IncrDecr)cnters[index];
     }
     public virtual void Increment2<T2>(T2 cnter) where T2 : IncrDecr, new()
     {
@@ -65,9 +68,11 @@ class MyCounter<T> where T : IncrDecr, new()
         return counters[index].Val();
     }
 }
-class test
+public class test
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         MyCounter<MyInt> mc = new MyCounter<MyInt>();
         mc.Increment<MyInt>();

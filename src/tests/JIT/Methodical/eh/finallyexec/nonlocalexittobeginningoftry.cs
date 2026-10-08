@@ -4,10 +4,11 @@
 // try/finally embedded in a try catch with a nonlocal exit to the beginning of try block
 // to make sure that we don't execute the finally unnecessarily 
 using System;
+using Xunit;
 
-namespace hello
+namespace hello_nonlocalexittobeginningoftry_finallyexec_cs
 {
-    class Class1
+    public class Class1
     {
         private static TestUtil.TestLog testLog;
 
@@ -27,7 +28,9 @@ namespace hello
             testLog = new TestUtil.TestLog(expectedOut);
         }
 
-        static public int Main(string[] args)
+        [Fact]
+        [OuterLoop]
+        static public int TestEntryPoint()
         {
             //Start recording
             testLog.StartRecording();
@@ -39,11 +42,8 @@ namespace hello
                 if (i > 0) goto done;
                 try
                 {
-                    if (args.Length == 0)
-                    {
-                        i++;
-                        goto begintry1;
-                    }
+                    i++;
+                    goto begintry1;
                 }
                 finally
                 {

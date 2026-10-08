@@ -17,12 +17,6 @@ namespace System.Reflection.Metadata
 
         internal AssemblyReference(MetadataReader reader, uint treatmentAndRowId)
         {
-            Debug.Assert(reader != null);
-            Debug.Assert(treatmentAndRowId != 0);
-
-            // only virtual bit can be set in highest byte:
-            Debug.Assert((treatmentAndRowId & ~(TokenTypeIds.VirtualBit | TokenTypeIds.RIDMask)) == 0);
-
             _reader = reader;
             _treatmentAndRowId = treatmentAndRowId;
         }
@@ -132,7 +126,7 @@ namespace System.Reflection.Metadata
         }
 
         #region Virtual Rows
-        private Version GetVirtualVersion()
+        private static Version GetVirtualVersion()
         {
             // currently all projected assembly references have version 4.0.0.0
             return s_version_4_0_0_0;
@@ -149,7 +143,7 @@ namespace System.Reflection.Metadata
             return StringHandle.FromVirtualIndex(GetVirtualNameIndex((AssemblyReferenceHandle.VirtualIndex)RowId));
         }
 
-        private StringHandle.VirtualIndex GetVirtualNameIndex(AssemblyReferenceHandle.VirtualIndex index)
+        private static StringHandle.VirtualIndex GetVirtualNameIndex(AssemblyReferenceHandle.VirtualIndex index)
         {
             switch (index)
             {
@@ -172,11 +166,11 @@ namespace System.Reflection.Metadata
                     return StringHandle.VirtualIndex.System_Numerics_Vectors;
             }
 
-            Debug.Assert(false, "Unexpected virtual index value");
+            Debug.Fail("Unexpected virtual index value");
             return 0;
         }
 
-        private StringHandle GetVirtualCulture()
+        private static StringHandle GetVirtualCulture()
         {
             return default(StringHandle);
         }
@@ -197,7 +191,7 @@ namespace System.Reflection.Metadata
             }
         }
 
-        private BlobHandle GetVirtualHashValue()
+        private static BlobHandle GetVirtualHashValue()
         {
             return default(BlobHandle);
         }

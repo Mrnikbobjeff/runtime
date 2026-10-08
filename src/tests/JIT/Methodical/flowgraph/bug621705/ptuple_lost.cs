@@ -2,9 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-internal class A
+using Xunit;
+namespace Test_ptuple_lost
 {
-    public static int Main()
+public class A
+{
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         int[] arr = new int[10];
 
@@ -25,4 +30,5 @@ internal class A
             return 101;
         }
     }
+}
 }

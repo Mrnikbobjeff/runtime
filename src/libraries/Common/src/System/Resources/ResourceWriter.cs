@@ -1,12 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-#nullable enable
-
-using System.IO;
-using System.Text;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Text;
 
 namespace System.Resources
 #if RESOURCES_EXTENSIONS
@@ -50,8 +48,7 @@ namespace System.Resources
         ResourceWriter(string fileName)
 #endif
         {
-            if (fileName == null)
-                throw new ArgumentNullException(nameof(fileName));
+            ArgumentNullException.ThrowIfNull(fileName);
 
             _output = new FileStream(fileName, FileMode.Create, FileAccess.Write, FileShare.None);
             _resourceList = new SortedDictionary<string, object?>(FastResourceComparer.Default);
@@ -65,10 +62,12 @@ namespace System.Resources
         ResourceWriter(Stream stream)
 #endif
         {
-            if (stream == null)
-                throw new ArgumentNullException(nameof(stream));
+            ArgumentNullException.ThrowIfNull(stream);
+
             if (!stream.CanWrite)
+            {
                 throw new ArgumentException(SR.Argument_StreamNotWritable);
+            }
 
             _output = stream;
             _resourceList = new SortedDictionary<string, object?>(FastResourceComparer.Default);
@@ -80,11 +79,12 @@ namespace System.Resources
         //
         public void AddResource(string name, string? value)
         {
-            if (name == null)
-                throw new ArgumentNullException(nameof(name));
+            ArgumentNullException.ThrowIfNull(name);
 
             if (_resourceList == null)
+            {
                 throw new InvalidOperationException(SR.InvalidOperation_ResourceWriterSaved);
+            }
 
             // Check for duplicate resources whose names vary only by case.
             _caseInsensitiveDups.Add(name, null);
@@ -96,11 +96,12 @@ namespace System.Resources
         //
         public void AddResource(string name, object? value)
         {
-            if (name == null)
-                throw new ArgumentNullException(nameof(name));
+            ArgumentNullException.ThrowIfNull(name);
 
             if (_resourceList == null)
+            {
                 throw new InvalidOperationException(SR.InvalidOperation_ResourceWriterSaved);
+            }
 
             // needed for binary compat
             if (value != null && value is Stream)
@@ -121,11 +122,12 @@ namespace System.Resources
         //
         public void AddResource(string name, Stream? value, bool closeAfterWrite = false)
         {
-            if (name == null)
-                throw new ArgumentNullException(nameof(name));
+            ArgumentNullException.ThrowIfNull(name);
 
             if (_resourceList == null)
+            {
                 throw new InvalidOperationException(SR.InvalidOperation_ResourceWriterSaved);
+            }
 
             AddResourceInternal(name, value, closeAfterWrite);
         }
@@ -157,11 +159,12 @@ namespace System.Resources
         //
         public void AddResource(string name, byte[]? value)
         {
-            if (name == null)
-                throw new ArgumentNullException(nameof(name));
+            ArgumentNullException.ThrowIfNull(name);
 
             if (_resourceList == null)
+            {
                 throw new InvalidOperationException(SR.InvalidOperation_ResourceWriterSaved);
+            }
 
             // Check for duplicate resources whose names vary only by case.
             _caseInsensitiveDups.Add(name, null);
@@ -175,8 +178,7 @@ namespace System.Resources
 
             // Check for duplicate resources whose names vary only by case.
             _caseInsensitiveDups.Add(name, null);
-            if (_preserializedData == null)
-                _preserializedData = new Dictionary<string, PrecannedResource>(FastResourceComparer.Default);
+            _preserializedData ??= new Dictionary<string, PrecannedResource>(FastResourceComparer.Default);
 
             _preserializedData.Add(name, new PrecannedResource(typeName, data));
         }
@@ -184,7 +186,7 @@ namespace System.Resources
         // For cases where users can't create an instance of the deserialized
         // type in memory, and need to pass us serialized blobs instead.
         // LocStudio's managed code parser will do this in some cases.
-        private class PrecannedResource
+        private sealed class PrecannedResource
         {
             internal readonly string TypeName;
             internal readonly object Data;
@@ -196,7 +198,7 @@ namespace System.Resources
             }
         }
 
-        private class StreamWrapper
+        private sealed class StreamWrapper
         {
             internal readonly Stream Stream;
             internal readonly bool CloseAfterWrite;
@@ -221,10 +223,7 @@ namespace System.Resources
                 {
                     Generate();
                 }
-                if (_output != null)
-                {
-                    _output.Dispose();
-                }
+                _output?.Dispose();
             }
 
             _output = null!;
@@ -418,7 +417,7 @@ namespace System.Resources
 
         // Finds the ResourceTypeCode for a type, or adds this type to the
         // types list.
-        private ResourceTypeCode FindTypeCode(object? value, List<string> types)
+        private static ResourceTypeCode FindTypeCode(object? value, List<string> types)
         {
             if (value == null)
                 return ResourceTypeCode.Null;
@@ -471,7 +470,11 @@ namespace System.Resources
                 if (typeName.StartsWith("ResourceTypeCode.", StringComparison.Ordinal))
                 {
                     typeName = typeName.Substring(17);  // Remove through '.'
+#if NET
+                    ResourceTypeCode typeCode = Enum.Parse<ResourceTypeCode>(typeName);
+#else
                     ResourceTypeCode typeCode = (ResourceTypeCode)Enum.Parse(typeof(ResourceTypeCode), typeName);
+#endif
                     return typeCode;
                 }
             }
@@ -491,7 +494,7 @@ namespace System.Resources
             return (ResourceTypeCode)(typeIndex + ResourceTypeCode.StartOfUserTypes);
         }
 
-        private void WriteValue(ResourceTypeCode typeCode, object? value, BinaryWriter writer)
+        private static void WriteValue(ResourceTypeCode typeCode, object? value, BinaryWriter writer)
         {
             Debug.Assert(writer != null);
 
@@ -597,7 +600,7 @@ namespace System.Resources
                             s.Position = 0;
                             writer.Write((int)s.Length);
                             byte[] buffer = new byte[4096];
-                            int read = 0;
+                            int read;
                             while ((read = s.Read(buffer, 0, buffer.Length)) != 0)
                             {
                                 writer.Write(buffer, 0, read);

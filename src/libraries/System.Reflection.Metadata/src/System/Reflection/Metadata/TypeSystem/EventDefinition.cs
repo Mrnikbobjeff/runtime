@@ -2,7 +2,6 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Immutable;
-using System.Diagnostics;
 using System.Reflection.Metadata.Ecma335;
 
 namespace System.Reflection.Metadata
@@ -16,9 +15,6 @@ namespace System.Reflection.Metadata
 
         internal EventDefinition(MetadataReader reader, EventDefinitionHandle handle)
         {
-            Debug.Assert(reader != null);
-            Debug.Assert(!handle.IsNil);
-
             _reader = reader;
             _rowId = handle.RowId;
         }
@@ -57,6 +53,14 @@ namespace System.Reflection.Metadata
             return new CustomAttributeHandleCollection(_reader, Handle);
         }
 
+        /// <summary>
+        /// Returns a handle to the type that declares this event.
+        /// </summary>
+        public TypeDefinitionHandle GetDeclaringType()
+        {
+            return _reader.GetDeclaringType(Handle);
+        }
+
         public EventAccessors GetAccessors()
         {
             int adder = 0;
@@ -84,8 +88,7 @@ namespace System.Reflection.Metadata
                         break;
 
                     case MethodSemanticsAttributes.Other:
-                        if (other == null)
-                            other = ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
+                        other ??= ImmutableArray.CreateBuilder<MethodDefinitionHandle>();
 
                         other.Add(_reader.MethodSemanticsTable.GetMethod(rowId));
                         break;

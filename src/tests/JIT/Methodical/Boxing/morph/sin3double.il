@@ -12,7 +12,10 @@
 .assembly sin3double
 {
 }
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
 
+.namespace Test_sin3double {
 .class private sequential ansi sealed beforefieldinit VV extends [mscorlib]System.ValueType
 {
   .pack 0
@@ -194,8 +197,12 @@
   IL_0130:  ret
 }
 
-.method static int32 Main() cil managed
+.method public static int32 Main() cil managed
 {
+  .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+      01 00 00 00
+  )
+  .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, valuetype [Microsoft.DotNet.XUnitExtensions]Xunit.TestRuntimes) = {string('https://github.com/dotnet/runtime/issues/34196') int32(2)}
   .entrypoint
   .locals (int32 V_0,
            float64 V_1,
@@ -208,7 +215,7 @@
            object V_8,
            object V_9,
            object V_10,
-           valuetype VV V_11)
+           valuetype Test_sin3double.VV V_11)
   IL_0000:  ldc.i4.0
   IL_0001:  stloc.s    V_4
   IL_0003:  ldnull
@@ -353,7 +360,7 @@
   IL_0160:  ldstr      ")="
   IL_016a:  call       void [console]System.Console::Write(string)
   IL_016f:  ldloc.3
-  IL_0170:  call       float64 Z::mySin(float64)
+  IL_0170:  call       float64 Test_sin3double.Z::mySin(float64)
   IL_0175:  stloc.1
   IL_0176:  ldloc.1
   IL_0177:  call       void [console]System.Console::WriteLine(float64)
@@ -432,4 +439,4 @@
 }
 
 }
-
+}

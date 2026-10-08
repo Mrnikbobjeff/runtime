@@ -1,12 +1,13 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-namespace Test
+using Xunit;
+namespace b51875
 {
     using System;
     using System.Collections;
 
-    internal struct AA
+    public struct AA
     {
         public static int Main1()
         {
@@ -24,7 +25,9 @@ namespace Test
                 return 1;
             return 0;
         }
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             try
             {

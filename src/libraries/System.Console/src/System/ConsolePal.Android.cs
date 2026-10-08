@@ -2,20 +2,21 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.IO;
-using System.Text;
 using System.Runtime.InteropServices;
+using System.Text;
+using Microsoft.Win32.SafeHandles;
+
+#pragma warning disable IDE0060
 
 namespace System
 {
-    internal sealed unsafe class LogcatStream : ConsoleStream
+    internal sealed unsafe class LogcatStream : CachedConsoleStream
     {
-        public LogcatStream() : base(FileAccess.Write) {}
+        public LogcatStream(Encoding encoding) : base(encoding) { }
 
-        public override int Read(byte[] buffer, int offset, int count) => throw Error.GetReadNotSupported();
-
-        public override unsafe void Write(byte[] buffer, int offset, int count)
+        protected override void Print(ReadOnlySpan<char> line)
         {
-            string log = ConsolePal.OutputEncoding.GetString(buffer, offset, count);
+            string log = line.ToString();
             Interop.Logcat.AndroidLogPrint(Interop.Logcat.LogLevel.Info, "DOTNET", log);
         }
     }
@@ -26,9 +27,15 @@ namespace System
 
         public static Stream OpenStandardInput() => throw new PlatformNotSupportedException();
 
-        public static Stream OpenStandardOutput() => new LogcatStream();
+        public static Stream OpenStandardOutput() => new LogcatStream(OutputEncoding);
 
-        public static Stream OpenStandardError() => new LogcatStream();
+        public static Stream OpenStandardError() => new LogcatStream(OutputEncoding);
+
+        public static SafeFileHandle OpenStandardInputHandle() => throw new PlatformNotSupportedException();
+
+        public static SafeFileHandle OpenStandardOutputHandle() => throw new PlatformNotSupportedException();
+
+        public static SafeFileHandle OpenStandardErrorHandle() => throw new PlatformNotSupportedException();
 
         public static Encoding InputEncoding => throw new PlatformNotSupportedException();
 
@@ -152,14 +159,5 @@ namespace System
         public static void SetWindowPosition(int left, int top) => throw new PlatformNotSupportedException();
 
         public static void SetWindowSize(int width, int height) => throw new PlatformNotSupportedException();
-
-        internal sealed class ControlCHandlerRegistrar
-        {
-            internal ControlCHandlerRegistrar() => throw new PlatformNotSupportedException();
-
-            internal void Register() => throw new PlatformNotSupportedException();
-
-            internal void Unregister() => throw new PlatformNotSupportedException();
-        }
     }
 }

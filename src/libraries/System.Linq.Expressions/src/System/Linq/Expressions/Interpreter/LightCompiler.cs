@@ -51,7 +51,7 @@ namespace System.Linq.Expressions.Interpreter
         public bool Matches(Type exceptionType) => _exceptionType.IsAssignableFrom(exceptionType);
 
         public override string ToString() =>
-            string.Format(CultureInfo.InvariantCulture, "catch ({0}) [{1}->{2}]", _exceptionType.Name, HandlerStartIndex, HandlerEndIndex);
+            string.Create(CultureInfo.InvariantCulture, $"catch ({_exceptionType.Name}) [{HandlerStartIndex}->{HandlerEndIndex}]");
     }
 
     internal sealed class TryCatchFinallyHandler
@@ -200,6 +200,7 @@ namespace System.Linq.Expressions.Interpreter
     internal sealed class RethrowException : Exception
     {
         public RethrowException() : base() { }
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
         internal RethrowException(SerializationInfo info, StreamingContext context) : base(info, context) { }
     }
 
@@ -211,7 +212,7 @@ namespace System.Linq.Expressions.Interpreter
         public bool IsClear;
         private static readonly DebugInfoComparer s_debugComparer = new DebugInfoComparer();
 
-        private class DebugInfoComparer : IComparer<DebugInfo>
+        private sealed class DebugInfoComparer : IComparer<DebugInfo>
         {
             //We allow comparison between int and DebugInfo here
             int IComparer<DebugInfo>.Compare(DebugInfo? d1, DebugInfo? d2)
@@ -241,7 +242,7 @@ namespace System.Linq.Expressions.Interpreter
                     return null;
                 }
                 //return the last one that is smaller
-                i = i - 1;
+                i--;
             }
 
             return debugInfos[i];
@@ -251,11 +252,11 @@ namespace System.Linq.Expressions.Interpreter
         {
             if (IsClear)
             {
-                return string.Format(CultureInfo.InvariantCulture, "{0}: clear", Index);
+                return string.Create(CultureInfo.InvariantCulture, $"{Index}: clear");
             }
             else
             {
-                return string.Format(CultureInfo.InvariantCulture, "{0}: [{1}-{2}] '{3}'", Index, StartLine, EndLine, FileName);
+                return string.Create(CultureInfo.InvariantCulture, $"{Index}: [{StartLine}-{EndLine}] '{FileName}'");
             }
         }
     }
@@ -442,7 +443,7 @@ namespace System.Linq.Expressions.Interpreter
             }
         }
 
-        private bool MaybeMutableValueType(Type type)
+        private static bool MaybeMutableValueType(Type type)
         {
             return type.IsValueType && !type.IsEnum && !type.IsPrimitive;
         }
@@ -593,7 +594,7 @@ namespace System.Linq.Expressions.Interpreter
             }
             else if (index.ArgumentCount != 1)
             {
-                _instructions.EmitCall(index.Object!.Type.GetMethod("Get", BindingFlags.Public | BindingFlags.Instance)!);
+                _instructions.EmitCall(TypeUtils.GetArrayGetMethod(index.Object!.Type));
             }
             else
             {
@@ -632,7 +633,7 @@ namespace System.Linq.Expressions.Interpreter
             }
             else if (index.ArgumentCount != 1)
             {
-                _instructions.EmitCall(index.Object!.Type.GetMethod("Set", BindingFlags.Public | BindingFlags.Instance)!);
+                _instructions.EmitCall(TypeUtils.GetArraySetMethod(index.Object!.Type));
             }
             else
             {
@@ -1159,7 +1160,7 @@ namespace System.Linq.Expressions.Interpreter
 
                 if (from == to)
                 {
-                    if ((object?)enumTypeTo != null)
+                    if (enumTypeTo is not null)
                     {
                         // If casting between enums of the same underlying type or to enum from the underlying
                         // type, there's no need for the numeric conversion, so just include a null-check if
@@ -1189,7 +1190,7 @@ namespace System.Linq.Expressions.Interpreter
                     }
                 }
 
-                if ((object?)enumTypeTo != null)
+                if (enumTypeTo is not null)
                 {
                     // Convert from underlying to the enum
                     _instructions.EmitCastToEnum(enumTypeTo);
@@ -1360,10 +1361,29 @@ namespace System.Linq.Expressions.Interpreter
             _instructions.EmitCall(opTrue);
             _instructions.EmitBranchTrue(labEnd);
 
+            // Store the left value to a local to empty the evaluation stack before
+            // compiling the right expression. The right expression may contain a
+            // TryCatch (or anything that does not tolerate non-empty evaluation
+            // stack on entry), so we must not leave the dup'd left value on the
+            // stack while the right expression executes.
+            LocalDefinition leftTemp = _locals.DefineLocal(Expression.Parameter(expr.Left.Type), _instructions.Count);
+            _instructions.EmitStoreLocal(leftTemp.Index);
+
             Compile(expr.Right);
+
+            // Store the right value, then reload both left and right before calling
+            // the user-defined operator method.
+            LocalDefinition rightTemp = _locals.DefineLocal(Expression.Parameter(expr.Right.Type), _instructions.Count);
+            _instructions.EmitStoreLocal(rightTemp.Index);
+
+            _instructions.EmitLoadLocal(leftTemp.Index);
+            _instructions.EmitLoadLocal(rightTemp.Index);
 
             Debug.Assert(expr.Method.IsStatic);
             _instructions.EmitCall(expr.Method);
+
+            _locals.UndefineLocal(leftTemp, _instructions.Count);
+            _locals.UndefineLocal(rightTemp, _instructions.Count);
 
             _instructions.MarkLabel(labEnd);
         }
@@ -1743,10 +1763,7 @@ namespace System.Linq.Expressions.Interpreter
                 Debug.Assert(label != null);
             }
 
-            if (label == null)
-            {
-                label = DefineLabel(node.Target);
-            }
+            label ??= DefineLabel(node.Target);
 
             if (node.DefaultValue != null)
             {
@@ -2166,10 +2183,7 @@ namespace System.Linq.Expressions.Interpreter
                     ByRefUpdater? updater = CompileAddress(arg, i);
                     if (updater != null)
                     {
-                        if (updaters == null)
-                        {
-                            updaters = new List<ByRefUpdater>();
-                        }
+                        updaters ??= new List<ByRefUpdater>();
 
                         updaters.Add(updater);
                     }
@@ -2343,7 +2357,7 @@ namespace System.Linq.Expressions.Interpreter
                         var call = (MethodCallExpression)node;
                         if (!call.Method.IsStatic &&
                             call.Object!.Type.IsArray &&
-                            call.Method == call.Object.Type.GetMethod("Get", BindingFlags.Public | BindingFlags.Instance))
+                            call.Method == TypeUtils.GetArrayGetMethod(call.Object.Type))
                         {
                             return CompileMultiDimArrayAccess(
                                 call.Object,
@@ -2380,9 +2394,9 @@ namespace System.Linq.Expressions.Interpreter
                 indexLocals[i] = argTmp;
             }
 
-            _instructions.EmitCall(array.Type.GetMethod("Get", BindingFlags.Public | BindingFlags.Instance)!);
+            _instructions.EmitCall(TypeUtils.GetArrayGetMethod(array.Type));
 
-            return new IndexMethodByRefUpdater(objTmp, indexLocals, array.Type.GetMethod("Set", BindingFlags.Public | BindingFlags.Instance)!, index);
+            return new IndexMethodByRefUpdater(objTmp, indexLocals, TypeUtils.GetArraySetMethod(array.Type), index);
         }
 
         private void CompileNewExpression(Expression expr)
@@ -2406,10 +2420,7 @@ namespace System.Linq.Expressions.Interpreter
                         ByRefUpdater? updater = CompileAddress(arg, i);
                         if (updater != null)
                         {
-                            if (updaters == null)
-                            {
-                                updaters = new List<ByRefUpdater>();
-                            }
+                            updaters ??= new List<ByRefUpdater>();
                             updaters.Add(updater);
                         }
                     }
@@ -2517,8 +2528,12 @@ namespace System.Linq.Expressions.Interpreter
             }
         }
 
+        [UnconditionalSuppressMessage("DynamicDependency", "IL3050",
+            Justification = "NewArrayExpression has RequiresDynamicCode, so the only way to get here is by already "
+                + "seeing a warning.")]
         private void CompileNewArrayExpression(Expression expr)
         {
+            Debug.Assert(typeof(NewArrayExpression).GetCustomAttribute<RequiresDynamicCodeAttribute>() is not null);
             var node = (NewArrayExpression)expr;
 
             foreach (Expression arg in node.Expressions)
@@ -2671,7 +2686,7 @@ namespace System.Linq.Expressions.Interpreter
 
             if (typeof(LambdaExpression).IsAssignableFrom(node.Expression.Type))
             {
-                MethodInfo compMethod = node.Expression.Type.GetMethod("Compile", Array.Empty<Type>())!;
+                MethodInfo compMethod = LambdaExpression.GetCompileMethod(node.Expression.Type);
                 CompileMethodCallExpression(
                     Expression.Call(
                         node.Expression,
@@ -3101,7 +3116,7 @@ namespace System.Linq.Expressions.Interpreter
                     break;
             }
             Debug.Assert(_instructions.CurrentStackDepth == startingStackDepth + (expr.Type == typeof(void) ? 0 : 1),
-                string.Format("{0} vs {1} for {2}", _instructions.CurrentStackDepth, startingStackDepth + (expr.Type == typeof(void) ? 0 : 1), expr.NodeType));
+                $"{_instructions.CurrentStackDepth} vs {startingStackDepth + (expr.Type == typeof(void) ? 0 : 1)} for {expr.NodeType}");
         }
 
         private void Compile(Expression expr)

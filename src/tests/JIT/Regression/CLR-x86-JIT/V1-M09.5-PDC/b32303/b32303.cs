@@ -2,13 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b32303
 {
     using System;
 
     public class Temp
     {
-        public static int Main(String[] args)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             int x = 10;
             switch (x)
@@ -17,7 +20,6 @@ namespace Test
                     Console.WriteLine("10");
                     break;
             }
-            return 100;
         }
     }
 

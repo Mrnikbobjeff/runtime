@@ -4,6 +4,8 @@
 //Dev10 bug #512868: Invalid context used for generic types during constraint verification leads to BadImageFormatException
 
 using System;
+using Xunit;
+using TestLibrary;
 
 
 public class GenericNode
@@ -83,14 +85,15 @@ public abstract class InternalContainerServices<TContainer, TItem> : ExternalCon
     }
 }
 
-class Test
+public class Test
 {
-    static int Main(string[] args)
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static void TestEntryPoint()
     {
         ItemX treeItem = new ItemX();
 
-        Console.WriteLine("Pass");
-        return 100;
+        Console.WriteLine("Item: {0}", treeItem);
     }
 }
 

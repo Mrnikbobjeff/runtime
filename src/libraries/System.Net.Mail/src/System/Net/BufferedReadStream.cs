@@ -1,14 +1,14 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Buffers;
 
 namespace System.Net
 {
-    internal class BufferedReadStream : DelegatedStream
+    internal sealed class BufferedReadStream : DelegatedStream
     {
         private byte[]? _storedBuffer;
         private int _storedLength;
@@ -24,102 +24,75 @@ namespace System.Net
             _readMore = readMore;
         }
 
-        public override bool CanWrite
-        {
-            get
-            {
-                return false;
-            }
-        }
+        public override bool CanWrite => false;
+        public override bool CanRead => BaseStream.CanRead;
 
-        public override bool CanSeek
-        {
-            get
-            {
-                return false;
-            }
-        }
+        public override bool CanSeek => false;
 
-        public override IAsyncResult BeginRead(byte[] buffer, int offset, int count, AsyncCallback? callback, object? state)
+        protected override int ReadInternal(Span<byte> buffer)
         {
-            ReadAsyncResult result = new ReadAsyncResult(this, callback, state);
-            result.Read(buffer, offset, count);
-            return result;
-        }
-
-        public override int EndRead(IAsyncResult asyncResult)
-        {
-            int read = ReadAsyncResult.End(asyncResult);
-            return read;
-        }
-
-        public override int Read(byte[] buffer, int offset, int count)
-        {
-            int read = 0;
             if (_storedOffset < _storedLength)
             {
-                read = Math.Min(count, _storedLength - _storedOffset);
-                Buffer.BlockCopy(_storedBuffer!, _storedOffset, buffer, offset, read);
+                int read = Math.Min(buffer.Length, _storedLength - _storedOffset);
+                _storedBuffer.AsSpan(_storedOffset, read).CopyTo(buffer);
                 _storedOffset += read;
-                if (read == count || !_readMore)
+                if (read == buffer.Length || !_readMore)
                 {
                     return read;
                 }
 
-                offset += read;
-                count -= read;
+                // Need to read more from the underlying stream
+                return read + BaseStream.Read(buffer.Slice(read));
             }
-            return read + base.Read(buffer, offset, count);
+
+            return BaseStream.Read(buffer);
         }
 
-        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        protected override ValueTask<int> ReadAsyncInternal(Memory<byte> buffer, CancellationToken cancellationToken = default)
         {
-            int read = 0;
             if (_storedOffset >= _storedLength)
             {
-                return base.ReadAsync(buffer, offset, count, cancellationToken);
+                return BaseStream.ReadAsync(buffer, cancellationToken);
             }
 
-            read = Math.Min(count, _storedLength - _storedOffset);
-            Buffer.BlockCopy(_storedBuffer!, _storedOffset, buffer, offset, read);
+            int read = Math.Min(buffer.Length, _storedLength - _storedOffset);
+            _storedBuffer.AsMemory(_storedOffset, read).CopyTo(buffer);
             _storedOffset += read;
-            if (read == count || !_readMore)
+            if (read == buffer.Length || !_readMore)
             {
-                return Task.FromResult<int>(read);
+                return new ValueTask<int>(read);
             }
 
-            offset += read;
-            count -= read;
-
-            return ReadMoreAsync(read, buffer, offset, count, cancellationToken);
+            // Need to read more from the underlying stream
+            return ReadMoreAsync(read, buffer.Slice(read), cancellationToken);
         }
 
-        private async Task<int> ReadMoreAsync(int bytesAlreadyRead, byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        private async ValueTask<int> ReadMoreAsync(int bytesAlreadyRead, Memory<byte> buffer, CancellationToken cancellationToken)
         {
-            int returnValue = await base.ReadAsync(buffer.AsMemory(offset, count), cancellationToken).ConfigureAwait(false);
+            int returnValue = await BaseStream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
             return bytesAlreadyRead + returnValue;
         }
 
-        public override int ReadByte()
+        protected override void WriteInternal(ReadOnlySpan<byte> buffer)
         {
-            if (_storedOffset < _storedLength)
-            {
-                return _storedBuffer![_storedOffset++];
-            }
-            else
-            {
-                return base.ReadByte();
-            }
+            throw new NotImplementedException();
+        }
+
+        protected override ValueTask WriteAsyncInternal(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            throw new NotImplementedException();
         }
 
         // adds additional content to the beginning of the buffer
         // so the layout of the storedBuffer will be
         // <buffer><existingBuffer>
         // after calling push
-        internal void Push(byte[] buffer, int offset, int count)
+        internal void Push(ReadOnlySpan<byte> buffer)
         {
-            if (count == 0)
+            if (buffer.Length == 0)
                 return;
+
+            int count = buffer.Length;
 
             if (_storedOffset == _storedLength)
             {
@@ -154,69 +127,7 @@ namespace System.Net
                 }
             }
 
-            Buffer.BlockCopy(buffer, offset, _storedBuffer!, _storedOffset, count);
-        }
-
-        private class ReadAsyncResult : LazyAsyncResult
-        {
-            private readonly BufferedReadStream _parent;
-            private int _read;
-            private static readonly AsyncCallback s_onRead = new AsyncCallback(OnRead);
-
-            internal ReadAsyncResult(BufferedReadStream parent, AsyncCallback? callback, object? state) : base(null, state, callback)
-            {
-                _parent = parent;
-            }
-
-            internal void Read(byte[] buffer, int offset, int count)
-            {
-                if (_parent._storedOffset < _parent._storedLength)
-                {
-                    _read = Math.Min(count, _parent._storedLength - _parent._storedOffset);
-                    Buffer.BlockCopy(_parent._storedBuffer!, _parent._storedOffset, buffer, offset, _read);
-                    _parent._storedOffset += _read;
-                    if (_read == count || !_parent._readMore)
-                    {
-                        InvokeCallback();
-                        return;
-                    }
-
-                    count -= _read;
-                    offset += _read;
-                }
-                IAsyncResult result = _parent.BaseStream.BeginRead(buffer, offset, count, s_onRead, this);
-                if (result.CompletedSynchronously)
-                {
-                    _read += _parent.BaseStream.EndRead(result);
-                    InvokeCallback();
-                }
-            }
-
-            internal static int End(IAsyncResult result)
-            {
-                ReadAsyncResult thisPtr = (ReadAsyncResult)result;
-                thisPtr.InternalWaitForCompletion();
-                return thisPtr._read;
-            }
-
-            private static void OnRead(IAsyncResult result)
-            {
-                if (!result.CompletedSynchronously)
-                {
-                    ReadAsyncResult thisPtr = (ReadAsyncResult)result.AsyncState!;
-                    try
-                    {
-                        thisPtr._read += thisPtr._parent.BaseStream.EndRead(result);
-                        thisPtr.InvokeCallback();
-                    }
-                    catch (Exception e)
-                    {
-                        if (thisPtr.IsCompleted)
-                            throw;
-                        thisPtr.InvokeCallback(e);
-                    }
-                }
-            }
+            buffer.CopyTo(_storedBuffer.AsSpan(_storedOffset));
         }
     }
 }

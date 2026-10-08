@@ -3,12 +3,15 @@
 
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
+using Microsoft.DotNet.CoreSetup.Test;
+using Xunit;
+using static Microsoft.DotNet.CoreSetup.Test.Constants;
 
 namespace Microsoft.DotNet.Cli.Build.Framework
 {
@@ -17,21 +20,10 @@ namespace Microsoft.DotNet.Cli.Build.Framework
         private StringWriter _stdOutCapture;
         private StringWriter _stdErrCapture;
 
-        private Action<string> _stdOutForward;
-        private Action<string> _stdErrForward;
-
-        private Action<string> _stdOutHandler;
-        private Action<string> _stdErrHandler;
-
+        private bool _disableDumps = false;
         private bool _running = false;
-        private bool _quietBuildReporter = false;
 
         public Process Process { get; }
-
-        // Priority order of runnable suffixes to look for and run
-        private static readonly string[] RunnableSuffixes = RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
-                                                         ? new string[] { ".exe", ".cmd", ".bat" }
-                                                         : new string[] { string.Empty };
 
         private Command(string executable, string args)
         {
@@ -60,84 +52,25 @@ namespace Microsoft.DotNet.Cli.Build.Framework
 
         public static Command Create(string executable, string args)
         {
-            ResolveExecutablePath(ref executable, ref args);
-
-            return new Command(executable, args);
+            // Clear out .NET root and tracing environment variables by default
+            string oldPrefix = "COREHOST_";
+            string prefix = "DOTNET_HOST_";
+            return new Command(executable, args)
+                .DotNetRoot(null)
+                .RemoveEnvironmentVariable(HostTracing.TraceLevelEnvironmentVariable)
+                .RemoveEnvironmentVariable(HostTracing.TraceFileEnvironmentVariable)
+                .RemoveEnvironmentVariable(HostTracing.VerbosityEnvironmentVariable)
+                .RemoveEnvironmentVariable(HostTracing.TraceLevelEnvironmentVariable.Replace(prefix, oldPrefix))
+                .RemoveEnvironmentVariable(HostTracing.TraceFileEnvironmentVariable.Replace(prefix, oldPrefix))
+                .RemoveEnvironmentVariable(HostTracing.VerbosityEnvironmentVariable.Replace(prefix, oldPrefix));
         }
 
-        private static void ResolveExecutablePath(ref string executable, ref string args)
+        public Command DisableDumps()
         {
-            foreach (string suffix in RunnableSuffixes)
-            {
-                var fullExecutable = Path.GetFullPath(Path.Combine(
-                                        AppContext.BaseDirectory, executable + suffix));
-
-                if (File.Exists(fullExecutable))
-                {
-                    executable = fullExecutable;
-
-                    // In priority order we've found the best runnable extension, so break.
-                    break;
-                }
-            }
-
-            // On Windows, we want to avoid using "cmd" if possible (it mangles the colors, and a bunch of other things)
-            // So, do a quick path search to see if we can just directly invoke it
-            var useCmd = ShouldUseCmd(executable);
-
-            if (useCmd)
-            {
-                var comSpec = System.Environment.GetEnvironmentVariable("ComSpec");
-
-                // cmd doesn't like "foo.exe ", so we need to ensure that if
-                // args is empty, we just run "foo.exe"
-                if (!string.IsNullOrEmpty(args))
-                {
-                    executable = (executable + " " + args).Replace("\"", "\\\"");
-                }
-                args = $"/C \"{executable}\"";
-                executable = comSpec;
-            }
-        }
-
-        private static bool ShouldUseCmd(string executable)
-        {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                var extension = Path.GetExtension(executable);
-                if (!string.IsNullOrEmpty(extension))
-                {
-                    return !string.Equals(extension, ".exe", StringComparison.Ordinal);
-                }
-                else if (executable.Contains(Path.DirectorySeparatorChar))
-                {
-                    // It's a relative path without an extension
-                    if (File.Exists(executable + ".exe"))
-                    {
-                        // It refers to an exe!
-                        return false;
-                    }
-                }
-                else
-                {
-                    // Search the path to see if we can find it 
-                    foreach (var path in System.Environment.GetEnvironmentVariable("PATH").Split(Path.PathSeparator))
-                    {
-                        var candidate = Path.Combine(path, executable + ".exe");
-                        if (File.Exists(candidate))
-                        {
-                            // We found an exe!
-                            return false;
-                        }
-                    }
-                }
-
-                // It's a non-exe :(
-                return true;
-            }
-
-            // Non-windows never uses cmd
-            return false;
+            _disableDumps = true;
+            RemoveEnvironmentVariable("COMPlus_DbgEnableMiniDump");
+            RemoveEnvironmentVariable("DOTNET_DbgEnableMiniDump");
+            return this;
         }
 
         public Command Environment(IDictionary<string, string> env)
@@ -160,27 +93,32 @@ namespace Microsoft.DotNet.Cli.Build.Framework
             return this;
         }
 
-        public Command QuietBuildReporter()
-        {
-            _quietBuildReporter = true;
-            return this;
-        }
-
-        public CommandResult Execute()
-        {
-            return Execute(false);
-        }
-
-        public Command Start()
+        public Command Start([CallerMemberName] string caller = "", ITestOutputHelper? testOutput = null)
         {
             ThrowIfRunning();
             _running = true;
+
+            if (_disableDumps && (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()))
+            {
+                // Replace double quoted arguments with single quotes.
+                // We only want to replace non-escaped quotes - that is, ones not preceded by a backslash
+                // or preceded by an even number of backslashes.
+                string args = System.Text.RegularExpressions.Regex.Replace(
+                    Process.StartInfo.Arguments,
+                    @"((?:^|[^\\])(?:\\\\)*)""",
+                    m => m.Value.Substring(0, m.Value.Length - 1) + "'"
+                );
+
+                // Explicitly set the core file size to 0 before launching the process in the same shell
+                Process.StartInfo.Arguments = $"-c \"ulimit -c 0 && exec {Process.StartInfo.FileName} {args}\"";
+                Process.StartInfo.FileName = "/bin/sh";
+            }
 
             if (Process.StartInfo.RedirectStandardOutput)
             {
                 Process.OutputDataReceived += (sender, args) =>
                 {
-                    ProcessData(args.Data, _stdOutCapture, _stdOutForward, _stdOutHandler);
+                    ProcessData(args.Data, _stdOutCapture);
                 };
             }
 
@@ -188,15 +126,28 @@ namespace Microsoft.DotNet.Cli.Build.Framework
             {
                 Process.ErrorDataReceived += (sender, args) =>
                 {
-                    ProcessData(args.Data, _stdErrCapture, _stdErrForward, _stdErrHandler);
+                    ProcessData(args.Data, _stdErrCapture);
                 };
             }
 
             Process.EnableRaisingEvents = true;
 
-            ReportExecBegin();
+            ReportExec(caller, testOutput);
 
-            Process.Start();
+            // Retry if we hit ETXTBSY due to Linux race
+            // https://github.com/dotnet/runtime/issues/58964
+            for (int i = 0; ; i++)
+            {
+                try
+                {
+                    Process.Start();
+                    break;
+                }
+                catch (Win32Exception e) when (i < 4 && e.Message.Contains("Text file busy"))
+                {
+                    Thread.Sleep(i * 20);
+                }
+            }
 
             if (Process.StartInfo.RedirectStandardOutput)
             {
@@ -211,9 +162,18 @@ namespace Microsoft.DotNet.Cli.Build.Framework
             return this;
         }
 
-        public CommandResult WaitForExit(bool fExpectedToFail, int timeoutMilliseconds = Timeout.Infinite)
+        /// <summary>
+        /// Wait for the command to exit and dispose of the underlying process.
+        /// </summary>
+        /// <param name="timeoutMilliseconds">Time in milliseconds to wait for the command to exit</param>
+        /// <returns>Result of the command</returns>
+        public CommandResult WaitForExit(
+            int timeoutMilliseconds = Timeout.Infinite,
+            [CallerMemberName] string caller = "",
+            ITestOutputHelper? testOutput = null
+        )
         {
-            ReportExecWaitOnExit();
+            ReportWaitOnExit(caller, testOutput);
 
             int exitCode;
             if (!Process.WaitForExit(timeoutMilliseconds))
@@ -225,40 +185,31 @@ namespace Microsoft.DotNet.Cli.Build.Framework
                 exitCode = Process.ExitCode;
             }
 
-            ReportExecEnd(exitCode, fExpectedToFail);
+            ReportExit(exitCode, caller, testOutput);
+            int pid = Process.Id;
+            Process.Dispose();
 
             return new CommandResult(
                 Process.StartInfo,
+                pid,
                 exitCode,
                 _stdOutCapture?.GetStringBuilder()?.ToString(),
                 _stdErrCapture?.GetStringBuilder()?.ToString());
         }
 
-        public CommandResult Execute(bool fExpectedToFail)
+        /// <summary>
+        /// Execute the command and wait for it to exit.
+        /// </summary>
+        /// <returns>Result of the command</returns>
+        public CommandResult Execute([CallerMemberName] string caller = "")
         {
-            Start();
-            return WaitForExit(fExpectedToFail);
+            Start(caller);
+            return WaitForExit(caller: caller);
         }
 
         public Command WorkingDirectory(string projectDirectory)
         {
             Process.StartInfo.WorkingDirectory = projectDirectory;
-            return this;
-        }
-
-        public Command WithUserProfile(string userprofile)
-        {
-            string userDir;
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                userDir = "USERPROFILE";
-            }
-            else
-            {
-                userDir = "HOME";
-            }
-
-            Process.StartInfo.Environment[userDir] = userprofile;
             return this;
         }
 
@@ -274,126 +225,74 @@ namespace Microsoft.DotNet.Cli.Build.Framework
             return this;
         }
 
-        public Command CaptureStdOut()
+        public Command RemoveEnvironmentVariable(string name)
+        {
+            Process.StartInfo.Environment.Remove(name);
+            return this;
+        }
+
+        public Command CaptureStdOut(Encoding? stdOutEncoding = null)
         {
             ThrowIfRunning();
             Process.StartInfo.RedirectStandardOutput = true;
+            Process.StartInfo.StandardOutputEncoding = stdOutEncoding;
             _stdOutCapture = new StringWriter();
             return this;
         }
 
-        public Command CaptureStdErr()
+        public Command CaptureStdErr(Encoding? stdErrEncoding = null)
         {
             ThrowIfRunning();
             Process.StartInfo.RedirectStandardError = true;
+            Process.StartInfo.StandardErrorEncoding = stdErrEncoding;
             _stdErrCapture = new StringWriter();
             return this;
         }
 
-        public Command ForwardStdOut(TextWriter to = null)
+        private string FormatProcessInfo(ProcessStartInfo info)
         {
-            ThrowIfRunning();
-            Process.StartInfo.RedirectStandardOutput = true;
-            if (to == null)
-            {
-                _stdOutForward = Reporter.Output.WriteLine;
-            }
-            else
-            {
-                _stdOutForward = to.WriteLine;
-            }
-            return this;
-        }
-
-        public Command ForwardStdErr(TextWriter to = null)
-        {
-            ThrowIfRunning();
-            Process.StartInfo.RedirectStandardError = true;
-            if (to == null)
-            {
-                _stdErrForward = Reporter.Error.WriteLine;
-            }
-            else
-            {
-                _stdErrForward = to.WriteLine;
-            }
-            return this;
-        }
-
-        public Command OnOutputLine(Action<string> handler)
-        {
-            ThrowIfRunning();
-            Process.StartInfo.RedirectStandardOutput = true;
-            if (_stdOutHandler != null)
-            {
-                throw new InvalidOperationException("Already handling stdout!");
-            }
-            _stdOutHandler = handler;
-            return this;
-        }
-
-        public Command OnErrorLine(Action<string> handler)
-        {
-            ThrowIfRunning();
-            Process.StartInfo.RedirectStandardError = true;
-            if (_stdErrHandler != null)
-            {
-                throw new InvalidOperationException("Already handling stderr!");
-            }
-            _stdErrHandler = handler;
-            return this;
-        }
-
-        private string FormatProcessInfo(ProcessStartInfo info, bool includeWorkingDirectory)
-        {
-            string prefix = includeWorkingDirectory ?
-                $"{info.WorkingDirectory}> {info.FileName}" :
-                info.FileName;
-
             if (string.IsNullOrWhiteSpace(info.Arguments))
             {
-                return prefix;
+                return info.FileName;
             }
 
-            return prefix + " " + info.Arguments;
+            return $"{info.FileName} {info.Arguments}";
         }
 
-        private void ReportExecBegin()
+        private static DateTime _initialTime = DateTime.Now;
+
+        private string GetFormattedTime()
         {
-            if (!_quietBuildReporter)
-            {
-                BuildReporter.BeginSection("EXEC", FormatProcessInfo(Process.StartInfo, includeWorkingDirectory: false));
-            }
+            const string TimeSpanFormat = @"hh\:mm\:ss\.fff";
+            return (DateTime.Now - _initialTime).ToString(TimeSpanFormat);
         }
 
-        private void ReportExecWaitOnExit()
+        private void ReportExec(string testName, ITestOutputHelper? testOutput)
         {
-            if (!_quietBuildReporter)
-            {
-                BuildReporter.SectionComment("EXEC", $"Waiting for process {Process.Id} to exit...");
-            }
+            testOutput?.WriteLine(
+                $"""
+                [EXEC] [{GetFormattedTime()}] [{testName}]
+                       {FormatProcessInfo(Process.StartInfo)}
+                """);
+
         }
 
-        private void ReportExecEnd(int exitCode, bool fExpectedToFail)
+        private void ReportWaitOnExit(string testName, ITestOutputHelper? testOutput)
         {
-            if (!_quietBuildReporter)
-            {
-                bool success = exitCode == 0;
-                string msgExpectedToFail = "";
+            testOutput?.WriteLine(
+                $"""
+                [WAIT] [{GetFormattedTime()}] [{testName}]
+                       PID: {Process.Id} - {FormatProcessInfo(Process.StartInfo)}
+                """);
+        }
 
-                if (fExpectedToFail)
-                {
-                    success = !success;
-                    msgExpectedToFail = "failed as expected and ";
-                }
-
-                var message = $"{FormatProcessInfo(Process.StartInfo, includeWorkingDirectory: !success)} {msgExpectedToFail}exited with {exitCode}";
-
-                BuildReporter.EndSection(
-                    "EXEC",
-                    success ? message.Green() : message.Red().Bold(),
-                    success);
-            }
+        private void ReportExit(int exitCode, string testName, ITestOutputHelper? testOutput)
+        {
+            testOutput?.WriteLine(
+                $"""
+                [EXIT] [{GetFormattedTime()}] [{testName}]
+                       PID: {Process.Id} - Exit code: 0x{exitCode:x} - {FormatProcessInfo(Process.StartInfo)}
+                """);
         }
 
         private void ThrowIfRunning([CallerMemberName] string memberName = null)
@@ -404,7 +303,7 @@ namespace Microsoft.DotNet.Cli.Build.Framework
             }
         }
 
-        private void ProcessData(string data, StringWriter capture, Action<string> forward, Action<string> handler)
+        private void ProcessData(string data, StringWriter capture)
         {
             if (data == null)
             {
@@ -415,10 +314,6 @@ namespace Microsoft.DotNet.Cli.Build.Framework
             {
                 capture.WriteLine(data);
             }
-
-            forward?.Invoke(data);
-
-            handler?.Invoke(data);
         }
     }
 }

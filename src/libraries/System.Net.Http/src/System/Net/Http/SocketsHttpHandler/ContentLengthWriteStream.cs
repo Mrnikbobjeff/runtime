@@ -2,24 +2,33 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
 namespace System.Net.Http
 {
-    internal partial class HttpConnection : IDisposable
+    internal sealed partial class HttpConnection : IDisposable
     {
         private sealed class ContentLengthWriteStream : HttpContentWriteStream
         {
-            public ContentLengthWriteStream(HttpConnection connection) : base(connection)
+            private readonly long _contentLength;
+
+            public ContentLengthWriteStream(HttpConnection connection, long contentLength)
+                : base(connection)
             {
+                _contentLength = contentLength;
             }
 
             public override void Write(ReadOnlySpan<byte> buffer)
             {
-                // Have the connection write the data, skipping the buffer. Importantly, this will
-                // force a flush of anything already in the buffer, i.e. any remaining request headers
-                // that are still buffered.
+                BytesWritten += buffer.Length;
+
+                if (BytesWritten > _contentLength)
+                {
+                    throw new HttpRequestException(SR.net_http_content_write_larger_than_content_length);
+                }
+
                 HttpConnection connection = GetConnectionOrThrow();
                 Debug.Assert(connection._currentRequest != null);
                 connection.Write(buffer);
@@ -27,18 +36,27 @@ namespace System.Net.Http
 
             public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken ignored) // token ignored as it comes from SendAsync
             {
-                // Have the connection write the data, skipping the buffer. Importantly, this will
-                // force a flush of anything already in the buffer, i.e. any remaining request headers
-                // that are still buffered.
+                BytesWritten += buffer.Length;
+
+                if (BytesWritten > _contentLength)
+                {
+                    return ValueTask.FromException(ExceptionDispatchInfo.SetCurrentStackTrace(new HttpRequestException(SR.net_http_content_write_larger_than_content_length)));
+                }
+
                 HttpConnection connection = GetConnectionOrThrow();
                 Debug.Assert(connection._currentRequest != null);
-                return connection.WriteAsync(buffer, async: true);
+                return connection.WriteAsync(buffer);
             }
 
-            public override ValueTask FinishAsync(bool async)
+            public override Task FinishAsync(bool async)
             {
+                if (BytesWritten != _contentLength)
+                {
+                    return Task.FromException(ExceptionDispatchInfo.SetCurrentStackTrace(new HttpRequestException(SR.Format(SR.net_http_request_content_length_mismatch, BytesWritten, _contentLength))));
+                }
+
                 _connection = null;
-                return default;
+                return Task.CompletedTask;
             }
         }
     }

@@ -4,7 +4,7 @@
 using System.Text;
 using Xunit;
 
-namespace System.Xml.Tests
+namespace System.Xml.XmlDocumentTests
 {
     public class NormalizeTests
     {
@@ -71,8 +71,8 @@ namespace System.Xml.Tests
             var xmlDocument = new XmlDocument();
             var fragment = xmlDocument.CreateDocumentFragment();
 
-            var text1 = xmlDocument.CreateTextNode("test_test1");
-            var text2 = xmlDocument.CreateTextNode("test_test2");
+            xmlDocument.CreateTextNode("test_test1");
+            xmlDocument.CreateTextNode("test_test2");
 
             fragment.Normalize();
             Assert.Equal(string.Empty, fragment.OuterXml);

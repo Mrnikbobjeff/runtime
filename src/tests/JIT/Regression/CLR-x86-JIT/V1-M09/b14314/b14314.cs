@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b14314
 {
     //@BEGINRENAME; Verify this renames
     //@ENDRENAME; Verify this renames
@@ -26,13 +27,14 @@ namespace DefaultNamespace
 
     }
 
-    internal class Finalize
+    public class Finalize
     {
-        public static int Main(String[] args)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             Class1 Cls = new Class1();
             Cls.Method();
-            return 100;
         }
     }
 }

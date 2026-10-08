@@ -49,7 +49,7 @@ namespace System.Security.Cryptography.Xml.Tests
                     KeyInfoEncryptedKey encryptedKeyInfo = clause as KeyInfoEncryptedKey;
                     EncryptedKey encryptedKey = encryptedKeyInfo.EncryptedKey;
 
-                    Assert.Equal(encryptedKey.EncryptionMethod.KeyAlgorithm, EncryptedXml.XmlEncRSAOAEPUrl);
+                    Assert.Equal(EncryptedXml.XmlEncRSAOAEPUrl, encryptedKey.EncryptionMethod.KeyAlgorithm);
                     Assert.Equal(1, encryptedKey.KeyInfo.Count);
                     Assert.NotEqual(0, _asymmetricKeys.Count);
 
@@ -65,7 +65,7 @@ namespace System.Security.Cryptography.Xml.Tests
                         }
                         else
                         {
-                            Assert.True(false, "Invalid License - MalformedKeyInfoClause");
+                            Assert.Fail("Invalid License - MalformedKeyInfoClause");
                         }
                     }
 
@@ -102,7 +102,7 @@ namespace System.Security.Cryptography.Xml.Tests
                 }
                 else if (clause is KeyInfoName)
                 {
-                    Assert.True(false, "This test should not have KeyInfoName clauses");
+                    Assert.Fail("This test should not have KeyInfoName clauses");
                 }
                 else
                 {

@@ -30,6 +30,8 @@
 
 // Selective-enable support
 
+MONO_DISABLE_WARNING(4189) /* local variable is initialized but not referenced */
+
 // Returns true for check modes which are allowed by both the current DISABLE_ macros and the MONO_CHECK_MODE env var.
 // Argument may be a bitmask; if so, result is true if at least one specified mode is enabled.
 mono_bool
@@ -68,6 +70,8 @@ mono_check_mode_enabled (MonoCheckMode query)
 	}
 	return check_mode & query;
 }
+
+MONO_RESTORE_WARNING
 
 static int
 mono_check_transition_limit (void)
@@ -129,7 +133,7 @@ backtrace_mutex_trylock (void)
 static void
 backtrace_mutex_unlock (void)
 {
-	return mono_os_mutex_unlock (&backtrace_mutex);
+	mono_os_mutex_unlock (&backtrace_mutex);
 }
 
 static CheckState*
@@ -497,7 +501,7 @@ check_mempool_owner_eq (MonoMemPoolOwner a, MonoMemPoolOwner b)
 	return a.image == b.image && a.image_set == b.image_set;
 }
 
-// Say image X "references" image Y if X either contains Y in its modules field, or X’s "references" field contains an
+// Say image X "references" image Y if X either contains Y in its modules field, or X's "references" field contains an
 // assembly whose image is Y.
 // Say image X transitively references image Y if there is any chain of images-referencing-images which leads from X to Y.
 // Once the mempools for two pointers have been looked up, there are four possibilities:
@@ -673,7 +677,7 @@ check_image_set_may_reference_image_set (MonoImageSet *from, MonoImageSet *to)
 	return valid; // All items in "to" were found in "from"
 }
 
-// Case 4. Image FROM points to ImageSet TO: FROM transitively references *ALL* of the “images” listed in TO
+// Case 4. Image FROM points to ImageSet TO: FROM transitively references *ALL* of the "images" listed in TO
 static gboolean
 check_image_may_reference_image_set (MonoImage *from, MonoImageSet *to)
 {

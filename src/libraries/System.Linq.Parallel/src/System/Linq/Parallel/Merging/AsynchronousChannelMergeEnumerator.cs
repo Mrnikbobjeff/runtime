@@ -7,9 +7,9 @@
 //
 // =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-
 
-using System.Threading;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Threading;
 
 namespace System.Linq.Parallel
 {
@@ -26,6 +26,9 @@ namespace System.Linq.Parallel
     ///
     /// </summary>
     /// <typeparam name="T"></typeparam>
+#if !FEATURE_WASM_MANAGED_THREADS
+    [System.Runtime.Versioning.UnsupportedOSPlatform("browser")]
+#endif
     internal sealed class AsynchronousChannelMergeEnumerator<T> : MergeEnumerator<T>
     {
         private readonly AsynchronousChannel<T>[] _channels; // The channels being enumerated.
@@ -121,7 +124,7 @@ namespace System.Linq.Parallel
             int firstChannelIndex = _channelIndex;
 
             int currChannelIndex;
-            while ((currChannelIndex = _channelIndex) != _channels.Length)
+            while ((currChannelIndex = _channelIndex) < _channels.Length)
             {
                 AsynchronousChannel<T> current = _channels[currChannelIndex];
 
@@ -220,6 +223,7 @@ namespace System.Linq.Parallel
                                 break;
                             }
 
+                            Debug.Assert(!ParallelEnumerable.SinglePartitionMode);
                             Debug.Assert(_consumerEvent != null);
                             //This Wait() does not require cancellation support as it will wake up when all the producers into the
                             //channel have finished.  Hence, if all the producers wake up on cancellation, so will this.

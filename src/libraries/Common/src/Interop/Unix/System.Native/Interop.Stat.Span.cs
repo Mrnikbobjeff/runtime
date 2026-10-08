@@ -3,38 +3,16 @@
 
 using System;
 using System.Runtime.InteropServices;
-using System.Text;
+using System.Runtime.InteropServices.Marshalling;
 
 internal static partial class Interop
 {
     internal static partial class Sys
     {
-        // Unix max paths are typically 1K or 4K UTF-8 bytes, 256 should handle the majority of paths
-        // without putting too much pressure on the stack.
-        private const int StackBufferSize = 256;
+        [LibraryImport(Libraries.SystemNative, EntryPoint = "SystemNative_Stat", SetLastError = true)]
+        internal static partial int Stat([MarshalUsing(typeof(SpanOfCharAsUtf8StringMarshaller))] ReadOnlySpan<char> path, out FileStatus output);
 
-        [DllImport(Libraries.SystemNative, EntryPoint = "SystemNative_Stat", SetLastError = true)]
-        internal static extern unsafe int Stat(ref byte path, out FileStatus output);
-
-        internal static unsafe int Stat(ReadOnlySpan<char> path, out FileStatus output)
-        {
-            byte* buffer = stackalloc byte[StackBufferSize];
-            var converter = new ValueUtf8Converter(new Span<byte>(buffer, StackBufferSize));
-            int result = Stat(ref MemoryMarshal.GetReference(converter.ConvertAndTerminateString(path)), out output);
-            converter.Dispose();
-            return result;
-        }
-
-        [DllImport(Libraries.SystemNative, EntryPoint = "SystemNative_LStat", SetLastError = true)]
-        internal static extern int LStat(ref byte path, out FileStatus output);
-
-        internal static unsafe int LStat(ReadOnlySpan<char> path, out FileStatus output)
-        {
-            byte* buffer = stackalloc byte[StackBufferSize];
-            var converter = new ValueUtf8Converter(new Span<byte>(buffer, StackBufferSize));
-            int result = LStat(ref MemoryMarshal.GetReference(converter.ConvertAndTerminateString(path)), out output);
-            converter.Dispose();
-            return result;
-        }
+        [LibraryImport(Libraries.SystemNative, EntryPoint = "SystemNative_LStat", SetLastError = true)]
+        internal static partial int LStat([MarshalUsing(typeof(SpanOfCharAsUtf8StringMarshaller))] ReadOnlySpan<char> path, out FileStatus output);
     }
 }

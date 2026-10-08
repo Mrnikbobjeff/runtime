@@ -2,21 +2,23 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 using System;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 struct Gen
 {
 	public static void Target<U>(object p)
 	{			
 		//dummy line to avoid warnings
-		Test.Eval(typeof(U)!=p.GetType());
-		if (Test.Xcounter>=Test.nThreads)
+		Test_thread30.Eval(typeof(U)!=p.GetType());
+		if (Test_thread30.Xcounter>=Test_thread30.nThreads)
 		{
 			ManualResetEvent evt = (ManualResetEvent) p;	
 			evt.Set();
 		}
 		else
 		{
-			Interlocked.Increment(ref Test.Xcounter);	
+			Interlocked.Increment(ref Test_thread30.Xcounter);	
 		}
 	}
 	
@@ -25,16 +27,16 @@ struct Gen
 		ManualResetEvent evt = new ManualResetEvent(false);		
 
 		TimerCallback tcb = new TimerCallback(Gen.Target<U>);
-		Timer timer = new Timer(tcb,evt,Test.delay,Test.period);
+		Timer timer = new Timer(tcb,evt,Test_thread30.delay,Test_thread30.period);
 	
 		evt.WaitOne();
 		timer.Dispose();
-		Test.Eval(Test.Xcounter>=Test.nThreads);
-		Test.Xcounter = 0;
+		Test_thread30.Eval(Test_thread30.Xcounter>=Test_thread30.nThreads);
+		Test_thread30.Xcounter = 0;
 	}
 }
 
-public class Test
+public class Test_thread30
 {
 	public static int delay = 0;
 	public static int period = 2;
@@ -53,7 +55,8 @@ public class Test
 	
 	}
 	
-	public static int Main()
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint()
 	{
 		Gen.ThreadPoolTest<object>();
 		Gen.ThreadPoolTest<string>();

@@ -1,13 +1,16 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+namespace JitTest_Directed_Misc_gettype_gettypetypeofmatrix;
+
 using System;
+using Xunit;
 
 internal class Foo
 {
 }
 
-internal class Test
+public class Test_gettypetypeofmatrix
 {
     private static object s_null = null;
     private static object s_object = new object();
@@ -15,7 +18,8 @@ internal class Test
     private static Foo s_foo = new Foo();
     private static Foo[] s_fooArray = new Foo[10];
 
-    static public int Main()
+    [Fact]
+    static public int TestEntryPoint()
     {
         int iReturn = 100;
         try

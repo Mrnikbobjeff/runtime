@@ -2,7 +2,12 @@
   <PropertyGroup>
     <TestRuntime>true</TestRuntime>
     <IncludeRemoteExecutor>true</IncludeRemoteExecutor>
-    <TargetFrameworks>$(NetCoreAppCurrent)</TargetFrameworks>
+    <TargetFramework>$(NetCoreAppCurrent)</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(TargetOS)' == 'browser'">
+    <_WasmPThreadPoolUnusedSize>10</_WasmPThreadPoolUnusedSize>
+    <XunitShowProgress Condition="'$(WasmEnableThreads)' == 'true'">true</XunitShowProgress>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="AsyncLocalTests.cs" />
@@ -13,9 +18,10 @@
     <Compile Include="CountdownEventTests.cs" />
     <Compile Include="EtwTests.cs" />
     <Compile Include="EventWaitHandleTests.cs" />
-    <Compile Include="InterlockedTests.cs" />
     <Compile Include="HostExecutionContextTests.cs" />
     <Compile Include="HostExecutionContextManagerTests.cs" />
+    <Compile Include="InterlockedTests.cs" />
+    <Compile Include="LockTests.cs" />
     <Compile Include="ManualResetEventTests.cs" />
     <Compile Include="ManualResetEventSlimCancellationTests.cs" />
     <Compile Include="ManualResetEventSlimTests.cs" />
@@ -29,6 +35,7 @@
     <Compile Include="ReaderWriterLockSlimTests.cs" />
     <Compile Include="SpinWaitTests.cs" />
     <Compile Include="ThreadLocalTests.cs" />
+    <Compile Include="VolatileTests.cs" />
     <Compile Include="XunitAssemblyAttributes.cs" />
     <Compile Include="ExecutionContextTests.cs" />
     <Compile Include="SynchronizationContextTests.cs" />

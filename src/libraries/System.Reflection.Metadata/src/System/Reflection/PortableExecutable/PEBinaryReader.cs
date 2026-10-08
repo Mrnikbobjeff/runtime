@@ -32,18 +32,17 @@ namespace System.Reflection.PortableExecutable
             _reader = new BinaryReader(stream, Encoding.UTF8, leaveOpen: true);
         }
 
-        public int CurrentOffset
+        public int Offset
         {
             get { return (int)(_reader.BaseStream.Position - _startOffset); }
+            set
+            {
+                CheckBounds(_startOffset, value);
+                _reader.BaseStream.Seek(_startOffset + value, SeekOrigin.Begin);
+            }
         }
 
-        public void Seek(int offset)
-        {
-            CheckBounds(_startOffset, offset);
-            _reader.BaseStream.Seek(offset, SeekOrigin.Begin);
-        }
-
-        public byte[] ReadBytes(int count)
+        private byte[] ReadBytes(int count)
         {
             CheckBounds(_reader.BaseStream.Position, count);
             return _reader.ReadBytes(count);
@@ -86,10 +85,10 @@ namespace System.Reflection.PortableExecutable
         }
 
         /// <summary>
-        /// Reads a fixed-length byte block as a null-padded UTF8-encoded string.
+        /// Reads a fixed-length byte block as a null-padded UTF-8 encoded string.
         /// The padding is not included in the returned string.
         ///
-        /// Note that it is legal for UTF8 strings to contain NUL; if NUL occurs
+        /// Note that it is legal for UTF-8 strings to contain NUL; if NUL occurs
         /// between non-NUL codepoints, it is not considered to be padding and
         /// is included in the result.
         /// </summary>

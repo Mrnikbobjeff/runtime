@@ -3,11 +3,13 @@
 
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Net.Internals;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
+using System.Runtime.Versioning;
 
 namespace System.Net
 {
@@ -15,10 +17,13 @@ namespace System.Net
     {
         public const bool SupportsGetAddrInfoAsync = false;
 
-        public static void EnsureSocketsAreInitialized() { } // No-op for Unix
+        [UnsupportedOSPlatformGuard("wasi")]
+        public static bool SupportsGetNameInfo => !OperatingSystem.IsWasi();
 
-        internal static Task GetAddrInfoAsync(string hostName, bool justAddresses) =>
+#pragma warning disable IDE0060
+        internal static Task? GetAddrInfoAsync(string hostName, bool justAddresses, AddressFamily family, CancellationToken cancellationToken) =>
             throw new NotSupportedException();
+#pragma warning restore IDE0060
 
         private static SocketError GetSocketErrorForNativeError(int error)
         {
@@ -39,8 +44,11 @@ namespace System.Net
                     return SocketError.HostNotFound;
                 case (int)Interop.Sys.GetAddrInfoErrorFlags.EAI_MEMORY:
                     throw new OutOfMemoryException();
+                case (int)Interop.Sys.GetAddrInfoErrorFlags.EAI_SYSTEM:
+                    Debug.Fail($"Unexpected error: {error} errno: {Interop.Sys.GetErrNo()}");
+                    return SocketError.SocketError;
                 default:
-                    Debug.Fail("Unexpected error: " + error.ToString());
+                    Debug.Fail($"Unexpected error: {error}");
                     return SocketError.SocketError;
             }
         }
@@ -49,9 +57,9 @@ namespace System.Net
         {
             try
             {
-                hostName = !justAddresses && hostEntry.CanonicalName != null ?
-                    Marshal.PtrToStringAnsi((IntPtr)hostEntry.CanonicalName) :
-                    null;
+                hostName = !justAddresses && hostEntry.CanonicalName != null
+                    ? Utf8StringMarshaller.ConvertToManaged(hostEntry.CanonicalName)
+                    : null;
 
                 IPAddress[] localAddresses;
                 if (hostEntry.IPAddressCount == 0)
@@ -61,13 +69,13 @@ namespace System.Net
                 else
                 {
                     // getaddrinfo returns multiple entries per address, for each socket type (datagram, stream, etc.).
-                    // Our callers expect just one entry for each address.  So we need to deduplicate the results.
+                    // Our callers expect just one entry for each address. So we need to deduplicate the results.
                     // It's important to keep the addresses in order, since they are returned in the order in which
                     // connections should be attempted.
                     //
                     // We assume that the list returned by getaddrinfo is relatively short; after all, the intent is that
                     // the caller may need to attempt to contact every address in the list before giving up on a connection
-                    // attempt.  So an O(N^2) algorithm should be fine here.  Keep in mind that any "better" algorithm
+                    // attempt. So an O(N^2) algorithm should be fine here. Keep in mind that any "better" algorithm
                     // is likely to involve extra allocations, hashing, etc., and so will probably be more expensive than
                     // this one in the typical (short list) case.
 
@@ -77,9 +85,11 @@ namespace System.Net
                     Interop.Sys.IPAddress* addressHandle = hostEntry.IPAddressList;
                     for (int i = 0; i < hostEntry.IPAddressCount; i++)
                     {
-                        if (Array.IndexOf(nativeAddresses, addressHandle[i], 0, nativeAddressCount) == -1)
+                        Interop.Sys.IPAddress nativeAddr = addressHandle[i];
+                        if (Array.IndexOf(nativeAddresses, nativeAddr, 0, nativeAddressCount) < 0 &&
+                            (!nativeAddr.IsIPv6 || SocketProtocolSupportPal.OSSupportsIPv6)) // Do not include IPv6 addresses if IPV6 support is force-disabled
                         {
-                            nativeAddresses[nativeAddressCount++] = addressHandle[i];
+                            nativeAddresses[nativeAddressCount++] = nativeAddr;
                         }
                     }
 
@@ -104,7 +114,7 @@ namespace System.Net
                         localAliases = new string[numAliases];
                         for (int i = 0; i < localAliases.Length; i++)
                         {
-                            localAliases[i] = Marshal.PtrToStringAnsi((IntPtr)hostEntry.Aliases[i])!;
+                            localAliases[i] = Utf8StringMarshaller.ConvertToManaged(hostEntry.Aliases[i])!;
                         }
                     }
                 }
@@ -118,7 +128,7 @@ namespace System.Net
             }
         }
 
-        public static unsafe SocketError TryGetAddrInfo(string name, bool justAddresses, out string? hostName, out string[] aliases, out IPAddress[] addresses, out int nativeErrorCode)
+        public static unsafe SocketError TryGetAddrInfo(string name, bool justAddresses, AddressFamily addressFamily, out string? hostName, out string[] aliases, out IPAddress[] addresses, out int nativeErrorCode)
         {
             if (name == "")
             {
@@ -127,7 +137,7 @@ namespace System.Net
             }
 
             Interop.Sys.HostEntry entry;
-            int result = Interop.Sys.GetHostEntryForName(name, &entry);
+            int result = Interop.Sys.GetHostEntryForName(name, addressFamily, &entry);
             if (result != 0)
             {
                 nativeErrorCode = result;
@@ -144,6 +154,8 @@ namespace System.Net
 
         public static unsafe string? TryGetNameInfo(IPAddress addr, out SocketError socketError, out int nativeErrorCode)
         {
+            if (OperatingSystem.IsWasi()) throw new PlatformNotSupportedException(); // TODO remove with https://github.com/dotnet/runtime/pull/107185
+
             byte* buffer = stackalloc byte[Interop.Sys.NI_MAXHOST + 1 /*for null*/];
 
             byte isIPv6;
@@ -175,7 +187,7 @@ namespace System.Net
 
             socketError = GetSocketErrorForNativeError(error);
             nativeErrorCode = error;
-            return socketError == SocketError.Success ? Marshal.PtrToStringAnsi((IntPtr)buffer) : null;
+            return socketError == SocketError.Success ? Utf8StringMarshaller.ConvertToManaged(buffer) : null;
         }
 
         public static string GetHostName() => Interop.Sys.GetHostName();

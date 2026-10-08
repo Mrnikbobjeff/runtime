@@ -2,18 +2,16 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
-using System.Text;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Security.Cryptography;
 using System.Security.Cryptography.Pkcs;
 using System.Security.Cryptography.X509Certificates;
-
+using System.Text;
 using Microsoft.Win32.SafeHandles;
-
 using static Interop.Crypt32;
-using System.Diagnostics.CodeAnalysis;
 
 namespace Internal.Cryptography.Pal.Windows
 {
@@ -33,15 +31,15 @@ namespace Internal.Cryptography.Pal.Windows
             using (SafeCryptMsgHandle hCryptMsg = Interop.Crypt32.CryptMsgOpenToDecode(MsgEncodingType.All, 0, 0, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero))
             {
                 if (hCryptMsg == null || hCryptMsg.IsInvalid)
-                    throw Marshal.GetLastWin32Error().ToCryptographicException();
+                    throw Marshal.GetLastPInvokeError().ToCryptographicException();
 
                 if (!Interop.Crypt32.CryptMsgUpdate(hCryptMsg, ref MemoryMarshal.GetReference(encodedMessage), encodedMessage.Length, fFinal: true))
-                    throw Marshal.GetLastWin32Error().ToCryptographicException();
+                    throw Marshal.GetLastPInvokeError().ToCryptographicException();
 
                 int msgTypeAsInt;
                 int cbSize = sizeof(int);
                 if (!Interop.Crypt32.CryptMsgGetParam(hCryptMsg, CryptMsgParamType.CMSG_TYPE_PARAM, 0, out msgTypeAsInt, ref cbSize))
-                    throw Marshal.GetLastWin32Error().ToCryptographicException();
+                    throw Marshal.GetLastPInvokeError().ToCryptographicException();
 
                 return (CryptMsgType)msgTypeAsInt switch
                 {
@@ -86,7 +84,7 @@ namespace Internal.Cryptography.Pal.Windows
         {
             using (SafeCertContextHandle hCertContext = certificate.CreateCertContextHandle())
             {
-                byte[] ski = hCertContext.GetSubjectKeyIdentifer();
+                byte[] ski = hCertContext.GetSubjectKeyIdentifier();
                 return ski;
             }
         }
@@ -101,7 +99,7 @@ namespace Internal.Cryptography.Pal.Windows
             return GetPrivateKey<T>(certificate, silent, preferNCrypt: false);
         }
 
-        private T? GetPrivateKey<T>(X509Certificate2 certificate, bool silent, bool preferNCrypt) where T : AsymmetricAlgorithm
+        private static T? GetPrivateKey<T>(X509Certificate2 certificate, bool silent, bool preferNCrypt) where T : class, IDisposable
         {
             if (!certificate.HasPrivateKey)
             {
@@ -129,6 +127,10 @@ namespace Internal.Cryptography.Pal.Windows
 
                 if (keySpec == CryptKeySpec.CERT_NCRYPT_KEY_SPEC)
                 {
+#if NETSTANDARD || NET
+                    Debug.Assert(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
+#endif
+
                     using (SafeNCryptKeyHandle keyHandle = new SafeNCryptKeyHandle(handle.DangerousGetHandle(), handle))
                     {
                         CngKeyHandleOpenOptions options = CngKeyHandleOpenOptions.None;
@@ -148,6 +150,10 @@ namespace Internal.Cryptography.Pal.Windows
                                 return (T)(object)new ECDsaCng(cngKey);
                             if (typeof(T) == typeof(DSA))
                                 return (T)(object)new DSACng(cngKey);
+                            if (typeof(T) == typeof(MLDsa))
+                                return (T)(object)new MLDsaCng(cngKey);
+                            if (typeof(T) == typeof(SlhDsa))
+                                throw new PlatformNotSupportedException(SR.Format(SR.Cryptography_AlgorithmNotSupported, nameof(SlhDsa)));
 
                             Debug.Fail($"Unknown CNG key type request: {typeof(T).FullName}");
                             return null;
@@ -162,6 +168,7 @@ namespace Internal.Cryptography.Pal.Windows
                 // 3) PNSE.
                 // 4) Defer to cert.Get{R|D}SAPrivateKey if not silent, throw otherwise.
                 CspParameters cspParams = handle.GetProvParameters();
+                Debug.Assert(RuntimeInformation.IsOSPlatform(OSPlatform.Windows));
                 Debug.Assert((cspParams.Flags & CspProviderFlags.UseExistingKey) != 0);
                 cspParams.KeyNumber = (int)keySpec;
 

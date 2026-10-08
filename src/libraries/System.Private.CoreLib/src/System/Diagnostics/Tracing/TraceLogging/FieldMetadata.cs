@@ -5,17 +5,13 @@ using System;
 using System.Diagnostics;
 using System.Text;
 
-#if ES_BUILD_STANDALONE
-namespace Microsoft.Diagnostics.Tracing
-#else
 namespace System.Diagnostics.Tracing
-#endif
 {
     /// <summary>
     /// TraceLogging: Contains the information needed to generate tracelogging
     /// metadata for an event field.
     /// </summary>
-    internal class FieldMetadata
+    internal sealed class FieldMetadata
     {
         /// <summary>
         /// Name of the field
@@ -23,7 +19,7 @@ namespace System.Diagnostics.Tracing
         private readonly string name;
 
         /// <summary>
-        /// The number of bytes in the UTF8 Encoding of 'name' INCLUDING a null terminator.
+        /// The number of bytes in the UTF-8 Encoding of 'name' INCLUDING a null terminator.
         /// </summary>
         private readonly int nameSize;
         private readonly EventFieldTags tags;
@@ -177,19 +173,13 @@ namespace System.Diagnostics.Tracing
             pos += this.nameSize;
 
             // Write 1 byte for inType
-            if (metadata != null)
-            {
-                metadata[pos] = this.inType;
-            }
+            metadata?[pos] = this.inType;
             pos++;
 
             // If InTypeChainFlag set, then write out the outType
             if (0 != (this.inType & Statics.InTypeChainFlag))
             {
-                if (metadata != null)
-                {
-                    metadata[pos] = this.outType;
-                }
+                metadata?[pos] = this.outType;
                 pos++;
 
                 // If OutTypeChainFlag set, then write out tags
@@ -216,6 +206,7 @@ namespace System.Diagnostics.Tracing
                     if (metadata != null)
                     {
                         Debug.Assert(custom != null);
+                        Debug.Assert(pos >= 0 && this.fixedCount >= 0 && pos <= metadata.Length - this.fixedCount);
                         Buffer.BlockCopy(custom, 0, metadata, pos, this.fixedCount);
                     }
                     pos += this.fixedCount;

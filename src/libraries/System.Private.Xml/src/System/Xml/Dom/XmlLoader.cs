@@ -1,16 +1,16 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.IO;
-using System.Diagnostics;
-using System.Globalization;
 using System.Collections;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
 using System.Xml.Schema;
 
 namespace System.Xml
 {
-    internal class XmlLoader
+    internal sealed class XmlLoader
     {
         private XmlDocument? _doc;
         private XmlReader? _reader;
@@ -56,7 +56,7 @@ namespace System.Xml
         {
             Debug.Assert(_reader != null);
             Debug.Assert(parentDoc != null);
-            XmlNode? node = null;
+            XmlNode? node;
             while ((node = LoadNode(true)) != null)
             {
                 parentDoc.AppendChildForLoad(node, parentDoc);
@@ -82,7 +82,8 @@ namespace System.Xml
             }
             if (reader.ReadState == ReadState.Interactive)
             {
-                XmlNode n = LoadNode(true)!;
+                XmlNode? n = LoadNode(true);
+                Debug.Assert(n != null);
 
                 // Move to the next node
                 if (n.NodeType != XmlNodeType.Attribute)
@@ -102,7 +103,7 @@ namespace System.Xml
             IXmlSchemaInfo? schemaInfo;
             do
             {
-                XmlNode? node = null;
+                XmlNode? node;
                 switch (r.NodeType)
                 {
                     case XmlNodeType.Element:
@@ -125,10 +126,7 @@ namespace System.Xml
                         // recursively load all children.
                         if (!fEmptyElement)
                         {
-                            if (parent != null)
-                            {
-                                parent.AppendChildForLoad(element, _doc);
-                            }
+                            parent?.AppendChildForLoad(element, _doc);
                             parent = element;
                             continue;
                         }
@@ -153,10 +151,7 @@ namespace System.Xml
                         if (schemaInfo != null)
                         {
                             element = parent as XmlElement;
-                            if (element != null)
-                            {
-                                element.XmlName = _doc!.AddXmlName(element.Prefix, element.LocalName, element.NamespaceURI, schemaInfo);
-                            }
+                            element?.XmlName = _doc!.AddXmlName(element.Prefix, element.LocalName, element.NamespaceURI, schemaInfo);
                         }
                         if (parent.ParentNode == null)
                         {
@@ -315,8 +310,7 @@ namespace System.Xml
 
             XmlUnspecifiedAttribute? defAttr = attr as XmlUnspecifiedAttribute;
             // If user overrides CreateDefaultAttribute, then attr will NOT be a XmlUnspecifiedAttribute instance.
-            if (defAttr != null)
-                defAttr.SetSpecified(false);
+            defAttr?.SetSpecified(false);
 
             return attr;
         }
@@ -463,7 +457,7 @@ namespace System.Xml
             XmlNode? parent = null;
             do
             {
-                XmlNode? node = null;
+                XmlNode? node;
                 switch (r.NodeType)
                 {
                     case XmlNodeType.Element:
@@ -640,7 +634,7 @@ namespace System.Xml
                 {
                     foreach (SchemaEntity scEnt in schInfo.GeneralEntities.Values)
                     {
-                        XmlEntity ent = new XmlEntity(scEnt.Name.Name, scEnt.Text, scEnt.Pubid, scEnt.Url, scEnt.NData.IsEmpty ? null : scEnt.NData.Name, _doc);
+                        XmlEntity ent = new XmlEntity(scEnt.Name.Name, scEnt.Pubid, scEnt.Url, scEnt.NData.IsEmpty ? null : scEnt.NData.Name, _doc);
                         ent.SetBaseURI(scEnt.DeclaredURI);
                         dtNode.Entities.SetNamedItem(ent);
                     }
@@ -650,7 +644,7 @@ namespace System.Xml
                 {
                     foreach (SchemaEntity scEnt in schInfo.ParameterEntities.Values)
                     {
-                        XmlEntity ent = new XmlEntity(scEnt.Name.Name, scEnt.Text, scEnt.Pubid, scEnt.Url, scEnt.NData.IsEmpty ? null : scEnt.NData.Name, _doc);
+                        XmlEntity ent = new XmlEntity(scEnt.Name.Name, scEnt.Pubid, scEnt.Url, scEnt.NData.IsEmpty ? null : scEnt.NData.Name, _doc);
                         ent.SetBaseURI(scEnt.DeclaredURI);
                         dtNode.Entities.SetNamedItem(ent);
                     }
@@ -735,10 +729,10 @@ namespace System.Xml
             return new XmlParserContext(
                 nt,
                 mgr,
-                (docType == null) ? null : docType.Name,
-                (docType == null) ? null : docType.PublicId,
-                (docType == null) ? null : docType.SystemId,
-                (docType == null) ? null : docType.InternalSubset,
+                docType?.Name,
+                docType?.PublicId,
+                docType?.SystemId,
+                docType?.InternalSubset,
                 baseURI,
                 lang,
                 spaceMode
@@ -763,7 +757,7 @@ namespace System.Xml
 
                 if (nt == XmlNodeType.Entity)
                 {
-                    XmlNode? node = null;
+                    XmlNode? node;
                     while (_reader.Read() && (node = LoadNodeDirect()) != null)
                     {
                         parentNode.AppendChildForLoad(node, _doc);
@@ -771,7 +765,7 @@ namespace System.Xml
                 }
                 else
                 {
-                    XmlNode? node = null;
+                    XmlNode? node;
                     while (_reader.Read() && (node = LoadNode(true)) != null)
                     {
                         parentNode.AppendChildForLoad(node, _doc);
@@ -863,9 +857,9 @@ namespace System.Xml
             mgr.PopScope();
         }
 
-        private string EntitizeName(string name)
+        private static string EntitizeName(string name)
         {
-            return "&" + name + ";";
+            return $"&{name};";
         }
 
         //The function is called when expanding the entity when its children being asked
@@ -929,7 +923,7 @@ namespace System.Xml
 
 #pragma warning disable 618
         // Creates a XmlValidatingReader suitable for parsing InnerXml strings
-        private XmlReader CreateInnerXmlReader(string xmlFragment, XmlNodeType nt, XmlParserContext context, XmlDocument doc)
+        private static XmlTextReaderImpl CreateInnerXmlReader(string xmlFragment, XmlNodeType nt, XmlParserContext context, XmlDocument doc)
         {
             XmlNodeType contentNT = nt;
             if (contentNT == XmlNodeType.Entity || contentNT == XmlNodeType.EntityReference)

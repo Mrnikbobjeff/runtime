@@ -13,7 +13,7 @@ public class WellKnownSidTypeTests
             return identity.Owner.AccountDomainSid != null;
     }
 
-    [ConditionalTheory(nameof(AccountIsDomainJoined))]
+    [ConditionalTheory(typeof(WellKnownSidTypeTests), nameof(AccountIsDomainJoined))]
     [InlineData(WellKnownSidType.NullSid)]
     [InlineData(WellKnownSidType.WorldSid)]
     [InlineData(WellKnownSidType.LocalSid)]
@@ -85,8 +85,7 @@ public class WellKnownSidTypeTests
         }
     }
 
-#if NETCOREAPP
-    [ConditionalTheory(nameof(AccountIsDomainJoined))]
+    [ConditionalTheory(typeof(WellKnownSidTypeTests), nameof(AccountIsDomainJoined))]
     [InlineData(WellKnownSidType.WinBuiltinDCOMUsersSid)]
     [InlineData(WellKnownSidType.WinBuiltinIUsersSid)]
     [InlineData(WellKnownSidType.WinIUserSid)]
@@ -141,10 +140,10 @@ public class WellKnownSidTypeTests
     [InlineData((WellKnownSidType)((int)WellKnownSidType.WinCapabilityRemovableStorageSid + 1))]
     public void CreatingSecurityIdentifierOutsideWellKnownSidTypeDefinedRangeThrowsException(WellKnownSidType sidType)
     {
-        var currentDomainSid = WindowsIdentity.GetCurrent().Owner.AccountDomainSid;
+        using WindowsIdentity currentIdentity = WindowsIdentity.GetCurrent();
+        var currentDomainSid = currentIdentity.Owner.AccountDomainSid;
         AssertExtensions.Throws<ArgumentException>("sidType", () => new SecurityIdentifier(sidType, currentDomainSid));
     }
-    #endif
 
     [Fact]
     public void MaxDefinedHasLegacyValue()
@@ -152,5 +151,16 @@ public class WellKnownSidTypeTests
 #pragma warning disable 0618
         Assert.Equal(WellKnownSidType.WinBuiltinTerminalServerLicenseServersSid, WellKnownSidType.MaxDefined);
 #pragma warning restore 0618
+    }
+
+    [ConditionalTheory(typeof(WellKnownSidTypeTests), nameof(AccountIsDomainJoined))]
+    [InlineData(WellKnownSidType.WorldSid)]
+    public void CompareTo_Null(WellKnownSidType sidType)
+    {
+        using (var identity = WindowsIdentity.GetCurrent())
+        {
+            var si = new SecurityIdentifier(sidType, identity.Owner.AccountDomainSid);
+            Assert.Equal(1, si.CompareTo(null));
+        }
     }
 }

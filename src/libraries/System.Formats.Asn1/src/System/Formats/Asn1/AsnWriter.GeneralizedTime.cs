@@ -41,7 +41,7 @@ namespace System.Formats.Asn1
 
         // T-REC-X.680-201508 sec 46
         // T-REC-X.690-201508 sec 11.7
-        private void WriteGeneralizedTimeCore(
+        private unsafe void WriteGeneralizedTimeCore(
             Asn1Tag tag,
             DateTimeOffset value,
             bool omitFractionalSeconds)
@@ -62,17 +62,12 @@ namespace System.Formats.Asn1
             // where "f?" is anything from "f" to "fffffff" (tenth of a second down to 100ns/1-tick)
             // with no trailing zeros.
             DateTimeOffset normalized = value.ToUniversalTime();
-
-            if (normalized.Year > 9999)
-            {
-                // This is unreachable since DateTimeOffset guards against this internally.
-                throw new ArgumentOutOfRangeException(nameof(value));
-            }
+            Debug.Assert(normalized.Year <= 9999, "DateTimeOffset guards against this internally");
 
             // We're only loading in sub-second ticks.
             // Ticks are defined as 1e-7 seconds, so their printed form
             // is at the longest "0.1234567", or 9 bytes.
-            Span<byte> fraction = stackalloc byte[0];
+            scoped Span<byte> fraction = default;
 
             if (!omitFractionalSeconds)
             {

@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 .assembly extern System.Console { }
+.assembly extern xunit.core {}
 // sequential, non-blittable by objref field, large offset, large field size
 .assembly test24{}
 .assembly extern mscorlib{}
@@ -25,7 +26,11 @@
 
 }
 
+.class public Program extends [mscorlib]System.Object{
 .method public static int32 Main(){
+	.custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = (
+	    01 00 00 00
+	)
 	.entrypoint
 
 	.locals init(class Class1 c1)
@@ -60,4 +65,5 @@
     ldc.i4 100
 	ret
 
+}
 }

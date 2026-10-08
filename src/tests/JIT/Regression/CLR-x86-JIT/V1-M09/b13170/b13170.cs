@@ -2,10 +2,11 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+using Xunit;
 /**
  * A simple Com+ application.
  */
-namespace DefaultNamespace
+namespace b13170
 {
     //@BEGINRENAME; Verify this renames
     //@ENDRENAME; Verify this renames
@@ -19,7 +20,9 @@ namespace DefaultNamespace
          * @param args Array of parameters passed to the application
          * via the command line.
          */
-        public static int Main(String[] args)
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             int i = 10;
             int j = i - 5;              // j = 5
@@ -34,7 +37,6 @@ namespace DefaultNamespace
             sum = Add(40, j);  // sum = 43
 
             x();
-            return 100;
         }
 
         public static int Add(int a, int b)
@@ -44,7 +46,7 @@ namespace DefaultNamespace
             return c;
         }
 
-        public static void x()
+        internal static void x()
         {
             int foo;
 
@@ -96,7 +98,7 @@ namespace DefaultNamespace
             return (true);
         }
 
-        public static void w()
+        internal static void w()
         {
             int a = 1;
             int b = 2;

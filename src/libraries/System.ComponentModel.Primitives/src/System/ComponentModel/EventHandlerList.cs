@@ -71,10 +71,7 @@ namespace System.ComponentModel
 
         public void AddHandlers(EventHandlerList listToAddFrom)
         {
-            if (listToAddFrom == null)
-            {
-                throw new ArgumentNullException(nameof(listToAddFrom));
-            }
+            ArgumentNullException.ThrowIfNull(listToAddFrom);
 
             ListEntry? currentListEntry = listToAddFrom._head;
             while (currentListEntry != null)
@@ -103,10 +100,7 @@ namespace System.ComponentModel
         public void RemoveHandler(object key, Delegate? value)
         {
             ListEntry? e = Find(key);
-            if (e != null)
-            {
-                e._handler = Delegate.Remove(e._handler, value);
-            }
+            e?._handler = Delegate.Remove(e._handler, value);
         }
 
         private sealed class ListEntry

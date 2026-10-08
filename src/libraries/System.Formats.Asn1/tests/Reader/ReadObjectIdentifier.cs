@@ -7,8 +7,35 @@ using Xunit;
 
 namespace System.Formats.Asn1.Tests.Reader
 {
-    public sealed class ReadObjectIdentifier
+    public sealed class ReadObjectIdentifierAsnReaderTests : ReadObjectIdentifierBase
     {
+        internal override AsnReaderWrapper CreateWrapper(
+            ReadOnlyMemory<byte> data,
+            AsnEncodingRules ruleSet,
+            AsnReaderOptions options = default)
+        {
+            return AsnReaderWrapper.CreateClassReader(data, ruleSet, options);
+        }
+    }
+
+    public sealed class ReadObjectIdentifierValueAsnReaderTests : ReadObjectIdentifierBase
+    {
+        internal override AsnReaderWrapper CreateWrapper(
+            ReadOnlyMemory<byte> data,
+            AsnEncodingRules ruleSet,
+            AsnReaderOptions options = default)
+        {
+            return AsnReaderWrapper.CreateValueReader(data, ruleSet, options);
+        }
+    }
+
+    public abstract class ReadObjectIdentifierBase
+    {
+        internal abstract AsnReaderWrapper CreateWrapper(
+            ReadOnlyMemory<byte> data,
+            AsnEncodingRules ruleSet,
+            AsnReaderOptions options = default);
+
         [Theory]
         [InlineData("Wrong tag", AsnEncodingRules.BER, "010100")]
         [InlineData("Wrong tag", AsnEncodingRules.CER, "010100")]
@@ -31,16 +58,18 @@ namespace System.Formats.Asn1.Tests.Reader
         [InlineData("Sub-Identifier with leading 0x80", AsnEncodingRules.BER, "060488378001")]
         [InlineData("Sub-Identifier with leading 0x80", AsnEncodingRules.CER, "060488378001")]
         [InlineData("Sub-Identifier with leading 0x80", AsnEncodingRules.DER, "060488378001")]
-        public static void ReadObjectIdentifier_Throws(
+        public void ReadObjectIdentifier_Throws(
             string description,
             AsnEncodingRules ruleSet,
             string inputHex)
         {
             _ = description;
             byte[] inputData = inputHex.HexToByteArray();
-            AsnReader reader = new AsnReader(inputData, ruleSet);
+            AsnReaderWrapper reader = CreateWrapper(inputData, ruleSet);
 
-            Assert.Throws<AsnContentException>(() => reader.ReadObjectIdentifier());
+            Assert.Throws<AsnContentException>(
+                ref reader,
+                static (ref reader) => reader.ReadObjectIdentifier());
         }
 
         [Theory]
@@ -59,13 +88,13 @@ namespace System.Formats.Asn1.Tests.Reader
             // this is
             // { joint-iso-itu-t(2) uuid(255) thatuuid(329800735698586629295641978511506172918) three(3) }
             "2.255.329800735698586629295641978511506172918.3")]
-        public static void ReadObjectIdentifier_Success(
+        public void ReadObjectIdentifier_Success(
             AsnEncodingRules ruleSet,
             string inputHex,
             string expectedValue)
         {
             byte[] inputData = inputHex.HexToByteArray();
-            AsnReader reader = new AsnReader(inputData, ruleSet);
+            AsnReaderWrapper reader = CreateWrapper(inputData, ruleSet);
 
             string oidValue = reader.ReadObjectIdentifier();
             Assert.Equal(expectedValue, oidValue);
@@ -96,10 +125,10 @@ namespace System.Formats.Asn1.Tests.Reader
         [InlineData("060383F01D", "2.63437")]
         [InlineData("06028370", "2.416")]
         [InlineData("060103", "0.3")]
-        public static void VerifyMultiByteParsing(string inputHex, string expectedValue)
+        public void VerifyMultiByteParsing(string inputHex, string expectedValue)
         {
             byte[] inputData = inputHex.HexToByteArray();
-            AsnReader reader = new AsnReader(inputData, AsnEncodingRules.DER);
+            AsnReaderWrapper reader = CreateWrapper(inputData, AsnEncodingRules.DER);
 
             string oidValue = reader.ReadObjectIdentifier();
             Assert.Equal(expectedValue, oidValue);
@@ -109,19 +138,21 @@ namespace System.Formats.Asn1.Tests.Reader
         [InlineData(AsnEncodingRules.BER)]
         [InlineData(AsnEncodingRules.CER)]
         [InlineData(AsnEncodingRules.DER)]
-        public static void TagMustBeCorrect_Universal(AsnEncodingRules ruleSet)
+        public void TagMustBeCorrect_Universal(AsnEncodingRules ruleSet)
         {
             byte[] inputData = "06028837".HexToByteArray();
-            AsnReader reader = new AsnReader(inputData, ruleSet);
+            AsnReaderWrapper reader = CreateWrapper(inputData, ruleSet);
 
-            AssertExtensions.Throws<ArgumentException>(
+            Assert.Throws<ArgumentException>(
+                ref reader,
                 "expectedTag",
-                () => reader.ReadIntegerBytes(Asn1Tag.Null));
+                static (ref reader) => reader.ReadObjectIdentifier(Asn1Tag.Null));
 
             Assert.True(reader.HasData, "HasData after bad universal tag");
 
             Assert.Throws<AsnContentException>(
-                () => reader.ReadObjectIdentifier(new Asn1Tag(TagClass.ContextSpecific, 0)));
+                ref reader,
+                static (ref reader) => reader.ReadObjectIdentifier(new Asn1Tag(TagClass.ContextSpecific, 0)));
 
             Assert.True(reader.HasData, "HasData after wrong tag");
 
@@ -133,28 +164,33 @@ namespace System.Formats.Asn1.Tests.Reader
         [InlineData(AsnEncodingRules.BER)]
         [InlineData(AsnEncodingRules.CER)]
         [InlineData(AsnEncodingRules.DER)]
-        public static void TagMustBeCorrect_Custom(AsnEncodingRules ruleSet)
+        public void TagMustBeCorrect_Custom(AsnEncodingRules ruleSet)
         {
             byte[] inputData = "87028837".HexToByteArray();
-            AsnReader reader = new AsnReader(inputData, ruleSet);
+            AsnReaderWrapper reader = CreateWrapper(inputData, ruleSet);
 
-            AssertExtensions.Throws<ArgumentException>(
+            Assert.Throws<ArgumentException>(
+                ref reader,
                 "expectedTag",
-                () => reader.ReadIntegerBytes(Asn1Tag.Null));
+                static (ref reader) => reader.ReadObjectIdentifier(Asn1Tag.Null));
 
             Assert.True(reader.HasData, "HasData after bad universal tag");
 
-            Assert.Throws<AsnContentException>(() => reader.ReadObjectIdentifier());
+            Assert.Throws<AsnContentException>(
+                ref reader,
+                static (ref reader) => reader.ReadObjectIdentifier());
 
             Assert.True(reader.HasData, "HasData after default tag");
 
             Assert.Throws<AsnContentException>(
-                () => reader.ReadObjectIdentifier(new Asn1Tag(TagClass.Application, 0)));
+                ref reader,
+                static (ref reader) => reader.ReadObjectIdentifier(new Asn1Tag(TagClass.Application, 0)));
 
             Assert.True(reader.HasData, "HasData after wrong custom class");
 
             Assert.Throws<AsnContentException>(
-                () => reader.ReadObjectIdentifier(new Asn1Tag(TagClass.ContextSpecific, 1)));
+                ref reader,
+                static (ref reader) => reader.ReadObjectIdentifier(new Asn1Tag(TagClass.ContextSpecific, 1)));
 
             Assert.True(reader.HasData, "HasData after wrong custom tag value");
 
@@ -172,7 +208,7 @@ namespace System.Formats.Asn1.Tests.Reader
         [InlineData(AsnEncodingRules.BER, "80028837", TagClass.ContextSpecific, 0)]
         [InlineData(AsnEncodingRules.CER, "4C028837", TagClass.Application, 12)]
         [InlineData(AsnEncodingRules.DER, "DF8A46028837", TagClass.Private, 1350)]
-        public static void ExpectedTag_IgnoresConstructed(
+        public void ExpectedTag_IgnoresConstructed(
             AsnEncodingRules ruleSet,
             string inputHex,
             TagClass tagClass,
@@ -181,87 +217,129 @@ namespace System.Formats.Asn1.Tests.Reader
             byte[] inputData = inputHex.HexToByteArray();
             Asn1Tag constructedTag = new Asn1Tag(tagClass, tagValue, true);
             Asn1Tag primitiveTag = new Asn1Tag(tagClass, tagValue, false);
-            AsnReader reader = new AsnReader(inputData, ruleSet);
+            AsnReaderWrapper reader = CreateWrapper(inputData, ruleSet);
 
             string val1 = reader.ReadObjectIdentifier(constructedTag);
             Assert.False(reader.HasData);
 
-            reader = new AsnReader(inputData, ruleSet);
+            reader = CreateWrapper(inputData, ruleSet);
 
             string val2 = reader.ReadObjectIdentifier(primitiveTag);
             Assert.False(reader.HasData);
 
             Assert.Equal(val1, val2);
         }
+    }
 
+    public static class ReadObjectIdentifierDecoderTests
+    {
         [Theory]
-        [InlineData(AsnEncodingRules.BER)]
-        [InlineData(AsnEncodingRules.CER)]
-        [InlineData(AsnEncodingRules.DER)]
-        public static void ReadVeryLongOid(AsnEncodingRules ruleSet)
+        [InlineData("0609608648016503040311", "2.16.840.1.101.3.4.3.17")]
+        [InlineData("0609608648016503040312", "2.16.840.1.101.3.4.3.18")]
+        [InlineData("0609608648016503040313", "2.16.840.1.101.3.4.3.19")]
+        [InlineData("0609608648016503040401", "2.16.840.1.101.3.4.4.1")]
+        [InlineData("0609608648016503040402", "2.16.840.1.101.3.4.4.2")]
+        [InlineData("0609608648016503040403", "2.16.840.1.101.3.4.4.3")]
+        public static void ReadWellKnownObjectIdentifier(string inputHex, string expectedValue)
         {
-            byte[] inputData = new byte[100000];
-            // 06 83 02 00 00 (OBJECT IDENTIFIER, 65536 bytes).
-            inputData[0] = 0x06;
-            inputData[1] = 0x83;
-            inputData[2] = 0x01;
-            inputData[3] = 0x00;
-            inputData[4] = 0x00;
-            // and the rest are all zero.
+            byte[] input = inputHex.HexToByteArray();
 
-            // The first byte produces "0.0". Each of the remaining 65535 bytes produce
-            // another ".0".
-            const int ExpectedLength = 65536 * 2 + 1;
-            StringBuilder builder = new StringBuilder(ExpectedLength);
-            builder.Append('0');
+            string oid = AsnDecoder.ReadObjectIdentifier(input, AsnEncodingRules.DER, out int consumed);
 
-            for (int i = 0; i <= ushort.MaxValue; i++)
-            {
-                builder.Append('.');
-                builder.Append(0);
-            }
-
-            AsnReader reader = new AsnReader(inputData, ruleSet);
-            string oidString = reader.ReadObjectIdentifier();
-
-            Assert.Equal(ExpectedLength, oidString.Length);
-            Assert.Equal(builder.ToString(), oidString);
+            Assert.Equal(expectedValue, oid);
+            Assert.Equal(input.Length, consumed);
         }
 
         [Theory]
         [InlineData(AsnEncodingRules.BER)]
         [InlineData(AsnEncodingRules.CER)]
         [InlineData(AsnEncodingRules.DER)]
-        public static void ReadVeryLongOidArc(AsnEncodingRules ruleSet)
+        public static void ReadMaximumArcOid(AsnEncodingRules ruleSet)
         {
-            byte[] inputData = new byte[255];
-            // 06 81 93 (OBJECT IDENTIFIER, 147 bytes).
-            inputData[0] = 0x06;
-            inputData[1] = 0x81;
-            inputData[2] = 0x93;
+            const int MaxArcs = 64;
+            // MaxArcs content bytes (all 0x7F) (which includes one for failure), plus one for the tag
+            // plus one for the encoded length.
+            byte[] input = new byte[MaxArcs + 2];
+            input.AsSpan().Fill(0x7F);
+            input[0] = 0x06;
+            // The first two arcs are encoded in the first sub-identifier, so MaxArcs - 1.
+            input[1] = MaxArcs - 1;
 
-            // With 147 bytes we get 147*7 = 1029 value bits.
-            // The smallest legal number to encode would have a top byte of 0x81,
-            // leaving 1022 bits remaining.  If they're all zero then we have 2^1022.
-            //
-            // Since it's our first sub-identifier it's really encoding "2.(2^1022 - 80)".
-            inputData[3] = 0x81;
-            // Leave the last byte as 0.
-            new Span<byte>(inputData, 4, 145).Fill(0x80);
+            string decoded = AsnDecoder.ReadObjectIdentifier(input, ruleSet, out int consumed);
+            Assert.Equal(input.Length - 1, consumed);
 
-            const string ExpectedOid =
-                "2." +
-                "449423283715578976932326297697256183404494244735576643183575" +
-                "202894331689513752407831771193306018840052800284699678483394" +
-                "146974422036041556232118576598685310944419733562163713190755" +
-                "549003115235298632707380212514422095376705856157203684782776" +
-                "352068092908376276711465745599868114846199290762088390824060" +
-                "56034224";
+            StringBuilder expected = new StringBuilder(4 * MaxArcs);
+            expected.Append("2.47");
 
-            AsnReader reader = new AsnReader(inputData, ruleSet);
+            for (int i = 2; i < MaxArcs; i++)
+            {
+                expected.Append(".127");
+            }
 
-            string oidString = reader.ReadObjectIdentifier();
-            Assert.Equal(ExpectedOid, oidString);
+            Assert.Equal(expected.ToString(), decoded);
+
+            input[1] = MaxArcs;
+            AsnContentException ex = Assert.Throws<AsnContentException>(
+                () => AsnDecoder.ReadObjectIdentifier(input, ruleSet, out _));
+            Assert.Contains("OID", ex.Message);
+        }
+
+        [Theory]
+        [InlineData(AsnEncodingRules.BER)]
+        [InlineData(AsnEncodingRules.CER)]
+        [InlineData(AsnEncodingRules.DER)]
+        public static void ReadMaximumInitialSubIdentifier(AsnEncodingRules ruleSet)
+        {
+            // First sub-identifier is 2^128 - 1, second is 1
+            byte[] valid =
+            {
+                0x06, 0x14, 0x83, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                0xFF, 0xFF, 0xFF, 0xFF, 0x7F, 0x01,
+            };
+
+            // First sub-identifier is 2^128, second is 1
+            byte[] invalid =
+            {
+                0x06, 0x14, 0x84, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+                0x80, 0x80, 0x80, 0x80, 0x00, 0x01,
+            };
+
+            string oid = AsnDecoder.ReadObjectIdentifier(valid, ruleSet, out int consumed);
+            Assert.Equal(valid.Length, consumed);
+            Assert.Equal("2.340282366920938463463374607431768211375.1", oid);
+
+            AsnContentException ex = Assert.Throws<AsnContentException>(
+                () => AsnDecoder.ReadObjectIdentifier(invalid, ruleSet, out _));
+            Assert.Contains("OID", ex.Message);
+        }
+
+        [Theory]
+        [InlineData(AsnEncodingRules.BER)]
+        [InlineData(AsnEncodingRules.CER)]
+        [InlineData(AsnEncodingRules.DER)]
+        public static void ReadMaximumNonInitialSubIdentifier(AsnEncodingRules ruleSet)
+        {
+            // First sub-identifier is 1, second is 2^128 - 1
+            byte[] valid =
+            {
+                0x06, 0x14, 0x01, 0x83, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+                0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F,
+            };
+
+            // First sub-identifier is 1, second is 2^128
+            byte[] invalid = new byte[]
+            {
+                0x06, 0x14, 0x01, 0x84, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80, 0x80,
+                0x80, 0x80, 0x80, 0x80, 0x80, 0x00,
+            };
+
+            string oid = AsnDecoder.ReadObjectIdentifier(valid, ruleSet, out int consumed);
+            Assert.Equal(valid.Length, consumed);
+            Assert.Equal("0.1.340282366920938463463374607431768211455", oid);
+
+            AsnContentException ex = Assert.Throws<AsnContentException>(
+                () => AsnDecoder.ReadObjectIdentifier(invalid, ruleSet, out _));
+            Assert.Contains("OID", ex.Message);
         }
     }
 }

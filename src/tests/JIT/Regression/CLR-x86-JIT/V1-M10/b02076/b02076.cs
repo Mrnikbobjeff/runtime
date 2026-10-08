@@ -2,8 +2,12 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+
+namespace b02076;
+
 using System;
 using System.Runtime.InteropServices;
+using Xunit;
 
 [StructLayout(LayoutKind.Sequential)]
 class RECT
@@ -39,9 +43,11 @@ class CSwarm
 };
 
 
-class MainClass
+public class MainClass
 {
-    public static int Main(string[] args)
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         CSwarm swarm = new CSwarm();
         return (100);

@@ -2,12 +2,17 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
+namespace JitTest_Directed_coverage_flowgraph_xaddmuly;
+
 using System;
-internal class Test
+using Xunit;
+public class Test_xaddmuly
 {
     static public float x = 0x8000;
     static public float y = 0xF;
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         x += y * x;
         x += y * x;

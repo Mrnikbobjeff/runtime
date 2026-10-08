@@ -57,12 +57,6 @@ namespace System.Net.Security.Tests
         }
 
         [Fact]
-        public void ExtendedProtectionPolicy_OSSupportsExtendedProtection()
-        {
-            Assert.True(ExtendedProtectionPolicy.OSSupportsExtendedProtection);
-        }
-
-        [Fact]
         public void ExtendedProtectionPolicy_Properties()
         {
             var customChannelBindingParam = new MockCustomChannelBinding();

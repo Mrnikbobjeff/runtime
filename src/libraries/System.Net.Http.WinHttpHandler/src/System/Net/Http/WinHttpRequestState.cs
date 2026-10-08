@@ -3,6 +3,7 @@
 
 using System;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Net.Security;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
@@ -28,8 +29,8 @@ namespace System.Net.Http
         // A GCHandle for this operation object.
         // This is owned by the callback and will be deallocated when the sessionHandle has been closed.
         private GCHandle _operationHandle;
-        private WinHttpTransportContext _transportContext;
-        private volatile bool _disposed; // To detect redundant calls.
+        private WinHttpTransportContext? _transportContext;
+        private int _disposed; // To detect redundant calls.
 
         public WinHttpRequestState()
         {
@@ -49,10 +50,10 @@ namespace System.Net.Http
             }
         }
 
-        public static WinHttpRequestState FromIntPtr(IntPtr gcHandle)
+        public static WinHttpRequestState? FromIntPtr(IntPtr gcHandle)
         {
             GCHandle stateHandle = GCHandle.FromIntPtr(gcHandle);
-            return (WinHttpRequestState)stateHandle.Target;
+            return (WinHttpRequestState?)stateHandle.Target;
         }
 
         public IntPtr ToIntPtr()
@@ -92,16 +93,16 @@ namespace System.Net.Http
             }
         }
 
-        public TaskCompletionSource<HttpResponseMessage> Tcs { get; set; }
+        public TaskCompletionSource<HttpResponseMessage>? Tcs { get; set; }
 
         public CancellationToken CancellationToken { get; set; }
 
-        public HttpRequestMessage RequestMessage { get; set; }
+        public HttpRequestMessage? RequestMessage { get; set; }
 
-        public WinHttpHandler Handler { get; set; }
+        public WinHttpHandler? Handler { get; set; }
 
-        private SafeWinHttpHandle _requestHandle;
-        public SafeWinHttpHandle RequestHandle
+        private SafeWinHttpHandle? _requestHandle;
+        public SafeWinHttpHandle? RequestHandle
         {
             get
             {
@@ -120,25 +121,26 @@ namespace System.Net.Http
             }
         }
 
-        public Exception SavedException { get; set; }
+        public Exception? SavedException { get; set; }
 
         public bool CheckCertificateRevocationList { get; set; }
 
-        public Func<HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors, bool> ServerCertificateValidationCallback { get; set; }
+        public Func<HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors, bool>? ServerCertificateValidationCallback { get; set; }
 
+        [AllowNull]
         public WinHttpTransportContext TransportContext
         {
-            get { return _transportContext ?? (_transportContext = new WinHttpTransportContext()); }
+            get { return _transportContext ??= new WinHttpTransportContext(); }
             set { _transportContext = value; }
         }
 
         public WindowsProxyUsePolicy WindowsProxyUsePolicy { get; set; }
 
-        public IWebProxy Proxy { get; set; }
+        public IWebProxy? Proxy { get; set; }
 
-        public ICredentials ServerCredentials { get; set; }
+        public ICredentials? ServerCredentials { get; set; }
 
-        public ICredentials DefaultProxyCredentials { get; set; }
+        public ICredentials? DefaultProxyCredentials { get; set; }
 
         public bool PreAuthenticate { get; set; }
 
@@ -147,14 +149,15 @@ namespace System.Net.Http
         public bool RetryRequest { get; set; }
 
         public RendezvousAwaitable<int> LifecycleAwaitable { get; set; } = new RendezvousAwaitable<int>();
-        public TaskCompletionSource<bool> TcsInternalWriteDataToRequestStream { get; set; }
-        public bool AsyncReadInProgress { get; set; }
+        public TaskCompletionSource<bool>? TcsInternalWriteDataToRequestStream { get; set; }
+        public volatile int AsyncReadInProgress;
 
         // WinHttpResponseStream state.
         public long? ExpectedBytesToRead { get; set; }
         public long CurrentBytesRead { get; set; }
 
         private GCHandle _cachedReceivePinnedBuffer;
+        private GCHandle _cachedSendPinnedBuffer;
 
         public void PinReceiveBuffer(byte[] buffer)
         {
@@ -169,33 +172,50 @@ namespace System.Net.Http
             }
         }
 
+        public void PinSendBuffer(byte[] buffer)
+        {
+            if (!_cachedSendPinnedBuffer.IsAllocated || _cachedSendPinnedBuffer.Target != buffer)
+            {
+                if (_cachedSendPinnedBuffer.IsAllocated)
+                {
+                    _cachedSendPinnedBuffer.Free();
+                }
+
+                _cachedSendPinnedBuffer = GCHandle.Alloc(buffer, GCHandleType.Pinned);
+            }
+        }
+
         #region IDisposable Members
         private void Dispose(bool disposing)
         {
 #if DEBUG
             Interlocked.Increment(ref s_dbg_callDispose);
 #endif
-            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"GCHandle=0x{ToIntPtr().ToString("X")}, disposed={_disposed}, disposing={disposing}");
+            if (NetEventSource.Log.IsEnabled()) NetEventSource.Info(this, $"GCHandle=0x{ToIntPtr():X}, disposed={_disposed != 0}, disposing={disposing}");
 
             // Since there is no finalizer and this class is sealed, the disposing parameter should be TRUE.
             Debug.Assert(disposing, "WinHttpRequestState.Dispose() should have disposing=TRUE");
 
-            if (_disposed)
+            if (Interlocked.Exchange(ref _disposed, 1) != 0)
             {
                 return;
             }
-
-            _disposed = true;
 
             if (_operationHandle.IsAllocated)
             {
                 // This method only gets called when the WinHTTP request handle is fully closed and thus all
                 // async operations are done. So, it is safe at this point to unpin the buffers and release
-                // the strong GCHandle for this object.
+                // the strong GCHandle for the pinned buffers.
                 if (_cachedReceivePinnedBuffer.IsAllocated)
                 {
                     _cachedReceivePinnedBuffer.Free();
                     _cachedReceivePinnedBuffer = default(GCHandle);
+                }
+
+                if (_cachedSendPinnedBuffer.IsAllocated)
+                {
+                    _cachedSendPinnedBuffer.Free();
+                    _cachedSendPinnedBuffer = default(GCHandle);
                 }
 #if DEBUG
                 Interlocked.Increment(ref s_dbg_operationHandleFree);

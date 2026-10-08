@@ -8,47 +8,164 @@ using System.Diagnostics;
 using System.Diagnostics.Tracing;
 using System.IO;
 using System.Linq;
+using System.Reflection;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.DotNet.RemoteExecutor;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Configuration.UserSecrets;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting.Unit.Tests;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Xunit;
 
-namespace Microsoft.Extensions.Hosting
+namespace Microsoft.Extensions.Hosting.Tests
 {
     public partial class HostTests
     {
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/34580", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
+        public async Task StopAsyncWithCancellation()
+        {
+            var builder = new HostBuilder();
+            using var host = builder.Build();
+            await host.StartAsync();
+            CancellationTokenSource cts = new CancellationTokenSource();
+            cts.Cancel();
+            Assert.True(cts.Token.IsCancellationRequested);
+            await host.StopAsync(cts.Token);
+        }
+
+        public static IEnumerable<object[]> StartAsync_StopAsync_Concurrency_TestCases
+        {
+            get
+            {
+                foreach (bool stopConcurrently in new[] { true, false })
+                {
+                    foreach (bool startConcurrently in new[] { true, false })
+                    {
+                        foreach (int hostedServiceCount in new[] { 1, 4, 10 })
+                        {
+                            yield return new object[] { stopConcurrently, startConcurrently, hostedServiceCount };
+                        }
+                    }
+                }
+            }
+        }
+
+        [Theory]
+        [MemberData(nameof(StartAsync_StopAsync_Concurrency_TestCases))]
+        public async Task StartAsync_StopAsync_Concurrency(bool stopConcurrently, bool startConcurrently, int hostedServiceCount)
+        {
+            var hostedServices = new DelegateHostedService[hostedServiceCount];
+            bool[,] events = new bool[hostedServiceCount, 2];
+
+            for (int i = 0; i < hostedServiceCount; i++)
+            {
+                var index = i;
+                var service = new DelegateHostedService(() => { events[index, 0] = true; }, () => { events[index, 1] = true; } , () => { });
+                service.Identifier = index;
+                hostedServices[index] = service;
+            }
+
+            using var host = Host.CreateDefaultBuilder().ConfigureHostConfiguration(configBuilder =>
+            {
+                configBuilder.AddInMemoryCollection(new KeyValuePair<string, string>[]
+                {
+                    new KeyValuePair<string, string>("servicesStartConcurrently", startConcurrently.ToString()),
+                    new KeyValuePair<string, string>("servicesStopConcurrently", stopConcurrently.ToString())
+                });
+            }).ConfigureServices(serviceCollection =>
+            {
+                foreach (var hostedService in hostedServices)
+                {
+                    serviceCollection.Add(ServiceDescriptor.Singleton<IHostedService>(hostedService));
+                }
+            }).Build();
+
+            await host.StartAsync(CancellationToken.None);
+
+            // Verifies that StartAsync had been called and that StopAsync had not been launched yet
+            for (int i = 0; i < hostedServiceCount; i++)
+            {
+                Assert.True(events[i, 0]);
+                Assert.False(events[i, 1]);
+            }
+
+            // Ensures that IHostedService instances are started in FIFO order when services are started non concurrently
+            if (hostedServiceCount > 0 && !startConcurrently)
+            {
+                AssertExtensions.Equal(hostedServices, hostedServices.OrderBy(h => h.StartDate).ToArray());
+            }
+
+            await host.StopAsync(CancellationToken.None);
+
+            // Verifies that StopAsync had been called
+            for (int i = 0; i < hostedServiceCount; i++)
+            {
+                Assert.True(events[i, 1]);
+            }
+
+            // Ensures that IHostedService instances are stopped in LIFO order  when services are stopped non concurrently
+            if (hostedServiceCount > 0 && !stopConcurrently)
+            {
+                AssertExtensions.Equal(hostedServices, hostedServices.OrderByDescending(h => h.StopDate).ToArray());
+            }
+        }
+
+        [Fact]
         public void CreateDefaultBuilder_IncludesContentRootByDefault()
         {
             var expected = Directory.GetCurrentDirectory();
             var builder = Host.CreateDefaultBuilder();
-            var host = builder.Build();
+            using var host = builder.Build();
             var config = host.Services.GetRequiredService<IConfiguration>();
             Assert.Equal(expected, config["ContentRoot"]);
             var env = host.Services.GetRequiredService<IHostEnvironment>();
             Assert.Equal(expected, env.ContentRootPath);
         }
 
+        public static bool IsWindowsAndRemotExecutorIsSupported => PlatformDetection.IsWindows && RemoteExecutor.IsSupported;
+
+        [ConditionalFact(typeof(HostTests), nameof(IsWindowsAndRemotExecutorIsSupported))]
+        public void CreateDefaultBuilder_DoesNotChangeContentRootIfCurrentDirectoryIsWindowsSystemDirectory()
+        {
+            using var _ = RemoteExecutor.Invoke(() =>
+            {
+                string systemDirectory = Environment.SystemDirectory;
+
+                // Test that the path gets normalized before comparison. Use C:\WINDOWS\SYSTEM32\ instead of C:\Windows\system32.
+                systemDirectory = systemDirectory.ToUpper() + "\\";
+
+                Environment.CurrentDirectory = systemDirectory;
+
+                IHostBuilder builder = Host.CreateDefaultBuilder();
+                using IHost host = builder.Build();
+
+                var config = host.Services.GetRequiredService<IConfiguration>();
+                var env = host.Services.GetRequiredService<IHostEnvironment>();
+
+                Assert.Null(config[HostDefaults.ContentRootKey]);
+                Assert.Equal(AppContext.BaseDirectory, env.ContentRootPath);
+            });
+        }
+
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/34580", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         public void CreateDefaultBuilder_IncludesCommandLineArguments()
         {
             var expected = Directory.GetParent(Directory.GetCurrentDirectory()).FullName; // It must exist
             var builder = Host.CreateDefaultBuilder(new string[] { "--contentroot", expected });
-            var host = builder.Build();
+            using var host = builder.Build();
             var env = host.Services.GetRequiredService<IHostEnvironment>();
             Assert.Equal(expected, env.ContentRootPath);
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/34580", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/126697", typeof(PlatformDetection), nameof(PlatformDetection.IsAppleMobile), nameof(PlatformDetection.IsNativeAot))]
         public void CreateDefaultBuilder_RegistersEventSourceLogger()
         {
             var listener = new TestEventListener();
-            var host = Host.CreateDefaultBuilder()
+            using var host = Host.CreateDefaultBuilder()
                 .Build();
 
             var logger = host.Services.GetRequiredService<ILogger<HostTests>>();
@@ -61,7 +178,6 @@ namespace Microsoft.Extensions.Hosting
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/34580", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         public void CreateDefaultBuilder_EnablesActivityTracking()
         {
             var parentActivity = new Activity("ParentActivity");
@@ -89,7 +205,7 @@ namespace Microsoft.Extensions.Hosting
                 }
             });
             var loggerProvider = new ScopeDelegateLoggerProvider(logger);
-            var host = Host.CreateDefaultBuilder()
+            using var host = Host.CreateDefaultBuilder()
                 .ConfigureLogging(logging =>
                 {
                     logging.AddProvider(loggerProvider);
@@ -100,10 +216,9 @@ namespace Microsoft.Extensions.Hosting
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/34580", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         public void CreateDefaultBuilder_EnablesScopeValidation()
         {
-            var host = Host.CreateDefaultBuilder()
+            using var host = Host.CreateDefaultBuilder()
                 .UseEnvironment(Environments.Development)
                 .ConfigureServices(serices =>
                 {
@@ -115,7 +230,6 @@ namespace Microsoft.Extensions.Hosting
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/34580", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         public void CreateDefaultBuilder_EnablesValidateOnBuild()
         {
             var hostBuilder = Host.CreateDefaultBuilder()
@@ -128,11 +242,53 @@ namespace Microsoft.Extensions.Hosting
             Assert.Throws<AggregateException>(() => hostBuilder.Build());
         }
 
-        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsThreadingSupported))]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/34580", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
+        [Theory]
+        [InlineData("Beta-Testing"), InlineData("Another-Random-Env")]
+        public void UseEnvironmentIsOverwrittenByAdditionalCalls(string environment)
+        {
+            var expectedEnvironment = "SomeOtherEnvironment";
+            using var host = new HostBuilder()
+                .UseEnvironment(environment)
+                .ConfigureHostConfiguration(configBuilder =>
+                {
+                    configBuilder.AddInMemoryCollection(new[]
+                    {
+                        new KeyValuePair<string, string>(
+                            HostDefaults.EnvironmentKey, expectedEnvironment)
+                    });
+                }) // This overwrites the call to UseEnvironment
+                .Build();
+
+            var hostEnv = host.Services.GetRequiredService<IHostEnvironment>();
+            Assert.Equal(expectedEnvironment, hostEnv.EnvironmentName);
+        }
+
+        [Theory]
+        [InlineData("Beta-Testing"), InlineData("Another-Random-Env")]
+        public void LastCallToUseEnvironmentWins(string environment)
+        {
+            var willBeOverwritten = "SomeOtherEnvironment";
+            using var host = new HostBuilder()
+                .ConfigureHostConfiguration(configBuilder =>
+                {
+                    configBuilder.AddInMemoryCollection(new[]
+                    {
+                        new KeyValuePair<string, string>(
+                            HostDefaults.EnvironmentKey, willBeOverwritten)
+                    });
+                })
+                .UseEnvironment(Guid.NewGuid().ToString())
+                .UseEnvironment(environment) // Last one wins...
+                .Build();
+
+            var hostEnv = host.Services.GetRequiredService<IHostEnvironment>();
+            Assert.Equal(environment, hostEnv.EnvironmentName);
+        }
+
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task CreateDefaultBuilder_ConfigJsonDoesNotReload()
         {
-            var reloadFlagConfig = new Dictionary<string, string>() {{ "hostbuilder:reloadConfigOnChange", "false" }};
+            var reloadFlagConfig = new Dictionary<string, string>() { { "hostbuilder:reloadConfigOnChange", "false" } };
             var appSettingsPath = Path.Combine(Path.GetTempPath(), "appsettings.json");
 
             string SaveRandomConfig()
@@ -144,7 +300,7 @@ namespace Microsoft.Extensions.Hosting
 
             var dynamicConfigMessage1 = SaveRandomConfig();
 
-            var host = Host.CreateDefaultBuilder()
+            using var host = Host.CreateDefaultBuilder()
                 .UseContentRoot(Path.GetDirectoryName(appSettingsPath))
                 .ConfigureHostConfiguration(builder =>
                 {
@@ -163,23 +319,75 @@ namespace Microsoft.Extensions.Hosting
         }
 
         [Fact]
-        [ActiveIssue("https://github.com/dotnet/runtime/issues/34580", TestPlatforms.Windows, TargetFrameworkMonikers.Netcoreapp, TestRuntimes.Mono)]
         public async Task CreateDefaultBuilder_ConfigJsonDoesReload()
         {
             var reloadFlagConfig = new Dictionary<string, string>() { { "hostbuilder:reloadConfigOnChange", "true" } };
             var appSettingsPath = Path.Combine(Path.GetTempPath(), "appsettings.json");
 
-            string SaveRandomConfig()
+            try
+            {
+                static string SaveRandomConfig(string appSettingsPath)
+                {
+                    var newMessage = $"Hello ASP.NET Core: {Guid.NewGuid():N}";
+                    File.WriteAllText(appSettingsPath, $"{{ \"Hello\": \"{newMessage}\" }}");
+                    return newMessage;
+                }
+
+                var dynamicConfigMessage1 = SaveRandomConfig(appSettingsPath);
+
+                using var host = Host.CreateDefaultBuilder()
+                    .UseContentRoot(Path.GetDirectoryName(appSettingsPath))
+                    .ConfigureHostConfiguration(builder =>
+                    {
+                        builder.AddInMemoryCollection(reloadFlagConfig);
+                    })
+                    .Build();
+
+                var config = host.Services.GetRequiredService<IConfiguration>();
+                Assert.Equal(dynamicConfigMessage1, config["Hello"]);
+
+                var configReloadedCancelTokenSource = new CancellationTokenSource();
+                var configReloadedCancelToken = configReloadedCancelTokenSource.Token;
+
+                config.GetReloadToken().RegisterChangeCallback(
+                    _ => configReloadedCancelTokenSource.Cancel(), null);
+
+                // Only update the config after we've registered the change callback
+                var dynamicConfigMessage2 = SaveRandomConfig(appSettingsPath);
+
+                // Wait for up to 5 minutes, if config reloads at any time, cancel the wait.
+                await Task.WhenAny(Task.Delay(TimeSpan.FromMinutes(5), configReloadedCancelToken)); // Task.WhenAny ignores the task throwing on cancellation.
+                Assert.NotEqual(dynamicConfigMessage1, dynamicConfigMessage2); // Messages are different.
+                Assert.Equal(dynamicConfigMessage2, config["Hello"]); // Config DID reload from disk
+            }
+            finally
+            {
+                if (File.Exists(appSettingsPath))
+                {
+                    File.Delete(appSettingsPath);
+                }
+            }
+        }
+
+        [Fact]
+        public async Task CreateDefaultBuilder_SecretsDoesReload()
+        {
+            var secretId = Assembly.GetExecutingAssembly().GetName().Name;
+            var reloadFlagConfig = new Dictionary<string, string>() { { "hostbuilder:reloadConfigOnChange", "true" } };
+            var secretPath = PathHelper.GetSecretsPathFromSecretsId(secretId);
+            var secretFileInfo = new FileInfo(secretPath);
+
+            Directory.CreateDirectory(secretFileInfo.Directory.FullName);
+
+            static string SaveRandomSecret(string secretPath)
             {
                 var newMessage = $"Hello ASP.NET Core: {Guid.NewGuid():N}";
-                File.WriteAllText(appSettingsPath, $"{{ \"Hello\": \"{newMessage}\" }}");
+                File.WriteAllText(secretPath, $"{{ \"Hello\": \"{newMessage}\" }}");
                 return newMessage;
             }
 
-            var dynamicConfigMessage1 = SaveRandomConfig();
-
-            var host = Host.CreateDefaultBuilder()
-                .UseContentRoot(Path.GetDirectoryName(appSettingsPath))
+            var dynamicSecretMessage1 = SaveRandomSecret(secretPath);
+            var host = Host.CreateDefaultBuilder(new[] { "environment=Development", $"applicationName={secretId}" })
                 .ConfigureHostConfiguration(builder =>
                 {
                     builder.AddInMemoryCollection(reloadFlagConfig);
@@ -187,22 +395,52 @@ namespace Microsoft.Extensions.Hosting
                 .Build();
 
             var config = host.Services.GetRequiredService<IConfiguration>();
+            Assert.Equal(dynamicSecretMessage1, config["Hello"]);
 
-            Assert.Equal(dynamicConfigMessage1, config["Hello"]);
-
-            var dynamicConfigMessage2 = SaveRandomConfig();
-
-            var configReloadedCancelTokenSource = new CancellationTokenSource();
+            using CancellationTokenSource configReloadedCancelTokenSource = new();
             var configReloadedCancelToken = configReloadedCancelTokenSource.Token;
 
-            config.GetReloadToken().RegisterChangeCallback(o =>
+            config.GetReloadToken().RegisterChangeCallback(
+                _ => configReloadedCancelTokenSource.Cancel(), null);
+
+            // Only update the secrets after we've registered the change callback
+            var dynamicSecretMessage2 = SaveRandomSecret(secretPath);
+
+            // Wait for up to 5 minutes, if config reloads at any time, cancel the wait.
+            await Task.WhenAny(Task.Delay(TimeSpan.FromMinutes(5), configReloadedCancelToken)); // Task.WhenAny ignores the task throwing on cancellation.
+            Assert.NotEqual(dynamicSecretMessage1, dynamicSecretMessage2); // Messages are different.
+            Assert.Equal(dynamicSecretMessage2, config["Hello"]);
+        }
+
+        [Fact]
+        public void CreateDefaultBuilder_RespectShutdownTimeout()
+        {
+            var notDefaultTimeoutSeconds = 99;
+            Assert.True(notDefaultTimeoutSeconds != new HostOptions().ShutdownTimeout.TotalSeconds, "Test value must be not equal to default");
+            var host = Host.CreateDefaultBuilder().ConfigureHostConfiguration(configBuilder =>
             {
-                configReloadedCancelTokenSource.Cancel();
-            }, null);
-            // Wait for up to 10 seconds, if config reloads at any time, cancel the wait.
-            await Task.WhenAny(Task.Delay(10000, configReloadedCancelToken)); // Task.WhenAny ignores the task throwing on cancellation.
-            Assert.NotEqual(dynamicConfigMessage1, dynamicConfigMessage2); // Messages are different.
-            Assert.Equal(dynamicConfigMessage2, config["Hello"]); // Config DID reload from disk
+                configBuilder.AddInMemoryCollection(new KeyValuePair<string, string>[]
+                {
+                    new KeyValuePair<string, string>("SHUTDOWNTIMEOUTSECONDS", notDefaultTimeoutSeconds.ToString())
+                });
+            }).Build();
+
+            var hostOptions = host.Services.GetRequiredService<IOptions<HostOptions>>();
+            Assert.Equal(notDefaultTimeoutSeconds, hostOptions.Value.ShutdownTimeout.TotalSeconds);
+        }
+
+        [Fact]
+        public async Task Host_Restart_ThrowsException()
+        {
+            using var host = new HostBuilder().Build();
+
+            await host.StartAsync();
+            await host.StopAsync();
+
+            await Assert.ThrowsAsync<OperationCanceledException>(async () =>
+            {
+                await host.StartAsync();
+            });
         }
 
         internal class ServiceA { }

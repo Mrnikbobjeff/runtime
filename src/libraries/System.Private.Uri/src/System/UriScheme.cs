@@ -2,8 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
+using System.Runtime.CompilerServices;
 using System.Threading;
-using Internal.Runtime.CompilerServices;
 
 namespace System
 {
@@ -77,8 +77,8 @@ namespace System
             Debug.Assert(sizeof(Uri.Flags) == sizeof(ulong));
 
             // If ParseMinimal is called multiple times this Uri instance may be corrupted, throw an exception instead
-            ulong previous = Interlocked.Or(ref Unsafe.As<Uri.Flags, ulong>(ref uri._flags), (ulong)Uri.Flags.CustomParser_ParseMinimalAlreadyCalled);
-            if (((Uri.Flags)previous & Uri.Flags.CustomParser_ParseMinimalAlreadyCalled) != 0)
+            Uri.Flags previous = Interlocked.Or(ref uri._flags, Uri.Flags.CustomParser_ParseMinimalAlreadyCalled);
+            if ((previous & Uri.Flags.CustomParser_ParseMinimalAlreadyCalled) != 0)
             {
                 throw new InvalidOperationException(SR.net_uri_InitializeCalledAlreadyOrTooLate);
             }
@@ -146,6 +146,9 @@ namespace System
             if (!uri.IsAbsoluteUri)
                 throw new InvalidOperationException(SR.net_uri_NotAbsolute);
 
+            if (uri.DisablePathAndQueryCanonicalization && (components & (UriComponents.Path | UriComponents.Query)) != 0)
+                throw new InvalidOperationException(SR.net_uri_GetComponentsCalledWhenCanonicalizationDisabled);
+
             return uri.GetComponentsHelper(components, format);
         }
 
@@ -162,19 +165,15 @@ namespace System
         //
         public static void Register(UriParser uriParser, string schemeName, int defaultPort)
         {
-            if (uriParser == null)
-                throw new ArgumentNullException(nameof(uriParser));
+            ArgumentNullException.ThrowIfNull(uriParser);
+            ArgumentNullException.ThrowIfNull(schemeName);
 
-            if (schemeName == null)
-                throw new ArgumentNullException(nameof(schemeName));
-
-            if (schemeName.Length == 1)
-                throw new ArgumentOutOfRangeException(nameof(schemeName));
+            ArgumentOutOfRangeException.ThrowIfEqual(schemeName.Length, 1);
 
             if (!Uri.CheckSchemeName(schemeName))
                 throw new ArgumentOutOfRangeException(nameof(schemeName));
 
-            if ((defaultPort >= 0xFFFF || defaultPort < 0) && defaultPort != -1)
+            if ((uint)defaultPort > 0xFFFF && defaultPort != -1)
                 throw new ArgumentOutOfRangeException(nameof(defaultPort));
 
             schemeName = schemeName.ToLowerInvariant();
@@ -186,8 +185,7 @@ namespace System
         //
         public static bool IsKnownScheme(string schemeName)
         {
-            if (schemeName == null)
-                throw new ArgumentNullException(nameof(schemeName));
+            ArgumentNullException.ThrowIfNull(schemeName);
 
             if (!Uri.CheckSchemeName(schemeName))
                 throw new ArgumentOutOfRangeException(nameof(schemeName));

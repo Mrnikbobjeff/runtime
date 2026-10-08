@@ -3,7 +3,7 @@
 
 using System.Diagnostics;
 using System.IO;
-using System.Security.Authentication;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 
@@ -13,7 +13,8 @@ namespace System.Net.Security.Tests
 {
     internal static class TestConfiguration
     {
-        public const int PassingTestTimeoutMilliseconds = 4 * 60 * 1000;
+        public const int PassingTestTimeoutMilliseconds = 1 * 60 * 1000;
+        public static TimeSpan PassingTestTimeout => TimeSpan.FromMilliseconds(PassingTestTimeoutMilliseconds);
 
         public const string Realm = "TEST.COREFX.NET";
         public const string KerberosUser = "krb_user";
@@ -26,10 +27,10 @@ namespace System.Net.Security.Tests
         public const string NtlmUserFilePath = "/var/tmp/ntlm_user_file";
 
         public static bool SupportsNullEncryption { get { return s_supportsNullEncryption.Value; } }
+        public static bool SupportsHandshakeAlerts { get { return OperatingSystem.IsLinux() || OperatingSystem.IsWindows() || OperatingSystem.IsFreeBSD() || OperatingSystem.IsOpenBSD(); } }
+        public static bool SupportsRenegotiation { get { return OperatingSystem.IsWindows() || ((OperatingSystem.IsLinux() || OperatingSystem.IsFreeBSD() || OperatingSystem.IsOpenBSD()) && PlatformDetection.OpenSslVersion >= new Version(1, 1, 1)); } }
 
-        public static bool SupportsHandshakeAlerts { get { return OperatingSystem.IsLinux() || OperatingSystem.IsWindows(); } }
-
-        public static bool SupportsAlpnAlerts { get { return OperatingSystem.IsWindows() || (OperatingSystem.IsLinux() && PlatformDetection.OpenSslVersion.CompareTo(new Version(1,0,2)) >= 0); } }
+        public static readonly X509Certificate2 ServerCertificate = System.Net.Test.Common.Configuration.Certificates.GetServerCertificate();
 
         public static Task WhenAllOrAnyFailedWithTimeout(params Task[] tasks)
             => tasks.WhenAllOrAnyFailed(PassingTestTimeoutMilliseconds);
@@ -39,11 +40,20 @@ namespace System.Net.Security.Tests
             // On Windows, null ciphers (no encryption) are supported.
             if (OperatingSystem.IsWindows())
             {
-                return true;
+                try
+                {
+                    // Null encryption may be disabled in Azure images
+                    using (Process p = Process.Start(new ProcessStartInfo("powershell", "-Command Get-TlsCipherSuite") { RedirectStandardOutput = true, RedirectStandardError = true }))
+                    {
+                        using StreamReader reader = p.StandardOutput;
+                        return reader.ReadToEnd().Contains("WITH_NULL");
+                    }
+                }
+                catch { return true; }  // assume availability
             }
 
-            // On macOS, the null cipher (no encryption) is not supported.
-            if (OperatingSystem.IsMacOS())
+            // On macOS and Android, the null cipher (no encryption) is not supported.
+            if (OperatingSystem.IsMacOS() || OperatingSystem.IsAndroid())
             {
                 return false;
             }

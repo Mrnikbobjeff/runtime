@@ -38,12 +38,12 @@ namespace System.IO.Ports.Tests
         }
 
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(DiscardInBuffer_Generic), nameof(HasOneSerialPort))]
         public void DiscardAfterClose()
         {
             using (SerialPort com = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
             {
-                Debug.WriteLine("Verifying Discard method throws exception after a call to Cloes()");
+                Debug.WriteLine("Verifying Discard method throws exception after a call to Close()");
 
                 com.Open();
                 com.Close();
@@ -53,7 +53,7 @@ namespace System.IO.Ports.Tests
         }
 
 
-        [ConditionalFact(nameof(HasOneSerialPort))]
+        [ConditionalFact(typeof(DiscardInBuffer_Generic), nameof(HasOneSerialPort))]
         public void DiscardAfterOpen()
         {
             using (SerialPort com = new SerialPort(TCSupport.LocalMachineSerialInfo.FirstAvailablePortName))
@@ -84,7 +84,7 @@ namespace System.IO.Ports.Tests
             {
                 if (null == expectedException)
                 {
-                    Fail("ERROR!!!: No Excpetion was expected and {0} was thrown", e.GetType());
+                    Fail("ERROR!!!: No Exception was expected and {0} was thrown", e.GetType());
                 }
 
                 if (e.GetType() != expectedException)

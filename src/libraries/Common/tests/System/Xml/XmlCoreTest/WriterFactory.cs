@@ -2,13 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System;
+using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using System.Xml;
-using OLEDB.Test.ModuleCore;
-using System.Collections;
-using System.Collections.Generic;
 using System.Xml.XmlDiff;
+using OLEDB.Test.ModuleCore;
 
 namespace XmlCoreTest.Common
 {
@@ -60,7 +60,7 @@ namespace XmlCoreTest.Common
 
         private XmlWriterSettings _wSettings = null;
         private XmlWriter _xmlWriter = null;
-        private Stream _writerStream = null;
+        private MemoryStream _writerStream = null;
 
         XmlWriter CreateWriterImpl()
         {
@@ -90,9 +90,8 @@ namespace XmlCoreTest.Common
                     _wSettings.CloseOutput = false;
                     if (_overrideAsync)
                         _wSettings.Async = _async;
-
+                    _xmlWriter = new CustomWriter(_writerStream, _wSettings);
                     FilePathUtil.addStream(_fileName, _writerStream);
-                    _xmlWriter = new CustomWriter(_fileName, _wSettings);
                     break;
                 case WriterType.UTF8WriterIndent:
                     _writerStream = new MemoryStream();
@@ -118,7 +117,7 @@ namespace XmlCoreTest.Common
                     FilePathUtil.addStream(_fileName, _writerStream);
                     XmlWriterSettings ws = _wSettings.Clone();
                     ws.CheckCharacters = true;
-                    _xmlWriter = WriterHelper.Create(ww, ws, _overrideAsync, _async);
+                    _xmlWriter = WriterHelper.Create(ww, ws, true);
                     break;
                 case WriterType.WrappedWriter:
                     _writerStream = new MemoryStream();

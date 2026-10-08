@@ -6,19 +6,21 @@
 
 
 .assembly extern mscorlib { }
+.assembly extern System.Runtime { .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A ) }
 .assembly extern System.Console
 {
   .publickeytoken = (B0 3F 5F 7F 11 D5 0A 3A )
   .ver 4:0:0:0
 }
-.assembly 'native'// as "native"
+.assembly ASSEMBLY_NAME// as "native"
 {
 }
-.module native.exe
-// MVID: {C18F1061-8239-420B-AC69-D4CB0BB38F2B}
-.namespace JitTest
+.assembly extern xunit.core {}
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
+.namespace JitTest_seq_refany_il
 {
-  .class private auto ansi Test extends [mscorlib]System.Object
+  .class public auto ansi Test extends [mscorlib]System.Object
   {
   	.field private static unsigned int64 m_fld
     .method private hidebysig static vararg native unsigned int TestFunc(unsigned int64 FIXEDARG) il managed
@@ -112,15 +114,19 @@
     	ret
     }
 
-    .method private hidebysig static int32 Main() il managed
+    .method public hidebysig static int32 Main() il managed
     {
+        .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ConditionalFactAttribute::.ctor(class [System.Runtime]System.Type, string[]) = {
+            type([TestLibrary]TestLibrary.PlatformDetection)
+            string[1] ('IsVarArgSupported')
+        }
 		.entrypoint
 		.maxstack  8
 		.locals (unsigned int64)
 		ldc.i4.0
 		conv.i8
 		dup
-		tail. call vararg native unsigned int JitTest.Test::TestFunc(unsigned int64, ..., unsigned int64)
+		tail. call vararg native unsigned int JitTest_seq_refany_il.Test::TestFunc(unsigned int64, ..., unsigned int64)
 		ret
     } // end of method Test::Main
 
@@ -134,6 +140,6 @@
 
   } // end of class Test
 
-} // end of namespace JitTest
+} // end of namespace JitTest_seq_refany_il
 
 //*********** DISASSEMBLY COMPLETE ***********************

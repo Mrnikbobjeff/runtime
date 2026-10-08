@@ -1,9 +1,10 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.Runtime.InteropServices;
 using System.Collections;
 using System.Collections.Specialized;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace System.DirectoryServices.ActiveDirectory
 {
@@ -13,14 +14,15 @@ namespace System.DirectoryServices.ActiveDirectory
         private StringCollection _excludedNames = new StringCollection();
         private ForestTrustDomainInfoCollection _domainInfo = new ForestTrustDomainInfoCollection();
         private ArrayList _binaryData = new ArrayList();
+        private ArrayList _binaryRecordType = new ArrayList();
         private Hashtable _excludedNameTime = new Hashtable();
         private ArrayList _binaryDataTime = new ArrayList();
         internal bool retrieved;
 
-        internal ForestTrustRelationshipInformation(DirectoryContext context, string source, DS_DOMAIN_TRUSTS unmanagedTrust, TrustType type)
+        internal ForestTrustRelationshipInformation(DirectoryContext context, string source, Interop.Netapi32.DS_DOMAIN_TRUSTS unmanagedTrust, TrustType type)
         {
-            string tmpDNSName = null;
-            string tmpNetBIOSName = null;
+            string? tmpDNSName = null;
+            string? tmpNetBIOSName = null;
 
             // security context
             this.context = context;
@@ -32,14 +34,14 @@ namespace System.DirectoryServices.ActiveDirectory
             if (unmanagedTrust.NetbiosDomainName != (IntPtr)0)
                 tmpNetBIOSName = Marshal.PtrToStringUni(unmanagedTrust.NetbiosDomainName);
 
-            this.target = (tmpDNSName == null ? tmpNetBIOSName : tmpDNSName);
+            this.target = tmpDNSName ?? tmpNetBIOSName;
             // direction
-            if ((unmanagedTrust.Flags & (int)DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_OUTBOUND) != 0 &&
-                (unmanagedTrust.Flags & (int)DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_INBOUND) != 0)
+            if ((unmanagedTrust.Flags & Interop.Netapi32.DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_OUTBOUND) != 0 &&
+                (unmanagedTrust.Flags & Interop.Netapi32.DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_INBOUND) != 0)
                 direction = TrustDirection.Bidirectional;
-            else if ((unmanagedTrust.Flags & (int)DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_OUTBOUND) != 0)
+            else if ((unmanagedTrust.Flags & Interop.Netapi32.DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_OUTBOUND) != 0)
                 direction = TrustDirection.Outbound;
-            else if ((unmanagedTrust.Flags & (int)DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_INBOUND) != 0)
+            else if ((unmanagedTrust.Flags & Interop.Netapi32.DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_INBOUND) != 0)
                 direction = TrustDirection.Inbound;
             // type
             this.type = type;
@@ -75,41 +77,34 @@ namespace System.DirectoryServices.ActiveDirectory
             }
         }
 
-        public void Save()
+        public unsafe void Save()
         {
             int count = 0;
             IntPtr records = (IntPtr)0;
             int currentCount = 0;
             IntPtr tmpPtr = (IntPtr)0;
             IntPtr forestInfo = (IntPtr)0;
-            PolicySafeHandle handle = null;
-            LSA_UNICODE_STRING trustedDomainName;
+            SafeLsaPolicyHandle? handle = null;
             IntPtr collisionInfo = (IntPtr)0;
             ArrayList ptrList = new ArrayList();
             ArrayList sidList = new ArrayList();
             bool impersonated = false;
             IntPtr target = (IntPtr)0;
-            string serverName = null;
+            string? serverName = null;
             IntPtr fileTime = (IntPtr)0;
 
             // first get the count of all the records
             int toplevelNamesCount = TopLevelNames.Count;
             int excludedNamesCount = ExcludedTopLevelNames.Count;
             int trustedDomainCount = TrustedDomainInformation.Count;
-            int binaryDataCount = 0;
+            int binaryDataCount = _binaryData.Count;
 
             checked
             {
                 count += toplevelNamesCount;
                 count += excludedNamesCount;
                 count += trustedDomainCount;
-                if (_binaryData.Count != 0)
-                {
-                    binaryDataCount = _binaryData.Count;
-                    // for the ForestTrustRecordTypeLast record
-                    count++;
-                    count += binaryDataCount;
-                }
+                count += binaryDataCount;
 
                 // allocate the memory for all the records
                 records = Marshal.AllocHGlobal(count * IntPtr.Size);
@@ -119,9 +114,9 @@ namespace System.DirectoryServices.ActiveDirectory
             {
                 try
                 {
-                    IntPtr ptr = (IntPtr)0;
-                    fileTime = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(FileTime)));
-                    UnsafeNativeMethods.GetSystemTimeAsFileTime(fileTime);
+                    IntPtr ptr = 0;
+                    fileTime = Marshal.AllocHGlobal(Marshal.SizeOf<FileTime>());
+                    Interop.Kernel32.GetSystemTimeAsFileTime(fileTime);
 
                     // set the time
                     FileTime currentTime = new FileTime();
@@ -135,12 +130,11 @@ namespace System.DirectoryServices.ActiveDirectory
                         record.ForestTrustType = LSA_FOREST_TRUST_RECORD_TYPE.ForestTrustTopLevelName;
                         TopLevelName TLN = _topLevelNames[i];
                         record.Time = TLN.time;
-                        record.TopLevelName = new LSA_UNICODE_STRING();
                         ptr = Marshal.StringToHGlobalUni(TLN.Name);
                         ptrList.Add(ptr);
-                        UnsafeNativeMethods.RtlInitUnicodeString(record.TopLevelName, ptr);
+                        Interop.NtDll.RtlInitUnicodeString(out record.TopLevelName, ptr);
 
-                        tmpPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(LSA_FOREST_TRUST_RECORD)));
+                        tmpPtr = Marshal.AllocHGlobal(Marshal.SizeOf<LSA_FOREST_TRUST_RECORD>());
                         ptrList.Add(tmpPtr);
                         Marshal.StructureToPtr(record, tmpPtr, false);
 
@@ -155,9 +149,9 @@ namespace System.DirectoryServices.ActiveDirectory
                         LSA_FOREST_TRUST_RECORD record = new LSA_FOREST_TRUST_RECORD();
                         record.Flags = 0;
                         record.ForestTrustType = LSA_FOREST_TRUST_RECORD_TYPE.ForestTrustTopLevelNameEx;
-                        if (_excludedNameTime.Contains(_excludedNames[i]))
+                        if (_excludedNameTime.Contains(_excludedNames[i]!))
                         {
-                            record.Time = (LARGE_INTEGER)_excludedNameTime[i];
+                            record.Time = (LARGE_INTEGER)_excludedNameTime[i]!;
                         }
                         else
                         {
@@ -165,11 +159,11 @@ namespace System.DirectoryServices.ActiveDirectory
                             record.Time.lowPart = currentTime.lower;
                             record.Time.highPart = currentTime.higher;
                         }
-                        record.TopLevelName = new LSA_UNICODE_STRING();
+
                         ptr = Marshal.StringToHGlobalUni(_excludedNames[i]);
                         ptrList.Add(ptr);
-                        UnsafeNativeMethods.RtlInitUnicodeString(record.TopLevelName, ptr);
-                        tmpPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(LSA_FOREST_TRUST_RECORD)));
+                        Interop.NtDll.RtlInitUnicodeString(out record.TopLevelName, ptr);
+                        tmpPtr = Marshal.AllocHGlobal(Marshal.SizeOf<LSA_FOREST_TRUST_RECORD>());
                         ptrList.Add(tmpPtr);
                         Marshal.StructureToPtr(record, tmpPtr, false);
 
@@ -186,18 +180,14 @@ namespace System.DirectoryServices.ActiveDirectory
                         record.ForestTrustType = LSA_FOREST_TRUST_RECORD_TYPE.ForestTrustDomainInfo;
                         ForestTrustDomainInformation tmp = _domainInfo[i];
                         record.Time = tmp.time;
-                        IntPtr pSid = (IntPtr)0;
-                        IntPtr stringSid = (IntPtr)0;
-                        stringSid = Marshal.StringToHGlobalUni(tmp.DomainSid);
-                        ptrList.Add(stringSid);
-                        int result = UnsafeNativeMethods.ConvertStringSidToSidW(stringSid, ref pSid);
-                        if (result == 0)
+                        void* pSid = null;
+                        global::Interop.BOOL result = global::Interop.Advapi32.ConvertStringSidToSid(tmp.DomainSid, out pSid);
+                        if (result == global::Interop.BOOL.FALSE)
                         {
-                            throw ExceptionHelper.GetExceptionFromErrorCode(Marshal.GetLastWin32Error());
+                            throw ExceptionHelper.GetExceptionFromErrorCode(Marshal.GetLastPInvokeError());
                         }
-                        record.DomainInfo = new LSA_FOREST_TRUST_DOMAIN_INFO();
-                        record.DomainInfo.sid = pSid;
-                        sidList.Add(pSid);
+                        record.DomainInfo.sid = (IntPtr)pSid;
+                        sidList.Add((IntPtr)pSid);
                         record.DomainInfo.DNSNameBuffer = Marshal.StringToHGlobalUni(tmp.DnsName);
                         ptrList.Add(record.DomainInfo.DNSNameBuffer);
                         record.DomainInfo.DNSNameLength = (short)(tmp.DnsName == null ? 0 : tmp.DnsName.Length * 2);             // sizeof(WCHAR)
@@ -206,7 +196,7 @@ namespace System.DirectoryServices.ActiveDirectory
                         ptrList.Add(record.DomainInfo.NetBIOSNameBuffer);
                         record.DomainInfo.NetBIOSNameLength = (short)(tmp.NetBiosName == null ? 0 : tmp.NetBiosName.Length * 2);
                         record.DomainInfo.NetBIOSNameMaximumLength = (short)(tmp.NetBiosName == null ? 0 : tmp.NetBiosName.Length * 2);
-                        tmpPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(LSA_FOREST_TRUST_RECORD)));
+                        tmpPtr = Marshal.AllocHGlobal(Marshal.SizeOf<LSA_FOREST_TRUST_RECORD>());
                         ptrList.Add(tmpPtr);
                         Marshal.StructureToPtr(record, tmpPtr, false);
 
@@ -215,50 +205,37 @@ namespace System.DirectoryServices.ActiveDirectory
                         currentCount++;
                     }
 
-                    if (binaryDataCount > 0)
+                    for (int i = 0; i < binaryDataCount; i++)
                     {
-                        // now begin to construct ForestTrustRecordTypeLast
-                        LSA_FOREST_TRUST_RECORD lastRecord = new LSA_FOREST_TRUST_RECORD();
-                        lastRecord.Flags = 0;
-                        lastRecord.ForestTrustType = LSA_FOREST_TRUST_RECORD_TYPE.ForestTrustRecordTypeLast;
-                        tmpPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(LSA_FOREST_TRUST_RECORD)));
-                        ptrList.Add(tmpPtr);
-                        Marshal.StructureToPtr(lastRecord, tmpPtr, false);
-                        Marshal.WriteIntPtr(records, IntPtr.Size * currentCount, tmpPtr);
-                        currentCount++;
-
-                        for (int i = 0; i < binaryDataCount; i++)
+                        LSA_FOREST_TRUST_RECORD record = new LSA_FOREST_TRUST_RECORD();
+                        record.Flags = 0;
+                        record.Time = (LARGE_INTEGER)_binaryDataTime[i]!;
+                        record.Data.Length = ((byte[])_binaryData[i]!).Length;
+                        record.ForestTrustType = (LSA_FOREST_TRUST_RECORD_TYPE)_binaryRecordType[i]!;
+                        if (record.Data.Length == 0)
                         {
-                            // now begin to construct excluded top leve name record
-                            LSA_FOREST_TRUST_RECORD record = new LSA_FOREST_TRUST_RECORD();
-                            record.Flags = 0;
-                            record.Time = (LARGE_INTEGER)_binaryDataTime[i];
-                            record.Data.Length = ((byte[])_binaryData[i]).Length;
-                            if (record.Data.Length == 0)
-                            {
-                                record.Data.Buffer = (IntPtr)0;
-                            }
-                            else
-                            {
-                                record.Data.Buffer = Marshal.AllocHGlobal(record.Data.Length);
-                                ptrList.Add(record.Data.Buffer);
-                                Marshal.Copy((byte[])_binaryData[i], 0, record.Data.Buffer, record.Data.Length);
-                            }
-                            tmpPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(LSA_FOREST_TRUST_RECORD)));
-                            ptrList.Add(tmpPtr);
-                            Marshal.StructureToPtr(record, tmpPtr, false);
-
-                            Marshal.WriteIntPtr(records, IntPtr.Size * currentCount, tmpPtr);
-
-                            currentCount++;
+                            record.Data.Buffer = (IntPtr)0;
                         }
+                        else
+                        {
+                            record.Data.Buffer = Marshal.AllocHGlobal(record.Data.Length);
+                            ptrList.Add(record.Data.Buffer);
+                            Marshal.Copy((byte[])_binaryData[i]!, 0, record.Data.Buffer, record.Data.Length);
+                        }
+                        tmpPtr = Marshal.AllocHGlobal(Marshal.SizeOf<LSA_FOREST_TRUST_RECORD>());
+                        ptrList.Add(tmpPtr);
+                        Marshal.StructureToPtr(record, tmpPtr, false);
+
+                        Marshal.WriteIntPtr(records, IntPtr.Size * currentCount, tmpPtr);
+
+                        currentCount++;
                     }
 
                     // finally construct the LSA_FOREST_TRUST_INFORMATION
                     LSA_FOREST_TRUST_INFORMATION trustInformation = new LSA_FOREST_TRUST_INFORMATION();
                     trustInformation.RecordCount = count;
                     trustInformation.Entries = records;
-                    forestInfo = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(LSA_FOREST_TRUST_INFORMATION)));
+                    forestInfo = Marshal.AllocHGlobal(Marshal.SizeOf<LSA_FOREST_TRUST_INFORMATION>());
                     Marshal.StructureToPtr(trustInformation, forestInfo, false);
 
                     // get policy server name
@@ -268,18 +245,18 @@ namespace System.DirectoryServices.ActiveDirectory
                     impersonated = Utils.Impersonate(context);
 
                     // get the policy handle
-                    handle = new PolicySafeHandle(Utils.GetPolicyHandle(serverName));
+                    handle = Utils.GetPolicyHandle(serverName);
 
                     // get the target name
-                    trustedDomainName = new LSA_UNICODE_STRING();
+                    global::Interop.UNICODE_STRING trustedDomainName;
                     target = Marshal.StringToHGlobalUni(TargetName);
-                    UnsafeNativeMethods.RtlInitUnicodeString(trustedDomainName, target);
+                    Interop.NtDll.RtlInitUnicodeString(out trustedDomainName, target);
 
                     // call the unmanaged function
-                    int error = UnsafeNativeMethods.LsaSetForestTrustInformation(handle, trustedDomainName, forestInfo, 1, out collisionInfo);
+                    uint error = Interop.Advapi32.LsaSetForestTrustInformation(handle, trustedDomainName, forestInfo, true, out collisionInfo);
                     if (error != 0)
                     {
-                        throw ExceptionHelper.GetExceptionFromErrorCode(UnsafeNativeMethods.LsaNtStatusToWinError(error), serverName);
+                        throw ExceptionHelper.GetExceptionFromErrorCode((int)global::Interop.Advapi32.LsaNtStatusToWinError(error), serverName);
                     }
 
                     // there is collision, throw proper exception so user can deal with it
@@ -289,10 +266,10 @@ namespace System.DirectoryServices.ActiveDirectory
                     }
 
                     // commit the changes
-                    error = UnsafeNativeMethods.LsaSetForestTrustInformation(handle, trustedDomainName, forestInfo, 0, out collisionInfo);
+                    error = Interop.Advapi32.LsaSetForestTrustInformation(handle, trustedDomainName, forestInfo, false, out collisionInfo);
                     if (error != 0)
                     {
-                        throw ExceptionHelper.GetExceptionFromErrorCode(error, serverName);
+                        throw ExceptionHelper.GetExceptionFromErrorCode((int)error, serverName);
                     }
 
                     // now next time property is invoked, we need to go to the server
@@ -306,12 +283,12 @@ namespace System.DirectoryServices.ActiveDirectory
                     // release the memory
                     for (int i = 0; i < ptrList.Count; i++)
                     {
-                        Marshal.FreeHGlobal((IntPtr)ptrList[i]);
+                        Marshal.FreeHGlobal((IntPtr)ptrList[i]!);
                     }
 
                     for (int i = 0; i < sidList.Count; i++)
                     {
-                        UnsafeNativeMethods.LocalFree((IntPtr)sidList[i]);
+                        global::Interop.Kernel32.LocalFree((void*)(nint)sidList[i]!);
                     }
 
                     if (records != (IntPtr)0)
@@ -325,7 +302,7 @@ namespace System.DirectoryServices.ActiveDirectory
                     }
 
                     if (collisionInfo != (IntPtr)0)
-                        UnsafeNativeMethods.LsaFreeMemory(collisionInfo);
+                        global::Interop.Advapi32.LsaFreeMemory(collisionInfo);
 
                     if (target != (IntPtr)0)
                         Marshal.FreeHGlobal(target);
@@ -337,14 +314,13 @@ namespace System.DirectoryServices.ActiveDirectory
             catch { throw; }
         }
 
-        private void GetForestTrustInfoHelper()
+        private unsafe void GetForestTrustInfoHelper()
         {
             IntPtr forestTrustInfo = (IntPtr)0;
-            PolicySafeHandle handle = null;
-            LSA_UNICODE_STRING tmpName = null;
+            SafeLsaPolicyHandle? handle = null;
             bool impersonated = false;
             IntPtr targetPtr = (IntPtr)0;
-            string serverName = null;
+            string? serverName = null;
 
             TopLevelNameCollection tmpTLNs = new TopLevelNameCollection();
             StringCollection tmpExcludedTLNs = new StringCollection();
@@ -354,15 +330,16 @@ namespace System.DirectoryServices.ActiveDirectory
             ArrayList tmpBinaryData = new ArrayList();
             Hashtable tmpExcludedNameTime = new Hashtable();
             ArrayList tmpBinaryDataTime = new ArrayList();
+            ArrayList tmpBinaryRecordType = new ArrayList();
 
             try
             {
                 try
                 {
                     // get the target name
-                    tmpName = new LSA_UNICODE_STRING();
+                    global::Interop.UNICODE_STRING tmpName;
                     targetPtr = Marshal.StringToHGlobalUni(TargetName);
-                    UnsafeNativeMethods.RtlInitUnicodeString(tmpName, targetPtr);
+                    Interop.NtDll.RtlInitUnicodeString(out tmpName, targetPtr);
 
                     serverName = Utils.GetPolicyServerName(context, true, false, source);
 
@@ -370,16 +347,16 @@ namespace System.DirectoryServices.ActiveDirectory
                     impersonated = Utils.Impersonate(context);
 
                     // get the policy handle
-                    handle = new PolicySafeHandle(Utils.GetPolicyHandle(serverName));
+                    handle = Utils.GetPolicyHandle(serverName);
 
-                    int result = UnsafeNativeMethods.LsaQueryForestTrustInformation(handle, tmpName, ref forestTrustInfo);
+                    uint result = Interop.Advapi32.LsaQueryForestTrustInformation(handle, tmpName, ref forestTrustInfo);
                     // check the result
                     if (result != 0)
                     {
-                        int win32Error = UnsafeNativeMethods.LsaNtStatusToWinError(result);
+                        uint win32Error = global::Interop.Advapi32.LsaNtStatusToWinError(result);
                         if (win32Error != 0)
                         {
-                            throw ExceptionHelper.GetExceptionFromErrorCode(win32Error, serverName);
+                            throw ExceptionHelper.GetExceptionFromErrorCode((int)win32Error, serverName);
                         }
                     }
 
@@ -401,7 +378,7 @@ namespace System.DirectoryServices.ActiveDirectory
                                 if (record.ForestTrustType == LSA_FOREST_TRUST_RECORD_TYPE.ForestTrustTopLevelName)
                                 {
                                     IntPtr myPtr = IntPtr.Add(addr, 16);
-                                    Marshal.PtrToStructure(myPtr, record.TopLevelName);
+                                    record.TopLevelName = *(global::Interop.UNICODE_STRING*)myPtr;
                                     TopLevelName TLN = new TopLevelName(record.Flags, record.TopLevelName, record.Time);
                                     tmpTLNs.Add(TLN);
                                 }
@@ -409,23 +386,22 @@ namespace System.DirectoryServices.ActiveDirectory
                                 {
                                     // get the excluded TLN and put it in our collection
                                     IntPtr myPtr = IntPtr.Add(addr, 16);
-                                    Marshal.PtrToStructure(myPtr, record.TopLevelName);
+                                    record.TopLevelName = *(global::Interop.UNICODE_STRING*)myPtr;
                                     string excludedName = Marshal.PtrToStringUni(record.TopLevelName.Buffer, record.TopLevelName.Length / 2);
                                     tmpExcludedTLNs.Add(excludedName);
                                     tmpExcludedNameTime.Add(excludedName, record.Time);
                                 }
                                 else if (record.ForestTrustType == LSA_FOREST_TRUST_RECORD_TYPE.ForestTrustDomainInfo)
                                 {
-                                    ForestTrustDomainInformation dom = new ForestTrustDomainInformation(record.Flags, record.DomainInfo, record.Time);
+                                    IntPtr myPtr = IntPtr.Add(addr, 16);
+                                    record.DomainInfo = *(LSA_FOREST_TRUST_DOMAIN_INFO*)myPtr;
+                                    ForestTrustDomainInformation dom = new ForestTrustDomainInformation(record.Flags, record.DomainInfo!, record.Time);
                                     tmpDomainInformation.Add(dom);
-                                }
-                                else if (record.ForestTrustType == LSA_FOREST_TRUST_RECORD_TYPE.ForestTrustRecordTypeLast)
-                                {
-                                    // enumeration is done, but we might still have some unrecognized entries after that
-                                    continue;
                                 }
                                 else
                                 {
+                                    IntPtr myPtr = IntPtr.Add(addr, 16);
+                                    record.Data = *(LSA_FOREST_TRUST_BINARY_DATA*)myPtr;
                                     int length = record.Data.Length;
                                     byte[] byteArray = new byte[length];
                                     if ((record.Data.Buffer != (IntPtr)0) && (length != 0))
@@ -434,13 +410,14 @@ namespace System.DirectoryServices.ActiveDirectory
                                     }
                                     tmpBinaryData.Add(byteArray);
                                     tmpBinaryDataTime.Add(record.Time);
+                                    tmpBinaryRecordType.Add((int)record.ForestTrustType);
                                 }
                             }
                         }
                     }
                     finally
                     {
-                        UnsafeNativeMethods.LsaFreeMemory(forestTrustInfo);
+                        global::Interop.Advapi32.LsaFreeMemory(forestTrustInfo);
                     }
 
                     _topLevelNames = tmpTLNs;
@@ -450,6 +427,7 @@ namespace System.DirectoryServices.ActiveDirectory
                     _binaryData = tmpBinaryData;
                     _excludedNameTime = tmpExcludedNameTime;
                     _binaryDataTime = tmpBinaryDataTime;
+                    _binaryRecordType = tmpBinaryRecordType;
 
                     // mark it as retrieved
                     retrieved = true;

@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 
 namespace System.ComponentModel.DataAnnotations
@@ -18,11 +19,12 @@ namespace System.ComponentModel.DataAnnotations
         /// <param name="minimum">The minimum value, inclusive</param>
         /// <param name="maximum">The maximum value, inclusive</param>
         public RangeAttribute(int minimum, int maximum)
-            : base(() => SR.RangeAttribute_ValidationError)
+            : base(populateErrorMessageResourceAccessor: false)
         {
             Minimum = minimum;
             Maximum = maximum;
             OperandType = typeof(int);
+            ErrorMessageResourceAccessor = GetValidationErrorMessage;
         }
 
         /// <summary>
@@ -31,11 +33,12 @@ namespace System.ComponentModel.DataAnnotations
         /// <param name="minimum">The minimum value, inclusive</param>
         /// <param name="maximum">The maximum value, inclusive</param>
         public RangeAttribute(double minimum, double maximum)
-            : base(() => SR.RangeAttribute_ValidationError)
+            : base(populateErrorMessageResourceAccessor: false)
         {
             Minimum = minimum;
             Maximum = maximum;
             OperandType = typeof(double);
+            ErrorMessageResourceAccessor = GetValidationErrorMessage;
         }
 
         /// <summary>
@@ -45,12 +48,17 @@ namespace System.ComponentModel.DataAnnotations
         /// <param name="type">The type of the range parameters. Must implement IComparable.</param>
         /// <param name="minimum">The minimum allowable value.</param>
         /// <param name="maximum">The maximum allowable value.</param>
-        public RangeAttribute(Type type, string minimum, string maximum)
-            : base(() => SR.RangeAttribute_ValidationError)
+        [RequiresUnreferencedCode("Generic TypeConverters may require the generic types to be annotated. For example, NullableConverter requires the underlying type to be DynamicallyAccessedMembers All.")]
+        public RangeAttribute(
+            [DynamicallyAccessedMembers(AssociatedMetadataTypeTypeDescriptionProvider.AllMembersAndInterfaces)] Type type,
+            string minimum,
+            string maximum)
+            : base(populateErrorMessageResourceAccessor: false)
         {
             OperandType = type;
             Minimum = minimum;
             Maximum = maximum;
+            ErrorMessageResourceAccessor = GetValidationErrorMessage;
         }
 
         /// <summary>
@@ -64,9 +72,20 @@ namespace System.ComponentModel.DataAnnotations
         public object Maximum { get; private set; }
 
         /// <summary>
+        ///     Specifies whether validation should fail for values that are equal to <see cref="Minimum"/>.
+        /// </summary>
+        public bool MinimumIsExclusive { get; set; }
+
+        /// <summary>
+        ///     Specifies whether validation should fail for values that are equal to <see cref="Maximum"/>.
+        /// </summary>
+        public bool MaximumIsExclusive { get; set; }
+
+        /// <summary>
         ///     Gets the type of the <see cref="Minimum" /> and <see cref="Maximum" /> values (e.g. Int32, Double, or some custom
         ///     type)
         /// </summary>
+        [DynamicallyAccessedMembers(AssociatedMetadataTypeTypeDescriptionProvider.AllMembersAndInterfaces)]
         public Type OperandType { get; }
 
         /// <summary>
@@ -88,9 +107,14 @@ namespace System.ComponentModel.DataAnnotations
 
         private void Initialize(IComparable minimum, IComparable maximum, Func<object, object?> conversion)
         {
-            if (minimum.CompareTo(maximum) > 0)
+            int cmp = minimum.CompareTo(maximum);
+            if (cmp > 0)
             {
                 throw new InvalidOperationException(SR.Format(SR.RangeAttribute_MinGreaterThanMax, maximum, minimum));
+            }
+            else if (cmp == 0 && (MinimumIsExclusive || MaximumIsExclusive))
+            {
+                throw new InvalidOperationException(SR.RangeAttribute_CannotUseExclusiveBoundsWhenTheyAreEqual);
             }
 
             Minimum = minimum;
@@ -110,7 +134,7 @@ namespace System.ComponentModel.DataAnnotations
             SetupConversion();
 
             // Automatically pass if value is null or empty. RequiredAttribute should be used to assert a value is not empty.
-            if (value == null || (value as string)?.Length == 0)
+            if (value is null or string { Length: 0 })
             {
                 return true;
             }
@@ -133,10 +157,16 @@ namespace System.ComponentModel.DataAnnotations
             {
                 return false;
             }
+            catch (OverflowException)
+            {
+                return false;
+            }
 
             var min = (IComparable)Minimum;
             var max = (IComparable)Maximum;
-            return min.CompareTo(convertedValue) <= 0 && max.CompareTo(convertedValue) >= 0;
+            return
+                (MinimumIsExclusive ? min.CompareTo(convertedValue) < 0 : min.CompareTo(convertedValue) <= 0) &&
+                (MaximumIsExclusive ? max.CompareTo(convertedValue) > 0 : max.CompareTo(convertedValue) >= 0);
         }
 
         /// <summary>
@@ -148,9 +178,24 @@ namespace System.ComponentModel.DataAnnotations
         /// <exception cref="InvalidOperationException"> is thrown if the current attribute is ill-formed.</exception>
         public override string FormatErrorMessage(string name)
         {
+            // Preserve range validation before resolving ErrorMessageString.
+            // FormatMessage also initializes conversion for direct callers.
             SetupConversion();
 
-            return string.Format(CultureInfo.CurrentCulture, ErrorMessageString, name, Minimum, Maximum);
+            return FormatMessage(ErrorMessageString, name);
+        }
+
+        /// <inheritdoc />
+        /// <remarks>
+        /// <c>{0}</c> is replaced with <paramref name="name" />, <c>{1}</c> is replaced with <see cref="Minimum" />,
+        /// and <c>{2}</c> is replaced with <see cref="Maximum" />.
+        /// </remarks>
+        /// <exception cref="InvalidOperationException">The attribute is not configured with a valid range.</exception>
+        public override string FormatMessage([StringSyntax(StringSyntaxAttribute.CompositeFormat)] string format, string name)
+        {
+            SetupConversion();
+
+            return string.Format(CultureInfo.CurrentCulture, format, name, Minimum, Maximum);
         }
 
         /// <summary>
@@ -199,13 +244,13 @@ namespace System.ComponentModel.DataAnnotations
                                                             comparableType.FullName));
                     }
 
-                    TypeConverter converter = TypeDescriptor.GetConverter(type);
+                    TypeConverter converter = GetOperandTypeConverter();
                     IComparable min = (IComparable)(ParseLimitsInInvariantCulture
-                        ? converter.ConvertFromInvariantString((string)minimum)
-                        : converter.ConvertFromString((string)minimum));
+                        ? converter.ConvertFromInvariantString((string)minimum)!
+                        : converter.ConvertFromString((string)minimum))!;
                     IComparable max = (IComparable)(ParseLimitsInInvariantCulture
-                        ? converter.ConvertFromInvariantString((string)maximum)
-                        : converter.ConvertFromString((string)maximum));
+                        ? converter.ConvertFromInvariantString((string)maximum)!
+                        : converter.ConvertFromString((string)maximum))!;
 
                     Func<object, object?> conversion;
                     if (ConvertValueInInvariantCulture)
@@ -222,6 +267,22 @@ namespace System.ComponentModel.DataAnnotations
                     Initialize(min, max, conversion);
                 }
             }
+        }
+
+        [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
+            Justification = "The ctor that allows this code to be called is marked with RequiresUnreferencedCode.")]
+        private TypeConverter GetOperandTypeConverter() =>
+            TypeDescriptor.GetConverter(OperandType);
+
+        private string GetValidationErrorMessage()
+        {
+            return (MinimumIsExclusive, MaximumIsExclusive) switch
+            {
+                (false, false) => SR.RangeAttribute_ValidationError,
+                (true, false) => SR.RangeAttribute_ValidationError_MinExclusive,
+                (false, true) => SR.RangeAttribute_ValidationError_MaxExclusive,
+                (true, true) => SR.RangeAttribute_ValidationError_MinExclusive_MaxExclusive,
+            };
         }
     }
 }

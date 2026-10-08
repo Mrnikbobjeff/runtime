@@ -3,16 +3,19 @@
 
 using System;
 using System.Reflection;
+using Xunit;
 
-unsafe class Program
+unsafe public class Program
 {
+
     public static void AsTypedReference<T>(ref T value, TypedReference* output)
     {
         *output = __makeref(value);
         value = (T)(object)"Hello";
     }
 
-    static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         // In this test, we try to reflect on a signature of a method that takes a TypedReference*.
         // This is not useful for much else than Reflection.Emit or Delegate.CreateDelegate.

@@ -15,9 +15,6 @@ namespace System.Reflection.Metadata
 
         internal CustomAttribute(MetadataReader reader, uint treatmentAndRowId)
         {
-            Debug.Assert(reader != null);
-            Debug.Assert(treatmentAndRowId != 0);
-
             _reader = reader;
             _treatmentAndRowId = treatmentAndRowId;
         }
@@ -138,7 +135,7 @@ namespace System.Reflection.Metadata
                     break;
 
                 default:
-                    Debug.Assert(false, $"Unexpected treatment {treatment}");
+                    Debug.Fail($"Unexpected treatment {treatment}");
                     return default(BlobHandle);
             }
 

@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 /*
+using TestLibrary;
 A --> B --> C --> D --> E --> A
 3 threads: Thread T1 starts initialization at A, thread T2 starts initialization at C, and thread T3 starts initialization at E.  
 A::.cctor sleeps for a few seconds so Thread T1 is blocked.
@@ -20,6 +21,8 @@ In C.cctor: thread T2: D.i 8
 using System;
 using System.Threading;
 using System.Runtime.CompilerServices;
+using Xunit;
+using TestLibrary;
 public class A 
 {
 	public static int i;
@@ -120,7 +123,7 @@ public class E
 
 }
 
-public class Test
+public class Test_CircularCctorThreeThreads02
 {
 
 	public static void RunGetA()
@@ -139,7 +142,9 @@ public class Test
 	}
 
 
-	public static int Main()
+ [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint()
 	{
 
 		Thread t1 = new Thread(RunGetA);

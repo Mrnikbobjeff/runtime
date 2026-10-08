@@ -4,7 +4,7 @@
  * Licensed under the MIT license. See LICENSE file in the project root for full license information.
  */
 #include "config.h"
-#include "loader.h"
+#include <mono/metadata/loader.h>
 #include "mono/metadata/abi-details.h"
 #include "mono/metadata/method-builder.h"
 #include "mono/metadata/method-builder-ilgen.h"
@@ -29,7 +29,7 @@ enum {
 #undef OPDEF
 
 static MonoMethodBuilder *
-new_base_ilgen (MonoClass *klass, MonoWrapperType type)
+new_base_ilgen (MonoClass *klass, MonoWrapperType type, gboolean dynamic)
 {
 	MonoMethodBuilder *mb;
 	MonoMethod *m;
@@ -38,7 +38,10 @@ new_base_ilgen (MonoClass *klass, MonoWrapperType type)
 
 	mb = g_new0 (MonoMethodBuilder, 1);
 
-	mb->method = m = (MonoMethod *)g_new0 (MonoMethodWrapper, 1);
+	if (dynamic)
+		mb->method = m = (MonoMethod *)g_new0 (MonoDynamicMethod, 1);
+	else
+		mb->method = m = (MonoMethod *)g_new0 (MonoMethodWrapper, 1);
 
 	m->klass = klass;
 	m->inline_info = 1;
@@ -47,8 +50,9 @@ new_base_ilgen (MonoClass *klass, MonoWrapperType type)
 	mb->code_size = 40;
 	mb->code = (unsigned char *)g_malloc (mb->code_size);
 	mb->init_locals = TRUE;
+	mb->dynamic = dynamic;
 
-	/* placeholder for the wrapper always at index 1 */
+	/* placeholder for the wrapper always at index 1, see mono_marshal_set_wrapper_info */
 	mono_mb_add_data (mb, NULL);
 
 	return mb;
@@ -57,20 +61,47 @@ new_base_ilgen (MonoClass *klass, MonoWrapperType type)
 static void
 free_ilgen (MonoMethodBuilder *mb)
 {
-	GList *l;
+	if (mb->wrapper_data_inflate_info) {
+		for (GList *p = mb->wrapper_data_inflate_info; p && p->data; p = p->next) {
+			g_free (p->data);
+		}
+		g_list_free (mb->wrapper_data_inflate_info);
+		mb->wrapper_data_inflate_info = NULL;
+	}
 
-	for (l = mb->locals_list; l; l = l->next) {
+	for (GList *l = mb->locals_list; l; l = l->next) {
 		/* Allocated in mono_mb_add_local () */
 		g_free (l->data);
 	}
 	g_list_free (mb->locals_list);
-	if (!mb->dynamic) {
+	if (!mb->dynamic)
 		g_free (mb->method);
-		if (!mb->no_dup_name)
-			g_free (mb->name);
-		g_free (mb->code);
-	}
+	if (!mb->no_dup_name)
+		g_free (mb->name);
+	g_free (mb->code);
 	g_free (mb);
+}
+
+static gpointer
+mb_alloc0 (MonoMethodBuilder *mb, int size)
+{
+	if (mb->dynamic)
+		return g_malloc0 (size);
+	else if (mb->mem_manager)
+		return mono_mem_manager_alloc0 (mb->mem_manager, size);
+	else
+		return mono_image_alloc0 (m_class_get_image (mb->method->klass), size);
+}
+
+static char*
+mb_strdup (MonoMethodBuilder *mb, const char *s)
+{
+	if (mb->dynamic)
+		return g_strdup (s);
+	else if (mb->mem_manager)
+		return mono_mem_manager_strdup (mb->mem_manager, s);
+	else
+		return mono_image_strdup (m_class_get_image (mb->method->klass), s);
 }
 
 static MonoMethod *
@@ -88,41 +119,34 @@ create_method_ilgen (MonoMethodBuilder *mb, MonoMethodSignature *signature, int 
 	image = m_class_get_image (mb->method->klass);
 
 	if (mb->dynamic) {
+		/* Allocated in reflection_methodbuilder_to_mono_method ()/mb_new () */
 		method = mb->method;
-		mw = (MonoMethodWrapper*)method;
-
-		method->name = mb->name;
-		method->dynamic = TRUE;
-
-		mw->header = header = (MonoMethodHeader *) 
-			g_malloc0 (MONO_SIZEOF_METHOD_HEADER + mb->locals * sizeof (MonoType *));
-
-		header->code = mb->code;
-
-		for (i = 0, l = mb->locals_list; l; l = l->next, i++) {
-			header->locals [i] = (MonoType*)l->data;
-		}
-	} else
-	{
-		/* Realloc the method info into a mempool */
-
-		method = (MonoMethod *)mono_image_alloc0 (image, sizeof (MonoMethodWrapper));
+	} else {
+		method = (MonoMethod *)mb_alloc0 (mb, sizeof (MonoMethodWrapper));
 		memcpy (method, mb->method, sizeof (MonoMethodWrapper));
-		mw = (MonoMethodWrapper*) method;
+	}
+	mw = (MonoMethodWrapper*) method;
+	mw->mem_manager = mb->mem_manager;
+	if (mb->no_dup_name)
+		method->name = mb->name;
+	else
+		method->name = mb_strdup (mb, mb->name);
+	method->dynamic = mb->dynamic;
+	mw->header = header = (MonoMethodHeader *)
+		mb_alloc0 (mb, MONO_SIZEOF_METHOD_HEADER + mb->locals * sizeof (MonoType *));
+	header->code = (const unsigned char *)mb_alloc0 (mb, mb->pos);
+	memcpy ((char*)header->code, mb->code, mb->pos);
 
-		if (mb->no_dup_name)
-			method->name = mb->name;
-		else
-			method->name = mono_image_strdup (image, mb->name);
-
-		mw->header = header = (MonoMethodHeader *) 
-			mono_image_alloc0 (image, MONO_SIZEOF_METHOD_HEADER + mb->locals * sizeof (MonoType *));
-
-		header->code = (const unsigned char *)mono_image_alloc (image, mb->pos);
-		memcpy ((char*)header->code, mb->code, mb->pos);
-
-		for (i = 0, l = mb->locals_list; l; l = l->next, i++) {
-			header->locals [i] = (MonoType*)l->data;
+	for (i = 0, l = mb->locals_list; l; l = l->next, i++) {
+		MonoType *type = (MonoType*)l->data;
+		if (mb->mem_manager) {
+			/* Allocated in mono_mb_add_local () */
+			size_t size = mono_sizeof_type (type);
+			header->locals [i] = mono_mem_manager_alloc0 (mb->mem_manager, (guint)size);
+			memcpy (header->locals [i], type, size);
+			g_free (type);
+		} else {
+			header->locals [i] = type;
 		}
 	}
 
@@ -137,10 +161,10 @@ create_method_ilgen (MonoMethodBuilder *mb, MonoMethodSignature *signature, int 
 	if (max_stack < 8)
 		max_stack = 8;
 
-	header->max_stack = max_stack;
+	header->max_stack = GINT_TO_UINT16 (max_stack);
 
 	header->code_size = mb->pos;
-	header->num_locals = mb->locals;
+	header->num_locals = GINT_TO_UINT16 (mb->locals);
 	header->init_locals = mb->init_locals;
 	header->volatile_args = mb->volatile_args;
 	header->volatile_locals = mb->volatile_locals;
@@ -154,17 +178,44 @@ create_method_ilgen (MonoMethodBuilder *mb, MonoMethodSignature *signature, int 
 
 	i = g_list_length ((GList *)mw->method_data);
 	if (i) {
+		MonoMethodBuilderInflateWrapperData *inflate_data = NULL;
+		if (mb->inflate_wrapper_data) {
+			int count = g_list_length (mb->wrapper_data_inflate_info);
+			inflate_data = (MonoMethodBuilderInflateWrapperData *) mb_alloc0 (mb, sizeof(MonoMethodBuilderInflateWrapperData) * (count + 1));
+			int j = 0;
+			for (GList *p = mb->wrapper_data_inflate_info; p && p->data; p = p->next) {
+				inflate_data[j++] = *(MonoMethodBuilderInflateWrapperData*)p->data;
+			}
+			// trailing idx 0 element to mark the end
+			inflate_data[j].idx = 0;
+			inflate_data[j].kind = MONO_MB_ILGEN_WRAPPER_DATA_NONE;
+			mw->inflate_wrapper_data = 1;
+		}
 		GList *tmp;
 		void **data;
 		l = g_list_reverse ((GList *)mw->method_data);
-		if (method_is_dynamic (method))
-			data = (void **)g_malloc (sizeof (gpointer) * (i + 1));
-		else
-			data = (void **)mono_image_alloc (image, sizeof (gpointer) * (i + 1));
+		int data_count = i + (inflate_data ? 2 : 1);
+		data = (void **)mb_alloc0 (mb, sizeof (gpointer) * data_count);
 		/* store the size in the first element */
 		data [0] = GUINT_TO_POINTER (i);
 		i = 1;
-		for (tmp = l; tmp; tmp = tmp->next) {
+
+		// manually peel off the first 1 or 2 iterations of the loop since they're special
+		tmp = l;
+		g_assert (tmp);
+		// wrapper info is in slot 1
+		g_assert (tmp->data == NULL);
+		data [i++] = NULL;
+		tmp = tmp->next;
+		// inflate data is in slot 2
+		if (inflate_data) {
+			g_assert (tmp);
+			g_assert (MONO_MB_ILGEN_INFLATE_WRAPPER_INFO_IDX == i);
+			g_assert (tmp->data == NULL);
+			data[i++] = inflate_data;
+			tmp = tmp->next;
+		}
+		for (;tmp; tmp = tmp->next) {
 			data [i++] = tmp->data;
 		}
 		g_list_free (l);
@@ -186,15 +237,31 @@ create_method_ilgen (MonoMethodBuilder *mb, MonoMethodSignature *signature, int 
 #endif
 
 	if (mb->param_names) {
-		char **param_names = (char **)mono_image_alloc0 (image, signature->param_count * sizeof (gpointer));
+		char **param_names = (char **)mb_alloc0 (mb, signature->param_count * sizeof (gpointer));
 		for (i = 0; i < signature->param_count; ++i)
-			param_names [i] = mono_image_strdup (image, mb->param_names [i]);
+			param_names [i] = mb_strdup (mb, mb->param_names [i]);
+
+		// FIXME: Mem managers
 
 		mono_image_lock (image);
 		if (!image->wrapper_param_names)
 			image->wrapper_param_names = g_hash_table_new (NULL, NULL);
 		g_hash_table_insert (image->wrapper_param_names, method, param_names);
 		mono_image_unlock (image);
+	}
+
+	if (mb->method->is_generic) {
+		method->is_generic = TRUE;
+		MonoGenericContainer *container = mono_method_get_generic_container (mb->method);
+		mono_method_set_generic_container (method, container);
+		g_assert (!container->is_anonymous);
+		g_assert (container->is_method);
+		g_assert (container->owner.method == mb->method);
+		// NOTE: reassigning container owner from the method builder placeholder to the
+		// final created method.  The "proper" way to do this would be a deep copy or
+		// calling mono_metadata_load_generic_params again and inflating everything.  But
+		// method builder is already one-shot, so this is ok, too.
+		container->owner.method = method;
 	}
 
 	return method;
@@ -309,7 +376,7 @@ mono_mb_emit_i8 (MonoMethodBuilder *mb, gint64 data)
 		mb->code = (unsigned char *)g_realloc (mb->code, mb->code_size);
 	}
 
-	mono_mb_patch_addr (mb, mb->pos, data);
+	mono_mb_patch_addr (mb, mb->pos, GINT64_TO_INT (data));
 	mono_mb_patch_addr (mb, mb->pos + 4, data >> 32);
 	mb->pos += 8;
 }
@@ -353,14 +420,14 @@ void
 mono_mb_emit_ldarg (MonoMethodBuilder *mb, guint argnum)
 {
 	if (argnum < 4) {
- 		mono_mb_emit_byte (mb, CEE_LDARG_0 + argnum);
+		mono_mb_emit_byte (mb, GUINT_TO_UINT8 (CEE_LDARG_0 + argnum));
 	} else if (argnum < 256) {
 		mono_mb_emit_byte (mb, CEE_LDARG_S);
-		mono_mb_emit_byte (mb, argnum);
+		mono_mb_emit_byte (mb, GUINT_TO_UINT8 (argnum));
 	} else {
 		mono_mb_emit_byte (mb, CEE_PREFIX1);
 		mono_mb_emit_byte (mb, CEE_LDARG);
-		mono_mb_emit_i2 (mb, argnum);
+		mono_mb_emit_i2 (mb, GUINT_TO_INT16 (argnum));
 	}
 }
 
@@ -372,11 +439,11 @@ mono_mb_emit_ldarg_addr (MonoMethodBuilder *mb, guint argnum)
 {
 	if (argnum < 256) {
 		mono_mb_emit_byte (mb, CEE_LDARGA_S);
-		mono_mb_emit_byte (mb, argnum);
+		mono_mb_emit_byte (mb, GUINT_TO_UINT8 (argnum));
 	} else {
 		mono_mb_emit_byte (mb, CEE_PREFIX1);
 		mono_mb_emit_byte (mb, CEE_LDARGA);
-		mono_mb_emit_i2 (mb, argnum);
+		mono_mb_emit_i2 (mb, GUINT_TO_INT16 (argnum));
 	}
 }
 
@@ -388,11 +455,11 @@ mono_mb_emit_ldloc_addr (MonoMethodBuilder *mb, guint locnum)
 {
 	if (locnum < 256) {
 		mono_mb_emit_byte (mb, CEE_LDLOCA_S);
-		mono_mb_emit_byte (mb, locnum);
+		mono_mb_emit_byte (mb, GUINT_TO_UINT8 (locnum));
 	} else {
 		mono_mb_emit_byte (mb, CEE_PREFIX1);
 		mono_mb_emit_byte (mb, CEE_LDLOCA);
-		mono_mb_emit_i2 (mb, locnum);
+		mono_mb_emit_i2 (mb, GUINT_TO_INT16 (locnum));
 	}
 }
 
@@ -403,14 +470,14 @@ void
 mono_mb_emit_ldloc (MonoMethodBuilder *mb, guint num)
 {
 	if (num < 4) {
- 		mono_mb_emit_byte (mb, CEE_LDLOC_0 + num);
+		mono_mb_emit_byte (mb, GUINT_TO_UINT8 (CEE_LDLOC_0 + num));
 	} else if (num < 256) {
 		mono_mb_emit_byte (mb, CEE_LDLOC_S);
-		mono_mb_emit_byte (mb, num);
+		mono_mb_emit_byte (mb, GUINT_TO_UINT8 (num));
 	} else {
 		mono_mb_emit_byte (mb, CEE_PREFIX1);
 		mono_mb_emit_byte (mb, CEE_LDLOC);
-		mono_mb_emit_i2 (mb, num);
+		mono_mb_emit_i2 (mb, GUINT_TO_INT16 (num));
 	}
 }
 
@@ -421,14 +488,14 @@ void
 mono_mb_emit_stloc (MonoMethodBuilder *mb, guint num)
 {
 	if (num < 4) {
- 		mono_mb_emit_byte (mb, CEE_STLOC_0 + num);
+		mono_mb_emit_byte (mb, GUINT_TO_UINT8 (CEE_STLOC_0 + num));
 	} else if (num < 256) {
 		mono_mb_emit_byte (mb, CEE_STLOC_S);
-		mono_mb_emit_byte (mb, num);
+		mono_mb_emit_byte (mb, GUINT_TO_UINT8 (num));
 	} else {
 		mono_mb_emit_byte (mb, CEE_PREFIX1);
 		mono_mb_emit_byte (mb, CEE_STLOC);
-		mono_mb_emit_i2 (mb, num);
+		mono_mb_emit_i2 (mb, GUINT_TO_INT16 (num));
 	}
 }
 
@@ -439,10 +506,10 @@ void
 mono_mb_emit_icon (MonoMethodBuilder *mb, gint32 value)
 {
 	if (value >= -1 && value < 8) {
-		mono_mb_emit_byte (mb, CEE_LDC_I4_0 + value);
+		mono_mb_emit_byte (mb, GINT32_TO_UINT8 (CEE_LDC_I4_0 + value));
 	} else if (value >= -128 && value <= 127) {
 		mono_mb_emit_byte (mb, CEE_LDC_I4_S);
-		mono_mb_emit_byte (mb, value);
+		mono_mb_emit_byte (mb, GINT32_TO_UINT8 (value));
 	} else {
 		mono_mb_emit_byte (mb, CEE_LDC_I4);
 		mono_mb_emit_i4 (mb, value);
@@ -508,7 +575,7 @@ mono_mb_patch_branch (MonoMethodBuilder *mb, guint32 pos)
 void
 mono_mb_patch_short_branch (MonoMethodBuilder *mb, guint32 pos)
 {
-	mono_mb_patch_addr_s (mb, pos, mb->pos - (pos + 1));
+	mono_mb_patch_addr_s (mb, pos, GUINT32_TO_INT8 (mb->pos - (pos + 1)));
 }
 
 void
@@ -594,7 +661,7 @@ mono_mb_emit_exception_for_error (MonoMethodBuilder *mb, MonoError *error)
 	g_assert (mono_error_get_error_code (error) == MONO_ERROR_GENERIC && "Unsupported error code.");
 	/* Have to copy the message because it will be referenced from JITed code while the MonoError may be freed. */
 	char *msg = mono_mb_strdup (mb, mono_error_get_message (error));
-	mono_mb_emit_exception_full (mb, "System", mono_error_get_exception_name (error), msg);
+	mono_mb_emit_exception_full (mb, mono_error_get_exception_name_space (error), mono_error_get_exception_name (error), msg);
 }
 
 /**
@@ -603,10 +670,18 @@ mono_mb_emit_exception_for_error (MonoMethodBuilder *mb, MonoError *error)
 void
 mono_mb_emit_add_to_local (MonoMethodBuilder *mb, guint16 local, gint32 incr)
 {
-	mono_mb_emit_ldloc (mb, local); 
+	mono_mb_emit_ldloc (mb, local);
 	mono_mb_emit_icon (mb, incr);
 	mono_mb_emit_byte (mb, CEE_ADD);
-	mono_mb_emit_stloc (mb, local); 
+	mono_mb_emit_stloc (mb, local);
+}
+
+void
+mono_mb_emit_no_nullcheck (MonoMethodBuilder *mb)
+{
+	mono_mb_emit_byte (mb, CEE_PREFIX1);
+	mono_mb_emit_byte (mb, CEE_NO_);
+	mono_mb_emit_byte (mb, CEE_NO_NULLCHECK);
 }
 
 void
@@ -626,4 +701,78 @@ void
 mono_mb_set_param_names (MonoMethodBuilder *mb, const char **param_names)
 {
 	mb->param_names = param_names;
+}
+
+void
+mono_mb_set_wrapper_data_kind (MonoMethodBuilder *mb, uint16_t wrapper_data_kind)
+{
+	g_assert (mb->inflate_wrapper_data);
+	MonoMethodWrapper *mw = (MonoMethodWrapper*)mb->method;
+	// index of the data added by most recent mono_mb_add_data
+	int idx = g_list_length((GList *)mw->method_data);
+	g_assert (idx > 0 && idx <= UINT16_MAX);
+
+	MonoMethodBuilderInflateWrapperData *info = g_new (MonoMethodBuilderInflateWrapperData, 1);
+	info->idx = (uint16_t)idx;
+	info->kind = wrapper_data_kind;
+	mb->wrapper_data_inflate_info = g_list_prepend (mb->wrapper_data_inflate_info, info);
+}
+
+gboolean
+mono_mb_inflate_generic_wrapper_data (MonoGenericContext *context, gpointer *method_data, MonoError *error)
+{
+	MonoMethodBuilderInflateWrapperData* inflate_info = (MonoMethodBuilderInflateWrapperData*)method_data[MONO_MB_ILGEN_INFLATE_WRAPPER_INFO_IDX];
+	MonoMethodBuilderInflateWrapperData* p = inflate_info;
+
+	while (p && p->idx != 0) {
+		int idx = p->idx;
+		uint16_t kind = p->kind;
+		gpointer *pdata = &method_data[idx];
+		switch (kind) {
+		case MONO_MB_ILGEN_WRAPPER_DATA_NONE:
+			continue;
+		case MONO_MB_ILGEN_WRAPPER_DATA_FIELD: {
+			MonoClassField *field = (MonoClassField*)*pdata;
+			MonoType *inflated_type = mono_class_inflate_generic_type_checked (m_class_get_byval_arg (m_field_get_parent (field)), context, error);
+			if (!is_ok (error))
+				return FALSE;
+
+			MonoClass *inflated_class = mono_class_from_mono_type_internal (inflated_type);
+			// TODO: EnC metadata-update.  But note:
+			//    error ENC0025: Adding an extern method requires restarting the application.
+			//
+			// So for UnsafeAccessor methods we don't need to handle this
+			// until https://github.com/dotnet/runtime/issues/102080
+			//
+			// But if we have other kinds of generic wrappers, we may need to do it sooner.
+			g_assert (!m_field_is_from_update (field));
+			int i = GPTRDIFF_TO_INT (field - m_class_get_fields (m_field_get_parent (field)));
+			gpointer dummy = NULL;
+
+			mono_metadata_free_type (inflated_type);
+
+			// note: inflated class might not have been used for much yet.  Ensure
+			// fields are initialized.
+			mono_class_get_fields_internal (inflated_class, &dummy);
+			g_assert (m_class_get_fields (inflated_class));
+
+			MonoClassField *inflated_field = &m_class_get_fields (inflated_class) [i];
+
+			*pdata = inflated_field;
+			break;
+		}
+		case MONO_MB_ILGEN_WRAPPER_DATA_METHOD: {
+			MonoMethod *method = (MonoMethod*)*pdata;
+			MonoMethod *inflated_method = mono_class_inflate_generic_method_checked (method, context, error);
+			if (!is_ok (error))
+				return FALSE;
+			*pdata = inflated_method;
+			break;
+		}
+		default:
+			g_assert_not_reached();
+		}
+		p++;
+	}
+	return TRUE;
 }

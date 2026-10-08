@@ -10,14 +10,14 @@ internal static partial class Interop
 {
     internal static partial class Sys
     {
-        [DllImport(Libraries.SystemNative, EntryPoint = "SystemNative_INotifyInit", SetLastError = true)]
-        internal static extern SafeFileHandle INotifyInit();
+        [LibraryImport(Libraries.SystemNative, EntryPoint = "SystemNative_INotifyInit", SetLastError = true)]
+        internal static partial SafeFileHandle INotifyInit();
 
-        [DllImport(Libraries.SystemNative, EntryPoint = "SystemNative_INotifyAddWatch", SetLastError = true)]
-        internal static extern int INotifyAddWatch(SafeFileHandle fd, string pathName, uint mask);
+        [LibraryImport(Libraries.SystemNative, EntryPoint = "SystemNative_INotifyAddWatch", StringMarshalling = StringMarshalling.Utf8, SetLastError = true)]
+        internal static partial int INotifyAddWatch(SafeFileHandle fd, string pathName, uint mask);
 
-        [DllImport(Libraries.SystemNative, EntryPoint = "SystemNative_INotifyRemoveWatch", SetLastError = true)]
-        private static extern int INotifyRemoveWatch_private(SafeFileHandle fd, int wd);
+        [LibraryImport(Libraries.SystemNative, EntryPoint = "SystemNative_INotifyRemoveWatch", SetLastError = true)]
+        private static partial int INotifyRemoveWatch_private(SafeFileHandle fd, int wd);
 
         internal static int INotifyRemoveWatch(SafeFileHandle fd, int wd)
         {
@@ -51,11 +51,13 @@ internal static partial class Interop
             IN_MOVED_TO    = 0x00000080,
             IN_CREATE      = 0x00000100,
             IN_DELETE      = 0x00000200,
+            IN_MOVE_SELF   = 0x00000800,
             IN_Q_OVERFLOW  = 0x00004000,
             IN_IGNORED     = 0x00008000,
             IN_ONLYDIR     = 0x01000000,
             IN_DONT_FOLLOW = 0x02000000,
             IN_EXCL_UNLINK = 0x04000000,
+            IN_MASK_ADD    = 0x20000000,
             IN_ISDIR       = 0x40000000,
         }
     }

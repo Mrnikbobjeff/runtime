@@ -28,8 +28,9 @@ namespace System.Diagnostics.Tests
             return SuccessExitCode;
         }
 
-        public static int Sleep(string duration)
+        public static int Sleep(string duration, string callerName)
         {
+            _ = callerName; // argument ignored, for debugging purposes
             Thread.Sleep(int.Parse(duration));
             return SuccessExitCode;
         }
@@ -66,6 +67,12 @@ namespace System.Diagnostics.Tests
             return line == "Success" ? SuccessExitCode : SuccessExitCode + 1;
         }
 
+        public static int Echo(string value)
+        {
+            Console.WriteLine(value);
+            return SuccessExitCode;
+        }
+
         public static int ReadLineWriteIfNull()
         {
             string line = Console.ReadLine();
@@ -92,7 +99,7 @@ namespace System.Diagnostics.Tests
         public static int WriteSlowlyByByte()
         {
             var stdout = Console.OpenStandardOutput();
-            var bytes = new byte[] { 97, 0 }; //Encoding.Unicode.GetBytes("a");
+            var bytes = new byte[] { 97, 0 }; // Encoding.Unicode.GetBytes("a");
 
             for (int i = 0; i != bytes.Length; ++i)
             {

@@ -15,10 +15,15 @@ namespace System.Buffers
 #endif
     sealed class ArrayBufferWriter<T> : IBufferWriter<T>
     {
+        // Copy of Array.MaxLength.
+        // Used by projects targeting .NET Framework.
+        private const int ArrayMaxLength = 0x7FFFFFC7;
+
+        private const int DefaultInitialBufferSize = 256;
+
         private T[] _buffer;
         private int _index;
 
-        private const int DefaultInitialBufferSize = 256;
 
         /// <summary>
         /// Creates an instance of an <see cref="ArrayBufferWriter{T}"/>, in which data can be written to,
@@ -76,14 +81,35 @@ namespace System.Buffers
         /// Clears the data written to the underlying buffer.
         /// </summary>
         /// <remarks>
-        /// You must clear the <see cref="ArrayBufferWriter{T}"/> before trying to re-use it.
+        /// <para>
+        /// You must reset or clear the <see cref="ArrayBufferWriter{T}"/> before trying to re-use it.
+        /// </para>
+        /// <para>
+        /// The <see cref="ResetWrittenCount"/> method is faster since it only sets to zero the writer's index
+        /// while the <see cref="Clear"/> method additionally zeroes the content of the underlying buffer.
+        /// </para>
         /// </remarks>
+        /// <seealso cref="ResetWrittenCount"/>
         public void Clear()
         {
             Debug.Assert(_buffer.Length >= _index);
             _buffer.AsSpan(0, _index).Clear();
             _index = 0;
         }
+
+        /// <summary>
+        /// Resets the data written to the underlying buffer without zeroing its content.
+        /// </summary>
+        /// <remarks>
+        /// <para>
+        /// You must reset or clear the <see cref="ArrayBufferWriter{T}"/> before trying to re-use it.
+        /// </para>
+        /// <para>
+        /// If you reset the writer using the <see cref="ResetWrittenCount"/> method, the underlying buffer will not be cleared.
+        /// </para>
+        /// </remarks>
+        /// <seealso cref="Clear"/>
+        public void ResetWrittenCount() => _index = 0;
 
         /// <summary>
         /// Notifies <see cref="IBufferWriter{T}"/> that <paramref name="count"/> amount of data was written to the output <see cref="Span{T}"/>/<see cref="Memory{T}"/>
@@ -116,13 +142,21 @@ namespace System.Buffers
         /// Thrown when <paramref name="sizeHint"/> is negative.
         /// </exception>
         /// <remarks>
+        /// <para>
         /// This will never return an empty <see cref="Memory{T}"/>.
-        /// </remarks>
-        /// <remarks>
+        /// </para>
+        /// <para>
         /// There is no guarantee that successive calls will return the same buffer or the same-sized buffer.
-        /// </remarks>
-        /// <remarks>
+        /// </para>
+        /// <para>
         /// You must request a new buffer after calling Advance to continue writing more data and cannot write to a previously acquired buffer.
+        /// </para>
+        /// <para>
+        /// If you reset the writer using the <see cref="ResetWrittenCount"/> method, this method may return a non-cleared <see cref="Memory{T}"/>.
+        /// </para>
+        /// <para>
+        /// If you clear the writer using the <see cref="Clear"/> method, this method will return a <see cref="Memory{T}"/> with its content zeroed.
+        /// </para>
         /// </remarks>
         public Memory<T> GetMemory(int sizeHint = 0)
         {
@@ -139,13 +173,21 @@ namespace System.Buffers
         /// Thrown when <paramref name="sizeHint"/> is negative.
         /// </exception>
         /// <remarks>
+        /// <para>
         /// This will never return an empty <see cref="Span{T}"/>.
-        /// </remarks>
-        /// <remarks>
+        /// </para>
+        /// <para>
         /// There is no guarantee that successive calls will return the same buffer or the same-sized buffer.
-        /// </remarks>
-        /// <remarks>
+        /// </para>
+        /// <para>
         /// You must request a new buffer after calling Advance to continue writing more data and cannot write to a previously acquired buffer.
+        /// </para>
+        /// <para>
+        /// If you reset the writer using the <see cref="ResetWrittenCount"/> method, this method may return a non-cleared <see cref="Span{T}"/>.
+        /// </para>
+        /// <para>
+        /// If you clear the writer using the <see cref="Clear"/> method, this method will return a <see cref="Span{T}"/> with its content zeroed.
+        /// </para>
         /// </remarks>
         public Span<T> GetSpan(int sizeHint = 0)
         {
@@ -157,7 +199,7 @@ namespace System.Buffers
         private void CheckAndResizeBuffer(int sizeHint)
         {
             if (sizeHint < 0)
-                throw new ArgumentException(nameof(sizeHint));
+                throw new ArgumentException(null, nameof(sizeHint));
 
             if (sizeHint == 0)
             {
@@ -167,6 +209,8 @@ namespace System.Buffers
             if (sizeHint > FreeCapacity)
             {
                 int currentLength = _buffer.Length;
+
+                // Attempt to grow by the larger of the sizeHint and double the current size.
                 int growBy = Math.Max(sizeHint, currentLength);
 
                 if (currentLength == 0)
@@ -176,13 +220,18 @@ namespace System.Buffers
 
                 int newSize = currentLength + growBy;
 
-                if ((uint)newSize > int.MaxValue)
+                if ((uint)newSize > ArrayMaxLength)
                 {
-                    newSize = currentLength + sizeHint;
-                    if ((uint)newSize > int.MaxValue)
+                    // Attempt to grow to ArrayMaxLength.
+                    uint needed = (uint)(currentLength - FreeCapacity + sizeHint);
+                    Debug.Assert(needed > currentLength);
+
+                    if (needed > ArrayMaxLength)
                     {
-                        ThrowOutOfMemoryException((uint)newSize);
+                        ThrowOutOfMemoryException(needed);
                     }
+
+                    newSize = ArrayMaxLength;
                 }
 
                 Array.Resize(ref _buffer, newSize);

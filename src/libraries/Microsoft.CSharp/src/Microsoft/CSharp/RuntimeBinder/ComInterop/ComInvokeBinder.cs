@@ -4,13 +4,16 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Dynamic;
 using System.Linq.Expressions;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Marshalling;
 using ComTypes = System.Runtime.InteropServices.ComTypes;
 
 namespace Microsoft.CSharp.RuntimeBinder.ComInterop
 {
+    [RequiresDynamicCode(Binder.DynamicCodeWarning)]
     internal sealed class ComInvokeBinder
     {
         private readonly ComMethodDesc _methodDesc;
@@ -91,7 +94,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
 
         private ParameterExpression InvokeResultVariable
         {
-            get { return EnsureVariable(ref _invokeResult, typeof(Variant), "invokeResult"); }
+            get { return EnsureVariable(ref _invokeResult, typeof(ComVariant), "invokeResult"); }
         }
 
         private ParameterExpression ReturnValueVariable
@@ -109,17 +112,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             get { return EnsureVariable(ref _propertyPutDispId, typeof(int), "propertyPutDispId"); }
         }
 
-        private ParameterExpression ParamVariantsVariable
-        {
-            get
-            {
-                if (_paramVariants == null)
-                {
-                    _paramVariants = Expression.Variable(VariantArray.GetStructType(_args.Length), "paramVariants");
-                }
-                return _paramVariants;
-            }
-        }
+        private ParameterExpression ParamVariantsVariable => _paramVariants ??= Expression.Variable(VariantArray.GetStructType(_args.Length), "paramVariants");
 
         private static ParameterExpression EnsureVariable(ref ParameterExpression var, Type type, string name)
         {
@@ -139,15 +132,13 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             if (isByRef)
             {
                 // Null just means that null was supplied.
-                if (marshalType == null)
-                {
-                    marshalType = mo.Expression.Type;
-                }
+                marshalType ??= mo.Expression.Type;
                 marshalType = marshalType.MakeByRefType();
             }
             return marshalType;
         }
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         internal DynamicMetaObject Invoke()
         {
             _keywordArgNames = _callInfo.ArgumentNames.ToArray();
@@ -191,6 +182,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             return vars.Count > 0 ? Expression.Block(vars, expression) : expression;
         }
 
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         private Expression GenerateTryBlock()
         {
             //
@@ -316,8 +308,8 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             //
             Expression invokeResultObject =
                 Expression.Call(
-                    InvokeResultVariable,
-                    typeof(Variant).GetMethod(nameof(Variant.ToObject)));
+                    typeof(BuiltInInteropVariantExtensions).GetMethod(nameof(BuiltInInteropVariantExtensions.ToObject)),
+                    InvokeResultVariable);
 
             VariantBuilder[] variants = _varEnumSelector.VariantBuilders;
 
@@ -370,7 +362,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
             finallyStatements.Add(
                 Expression.Call(
                     InvokeResultVariable,
-                    typeof(Variant).GetMethod(nameof(Variant.Clear))
+                    typeof(ComVariant).GetMethod(nameof(ComVariant.Dispose))
                 )
             );
 
@@ -395,6 +387,7 @@ namespace Microsoft.CSharp.RuntimeBinder.ComInterop
         /// Create a stub for the target of the optimized lopop.
         /// </summary>
         /// <returns></returns>
+        [RequiresUnreferencedCode(Binder.TrimmerWarning)]
         private Expression MakeIDispatchInvokeTarget()
         {
             Debug.Assert(_varEnumSelector.VariantBuilders.Length == _totalExplicitArgs);

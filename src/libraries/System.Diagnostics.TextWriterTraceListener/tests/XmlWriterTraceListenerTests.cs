@@ -12,6 +12,7 @@ using Xunit;
 
 namespace System.Diagnostics.TextWriterTraceListenerTests
 {
+    [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "libproc is not supported on iOS/tvOS")]
     public class XmlWriterTraceListenerTests : FileCleanupTestBase
     {
         private readonly string _processName;
@@ -186,7 +187,7 @@ namespace System.Diagnostics.TextWriterTraceListenerTests
         [Theory]
         [InlineData("Fail:", null)]
         [InlineData("Fail:", "the process failed when running")]
-        public void FailTest(string message, string detailMessage)
+        public void FailTest(string message, string? detailMessage)
         {
             string file = GetTestFilePath();
             DateTime date;
@@ -212,7 +213,7 @@ namespace System.Diagnostics.TextWriterTraceListenerTests
         [Theory]
         [InlineData("This is a format without args", null)]
         [InlineData("This is my {0} to {1} a trace with {0} {2} format {3}", new object[] { "test", "try", "", 3 })]
-        public void TraceEventFormat(string format, object[] args)
+        public void TraceEventFormat(string format, object[]? args)
         {
             string file = GetTestFilePath();
             var eventCache = new TraceEventCache();

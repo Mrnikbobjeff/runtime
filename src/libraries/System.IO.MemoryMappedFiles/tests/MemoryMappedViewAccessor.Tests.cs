@@ -2,6 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using Microsoft.Win32.SafeHandles;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using Microsoft.DotNet.XUnitExtensions;
 using Xunit;
@@ -17,6 +18,7 @@ namespace System.IO.MemoryMappedFiles.Tests
         /// Test to validate the offset, size, and access parameters to MemoryMappedFile.CreateViewAccessor.
         /// </summary>
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51375", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void InvalidArguments()
         {
             int mapLength = s_pageSize.Value;
@@ -55,24 +57,33 @@ namespace System.IO.MemoryMappedFiles.Tests
             }
         }
 
+        public static IEnumerable<object[]> AccessLevelCombinationsData()
+        {
+            yield return new object[] { MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.Read };
+            yield return new object[] { MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.Write };
+            yield return new object[] { MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.ReadWrite };
+            yield return new object[] { MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.CopyOnWrite };  
+            yield return new object[] { MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.ReadExecute };
+            yield return new object[] { MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.ReadWriteExecute };
+            yield return new object[] { MemoryMappedFileAccess.ReadExecute, MemoryMappedFileAccess.Read };
+            yield return new object[] { MemoryMappedFileAccess.ReadExecute, MemoryMappedFileAccess.CopyOnWrite };
+            // https://github.com/dotnet/runtime/issues/114403
+            if (PlatformDetection.IsNotMacCatalyst)
+            {
+                yield return new object[] { MemoryMappedFileAccess.ReadExecute, MemoryMappedFileAccess.ReadExecute };
+            }
+            yield return new object[] { MemoryMappedFileAccess.CopyOnWrite, MemoryMappedFileAccess.Read };
+            yield return new object[] { MemoryMappedFileAccess.CopyOnWrite, MemoryMappedFileAccess.CopyOnWrite };
+            yield return new object[] { MemoryMappedFileAccess.ReadWrite, MemoryMappedFileAccess.Read };
+            yield return new object[] { MemoryMappedFileAccess.ReadWrite, MemoryMappedFileAccess.Write };
+            yield return new object[] { MemoryMappedFileAccess.ReadWrite, MemoryMappedFileAccess.ReadWrite };
+            yield return new object[] { MemoryMappedFileAccess.ReadWrite, MemoryMappedFileAccess.CopyOnWrite };
+            yield return new object[] { MemoryMappedFileAccess.Read, MemoryMappedFileAccess.Read };
+            yield return new object[] { MemoryMappedFileAccess.Read, MemoryMappedFileAccess.CopyOnWrite };
+        }
+
         [ConditionalTheory]
-        [InlineData(MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.Read)]
-        [InlineData(MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.Write)]
-        [InlineData(MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.ReadWrite)]
-        [InlineData(MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.CopyOnWrite)]
-        [InlineData(MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.ReadExecute)]
-        [InlineData(MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.ReadWriteExecute)]
-        [InlineData(MemoryMappedFileAccess.ReadExecute, MemoryMappedFileAccess.Read)]
-        [InlineData(MemoryMappedFileAccess.ReadExecute, MemoryMappedFileAccess.CopyOnWrite)]
-        [InlineData(MemoryMappedFileAccess.ReadExecute, MemoryMappedFileAccess.ReadExecute)]
-        [InlineData(MemoryMappedFileAccess.CopyOnWrite, MemoryMappedFileAccess.Read)]
-        [InlineData(MemoryMappedFileAccess.CopyOnWrite, MemoryMappedFileAccess.CopyOnWrite)]
-        [InlineData(MemoryMappedFileAccess.ReadWrite, MemoryMappedFileAccess.Read)]
-        [InlineData(MemoryMappedFileAccess.ReadWrite, MemoryMappedFileAccess.Write)]
-        [InlineData(MemoryMappedFileAccess.ReadWrite, MemoryMappedFileAccess.ReadWrite)]
-        [InlineData(MemoryMappedFileAccess.ReadWrite, MemoryMappedFileAccess.CopyOnWrite)]
-        [InlineData(MemoryMappedFileAccess.Read, MemoryMappedFileAccess.Read)]
-        [InlineData(MemoryMappedFileAccess.Read, MemoryMappedFileAccess.CopyOnWrite)]
+        [MemberData(nameof(AccessLevelCombinationsData))]
         public void ValidAccessLevelCombinations(MemoryMappedFileAccess mapAccess, MemoryMappedFileAccess viewAccess)
         {
             const int Capacity = 4096;
@@ -89,10 +100,10 @@ namespace System.IO.MemoryMappedFiles.Tests
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    if ((OperatingSystem.IsMacOS() || PlatformDetection.IsInContainer) &&
+                    if ((OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst() || OperatingSystem.IsIOS() || OperatingSystem.IsTvOS() || PlatformDetection.IsInContainer) &&
                        (viewAccess == MemoryMappedFileAccess.ReadExecute || viewAccess == MemoryMappedFileAccess.ReadWriteExecute))
                     {
-                        // Containers and OSX with SIP enabled do not have execute permissions by default.
+                        // Containers and OSXlike platforms with SIP enabled do not have execute permissions by default.
                         throw new SkipTestException("Insufficient execute permission.");
                     }
 
@@ -135,13 +146,18 @@ namespace System.IO.MemoryMappedFiles.Tests
         }
 
         /// <summary>
-        /// Test to verify the accessor's PointerOffset.
+        /// Test to verify the accessor's PointerOffset at the beginning of a view.
         /// </summary>
-        [Fact]
-        public void PointerOffsetMatchesViewStart()
+        [Theory]
+        [InlineData(1)] // smallest possible non-zero size
+        [InlineData(4095)] // just under typical page size
+        [InlineData(4096)] // typical page size
+        [InlineData(4099)] // just larger than typical page size
+        [InlineData(12290)] // just larger than a few typical page sizes
+        [InlineData(70_000)] // larger than typical Windows allocation granularity (64K)
+        public void PointerOffsetMatchesViewStart(int mapLength)
         {
-            const int MapLength = 4096;
-            foreach (MemoryMappedFile mmf in CreateSampleMaps(MapLength))
+            foreach (MemoryMappedFile mmf in CreateSampleMaps(mapLength))
             {
                 using (mmf)
                 {
@@ -150,27 +166,9 @@ namespace System.IO.MemoryMappedFiles.Tests
                         Assert.Equal(0, acc.PointerOffset);
                     }
 
-                    using (MemoryMappedViewAccessor acc = mmf.CreateViewAccessor(0, MapLength))
+                    using (MemoryMappedViewAccessor acc = mmf.CreateViewAccessor(0, mapLength))
                     {
                         Assert.Equal(0, acc.PointerOffset);
-                    }
-                    using (MemoryMappedViewAccessor acc = mmf.CreateViewAccessor(1, MapLength - 1))
-                    {
-                        Assert.Equal(1, acc.PointerOffset);
-                    }
-                    using (MemoryMappedViewAccessor acc = mmf.CreateViewAccessor(MapLength - 1, 1))
-                    {
-                        Assert.Equal(MapLength - 1, acc.PointerOffset);
-                    }
-
-                    // On Unix creating a view of size zero will result in an offset and capacity
-                    // of 0 due to mmap behavior, whereas on Windows it's possible to create a
-                    // zero-size view anywhere in the created file mapping.
-                    using (MemoryMappedViewAccessor acc = mmf.CreateViewAccessor(MapLength, 0))
-                    {
-                        Assert.Equal(
-                            OperatingSystem.IsWindows() ? MapLength : 0,
-                            acc.PointerOffset);
                     }
                 }
             }
@@ -180,26 +178,52 @@ namespace System.IO.MemoryMappedFiles.Tests
         /// Test all of the Read/Write accessor methods against a variety of maps and accessors.
         /// </summary>
         [Theory]
-        [InlineData(0, 8192)]
-        [InlineData(8100, 92)]
-        [InlineData(0, 20)]
-        [InlineData(1, 8191)]
-        [InlineData(17, 8175)]
-        [InlineData(17, 20)]
-        public void AllReadWriteMethods(long offset, long size)
+        [InlineData(8192, 0, 8192)]
+        [InlineData(8192, 8100, 92)]
+        [InlineData(8192, 0, 20)]
+        [InlineData(8192, 1, 8191)]
+        [InlineData(8192, 17, 8175)]
+        [InlineData(8192, 17, 20)]
+        [InlineData(70_000, 69_900, 16)]
+        public void AllReadWriteMethods(int mapSize, int offset, int size)
         {
-            foreach (MemoryMappedFile mmf in CreateSampleMaps(8192))
+            foreach (MemoryMappedFile mmf in CreateSampleMaps(mapSize))
             {
                 using (mmf)
                 using (MemoryMappedViewAccessor acc = mmf.CreateViewAccessor(offset, size))
                 {
+                    // Validate all of the read/write methods
                     AssertWritesReads(acc);
+
+                    // Make sure that the internal offsets used for reading/writing are correct.
+                    // This is the only meaningful way to validate PointerOffset, as its value's
+                    // correctness is based entirely on the address selected by the OS to start
+                    // the view and the distance from there to the user-supplied offset.
+                    PopulateWithRandomData(mmf);
+                    unsafe
+                    {
+                        byte* ptr = null;
+                        try
+                        {
+                            acc.SafeMemoryMappedViewHandle.AcquirePointer(ref ptr);
+                            for (int i = 0; i < size; i++)
+                            {
+                                Assert.Equal(acc.ReadByte(i), *(ptr + acc.PointerOffset + i));
+                                acc.Write(i, (byte)i);
+                                Assert.Equal((byte)i, acc.ReadByte(i));
+                            }
+                        }
+                        finally
+                        {
+                            acc.SafeMemoryMappedViewHandle.ReleasePointer();
+                        }
+                    }
                 }
             }
         }
 
         /// <summary>Performs many reads and writes of various data types against the accessor.</summary>
-        private static unsafe void AssertWritesReads(MemoryMappedViewAccessor acc) // TODO: unsafe can be removed once using C# 6 compiler
+        private static void AssertWritesReads(MemoryMappedViewAccessor acc)
         {
             // Successful reads and writes at the beginning for each data type
             AssertWriteRead<bool>(false, 0, (pos, value) => acc.Write(pos, value), pos => acc.ReadBoolean(pos));
@@ -333,7 +357,7 @@ namespace System.IO.MemoryMappedFiles.Tests
         /// Test to validate that multiple accessors over the same map share data appropriately.
         /// </summary>
         [Fact]
-        [PlatformSpecific(~TestPlatforms.Browser)] // the emscripten implementation doesn't share data
+        [SkipOnPlatform(TestPlatforms.Browser, "the emscripten implementation doesn't share data")]
         public void ViewsShareData()
         {
             const int MapLength = 256;
@@ -461,6 +485,7 @@ namespace System.IO.MemoryMappedFiles.Tests
         /// Test to verify that we can still use a view after the associated map has been disposed.
         /// </summary>
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/83197", TestPlatforms.Browser)]
         public void UseAfterMMFDisposal()
         {
             foreach (MemoryMappedFile mmf in CreateSampleMaps(8192))

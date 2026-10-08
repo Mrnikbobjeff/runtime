@@ -1,23 +1,28 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Xunit;
 namespace DefaultNamespace {
     using System;
     using System.Runtime.InteropServices;
 
-    internal class NDPin
+    public class NDPin
     {
 
         internal Object p;
         internal static NDPin m_n;
         internal static Object m_o;
 
+        public NDPin () { }
+
         internal NDPin (Object p)
         {
             this.p = p;
         }
 
-        public static int Main(String [] args)
+        [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             Console.WriteLine("Test should return with ExitCode 100 ...");
 

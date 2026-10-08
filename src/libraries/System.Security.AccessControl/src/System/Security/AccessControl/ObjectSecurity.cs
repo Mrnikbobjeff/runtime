@@ -1,13 +1,6 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-/*============================================================
-**
-** Classes:  Object Security family of classes
-**
-**
-===========================================================*/
-
 using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -16,7 +9,6 @@ using System.Threading;
 
 namespace System.Security.AccessControl
 {
-
     public enum AccessControlModification
     {
         Add = 0,
@@ -26,12 +18,8 @@ namespace System.Security.AccessControl
         RemoveAll = 4,
         RemoveSpecific = 5,
     }
-
-
     public abstract class ObjectSecurity
     {
-        #region Private Members
-
         private readonly ReaderWriterLockSlim _lock = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
 
         internal readonly CommonSecurityDescriptor _securityDescriptor = null!;
@@ -55,10 +43,6 @@ namespace System.Security.AccessControl
             ControlFlags.DiscretionaryAclAutoInherited |
             ControlFlags.DiscretionaryAclProtected;
 
-        #endregion
-
-        #region Constructors
-
         protected ObjectSecurity()
         {
         }
@@ -74,17 +58,10 @@ namespace System.Security.AccessControl
         protected ObjectSecurity(CommonSecurityDescriptor securityDescriptor)
             : this()
         {
-            if (securityDescriptor == null)
-            {
-                throw new ArgumentNullException(nameof(securityDescriptor));
-            }
+            ArgumentNullException.ThrowIfNull(securityDescriptor);
 
             _securityDescriptor = securityDescriptor;
         }
-
-        #endregion
-
-        #region Private methods
 
         private void UpdateWithNewSecurityDescriptor(RawSecurityDescriptor newOne, AccessControlSections includeSections)
         {
@@ -137,10 +114,6 @@ namespace System.Security.AccessControl
                     (ControlFlags)((newOne.ControlFlags | daclFlag) & DACL_CONTROL_FLAGS));
             }
         }
-
-        #endregion
-
-        #region Protected Properties and Methods
 
         /// <summary>
         /// Gets the security descriptor for this instance.
@@ -269,22 +242,17 @@ namespace System.Security.AccessControl
             get { return _securityDescriptor.IsDS; }
         }
 
-        //
         // Persists the changes made to the object
         //
         // This overloaded method takes a name of an existing object
-        //
-
         protected virtual void Persist(string name, AccessControlSections includeSections)
         {
             throw NotImplemented.ByDesign;
         }
 
-        //
         // if Persist (by name) is implemented, then this function will also try to enable take ownership
         // privilege while persisting if the enableOwnershipPrivilege is true.
         // Integrators can override it if this is not desired.
-        //
         protected virtual void Persist(bool enableOwnershipPrivilege, string name, AccessControlSections includeSections)
         {
             Privilege? ownerPrivilege = null;
@@ -308,40 +276,24 @@ namespace System.Security.AccessControl
             catch
             {
                 // protection against exception filter-based luring attacks
-                if (ownerPrivilege != null)
-                {
-                    ownerPrivilege.Revert();
-                }
+                ownerPrivilege?.Revert();
                 throw;
             }
             finally
             {
-                if (ownerPrivilege != null)
-                {
-                    ownerPrivilege.Revert();
-                }
+                ownerPrivilege?.Revert();
             }
         }
 
-        //
         // Persists the changes made to the object
         //
         // This overloaded method takes a handle to an existing object
-        //
-
         protected virtual void Persist(SafeHandle handle, AccessControlSections includeSections)
         {
             throw NotImplemented.ByDesign;
         }
 
-        #endregion
-
-        #region Public Methods
-
-        //
         // Sets and retrieves the owner of this object
-        //
-
         public IdentityReference? GetOwner(System.Type targetType)
         {
             ReadLock();
@@ -363,10 +315,7 @@ namespace System.Security.AccessControl
 
         public void SetOwner(IdentityReference identity)
         {
-            if (identity == null)
-            {
-                throw new ArgumentNullException(nameof(identity));
-            }
+            ArgumentNullException.ThrowIfNull(identity);
 
             WriteLock();
 
@@ -381,10 +330,7 @@ namespace System.Security.AccessControl
             }
         }
 
-        //
         // Sets and retrieves the group of this object
-        //
-
         public IdentityReference? GetGroup(System.Type targetType)
         {
             ReadLock();
@@ -406,10 +352,7 @@ namespace System.Security.AccessControl
 
         public void SetGroup(IdentityReference identity)
         {
-            if (identity == null)
-            {
-                throw new ArgumentNullException(nameof(identity));
-            }
+            ArgumentNullException.ThrowIfNull(identity);
 
             WriteLock();
 
@@ -426,10 +369,7 @@ namespace System.Security.AccessControl
 
         public virtual void PurgeAccessRules(IdentityReference identity)
         {
-            if (identity == null)
-            {
-                throw new ArgumentNullException(nameof(identity));
-            }
+            ArgumentNullException.ThrowIfNull(identity);
 
             WriteLock();
 
@@ -446,10 +386,7 @@ namespace System.Security.AccessControl
 
         public virtual void PurgeAuditRules(IdentityReference identity)
         {
-            if (identity == null)
-            {
-                throw new ArgumentNullException(nameof(identity));
-            }
+            ArgumentNullException.ThrowIfNull(identity);
 
             WriteLock();
 
@@ -588,10 +525,7 @@ namespace System.Security.AccessControl
 
         public void SetSecurityDescriptorSddlForm(string sddlForm, AccessControlSections includeSections)
         {
-            if (sddlForm == null)
-            {
-                throw new ArgumentNullException(nameof(sddlForm));
-            }
+            ArgumentNullException.ThrowIfNull(sddlForm);
 
             if ((includeSections & AccessControlSections.All) == 0)
             {
@@ -637,10 +571,7 @@ namespace System.Security.AccessControl
 
         public void SetSecurityDescriptorBinaryForm(byte[] binaryForm, AccessControlSections includeSections)
         {
-            if (binaryForm == null)
-            {
-                throw new ArgumentNullException(nameof(binaryForm));
-            }
+            ArgumentNullException.ThrowIfNull(binaryForm);
 
             if ((includeSections & AccessControlSections.All) == 0)
             {
@@ -670,12 +601,9 @@ namespace System.Security.AccessControl
 
         public virtual bool ModifyAccessRule(AccessControlModification modification, AccessRule rule, out bool modified)
         {
-            if (rule == null)
-            {
-                throw new ArgumentNullException(nameof(rule));
-            }
+            ArgumentNullException.ThrowIfNull(rule);
 
-            if (!this.AccessRuleType.GetTypeInfo().IsAssignableFrom(rule.GetType().GetTypeInfo()))
+            if (!AccessRuleType.IsAssignableFrom(rule.GetType()))
             {
                 throw new ArgumentException(
                     SR.AccessControl_InvalidAccessRuleType,
@@ -696,12 +624,9 @@ namespace System.Security.AccessControl
 
         public virtual bool ModifyAuditRule(AccessControlModification modification, AuditRule rule, out bool modified)
         {
-            if (rule == null)
-            {
-                throw new ArgumentNullException(nameof(rule));
-            }
+            ArgumentNullException.ThrowIfNull(rule);
 
-            if (!this.AuditRuleType.GetTypeInfo().IsAssignableFrom(rule.GetType().GetTypeInfo()))
+            if (!AuditRuleType.IsAssignableFrom(rule.GetType()))
             {
                 throw new ArgumentException(
                     SR.AccessControl_InvalidAuditRuleType,
@@ -723,6 +648,5 @@ namespace System.Security.AccessControl
         public abstract AccessRule AccessRuleFactory(IdentityReference identityReference, int accessMask, bool isInherited, InheritanceFlags inheritanceFlags, PropagationFlags propagationFlags, AccessControlType type);
 
         public abstract AuditRule AuditRuleFactory(IdentityReference identityReference, int accessMask, bool isInherited, InheritanceFlags inheritanceFlags, PropagationFlags propagationFlags, AuditFlags flags);
-        #endregion
     }
 }

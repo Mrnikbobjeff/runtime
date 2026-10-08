@@ -3,6 +3,8 @@
 
 using System.Runtime.InteropServices;
 using System;
+using Xunit;
+using TestLibrary;
 
 [StructLayout(LayoutKind.Explicit, Size = 153)]
 internal struct A
@@ -11,23 +13,25 @@ internal struct A
     internal bool i;
 };
 
-class Test
+public class Test
 {
-    static unsafe int Main(string[] args)
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static unsafe int TestEntryPoint()
     {
         int i = sizeof(A);
         int j = Marshal.SizeOf(typeof(A));
 
-	 if (i == 153 && j == 153)
-	 {
-	       Console.WriteLine("PASS");
-	       return 100;  
-	 }
-	 else
-	 {
-	 	Console.WriteLine("FAIL: sizeof and Marshal.SizeOf should have both returned 153.");
-		Console.WriteLine("ACTUAL: sizeof(A) = " + i + ", Marshal.SizeOf(A) = " + j); 
-	 	return 101;
-	 }
+        if (i == 153 && j == 153)
+        {
+            Console.WriteLine("PASS");
+            return 100;  
+        }
+        else
+        {
+            Console.WriteLine("FAIL: sizeof and Marshal.SizeOf should have both returned 153.");
+            Console.WriteLine("ACTUAL: sizeof(A) = " + i + ", Marshal.SizeOf(A) = " + j); 
+            return 101;
+        }
     }
 }

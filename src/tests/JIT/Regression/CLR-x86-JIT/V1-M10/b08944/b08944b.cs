@@ -2,13 +2,14 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace X
+using Xunit;
+namespace b08944b
 {
     //@BEGINRENAME; Verify this renames
     //@ENDRENAME; Verify this renames
     using System;
 
-    class Y
+    public class Y
     {
 
         //extern("msvcrt.dll:printf") int printf(const char *fmt, ...);
@@ -20,7 +21,7 @@ namespace X
             Console.WriteLine("Exception code = " + a);
             return  1;
         }
-		
+
         public static int     filt0(UInt32 a)
         {
             Console.WriteLine("Exception code = " + a);
@@ -28,13 +29,14 @@ namespace X
         }
         */
 
-        public static void bomb()
+        internal static void bomb()
         {
             char[] p = null;
             p[0] = (char)0;
         }
 
-        public static int Main(String[] args)
+        [Fact]
+        public static int TestEntryPoint()
         {
             UInt32 ec, ec1;
 

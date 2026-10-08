@@ -1,10 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Linq;
 using System.Net.Http.Headers;
+using System.Threading.Tasks;
 using Microsoft.DotNet.RemoteExecutor;
 using Xunit;
 
@@ -50,14 +52,14 @@ namespace System.Net.Http.Tests
 
             // String collection properties
             Assert.NotNull(cacheControl.NoCacheHeaders);
-            AssertExtensions.Throws<ArgumentException>("item", () => { cacheControl.NoCacheHeaders.Add(null); });
+            AssertExtensions.Throws<ArgumentNullException>("item", () => { cacheControl.NoCacheHeaders.Add(null); });
             Assert.Throws<FormatException>(() => { cacheControl.NoCacheHeaders.Add("invalid token"); });
             cacheControl.NoCacheHeaders.Add("token");
             Assert.Equal(1, cacheControl.NoCacheHeaders.Count);
             Assert.Equal("token", cacheControl.NoCacheHeaders.First());
 
             Assert.NotNull(cacheControl.PrivateHeaders);
-            AssertExtensions.Throws<ArgumentException>("item", () => { cacheControl.PrivateHeaders.Add(null); });
+            AssertExtensions.Throws<ArgumentNullException>("item", () => { cacheControl.PrivateHeaders.Add(null); });
             Assert.Throws<FormatException>(() => { cacheControl.PrivateHeaders.Add("invalid token"); });
             cacheControl.PrivateHeaders.Add("token");
             Assert.Equal(1, cacheControl.PrivateHeaders.Count);
@@ -136,9 +138,9 @@ namespace System.Net.Http.Tests
         }
 
         [ConditionalFact(typeof(RemoteExecutor), nameof(RemoteExecutor.IsSupported))]
-        public void ToString_NegativeValues_UsesMinusSignRegardlessOfCurrentCulture()
+        public async Task ToString_NegativeValues_UsesMinusSignRegardlessOfCurrentCulture()
         {
-            RemoteExecutor.Invoke(() =>
+            await RemoteExecutor.Invoke(() =>
             {
                 var cacheControl = new CacheControlHeaderValue()
                 {
@@ -154,7 +156,7 @@ namespace System.Net.Http.Tests
                 CultureInfo.CurrentCulture = ci;
 
                 Assert.Equal("max-age=-1, s-maxage=-4, max-stale=-2, min-fresh=-3", cacheControl.ToString());
-            }).Dispose();
+            }).DisposeAsync();
         }
 
         [Fact]
@@ -353,8 +355,14 @@ namespace System.Net.Http.Tests
             value2.MaxStale = true;
             CompareValues(value1, value2, true);
 
-            value2.MaxStaleLimit = new TimeSpan(1, 2, 3);
+            value1.MaxStaleLimit = new TimeSpan(1, 2, 3);
             CompareValues(value1, value2, false);
+
+            value2.MaxStaleLimit = new TimeSpan(2, 3, 4);
+            CompareValues(value1, value2, false);
+
+            value1.MaxStaleLimit = new TimeSpan(2, 3, 4);
+            CompareValues(value1, value2, true);
         }
 
         [Fact]
@@ -457,13 +465,13 @@ namespace System.Net.Http.Tests
             expected = new CacheControlHeaderValue();
             expected.Public = true;
             expected.Private = true;
-            expected.PrivateHeaders.Add("token1");
+            expected.PrivateHeaders.Add("PLACEHOLDER");
             expected.MustRevalidate = true;
             expected.ProxyRevalidate = true;
             expected.Extensions.Add(new NameValueHeaderValue("c", "d"));
             expected.Extensions.Add(new NameValueHeaderValue("a", "b"));
-            CheckGetCacheControlLength(",public, , private=\"token1\", must-revalidate, c=d, proxy-revalidate, a=b", 0,
-                null, 72, expected);
+            CheckGetCacheControlLength(",public, , private=\"PLACEHOLDER\", must-revalidate, c=d, proxy-revalidate, a=b", 0,
+                null, 77, expected);
 
             expected = new CacheControlHeaderValue();
             expected.Private = true;
@@ -491,11 +499,11 @@ namespace System.Net.Http.Tests
             expected = new CacheControlHeaderValue();
             expected.Private = true;
             expected.PrivateHeaders.Add("token1");
-            expected.PrivateHeaders.Add("token2");
+            expected.PrivateHeaders.Add("PLACEHOLDER");
             expected.NoCache = true;
             expected.NoCacheHeaders.Add("token1");
             expected.NoCacheHeaders.Add("token2");
-            CheckGetCacheControlLength("private=\"token2\", no-cache=\"token1, , token2,\"", 0, storeValue, 46,
+            CheckGetCacheControlLength("private=\"PLACEHOLDER\", no-cache=\"token1, , token2,\"", 0, storeValue, 51,
                 expected);
 
             storeValue = new CacheControlHeaderValue();
@@ -505,7 +513,7 @@ namespace System.Net.Http.Tests
             expected = new CacheControlHeaderValue();
             expected.Public = true;
             expected.Private = true;
-            expected.PrivateHeaders.Add("token1");
+            expected.PrivateHeaders.Add("PLACEHOLDER");
             expected.MustRevalidate = true;
             expected.ProxyRevalidate = true;
             expected.NoTransform = true;
@@ -513,8 +521,8 @@ namespace System.Net.Http.Tests
             expected.Extensions.Add(new NameValueHeaderValue("a", "\"b\""));
             expected.Extensions.Add(new NameValueHeaderValue("c", "d"));
             expected.Extensions.Add(new NameValueHeaderValue("x", "y")); // from store result
-            CheckGetCacheControlLength(",public, , private=\"token1\", must-revalidate, c=d, proxy-revalidate, a=\"b\"",
-                0, storeValue, 74, expected);
+            CheckGetCacheControlLength(",public, , private=\"PLACEHOLDER\", must-revalidate, c=d, proxy-revalidate, a=\"b\"",
+                0, storeValue, 79, expected);
 
             storeValue = new CacheControlHeaderValue();
             storeValue.MaxStale = true;
@@ -627,6 +635,22 @@ namespace System.Net.Http.Tests
             CheckInvalidParse("\u4F1A", 0);
         }
 
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("")]
+        [InlineData(" ")]
+        [InlineData(",")]
+        [InlineData(",,")]
+        [InlineData(" , , ")]
+        public void CacheControlHeaderValue_EmptyValue_Parsed(string? value)
+        {
+            Assert.NotNull(CacheControlHeaderValue.Parse(value));
+
+            Assert.True(CacheControlHeaderValue.TryParse(value, out CacheControlHeaderValue headerValue));
+            Assert.NotNull(headerValue);
+        }
+
         [Fact]
         public void TryParse_SetOfValidValueStrings_ParsedCorrectly()
         {
@@ -652,6 +676,18 @@ namespace System.Net.Http.Tests
             CheckInvalidTryParse("no-cache no-store", 0);
             CheckInvalidTryParse("invalid =", 0);
             CheckInvalidTryParse("\u4F1A", 0);
+        }
+
+        [Fact]
+        public void TryParseAndAddRawHeaderValue_AddEmptyAfterValid_NoEmptyValuesAdded()
+        {
+            HttpRequestMessage request = new HttpRequestMessage(HttpMethod.Get, "http://microsoft.com");
+
+            request.Headers.TryAddWithoutValidation(KnownHeaders.CacheControl.Descriptor, "min-fresh=123");
+            request.Headers.TryAddWithoutValidation(KnownHeaders.CacheControl.Descriptor, string.Empty);
+
+            Assert.True(request.Headers.TryGetValues(KnownHeaders.CacheControl.Descriptor, out IEnumerable<string>? values));
+            Assert.Equal("min-fresh=123", Assert.Single(values));
         }
 
         #region Helper methods

@@ -7,8 +7,9 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-public class Test {
+public class Test_IsAlive_neg {
     public static int[] array;
     
     [MethodImplAttribute(MethodImplOptions.NoInlining)]
@@ -27,7 +28,8 @@ public class Test {
         array = null;
     }
 
-    public static int Main() {
+    [Fact]
+    public static int TestEntryPoint() {
         CreateArray();
 
         WeakReference weak = CreateArrayWeakReference(); // array has ONLY a weakreference

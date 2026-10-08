@@ -5,13 +5,16 @@
 .assembly extern System.Console { auto }
 .assembly extern mscorlib { auto }
 
-.assembly 'tailcall' { }
-.namespace JitTest
+.assembly ASSEMBLY_NAME { }
+.assembly extern Microsoft.DotNet.XUnitExtensions { .publickeytoken = (31 BF 38 56 AD 36 4E 35 ) }
+.assembly extern TestLibrary { .ver 0:0:0:0 }
+.assembly extern xunit.core {}
+.namespace JitTest_tailcall_boxunbox
 {
-  .class private auto ansi beforefieldinit App
+  .class public auto ansi beforefieldinit App
          extends [mscorlib]System.Object
   {
-    .method private hidebysig static int64 
+    .method private hidebysig static int64
             Test(bool path) cil managed
     {
       .maxstack  4
@@ -171,20 +174,31 @@
 				brfalse.s IL_RET
 				pop
 				ldc.i4.0
-		tail.   call       int64 JitTest.App::Test(bool)
+		tail.   call       int64 JitTest_tailcall_boxunbox.App::Test(bool)
       IL_RET:  ret
     } // end of method App::Test
 
-    .method private hidebysig static int32 
+    .method public hidebysig static int32
             Main() cil managed
     {
+      .custom instance void [xunit.core]Xunit.FactAttribute::.ctor() = {}
+      .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, class [mscorlib]System.Type, string[]) = {
+          string('https://github.com/dotnet/runtime/issues/91923')
+          type([TestLibrary]TestLibrary.PlatformDetection)
+          string[1] ('IsAppleMobile')
+      }
+      .custom instance void [Microsoft.DotNet.XUnitExtensions]Xunit.ActiveIssueAttribute::.ctor(string, class [mscorlib]System.Type, string[]) = {
+          string('https://github.com/dotnet/runtime/issues/91923')
+          type([TestLibrary]TestLibrary.PlatformDetection)
+          string[1] ('IsMonoInterpreter')
+      }
       .entrypoint
       .maxstack  4
       .locals (int32 V_0)
       IL_0000:  ldc.i4.0
-      IL_0001:  call       int64 JitTest.App::Test(bool)
+      IL_0001:  call       int64 JitTest_tailcall_boxunbox.App::Test(bool)
       IL_0006:  ldc.i4.1
-      IL_0007:  call       int64 JitTest.App::Test(bool)
+      IL_0007:  call       int64 JitTest_tailcall_boxunbox.App::Test(bool)
       			pop
       			pop
       IL_000c:  ldstr      "=== TEST PASSED ==="
@@ -197,7 +211,7 @@
       IL_001c:  ret
     } // end of method App::Main
 
-    .method public hidebysig specialname rtspecialname 
+    .method public hidebysig specialname rtspecialname
             instance void  .ctor() cil managed
     {
       .maxstack  8
@@ -208,5 +222,5 @@
 
   } // end of class App
 
-} // end of namespace JitTest
+} // end of namespace JitTest_tailcall_boxunbox
 

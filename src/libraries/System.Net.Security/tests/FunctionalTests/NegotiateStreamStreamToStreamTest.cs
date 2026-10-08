@@ -9,8 +9,9 @@ using System.Security.Principal;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-
+using Microsoft.DotNet.XUnitExtensions;
 using Xunit;
+using Xunit.Abstractions;
 
 namespace System.Net.Security.Tests
 {
@@ -20,7 +21,7 @@ namespace System.Net.Security.Tests
         public static bool IsNtlmInstalled => Capability.IsNtlmInstalled();
 
         private const int PartialBytesToRead = 5;
-        protected static readonly byte[] s_sampleMsg = Encoding.UTF8.GetBytes("Sample Test Message");
+        protected static readonly byte[] s_sampleMsg = "Sample Test Message"u8.ToArray();
 
         private const int MaxWriteDataSize = 63 * 1024; // NegoState.MaxWriteDataSize
         private static string s_longString = new string('A', MaxWriteDataSize) + 'Z';
@@ -28,20 +29,20 @@ namespace System.Net.Security.Tests
 
         protected abstract Task AuthenticateAsClientAsync(NegotiateStream client, NetworkCredential credential, string targetName);
         protected abstract Task AuthenticateAsServerAsync(NegotiateStream server);
-        protected abstract Task<int> ReadAsync(NegotiateStream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken = default);
-        protected abstract Task WriteAsync(NegotiateStream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken = default);
+        protected abstract Task<int> ReadAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken = default);
+        protected abstract Task WriteAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken = default);
         protected virtual bool SupportsCancelableReadsWrites => false;
         protected virtual bool IsEncryptedAndSigned => true;
 
-        [ConditionalTheory(nameof(IsNtlmInstalled))]
+        [ConditionalTheory(typeof(NegotiateStreamStreamToStreamTest), nameof(IsNtlmInstalled))]
         [InlineData(0)]
         [InlineData(1)]
         public async Task NegotiateStream_StreamToStream_Authentication_Success(int delay)
         {
-            VirtualNetwork network = new VirtualNetwork();
+            (Stream stream1, Stream stream2) = TestHelper.GetConnectedStreams();
 
-            using (var clientStream = new VirtualNetworkStream(network, isServer: false) { DelayMilliseconds = delay })
-            using (var serverStream = new VirtualNetworkStream(network, isServer: true) { DelayMilliseconds = delay })
+            using (var clientStream = new DelayStream(stream1, delay))
+            using (var serverStream = new DelayStream(stream2, delay))
             using (var client = new NegotiateStream(clientStream))
             using (var server = new NegotiateStream(serverStream))
             {
@@ -63,9 +64,12 @@ namespace System.Net.Security.Tests
                 Assert.False(client.LeaveInnerStreamOpen);
 
                 IIdentity serverIdentity = client.RemoteIdentity;
-                Assert.Equal("NTLM", serverIdentity.AuthenticationType);
-                Assert.False(serverIdentity.IsAuthenticated);
-                Assert.Equal("", serverIdentity.Name);
+                using (serverIdentity as IDisposable)
+                {
+                    Assert.Equal("NTLM", serverIdentity.AuthenticationType);
+                    Assert.False(serverIdentity.IsAuthenticated);
+                    Assert.Equal("", serverIdentity.Name);
+                }
 
                 // Expected Server property values:
                 Assert.True(server.IsAuthenticated);
@@ -77,22 +81,25 @@ namespace System.Net.Security.Tests
                 Assert.False(server.LeaveInnerStreamOpen);
 
                 IIdentity clientIdentity = server.RemoteIdentity;
-                Assert.Equal("NTLM", clientIdentity.AuthenticationType);
+                using (clientIdentity as IDisposable)
+                {
+                    Assert.Equal("NTLM", clientIdentity.AuthenticationType);
 
-                Assert.True(clientIdentity.IsAuthenticated);
+                    Assert.True(clientIdentity.IsAuthenticated);
 
-                IdentityValidator.AssertIsCurrentIdentity(clientIdentity);
+                    IdentityValidator.AssertIsCurrentIdentity(clientIdentity);
+                }
             }
         }
 
-        [ConditionalTheory(nameof(IsNtlmInstalled))]
+        [ConditionalTheory(typeof(NegotiateStreamStreamToStreamTest), nameof(IsNtlmInstalled))]
         [InlineData(0)]
         [InlineData(1)]
         public async Task NegotiateStream_StreamToStream_Authenticated_DisposeAsync(int delay)
         {
-            var network = new VirtualNetwork();
-            await using (var client = new NegotiateStream(new VirtualNetworkStream(network, isServer: false) { DelayMilliseconds = delay }))
-            await using (var server = new NegotiateStream(new VirtualNetworkStream(network, isServer: true) { DelayMilliseconds = delay }))
+            (Stream stream1, Stream stream2) = TestHelper.GetConnectedStreams();
+            await using (var client = new NegotiateStream(new DelayStream(stream1, delay)))
+            await using (var server = new NegotiateStream(new DelayStream(stream2, delay)))
             {
                 Assert.False(client.IsServer);
                 Assert.False(server.IsServer);
@@ -115,24 +122,21 @@ namespace System.Net.Security.Tests
             }
         }
 
-        [ConditionalFact(nameof(IsNtlmInstalled))]
+        [ConditionalFact(typeof(NegotiateStreamStreamToStreamTest), nameof(IsNtlmInstalled))]
         public async Task NegotiateStream_StreamToStream_Unauthenticated_Dispose()
         {
             new NegotiateStream(new MemoryStream()).Dispose();
             await new NegotiateStream(new MemoryStream()).DisposeAsync();
         }
 
-        [ConditionalFact(nameof(IsNtlmInstalled))]
+        [ConditionalFact(typeof(NegotiateStreamStreamToStreamTest), nameof(IsNtlmInstalled))]
         public async Task NegotiateStream_StreamToStream_Authentication_TargetName_Success()
         {
             string targetName = "testTargetName";
 
-            VirtualNetwork network = new VirtualNetwork();
-
-            using (var clientStream = new VirtualNetworkStream(network, isServer: false))
-            using (var serverStream = new VirtualNetworkStream(network, isServer: true))
-            using (var client = new NegotiateStream(clientStream))
-            using (var server = new NegotiateStream(serverStream))
+            (Stream stream1, Stream stream2) = TestHelper.GetConnectedStreams();
+            using (var client = new NegotiateStream(stream1))
+            using (var server = new NegotiateStream(stream2))
             {
                 Assert.False(client.IsAuthenticated);
                 Assert.False(server.IsAuthenticated);
@@ -156,9 +160,12 @@ namespace System.Net.Security.Tests
                 Assert.False(client.LeaveInnerStreamOpen);
 
                 IIdentity serverIdentity = client.RemoteIdentity;
-                Assert.Equal("NTLM", serverIdentity.AuthenticationType);
-                Assert.True(serverIdentity.IsAuthenticated);
-                Assert.Equal(targetName, serverIdentity.Name);
+                using (serverIdentity as IDisposable)
+                {
+                    Assert.Equal("NTLM", serverIdentity.AuthenticationType);
+                    Assert.True(serverIdentity.IsAuthenticated);
+                    Assert.Equal(targetName, serverIdentity.Name);
+                }
 
                 // Expected Server property values:
                 Assert.True(server.IsAuthenticated);
@@ -170,18 +177,26 @@ namespace System.Net.Security.Tests
                 Assert.False(server.LeaveInnerStreamOpen);
 
                 IIdentity clientIdentity = server.RemoteIdentity;
-                Assert.Equal("NTLM", clientIdentity.AuthenticationType);
+                using (clientIdentity as IDisposable)
+                {
+                    Assert.Equal("NTLM", clientIdentity.AuthenticationType);
 
-                Assert.True(clientIdentity.IsAuthenticated);
+                    Assert.True(clientIdentity.IsAuthenticated);
 
-                IdentityValidator.AssertIsCurrentIdentity(clientIdentity);
+                    IdentityValidator.AssertIsCurrentIdentity(clientIdentity);
+                }
             }
         }
 
-        [ConditionalFact(nameof(IsNtlmInstalled))]
+        [ConditionalFact(typeof(NegotiateStreamStreamToStreamTest), nameof(IsNtlmInstalled))]
         public async Task NegotiateStream_StreamToStream_Authentication_EmptyCredentials_Fails()
         {
             string targetName = "testTargetName";
+
+            if (PlatformDetection.IsWindowsServer2025)
+            {
+                throw new SkipTestException("Empty credentials not supported on Server 2025");
+            }
 
             // Ensure there is no confusion between DefaultCredentials / DefaultNetworkCredentials and a
             // NetworkCredential object with empty user, password and domain.
@@ -189,12 +204,9 @@ namespace System.Net.Security.Tests
             Assert.NotEqual(emptyNetworkCredential, CredentialCache.DefaultCredentials);
             Assert.NotEqual(emptyNetworkCredential, CredentialCache.DefaultNetworkCredentials);
 
-            VirtualNetwork network = new VirtualNetwork();
-
-            using (var clientStream = new VirtualNetworkStream(network, isServer: false))
-            using (var serverStream = new VirtualNetworkStream(network, isServer: true))
-            using (var client = new NegotiateStream(clientStream))
-            using (var server = new NegotiateStream(serverStream))
+            (Stream stream1, Stream stream2) = TestHelper.GetConnectedStreams();
+            using (var client = new NegotiateStream(stream1))
+            using (var server = new NegotiateStream(stream2))
             {
                 Assert.False(client.IsAuthenticated);
                 Assert.False(server.IsAuthenticated);
@@ -216,9 +228,12 @@ namespace System.Net.Security.Tests
                 Assert.False(client.LeaveInnerStreamOpen);
 
                 IIdentity serverIdentity = client.RemoteIdentity;
-                Assert.Equal("NTLM", serverIdentity.AuthenticationType);
-                Assert.True(serverIdentity.IsAuthenticated);
-                Assert.Equal(targetName, serverIdentity.Name);
+                using (serverIdentity as IDisposable)
+                {
+                    Assert.Equal("NTLM", serverIdentity.AuthenticationType);
+                    Assert.True(serverIdentity.IsAuthenticated);
+                    Assert.Equal(targetName, serverIdentity.Name);
+                }
 
                 // Expected Server property values:
                 Assert.True(server.IsAuthenticated);
@@ -230,150 +245,73 @@ namespace System.Net.Security.Tests
                 Assert.False(server.LeaveInnerStreamOpen);
 
                 IIdentity clientIdentity = server.RemoteIdentity;
-                Assert.Equal("NTLM", clientIdentity.AuthenticationType);
-
-                Assert.False(clientIdentity.IsAuthenticated);
-                // On .NET Desktop: Assert.True(clientIdentity.IsAuthenticated);
-
-                IdentityValidator.AssertHasName(clientIdentity, new SecurityIdentifier(WellKnownSidType.AnonymousSid, null).Translate(typeof(NTAccount)).Value);
-            }
-        }
-
-        [ConditionalTheory(nameof(IsNtlmInstalled))]
-        [InlineData(0)]
-        [InlineData(1)]
-        public async Task NegotiateStream_StreamToStream_Successive_ClientWrite_Success(int delay)
-        {
-            byte[] recvBuf = new byte[s_sampleMsg.Length];
-            VirtualNetwork network = new VirtualNetwork();
-            int bytesRead = 0;
-
-            using (var clientStream = new VirtualNetworkStream(network, isServer: false) { DelayMilliseconds = delay })
-            using (var serverStream = new VirtualNetworkStream(network, isServer: true) { DelayMilliseconds = delay })
-            using (var client = new NegotiateStream(clientStream))
-            using (var server = new NegotiateStream(serverStream))
-            {
-                Assert.False(client.IsAuthenticated);
-                Assert.False(server.IsAuthenticated);
-
-                Task[] auth = new Task[2];
-                auth[0] = AuthenticateAsClientAsync(client, CredentialCache.DefaultNetworkCredentials, string.Empty);
-                auth[1] = AuthenticateAsServerAsync(server);
-
-                await TestConfiguration.WhenAllOrAnyFailedWithTimeout(auth);
-
-                auth[0] = WriteAsync(client, s_sampleMsg, 0, s_sampleMsg.Length);
-                auth[1] = ReadAsync(server, recvBuf, 0, s_sampleMsg.Length);
-                await TestConfiguration.WhenAllOrAnyFailedWithTimeout(auth);
-                Assert.True(s_sampleMsg.SequenceEqual(recvBuf));
-
-                await WriteAsync(client, s_sampleMsg, 0, s_sampleMsg.Length);
-
-                // Test partial async read.
-                bytesRead = await ReadAsync(server, recvBuf, 0, PartialBytesToRead);
-                Assert.Equal(PartialBytesToRead, bytesRead);
-
-                bytesRead = await ReadAsync(server, recvBuf, PartialBytesToRead, s_sampleMsg.Length - PartialBytesToRead);
-                Assert.Equal(s_sampleMsg.Length - PartialBytesToRead, bytesRead);
-
-                Assert.True(s_sampleMsg.SequenceEqual(recvBuf));
-            }
-        }
-
-        [ConditionalTheory(nameof(IsNtlmInstalled))]
-        [InlineData(0)]
-        [InlineData(1)]
-        public async Task NegotiateStream_ReadWriteLongMsg_Success(int delay)
-        {
-            byte[] recvBuf = new byte[s_longMsg.Length];
-            var network = new VirtualNetwork();
-            int bytesRead = 0;
-
-            using (var clientStream = new VirtualNetworkStream(network, isServer: false) { DelayMilliseconds = delay })
-            using (var serverStream = new VirtualNetworkStream(network, isServer: true) { DelayMilliseconds = delay })
-            using (var client = new NegotiateStream(clientStream))
-            using (var server = new NegotiateStream(serverStream))
-            {
-                await TestConfiguration.WhenAllOrAnyFailedWithTimeout(
-                    client.AuthenticateAsClientAsync(CredentialCache.DefaultNetworkCredentials, string.Empty),
-                    server.AuthenticateAsServerAsync());
-
-                await WriteAsync(client, s_longMsg, 0, s_longMsg.Length);
-
-                while (bytesRead < s_longMsg.Length)
+                using (clientIdentity as IDisposable)
                 {
-                    bytesRead += await ReadAsync(server, recvBuf, bytesRead, s_longMsg.Length - bytesRead);
+                    Assert.Equal("NTLM", clientIdentity.AuthenticationType);
+
+                    Assert.False(clientIdentity.IsAuthenticated);
+                    // On .NET Desktop: Assert.True(clientIdentity.IsAuthenticated);
+
+                    IdentityValidator.AssertHasName(clientIdentity, new SecurityIdentifier(WellKnownSidType.AnonymousSid, null).Translate(typeof(NTAccount)).Value);
+                }
+            }
+        }
+
+        [ConditionalFact(typeof(NegotiateStreamStreamToStreamTest), nameof(IsNtlmInstalled))]
+        public async Task NegotiateStream_StreamToStream_ReadFailsMidFrame_DoesNotReturnStaleBufferOnNextRead()
+        {
+            (Stream stream1, Stream stream2) = TestHelper.GetConnectedStreams();
+            using (var client = new NegotiateStream(stream1))
+            {
+                var server = new NegotiateStream(stream2);
+                try
+                {
+                    await TestConfiguration.WhenAllOrAnyFailedWithTimeout(
+                        AuthenticateAsClientAsync(client, CredentialCache.DefaultNetworkCredentials, string.Empty),
+                        AuthenticateAsServerAsync(server));
+
+                    // The mid-frame failure scenario only applies when NegotiateStream is actually
+                    // framing the payload (i.e., encryption or signing is in effect). With
+                    // ProtectionLevel.None, NegotiateStream.Read forwards directly to the inner stream
+                    // and there is no _readBufferCount to leave stale.
+                    if (!client.IsEncrypted && !client.IsSigned)
+                    {
+                        return;
+                    }
+
+                    // Inject only a frame header that promises a body, then close the inner stream so the
+                    // client's body read fails mid-frame. With the bug, NegotiateStream pre-populates
+                    // _readBufferCount with the announced body size, and a subsequent Read returns up to
+                    // that many bytes of stale (zero-filled / never populated) buffer contents.
+                    const int FakeFrameSize = 100;
+                    byte[] fakeHeader = new byte[4];
+                    System.Buffers.Binary.BinaryPrimitives.WriteInt32LittleEndian(fakeHeader, FakeFrameSize);
+                    await stream2.WriteAsync(fakeHeader);
+                }
+                finally
+                {
+                    // Dispose the server NegotiateStream to close its inner stream and force EOF on the
+                    // client side mid-frame.
+                    server.Dispose();
                 }
 
-                Assert.True(s_longMsg.SequenceEqual(recvBuf));
-            }
-        }
+                // First read must observe the mid-frame failure.
+                byte[] buffer = new byte[200];
+                await Assert.ThrowsAsync<IOException>(() => ReadAsync(client, buffer, 0, buffer.Length));
 
-        [ConditionalFact(nameof(IsNtlmInstalled))]
-        public void NegotiateStream_StreamToStream_Flush_Propagated()
-        {
-            VirtualNetwork network = new VirtualNetwork();
+                // A subsequent read must NOT return stale buffer data. The inner stream is at EOF so
+                // the only correct outcomes are zero bytes (graceful EOF) or another IOException.
+                int read;
+                try
+                {
+                    read = await ReadAsync(client, buffer, 0, buffer.Length);
+                }
+                catch (IOException)
+                {
+                    return;
+                }
 
-            using (var stream = new VirtualNetworkStream(network, isServer: false))
-            using (var negotiateStream = new NegotiateStream(stream))
-            {
-                Assert.False(stream.HasBeenSyncFlushed);
-                negotiateStream.Flush();
-                Assert.True(stream.HasBeenSyncFlushed);
-            }
-        }
-
-        [ConditionalFact(nameof(IsNtlmInstalled))]
-        public void NegotiateStream_StreamToStream_FlushAsync_Propagated()
-        {
-            VirtualNetwork network = new VirtualNetwork();
-
-            using (var stream = new VirtualNetworkStream(network, isServer: false))
-            using (var negotiateStream = new NegotiateStream(stream))
-            {
-                stream.DelayFlush = true;
-                Task task = negotiateStream.FlushAsync();
-
-                Assert.False(task.IsCompleted);
-                stream.CompleteAsyncFlush();
-                Assert.True(task.IsCompleted);
-            }
-        }
-
-        [ConditionalFact(nameof(IsNtlmInstalled))]
-        public async Task NegotiateStream_StreamToStream_Successive_CancelableReadsWrites()
-        {
-            if (!SupportsCancelableReadsWrites)
-            {
-                return;
-            }
-
-            byte[] recvBuf = new byte[s_sampleMsg.Length];
-            VirtualNetwork network = new VirtualNetwork();
-
-            using (var clientStream = new VirtualNetworkStream(network, isServer: false))
-            using (var serverStream = new VirtualNetworkStream(network, isServer: true))
-            using (var client = new NegotiateStream(clientStream))
-            using (var server = new NegotiateStream(serverStream))
-            {
-                await TestConfiguration.WhenAllOrAnyFailedWithTimeout(
-                    AuthenticateAsClientAsync(client, CredentialCache.DefaultNetworkCredentials, string.Empty),
-                    AuthenticateAsServerAsync(server));
-
-                clientStream.DelayMilliseconds = int.MaxValue;
-                serverStream.DelayMilliseconds = int.MaxValue;
-
-                var cts = new CancellationTokenSource();
-                Task t = WriteAsync(client, s_sampleMsg, 0, s_sampleMsg.Length, cts.Token);
-                Assert.False(t.IsCompleted);
-                cts.Cancel();
-                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => t);
-
-                cts = new CancellationTokenSource();
-                t = ReadAsync(server, s_sampleMsg, 0, s_sampleMsg.Length, cts.Token);
-                Assert.False(t.IsCompleted);
-                cts.Cancel();
-                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => t);
+                Assert.Equal(0, read);
             }
         }
     }
@@ -386,10 +324,10 @@ namespace System.Net.Security.Tests
         protected override Task AuthenticateAsServerAsync(NegotiateStream server) =>
             server.AuthenticateAsServerAsync();
 
-        protected override Task<int> ReadAsync(NegotiateStream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        protected override Task<int> ReadAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
             stream.ReadAsync(buffer, offset, count, cancellationToken);
 
-        protected override Task WriteAsync(NegotiateStream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        protected override Task WriteAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
             stream.WriteAsync(buffer, offset, count, cancellationToken);
 
         protected override bool SupportsCancelableReadsWrites => true;
@@ -403,10 +341,10 @@ namespace System.Net.Security.Tests
         protected override Task AuthenticateAsServerAsync(NegotiateStream server) =>
             server.AuthenticateAsServerAsync();
 
-        protected override Task<int> ReadAsync(NegotiateStream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        protected override Task<int> ReadAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
             stream.ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
 
-        protected override Task WriteAsync(NegotiateStream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        protected override Task WriteAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
             stream.WriteAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
 
         protected override bool SupportsCancelableReadsWrites => true;
@@ -458,10 +396,10 @@ namespace System.Net.Security.Tests
         protected override Task AuthenticateAsServerAsync(NegotiateStream server) =>
             Task.Factory.FromAsync(server.BeginAuthenticateAsServer, server.EndAuthenticateAsServer, null);
 
-        protected override Task<int> ReadAsync(NegotiateStream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        protected override Task<int> ReadAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
             Task.Factory.FromAsync(stream.BeginRead, stream.EndRead, buffer, offset, count, null);
 
-        protected override Task WriteAsync(NegotiateStream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        protected override Task WriteAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
             Task.Factory.FromAsync(stream.BeginWrite, stream.EndWrite, buffer, offset, count, null);
     }
 
@@ -495,10 +433,10 @@ namespace System.Net.Security.Tests
         protected override Task AuthenticateAsServerAsync(NegotiateStream server) =>
             Task.Run(() => server.AuthenticateAsServer());
 
-        protected override Task<int> ReadAsync(NegotiateStream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+        protected override Task<int> ReadAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
             Task.FromResult(stream.Read(buffer, offset, count));
 
-        protected override Task WriteAsync(NegotiateStream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken)
+        protected override Task WriteAsync(Stream stream, byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
             stream.Write(buffer, offset, count);
             return Task.CompletedTask;

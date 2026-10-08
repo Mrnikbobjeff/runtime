@@ -7,8 +7,12 @@
 The fix is: Disable array get/set optimizations for multidimmensional arrays of large (>255 bytes) valuetypes.*/
 
 
+
+namespace b609280;
+
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 struct BigStruct
 {
@@ -81,7 +85,9 @@ struct BigStruct
 
 public class My
 {
-    public static int Main()
+    [OuterLoop]
+    [Fact]
+    public static int TestEntryPoint()
     {
         BigStruct[,] a = new BigStruct[1, 3];
 

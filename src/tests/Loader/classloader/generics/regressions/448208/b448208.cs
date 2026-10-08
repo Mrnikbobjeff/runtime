@@ -6,24 +6,26 @@
 
 
 using System;
+using Xunit;
+using TestLibrary;
 
 public class GenType1<T>
 {
-	static readonly int s_i = 0;
+    static readonly int s_i = 0;
 
-	public static bool foo()
-	{
-		return s_i == 0;
-	}
-	
+    public static bool foo()
+    {
+        return s_i == 0;
+    }
+    
 }
 
-public class Test
+public class Test_b448208
 {
-	public static int Main()
-	{
-		GenType1<int>.foo();
-		Console.WriteLine("PASS");
-		return 100;
-	}
+    [ActiveIssue("needs triage", typeof(PlatformDetection), nameof(PlatformDetection.IsSimulator))]
+    [Fact]
+    public static void TestEntryPoint()
+    {
+        GenType1<int>.foo();
+    }
 }

@@ -3,10 +3,11 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 namespace UseTrashedVfp1
 {
-    internal static class App
+    public static class App
     {
         [MethodImpl(MethodImplOptions.NoInlining)]
         private static float SubtractStandardValueFrom(object untypedValue)
@@ -26,7 +27,9 @@ namespace UseTrashedVfp1
         }
 
 
-        private static int Main()
+        [OuterLoop]
+        [Fact]
+        public static int TestEntryPoint()
         {
             bool fTestPassed;
 

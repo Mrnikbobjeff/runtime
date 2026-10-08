@@ -12,9 +12,6 @@ namespace System.Reflection.Metadata
     [DebuggerDisplay("{GetDebuggerDisplay(),nq}")]
     public unsafe struct BlobReader
     {
-        /// <summary>An array containing the '\0' character.</summary>
-        private static readonly char[] s_nullCharArray = new char[1] { '\0' };
-
         internal const int InvalidCompressedInteger = int.MaxValue;
 
         private readonly MemoryBlock _block;
@@ -390,7 +387,7 @@ namespace System.Reflection.Metadata
         }
 
         /// <summary>
-        /// Reads UTF8 encoded string starting at the current position.
+        /// Reads UTF-8 encoded string starting at the current position.
         /// </summary>
         /// <param name="byteCount">The number of bytes to read.</param>
         /// <returns>The string.</returns>
@@ -403,7 +400,7 @@ namespace System.Reflection.Metadata
         }
 
         /// <summary>
-        /// Reads UTF16 (little-endian) encoded string starting at the current position.
+        /// Reads UTF-16 (little-endian) encoded string starting at the current position.
         /// </summary>
         /// <param name="byteCount">The number of bytes to read.</param>
         /// <returns>The string.</returns>
@@ -581,7 +578,7 @@ namespace System.Reflection.Metadata
 
         /// <summary>
         /// Reads a string encoded as a compressed integer containing its length followed by
-        /// its contents in UTF8. Null strings are encoded as a single 0xFF byte.
+        /// its contents in UTF-8. Null strings are encoded as a single 0xFF byte.
         /// </summary>
         /// <remarks>Defined as a 'SerString' in the ECMA CLI specification.</remarks>
         /// <returns>String value or null.</returns>
@@ -591,9 +588,7 @@ namespace System.Reflection.Metadata
             int length;
             if (TryReadCompressedInteger(out length))
             {
-                // Removal of trailing '\0' is a departure from the spec, but required
-                // for compatibility with legacy compilers.
-                return ReadUTF8(length).TrimEnd(s_nullCharArray);
+                return ReadUTF8(length);
             }
 
             if (ReadByte() != 0xFF)
@@ -611,7 +606,7 @@ namespace System.Reflection.Metadata
         public EntityHandle ReadTypeHandle()
         {
             uint value = (uint)ReadCompressedIntegerOrInvalid();
-            uint tokenType = s_corEncodeTokenArray[value & 0x3];
+            uint tokenType = CorEncodeTokenArray[(int)(value & 0x3)];
 
             if (value == InvalidCompressedInteger || tokenType == 0)
             {
@@ -621,7 +616,7 @@ namespace System.Reflection.Metadata
             return new EntityHandle(tokenType | (value >> 2));
         }
 
-        private static readonly uint[] s_corEncodeTokenArray = new uint[] { TokenTypeIds.TypeDef, TokenTypeIds.TypeRef, TokenTypeIds.TypeSpec, 0 };
+        private static ReadOnlySpan<uint> CorEncodeTokenArray => [TokenTypeIds.TypeDef, TokenTypeIds.TypeRef, TokenTypeIds.TypeSpec, 0];
 
         /// <summary>
         /// Reads a #Blob heap handle encoded as a compressed integer.

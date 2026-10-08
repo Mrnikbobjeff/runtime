@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 
 namespace System.Reflection.Metadata
@@ -85,9 +86,9 @@ namespace System.Reflection.Metadata
             get { return (_rawValue & (byte)SignatureAttributes.Generic) != 0; }
         }
 
-        public override bool Equals(object? obj)
+        public override bool Equals([NotNullWhen(true)] object? obj)
         {
-            return obj is SignatureHeader && Equals((SignatureHeader)obj);
+            return obj is SignatureHeader signatureHeader && Equals(signatureHeader);
         }
 
         public bool Equals(SignatureHeader other)

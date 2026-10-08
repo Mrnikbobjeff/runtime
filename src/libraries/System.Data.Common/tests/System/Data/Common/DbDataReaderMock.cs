@@ -24,8 +24,6 @@
 // WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 //
 
-#nullable enable
-
 using System.Collections;
 using System.Linq;
 using System.Data.Common;
@@ -149,7 +147,7 @@ namespace System.Data.Common.Tests
             foreach (var column in _testDataTable.Columns.Cast<DataColumn>())
             {
                 var row = table.NewRow();
-                row["ColumnName"] = column!.ColumnName;
+                row["ColumnName"] = column.ColumnName;
                 row["DataType"] = column.DataType;
                 table.Rows.Add(row);
             }

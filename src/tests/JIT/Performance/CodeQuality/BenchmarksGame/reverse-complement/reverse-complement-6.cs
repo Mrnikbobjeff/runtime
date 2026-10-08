@@ -7,6 +7,7 @@
 // Best-scoring C# .NET Core version as of 2017-09-01
 
 /* The Computer Language Benchmarks Game
+using TestLibrary;
    http://benchmarksgame.alioth.debian.org/
 
    Contributed by Peperud
@@ -19,10 +20,8 @@ using System.Collections.Generic;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Threading;
-using Microsoft.Xunit.Performance;
 using Xunit;
-
-[assembly: OptimizeForBenchmarks]
+using TestLibrary;
 
 namespace BenchmarksGame
 {
@@ -33,7 +32,7 @@ namespace BenchmarksGame
         public Thread ReverseThread;
     }
 
-    public static class ReverseComplement_6
+    public class ReverseComplement_6
     {
         const int READER_BUFFER_SIZE = 1024 * 1024;
         const byte LF = 10, GT = (byte)'>', SP = 32;
@@ -231,7 +230,12 @@ namespace BenchmarksGame
             }
         }
 
-        static int Main(string[] args)
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/86772", TestPlatforms.Browser | TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/41472", typeof(PlatformDetection), nameof(PlatformDetection.IsNotMultithreadingSupported))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/54906", TestPlatforms.Android)]
+        [ActiveIssue("((null) error) * Assertion at runtime/src/mono/mono/metadata/assembly.c:2049, condition `is_ok (error)' not met, function:mono_assembly_load_friends, Could not load file or assembly 'xunit.performance.core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=67066efe964d3b03' or one of its dependencies.", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [Fact]
+        public static int TestEntryPoint()
         {
             var helpers = new TestHarnessHelpers(bigInput: false);
             var outBytes = new byte[helpers.FileLength];
@@ -246,24 +250,6 @@ namespace BenchmarksGame
                 return -1;
             }
             return 100;
-        }
-
-        [Benchmark(InnerIterationCount = 33)]
-        public static void RunBench()
-        {
-            var helpers = new TestHarnessHelpers(bigInput: true);
-            var outBytes = new byte[helpers.FileLength];
-
-            Benchmark.Iterate(() =>
-            {
-                using (var inputStream = helpers.GetInputStream())
-                using (var outputStream = new MemoryStream(outBytes))
-                {
-                    Bench(inputStream, outputStream);
-                }
-            });
-
-            Assert.True(MatchesChecksum(outBytes, helpers.CheckSum));
         }
 
         static bool MatchesChecksum(byte[] bytes, string checksum)

@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
+    <!-- Needed for CMakeProjectReference -->
+    <RequiresProcessIsolation>true</RequiresProcessIsolation>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <PropertyGroup>
@@ -9,11 +10,14 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="StructABI.cs" />
-    <Compile Include="StructABI.Windows.cs" Condition="'$(TargetOS)' == 'Windows_NT'" />
-    <Compile Include="StructABI.Unix.cs" Condition="'$(TargetOS)' == 'Linux' Or '$(TargetOS)' == 'FreeBSD' Or '$(TargetOS)' == 'NetBSD' Or '$(TargetOS)' == 'illumos' Or '$(TargetOS)' == 'Solaris'" />
-    <Compile Include="StructABI.OSX.cs" Condition="'$(TargetOS)' == 'OSX'" />
+    <Compile Include="StructABI.Windows.cs" Condition="'$(TargetOS)' == 'windows'" />
+    <Compile Include="StructABI.OSX.cs" Condition="'$(TargetOS)' == 'osx'" />
+    <Compile Include="StructABI.Unix.cs" Condition="'$(TargetOS)' != 'windows' and '$(TargetOS)' != 'osx'" />
   </ItemGroup>
   <ItemGroup>
-    <ProjectReference Include="CMakeLists.txt" />
+    <ProjectReference Include="$(TestLibraryProjectPath)" />
+  </ItemGroup>
+  <ItemGroup>
+    <CMakeProjectReference Include="CMakeLists.txt" />
   </ItemGroup>
 </Project>

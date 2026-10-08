@@ -2,7 +2,8 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace Test
+using Xunit;
+namespace b56154
 {
     using System;
 
@@ -16,11 +17,12 @@ namespace Test
                 Array[] a = new Array[2];
             }
         }
-        static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             byte b = 0;
             Method1(ref b);
-            return 100;
         }
     }
 }

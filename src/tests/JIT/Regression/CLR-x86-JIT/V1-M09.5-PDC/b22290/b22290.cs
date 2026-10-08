@@ -2,18 +2,20 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 //
 
-namespace DefaultNamespace
+using Xunit;
+namespace b22290
 {
-    class DD
+    public class DD
     {
         public float[] Method1()
         {
             return new float[7];
         }
-        public static int Main()
+        [OuterLoop]
+        [Fact]
+        public static void TestEntryPoint()
         {
             new DD().Method1();
-            return 100;
         }
     }
 }

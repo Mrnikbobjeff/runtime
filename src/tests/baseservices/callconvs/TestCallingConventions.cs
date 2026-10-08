@@ -6,41 +6,16 @@ using System.IO;
 using System.Reflection;
 using System.Runtime.InteropServices;
 
+using Xunit;
 using TestLibrary;
 
-unsafe class Program
+public unsafe class Program
 {
-    class NativeFunctions
-    {
-        public const string Name = nameof(NativeFunctions);
-
-        public static string GetFileName()
-        {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                return $"{Name}.dll";
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-                return $"lib{Name}.so";
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-                return $"lib{Name}.dylib";
-
-            throw new PlatformNotSupportedException();
-        }
-
-        public static string GetFullPath()
-        {
-            Assembly assembly = Assembly.GetExecutingAssembly();
-            string directory = Path.GetDirectoryName(assembly.Location);
-            return Path.Combine(directory, GetFileName());
-        }
-    }
-
     static void BlittableFunctionPointers()
     {
         Console.WriteLine($"Running {nameof(BlittableFunctionPointers)}...");
 
-        IntPtr mod = NativeLibrary.Load(NativeFunctions.GetFullPath());
+        IntPtr mod = NativeLibrary.Load("NativeFunctions", Assembly.GetExecutingAssembly(), null);
         var cbDefault = NativeLibrary.GetExport(mod, "DoubleInt").ToPointer();
         var cbCdecl = NativeLibrary.GetExport(mod, "DoubleIntCdecl").ToPointer();
         var cbStdcall = NativeLibrary.GetExport(mod, "DoubleIntStdcall").ToPointer();
@@ -52,65 +27,64 @@ unsafe class Program
             // No modopt
             Console.WriteLine($" -- unmanaged");
             int b = CallFunctionPointers.CallUnmanagedIntInt(cbDefault, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             Console.WriteLine($" -- unmanaged cdecl");
             int b = CallFunctionPointers.CallUnmanagedCdeclIntInt(cbCdecl, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             Console.WriteLine($" -- unmanaged stdcall");
             int b = CallFunctionPointers.CallUnmanagedStdcallIntInt(cbStdcall, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             Console.WriteLine($" -- unmanaged modopt(cdecl)");
             int b = CallFunctionPointers.CallUnmanagedIntInt_ModOptCdecl(cbCdecl, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             Console.WriteLine($" -- unmanaged modopt(stdcall)");
             int b = CallFunctionPointers.CallUnmanagedIntInt_ModOptStdcall(cbStdcall, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             // Value in modopt is not a recognized calling convention
             Console.WriteLine($" -- unmanaged modopt unrecognized");
             int b = CallFunctionPointers.CallUnmanagedIntInt_ModOptUnknown(cbDefault, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             // Multiple modopts with calling conventions
             Console.WriteLine($" -- unmanaged modopt(stdcall) modopt(cdecl)");
             var ex = Assert.Throws<InvalidProgramException>(
-                () => CallFunctionPointers.CallUnmanagedIntInt_ModOptStdcall_ModOptCdecl(cbCdecl, a),
-                "Multiple modopts with calling conventions should fail");
-            Assert.AreEqual("Multiple unmanaged calling conventions are specified. Only a single calling convention is supported.", ex.Message);
+                () => CallFunctionPointers.CallUnmanagedIntInt_ModOptStdcall_ModOptCdecl(cbCdecl, a));
+            Assert.Equal("Multiple unmanaged calling conventions are specified. Only a single calling convention is supported.", ex.Message);
         }
 
         {
             Console.WriteLine($" -- unmanaged modopt(stdcall) modopt(unrecognized)");
             int b = CallFunctionPointers.CallUnmanagedIntInt_ModOptStdcall_ModOptUnknown(cbStdcall, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             Console.WriteLine($" -- unmanaged cdecl modopt(stdcall)");
             int b = CallFunctionPointers.CallUnmanagedCdeclIntInt_ModOptStdcall(cbCdecl, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             Console.WriteLine($" -- unmanaged stdcall modopt(cdecl)");
             int b = CallFunctionPointers.CallUnmanagedStdcallIntInt_ModOptCdecl(cbStdcall, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
     }
 
@@ -118,7 +92,7 @@ unsafe class Program
     {
         Console.WriteLine($"Running {nameof(NonblittableFunctionPointers)}...");
 
-        IntPtr mod = NativeLibrary.Load(NativeFunctions.GetFullPath());
+        IntPtr mod = NativeLibrary.Load("NativeFunctions", Assembly.GetExecutingAssembly(), null);
         var cbDefault = NativeLibrary.GetExport(mod, "ToUpper").ToPointer();
         var cbCdecl = NativeLibrary.GetExport(mod, "ToUpperCdecl").ToPointer();
         var cbStdcall = NativeLibrary.GetExport(mod, "ToUpperStdcall").ToPointer();
@@ -130,74 +104,87 @@ unsafe class Program
             // No modopt
             Console.WriteLine($" -- unmanaged");
             var b = CallFunctionPointers.CallUnmanagedCharChar(cbDefault, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
+        }
+
+        {
+            Console.WriteLine($" -- unmanaged tail");
+            var b = CallFunctionPointers.CallUnmanagedTailCharChar(cbDefault, a);
+            Assert.Equal(expected, b);
         }
 
         {
             Console.WriteLine($" -- unmanaged cdecl");
             var b = CallFunctionPointers.CallUnmanagedCdeclCharChar(cbCdecl, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             Console.WriteLine($" -- unmanaged stdcall");
             var b = CallFunctionPointers.CallUnmanagedStdcallCharChar(cbStdcall, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             Console.WriteLine($" -- unmanaged modopt(cdecl)");
             var b = CallFunctionPointers.CallUnmanagedCharChar_ModOptCdecl(cbCdecl, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             Console.WriteLine($" -- unmanaged modopt(stdcall)");
             var b = CallFunctionPointers.CallUnmanagedCharChar_ModOptStdcall(cbStdcall, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             // Value in modopt is not a recognized calling convention
             Console.WriteLine($" -- unmanaged modopt(unrecognized)");
             var b = CallFunctionPointers.CallUnmanagedCharChar_ModOptUnknown(cbDefault, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             // Multiple modopts with calling conventions
             Console.WriteLine($" -- unmanaged modopt(stdcall) modopt(cdecl)");
             var ex = Assert.Throws<InvalidProgramException>(
-                () => CallFunctionPointers.CallUnmanagedCharChar_ModOptStdcall_ModOptCdecl(cbCdecl, a),
-                "Multiple modopts with calling conventions should fail");
-            Assert.AreEqual("Multiple unmanaged calling conventions are specified. Only a single calling convention is supported.", ex.Message);
+                () => CallFunctionPointers.CallUnmanagedCharChar_ModOptStdcall_ModOptCdecl(cbCdecl, a));
+            Assert.Equal("Multiple unmanaged calling conventions are specified. Only a single calling convention is supported.", ex.Message);
         }
 
         {
             Console.WriteLine($" -- unmanaged modopt(stdcall) modopt(unrecognized)");
             var b = CallFunctionPointers.CallUnmanagedCharChar_ModOptStdcall_ModOptUnknown(cbStdcall, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             Console.WriteLine($" -- unmanaged cdecl modopt(stdcall)");
             var b = CallFunctionPointers.CallUnmanagedCdeclCharChar_ModOptStdcall(cbCdecl, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
 
         {
             Console.WriteLine($" -- unmanaged stdcall modopt(cdecl)");
             var b = CallFunctionPointers.CallUnmanagedStdcallCharChar_ModOptCdecl(cbStdcall, a);
-            Assert.AreEqual(expected, b);
+            Assert.Equal(expected, b);
         }
     }
 
-    static int Main(string[] doNotUse)
+    [ActiveIssue("needs triage", TestRuntimes.Mono)]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/123946", typeof(PlatformDetection), nameof(PlatformDetection.PlatformDoesNotSupportNativeTestAssets))]
+    [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+    [Fact]
+    public static int TestEntryPoint()
     {
         try
         {
             BlittableFunctionPointers();
-            NonblittableFunctionPointers();
+            // This requires pinvoke marshalling with calli which is not currently supported by the interpreter. See https://github.com/dotnet/runtime/issues/118965
+            if (!TestLibrary.Utilities.IsCoreClrInterpreter)
+            {
+                NonblittableFunctionPointers();
+            }
         }
         catch (Exception e)
         {

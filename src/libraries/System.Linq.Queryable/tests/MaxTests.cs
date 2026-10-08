@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Collections.Generic;
 using System.Linq.Expressions;
 using Xunit;
 
@@ -579,15 +580,84 @@ namespace System.Linq.Tests
         [Fact]
         public void Max1()
         {
-            var val = (new int[] { 0, 2, 1 }).AsQueryable().Max();
+            var val = new[] { 0, 2, 1 }.AsQueryable().Max();
             Assert.Equal(2, val);
         }
 
         [Fact]
         public void Max2()
         {
-            var val = (new int[] { 0, 2, 1 }).AsQueryable().Max(n => n);
+            var val = new[] { 0, 2, 1 }.AsQueryable().Max(n => n);
             Assert.Equal(2, val);
+        }
+
+        [Fact]
+        public void Max_CustomComparer_NullSource_ThrowsArgumentNullException()
+        {
+            IQueryable<int> source = null;
+            AssertExtensions.Throws<ArgumentNullException>("source", () => source.Max(Comparer<int>.Default));
+        }
+
+        [Fact]
+        public void Max_CustomComparer()
+        {
+            IComparer<int> comparer = Comparer<int>.Create((x, y) => -x.CompareTo(y));
+            IQueryable<int> source = Enumerable.Range(1, 10).AsQueryable();
+            Assert.Equal(1, source.Max(comparer));
+        }
+
+        [Fact]
+        public void MaxBy_NullSource_ThrowsArgumentNullException()
+        {
+            IQueryable<int> source = null;
+
+            AssertExtensions.Throws<ArgumentNullException>("source", () => source.MaxBy(x => x));
+            AssertExtensions.Throws<ArgumentNullException>("source", () => source.MaxBy(x => x, Comparer<int>.Default));
+        }
+
+        [Fact]
+        public void MaxBy_NullKeySelector_ThrowsArgumentNullException()
+        {
+            IQueryable<int> source = Enumerable.Empty<int>().AsQueryable();
+            Expression<Func<int, int>> keySelector = null;
+
+            AssertExtensions.Throws<ArgumentNullException>("keySelector", () => source.MaxBy(keySelector));
+            AssertExtensions.Throws<ArgumentNullException>("keySelector", () => source.MaxBy(keySelector, Comparer<int>.Default));
+        }
+
+        [Fact]
+        public void MaxBy()
+        {
+            IQueryable<int> source = Enumerable.Range(1, 20).AsQueryable();
+            Assert.Equal(1, source.MaxBy(x => -x));
+        }
+
+        [Fact]
+        public void MaxBy_CustomComparer()
+        {
+            IQueryable<int> source = Enumerable.Range(1, 20).AsQueryable();
+            Assert.Equal(20, source.MaxBy(x => -x, Comparer<int>.Create((x, y) => -x.CompareTo(y))));
+        }
+
+        private sealed class Folk
+        {
+            public string Name { get; set; }
+            public int Age { get; set; }
+        }
+
+        [Fact]
+        public void MaxBy_CustomComparer_DistinctTypes()
+        {
+            var data = new Folk[] {
+                new Folk { Name="Doug", Age=42 },
+                new Folk { Name="John", Age=18 },
+                new Folk { Name="Bob", Age=21 }
+            };
+
+            IQueryable<Folk> source = data.AsQueryable();
+            var result = source.MaxBy(e => e.Age, Comparer<int>.Default);
+            Assert.NotNull(result);
+            Assert.Equal("Doug", result.Name);
         }
     }
 }

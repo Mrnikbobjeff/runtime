@@ -26,6 +26,24 @@ using std::vector;
 #define INFO(MSG) _MESSAGE("INFO", MSG)
 #define FAIL(MSG) _MESSAGE("FAIL", MSG)
 
+static bool StartsWith(const String& value, const String& prefix)
+{
+    if (value.Length() < prefix.Length())
+    {
+        return false;
+    }
+
+    for (size_t i = 0; i < prefix.Length(); i++)
+    {
+        if (value[i] != prefix[i])
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 #ifdef __clang__
 #pragma clang diagnostic ignored "-Wnull-arithmetic"
 #endif // __clang__
@@ -35,11 +53,14 @@ ReJITProfiler::ReJITProfiler() : Profiler(),
     _failures(0),
     _rejits(0),
     _reverts(0),
+    _runtimeAsyncRejits(0),
     _inlinings(),
     _triggerFuncId(0),
     _targetFuncId(0),
     _targetModuleId(0),
-    _targetMethodDef(mdTokenNil)
+    _targetMethodDef(mdTokenNil),
+    _runtimeAsyncTargetModuleId(0),
+    _runtimeAsyncTargetMethodDef(mdTokenNil)
 {
 
 }
@@ -95,17 +116,24 @@ HRESULT ReJITProfiler::Shutdown()
         _profInfo10 = nullptr;
     }
 
-    int expectedRejitCount = -1;
+    int expectedRejitCount;
     auto it = _inlinings.find(_targetFuncId);
     if (it != _inlinings.end())
     {
         // The number of inliners are expected to ReJIT, plus the method itself
         expectedRejitCount = (int)((*it).second->size() + 1);
     }
+    else
+    {
+        // No inlinings happened, which can occur in composite R2R mode on some targets.
+        // This is fine as long as we rejitted the target method itself.
+        expectedRejitCount = 1;
+    }
 
     INFO(L" rejit count=" << _rejits << L" expected rejit count=" << expectedRejitCount);
+    INFO(L" runtime async rejit count=" << _runtimeAsyncRejits << L" expected runtime async rejit count=2");
 
-    if(_failures == 0 && _rejits == expectedRejitCount)
+    if(_failures == 0 && _rejits == expectedRejitCount && _runtimeAsyncRejits == 2)
     {
         printf("PROFILER TEST PASSES\n");
     }
@@ -120,6 +148,8 @@ HRESULT ReJITProfiler::Shutdown()
 
 HRESULT STDMETHODCALLTYPE ReJITProfiler::JITCompilationStarted(FunctionID functionId, BOOL fIsSafeToBlock)
 {
+    SHUTDOWNGUARD();
+
     return S_OK;
 }
 
@@ -192,7 +222,7 @@ bool ReJITProfiler::FunctionSeen(FunctionID functionId)
 
             for (auto &&address : codeStartAddresses)
             {
-                if (address == NULL)
+                if (address == (UINT_PTR)NULL)
                 {
                     printf("Found NULL start address from GetNativeCodeStartAddresses.\n");
                     _failures++;
@@ -201,7 +231,16 @@ bool ReJITProfiler::FunctionSeen(FunctionID functionId)
         }
     }
 
-    if (functionName == TargetMethodName && EndsWith(moduleName, TargetModuleName))
+    if (StartsWith(functionName, RuntimeAsyncTargetMethodName) && EndsWith(moduleName, TargetModuleName))
+    {
+        _runtimeAsyncTargetModuleId = moduleId;
+        _runtimeAsyncTargetMethodDef = GetMethodDefForFunction(functionId);
+        INFO(L"Runtime async target native version compiled. FunctionID=" << std::hex << functionId
+            << L", ModuleID=" << _runtimeAsyncTargetModuleId
+            << L", MethodDef=" << _runtimeAsyncTargetMethodDef);
+        return true;
+    }
+    else if (functionName == TargetMethodName && EndsWith(moduleName, TargetModuleName))
     {
         INFO(L"Found function id for target method");
         _targetFuncId = functionId;
@@ -229,18 +268,39 @@ bool ReJITProfiler::FunctionSeen(FunctionID functionId)
         INFO(L"ModuleID=" << std::hex << _targetModuleId << L" and MethodDef=" << std::hex << _targetMethodDef);
         _profInfo10->RequestRevert(1, &_targetModuleId, &_targetMethodDef, nullptr);
     }
+    else if (functionName == RuntimeAsyncReJITTriggerMethodName && EndsWith(moduleName, TargetModuleName))
+    {
+        INFO(L"Runtime async ReJIT trigger method jitting finished: " << functionName);
+        INFO(L"Requesting ReJIT with inliners for runtime async method. ModuleID=" << std::hex
+            << _runtimeAsyncTargetModuleId << L", MethodDef=" << _runtimeAsyncTargetMethodDef);
+
+        HRESULT hr = _profInfo10->RequestReJITWithInliners(
+            COR_PRF_REJIT_BLOCK_INLINING | COR_PRF_REJIT_INLINING_CALLBACKS,
+            1,
+            &_runtimeAsyncTargetModuleId,
+            &_runtimeAsyncTargetMethodDef);
+        if (FAILED(hr))
+        {
+            _failures++;
+            FAIL(L"RequestReJITWithInliners failed for runtime async target with hr=" << std::hex << hr);
+        }
+    }
 
     return false;
 }
 
 HRESULT STDMETHODCALLTYPE ReJITProfiler::JITCompilationFinished(FunctionID functionId, HRESULT hrStatus, BOOL fIsSafeToBlock)
 {
+    SHUTDOWNGUARD();
+
     FunctionSeen(functionId);
     return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE ReJITProfiler::JITInlining(FunctionID callerId, FunctionID calleeId, BOOL* pfShouldInline)
 {
+    SHUTDOWNGUARD();
+
     AddInlining(callerId, calleeId);
     *pfShouldInline = TRUE;
 
@@ -250,6 +310,8 @@ HRESULT STDMETHODCALLTYPE ReJITProfiler::JITInlining(FunctionID callerId, Functi
 
 HRESULT STDMETHODCALLTYPE ReJITProfiler::JITCachedFunctionSearchFinished(FunctionID functionId, COR_PRF_JIT_CACHE result)
 {
+    SHUTDOWNGUARD();
+
     if (result == COR_PRF_CACHED_FUNCTION_FOUND)
     {
         // FunctionSeen will return true if it's a method we're tracking, and false otherwise
@@ -279,12 +341,19 @@ HRESULT STDMETHODCALLTYPE ReJITProfiler::JITCachedFunctionSearchFinished(Functio
         COR_PRF_METHOD method;
         while (pEnum->Next(1, &method, NULL) == S_OK)
         {
-            FunctionID inlinerFuncId = GetFunctionIDFromToken(method.moduleId, method.methodId);
+            FunctionID inlinerFuncId = GetFunctionIDFromToken(method.moduleId, method.methodId, true);
 
-            // GetFunctionIDFromToken doesn't handle generics, will return NULL
+            // GetFunctionIDFromToken doesn't handle generics or not yet loaded methods, will return NULL
             if (inlinerFuncId != mdTokenNil)
             {
                 AddInlining(inlinerFuncId, functionId);
+            }
+            else
+            {
+                String calleeName = GetFunctionIDName(functionId);
+                String moduleName = GetModuleIDName(GetModuleIDForFunction(functionId));
+                String inlinerModuleId = GetModuleIDName(method.moduleId);
+                INFO(L"Inlining occurred, but name could not be resolved! Inliner=ModuleId=" << inlinerModuleId << L" Token=" << std::hex << method.methodId << L",  Inlinee=" << calleeName << L" Inlinee module name=" << moduleName);
             }
         }
     }
@@ -294,14 +363,30 @@ HRESULT STDMETHODCALLTYPE ReJITProfiler::JITCachedFunctionSearchFinished(Functio
 
 HRESULT STDMETHODCALLTYPE ReJITProfiler::ReJITCompilationStarted(FunctionID functionId, ReJITID rejitId, BOOL fIsSafeToBlock)
 {
-    INFO(L"Saw a ReJIT for function " << GetFunctionIDName(functionId));
-    _rejits++;
+    SHUTDOWNGUARD();
+
+    String functionName = GetFunctionIDName(functionId);
+    if (StartsWith(functionName, RuntimeAsyncTargetMethodName))
+    {
+        INFO(L"Saw a runtime async target ReJIT. FunctionID=" << std::hex << functionId << L", ReJITID=" << rejitId);
+        _runtimeAsyncRejits++;
+    }
+    else
+    {
+        INFO(L"Saw a ReJIT for function " << functionName);
+        _rejits++;
+    }
     return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE ReJITProfiler::GetReJITParameters(ModuleID moduleId, mdMethodDef methodId, ICorProfilerFunctionControl* pFunctionControl)
 {
-    INFO(L"Starting to build IL for method " << GetFunctionIDName(GetFunctionIDFromToken(moduleId, methodId)));
+    SHUTDOWNGUARD();
+
+    String functionName = moduleId == _runtimeAsyncTargetModuleId && methodId == _runtimeAsyncTargetMethodDef
+        ? RuntimeAsyncTargetMethodName
+        : GetFunctionIDName(GetFunctionIDFromToken(moduleId, methodId, false));
+    INFO(L"Starting to build IL for method " << functionName);
     COMPtrHolder<IUnknown> pUnk;
     HRESULT hr = _profInfo10->GetModuleMetaData(moduleId, ofWrite, IID_IMetaDataEmit2, &pUnk);
     if (FAILED(hr))
@@ -321,10 +406,18 @@ HRESULT STDMETHODCALLTYPE ReJITProfiler::GetReJITParameters(ModuleID moduleId, m
     }
 
 
-    const WCHAR *wszNewUserDefinedString = WCHAR("Hello from profiler rejit!");
+    String newUserDefinedString = String(WCHAR("Hello from profiler rejit method '"));
+    newUserDefinedString += functionName;
+    newUserDefinedString += WCHAR("'! ");
     mdString tokmdsUserDefined = mdTokenNil;
-    hr = pTargetEmit->DefineUserString(wszNewUserDefinedString,
-                                       (ULONG)wcslen(wszNewUserDefinedString),
+
+    // There's no portable way to convert a String to LPCWSTR so just make a manual copy on the stack.
+    char16_t buf[4096] = { 0 };
+    for (size_t i = 0, c = newUserDefinedString.Length(); i < c; i++)
+        buf[i] = (char16_t)newUserDefinedString[i];
+
+    hr = pTargetEmit->DefineUserString((LPCWSTR)(void *)buf,
+                                       (ULONG)newUserDefinedString.Length(),
                                        &tokmdsUserDefined);
     if (FAILED(hr))
     {
@@ -367,12 +460,14 @@ HRESULT STDMETHODCALLTYPE ReJITProfiler::GetReJITParameters(ModuleID moduleId, m
         return hr;
     }
 
-    INFO(L"IL build sucessful for methodDef=" << std::hex << methodId);
+    INFO(L"IL build successful for methodDef=" << std::hex << methodId);
     return S_OK;
 }
 
 HRESULT STDMETHODCALLTYPE ReJITProfiler::ReJITCompilationFinished(FunctionID functionId, ReJITID rejitId, HRESULT hrStatus, BOOL fIsSafeToBlock)
 {
+    SHUTDOWNGUARD();
+
     ULONG rejitIDsCount;
     HRESULT hr = pCorProfilerInfo->GetReJITIDs(functionId, 0, &rejitIDsCount, NULL);
     if (FAILED(hr))
@@ -394,6 +489,8 @@ HRESULT STDMETHODCALLTYPE ReJITProfiler::ReJITCompilationFinished(FunctionID fun
 
 HRESULT STDMETHODCALLTYPE ReJITProfiler::ReJITError(ModuleID moduleId, mdMethodDef methodId, FunctionID functionId, HRESULT hrStatus)
 {
+    SHUTDOWNGUARD();
+
     _failures++;
 
     FAIL(L"ReJIT error reported hr=" << std::hex << hrStatus);
@@ -404,37 +501,56 @@ HRESULT STDMETHODCALLTYPE ReJITProfiler::ReJITError(ModuleID moduleId, mdMethodD
 
 void ReJITProfiler::AddInlining(FunctionID inliner, FunctionID inlinee)
 {
-    shared_ptr<unordered_set<FunctionID>> inliners;
-    auto result = _inlinings.find(inlinee);
-    if (result == _inlinings.end())
+    String calleeName = GetFunctionIDName(inlinee);
+    String moduleName = GetModuleIDName(GetModuleIDForFunction(inlinee));
+
+    // Depending on various things it's possible the JIT will inline code during our test run that isn't part of the
+    //  rejit test module. For example if part of the BCL didn't get crossgen'd or the crossgen'd code isn't used.
+    // We don't care about those inlinings, so we won't track them. This makes the test more reliable.
+    if (EndsWith(moduleName, String(WCHAR("rejit.dll"))))
     {
-        auto p = make_pair(inlinee, make_shared<unordered_set<FunctionID>>());
-        inliners = p.second;
-        _inlinings.insert(p);
+        shared_ptr<unordered_set<FunctionID>> inliners;
+        auto result = _inlinings.find(inlinee);
+        if (result == _inlinings.end())
+        {
+            auto p = make_pair(inlinee, make_shared<unordered_set<FunctionID>>());
+            inliners = p.second;
+            _inlinings.insert(p);
+        }
+        else
+        {
+            inliners = (*result).second;
+        }
+
+        auto it = inliners->find(inliner);
+        if (it == inliners->end())
+        {
+            inliners->insert(inliner);
+        }
+
+        INFO(L"Inlining in test module! Inliner=" << GetFunctionIDName(inliner) << L" Inlinee=" << calleeName << L" module=" << moduleName);
     }
     else
     {
-        inliners = (*result).second;
+        INFO(L"Inlining in non-test module! Inliner=" << GetFunctionIDName(inliner) << L" Inlinee=" << calleeName << L" module=" << moduleName);
     }
-
-    auto it = inliners->find(inliner);
-    if (it == inliners->end())
-    {
-        inliners->insert(inliner);
-    }
-
-    String calleeName = GetFunctionIDName(inlinee);
-    String moduleName = GetModuleIDName(GetModuleIDForFunction(inlinee));
-    INFO(L"Inlining occurred! Inliner=" << GetFunctionIDName(inliner) << L" Inlinee=" << calleeName << L" Inlinee module name=" << moduleName);
 }
 
-FunctionID ReJITProfiler::GetFunctionIDFromToken(ModuleID module, mdMethodDef token)
+FunctionID ReJITProfiler::GetFunctionIDFromToken(ModuleID module, mdMethodDef token, bool invalidArgNotFailure)
 {
     HRESULT hr = S_OK;
     FunctionID functionId;
-    if (FAILED(hr = pCorProfilerInfo->GetFunctionFromToken(module,
-                                                           token,
-                                                           &functionId)))
+    hr = pCorProfilerInfo->GetFunctionFromToken(module,
+                                                token,
+                                                &functionId);
+
+    if (invalidArgNotFailure && hr == E_INVALIDARG)
+    {
+        printf("Call to GetFunctionFromToken failed with E_INVALIDARG, this may be caused by the method not yet being loaded\n");
+        return mdTokenNil;
+    }
+
+    if (FAILED(hr))
     {
         printf("Call to GetFunctionFromToken failed with hr=0x%x\n", hr);
         _failures++;
@@ -446,12 +562,12 @@ FunctionID ReJITProfiler::GetFunctionIDFromToken(ModuleID module, mdMethodDef to
 
 mdMethodDef ReJITProfiler::GetMethodDefForFunction(FunctionID functionId)
 {
-    ClassID classId = NULL;
-    ModuleID moduleId = NULL;
-    mdToken token = NULL;
-    ULONG32 nTypeArgs = NULL;
+    ClassID classId = 0;
+    ModuleID moduleId = 0;
+    mdToken token = 0;
+    ULONG32 nTypeArgs = 0;
     ClassID typeArgs[SHORT_LENGTH];
-    COR_PRF_FRAME_INFO frameInfo = NULL;
+    COR_PRF_FRAME_INFO frameInfo = 0;
 
     HRESULT hr = S_OK;
     hr = pCorProfilerInfo->GetFunctionInfo2(functionId,
@@ -474,12 +590,12 @@ mdMethodDef ReJITProfiler::GetMethodDefForFunction(FunctionID functionId)
 
 ModuleID ReJITProfiler::GetModuleIDForFunction(FunctionID functionId)
 {
-    ClassID classId = NULL;
-    ModuleID moduleId = NULL;
-    mdToken token = NULL;
-    ULONG32 nTypeArgs = NULL;
+    ClassID classId = 0;
+    ModuleID moduleId = 0;
+    mdToken token = 0;
+    ULONG32 nTypeArgs = 0;
     ClassID typeArgs[SHORT_LENGTH];
-    COR_PRF_FRAME_INFO frameInfo = NULL;
+    COR_PRF_FRAME_INFO frameInfo = 0;
 
     HRESULT hr = S_OK;
     hr = pCorProfilerInfo->GetFunctionInfo2(functionId,

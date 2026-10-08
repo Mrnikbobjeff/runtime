@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using Xunit;
 // This is adapted from a benchmark written by John Ellis and Pete Kovac
 // of Post Communications.
 // It was modified by Hans Boehm of Silicon Graphics.
@@ -131,7 +132,9 @@ namespace DefaultNamespace {
 
         }
 
-        public static int Main(String [] args)
+        [SkipOnCoreClr("This test is not compatible with GC stress.", RuntimeTestModes.AnyGCStress)]
+        [Fact]
+        public static void TestEntryPoint()
         {
             Node    longLivedTree;
             Node    tempTree;
@@ -163,7 +166,6 @@ namespace DefaultNamespace {
             }
 
             Console.WriteLine("Test Passed");
-            return 100;
         }
     }
 

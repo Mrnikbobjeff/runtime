@@ -1,9 +1,10 @@
-// Licensed to the .NET Foundation under one or more agreements.
+﻿// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.Buffers;
 using System.Globalization;
-using System.Runtime.InteropServices;
-using Internal.Runtime.CompilerServices;
+using System.Runtime.CompilerServices;
+using System.Text;
 
 namespace System
 {
@@ -13,6 +14,12 @@ namespace System
         {
             if (value == null)
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.value);
+
+            if (RuntimeHelpers.IsKnownConstant(value) && value.Length == 1)
+            {
+                // Call the char overload, e.g. Contains("X") -> Contains('X')
+                return Contains(value[0]);
+            }
 
             return SpanHelpers.IndexOf(
                 ref _firstChar,
@@ -28,57 +35,147 @@ namespace System
 #pragma warning restore CA2249
         }
 
-        public bool Contains(char value) => SpanHelpers.Contains(ref _firstChar, value, Length);
+        public bool Contains(char value)
+            => SpanHelpers.ContainsValueType(ref Unsafe.As<char, short>(ref _firstChar), (short)value, Length);
 
         public bool Contains(char value, StringComparison comparisonType)
         {
-            return IndexOf(value, comparisonType) != -1;
+#pragma warning disable CA2249 // Consider using 'string.Contains' instead of 'string.IndexOf'... this is the implementation of Contains!
+            return IndexOf(value, comparisonType) >= 0;
+#pragma warning restore CA2249
+        }
+
+        /// <summary>
+        /// Returns a value indicating whether a specified rune occurs within this string using an ordinal comparison.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <returns><see langword="true"/> if <paramref name="value"/> occurs within this string; otherwise, <see langword="false"/>.</returns>
+        public bool Contains(Rune value)
+        {
+            if (value.IsBmp)
+            {
+                return Contains((char)value.Value);
+            }
+
+            return Contains(value, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Returns a value indicating whether a specified rune occurs within this string using the specified comparison option.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules to use in the comparison.</param>
+        /// <returns><see langword="true"/> if <paramref name="value"/> occurs within this string; otherwise, <see langword="false"/>.</returns>
+        public bool Contains(Rune value, StringComparison comparisonType)
+        {
+            return IndexOf(value, comparisonType) >= 0;
         }
 
         // Returns the index of the first occurrence of a specified character in the current instance.
         // The search starts at startIndex and runs thorough the next count characters.
-        //
-        public int IndexOf(char value) => SpanHelpers.IndexOf(ref _firstChar, value, Length);
+        public int IndexOf(char value) => SpanHelpers.IndexOfChar(ref _firstChar, value, Length);
 
         public int IndexOf(char value, int startIndex)
         {
-            return IndexOf(value, startIndex, this.Length - startIndex);
+            return IndexOf(value, startIndex, Length - startIndex);
         }
 
         public int IndexOf(char value, StringComparison comparisonType)
         {
-            switch (comparisonType)
-            {
-                case StringComparison.CurrentCulture:
-                case StringComparison.CurrentCultureIgnoreCase:
-                    return CultureInfo.CurrentCulture.CompareInfo.IndexOf(this, value, GetCaseCompareOfComparisonCulture(comparisonType));
-
-                case StringComparison.InvariantCulture:
-                case StringComparison.InvariantCultureIgnoreCase:
-                    return CompareInfo.Invariant.IndexOf(this, value, GetCaseCompareOfComparisonCulture(comparisonType));
-
-                case StringComparison.Ordinal:
-                    return IndexOf(value);
-
-                case StringComparison.OrdinalIgnoreCase:
-                    return CompareInfo.Invariant.IndexOf(this, value, CompareOptions.OrdinalIgnoreCase);
-
-                default:
-                    throw new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType));
-            }
+            return IndexOf(value, 0, comparisonType);
         }
 
-        public unsafe int IndexOf(char value, int startIndex, int count)
+        /// <summary>
+        /// Reports the zero-based index of the first occurrence of the specified character in the current String object.
+        /// Parameters specify the starting search position in the current string and the type of search to use for
+        /// the specified character.
+        /// </summary>
+        /// <param name="value">The character to seek.</param>
+        /// <param name="startIndex">The search starting position.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules for the search.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the start of the current instance
+        /// if that character is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int IndexOf(char value, int startIndex, StringComparison comparisonType)
+        {
+            return IndexOf(value, startIndex, Length - startIndex, comparisonType);
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the first occurrence of the specified character in the current String object.
+        /// Parameters specify the starting search position in the current string, the number of characters in the
+        /// current string to search, and the type of search to use for the specified character.
+        /// </summary>
+        /// <param name="value">The character to seek.</param>
+        /// <param name="startIndex">The search starting position.</param>
+        /// <param name="count">The number of character positions to examine.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules for the search.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the start of the current instance
+        /// if that character is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int IndexOf(char value, int startIndex, int count, StringComparison comparisonType)
+        {
+            return comparisonType switch
+            {
+                StringComparison.CurrentCulture or StringComparison.CurrentCultureIgnoreCase => CultureInfo.CurrentCulture.CompareInfo.IndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.InvariantCulture or StringComparison.InvariantCultureIgnoreCase => CompareInfo.Invariant.IndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.Ordinal => IndexOf(value, startIndex, count),
+                StringComparison.OrdinalIgnoreCase => IndexOfCharOrdinalIgnoreCase(value, startIndex, count),
+                _ => throw new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType)),
+            };
+        }
+
+        private int IndexOfCharOrdinalIgnoreCase(char value, int startIndex, int count)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(startIndex, Length);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, Length - startIndex);
+
+            int subIndex;
+
+            if (char.IsAscii(value))
+            {
+                ref char startChar = ref Unsafe.Add(ref _firstChar, startIndex);
+
+                if (char.IsAsciiLetter(value))
+                {
+                    char valueLc = (char)(value | 0x20);
+                    char valueUc = (char)(value & ~0x20);
+                    subIndex = PackedSpanHelpers.PackedIndexOfIsSupported
+                        ? PackedSpanHelpers.IndexOfAnyIgnoreCase(ref startChar, valueLc, count)
+                        : SpanHelpers.IndexOfAnyChar(ref startChar, valueLc, valueUc, count);
+                }
+                else
+                {
+                    subIndex = SpanHelpers.IndexOfChar(ref startChar, value, count);
+                }
+            }
+            else
+            {
+                subIndex = Ordinal.IndexOfOrdinalIgnoreCase(this.AsSpan(startIndex, count), new ReadOnlySpan<char>(in value));
+            }
+
+            return subIndex < 0 ? subIndex : startIndex + subIndex;
+        }
+
+        public int IndexOf(char value, int startIndex, int count)
         {
             if ((uint)startIndex > (uint)Length)
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.startIndex, ExceptionResource.ArgumentOutOfRange_IndexMustBeLessOrEqual);
+            }
 
             if ((uint)count > (uint)(Length - startIndex))
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_Count);
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.count, ExceptionResource.ArgumentOutOfRange_Count);
+            }
 
-            int result = SpanHelpers.IndexOf(ref Unsafe.Add(ref _firstChar, startIndex), value, count);
+            int result = SpanHelpers.IndexOfChar(ref Unsafe.Add(ref _firstChar, startIndex), value, count);
 
-            return result == -1 ? result : result + startIndex;
+            return result < 0 ? result : result + startIndex;
         }
 
         // Returns the index of the first occurrence of any specified character in the current instance.
@@ -86,138 +183,39 @@ namespace System
         //
         public int IndexOfAny(char[] anyOf)
         {
-            return IndexOfAny(anyOf, 0, this.Length);
+            if (anyOf is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.anyOf);
+            }
+
+            return new ReadOnlySpan<char>(ref _firstChar, Length).IndexOfAny(anyOf);
         }
 
         public int IndexOfAny(char[] anyOf, int startIndex)
         {
-            return IndexOfAny(anyOf, startIndex, this.Length - startIndex);
+            return IndexOfAny(anyOf, startIndex, Length - startIndex);
         }
 
         public int IndexOfAny(char[] anyOf, int startIndex, int count)
         {
-            if (anyOf == null)
-                throw new ArgumentNullException(nameof(anyOf));
+            if (anyOf is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.anyOf);
+            }
 
             if ((uint)startIndex > (uint)Length)
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.startIndex, ExceptionResource.ArgumentOutOfRange_IndexMustBeLessOrEqual);
+            }
 
             if ((uint)count > (uint)(Length - startIndex))
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_Count);
-
-            if (anyOf.Length > 0 && anyOf.Length <= 5)
             {
-                // The ReadOnlySpan.IndexOfAny extension is vectorized for values of 1 - 5 in length
-                int result = new ReadOnlySpan<char>(ref Unsafe.Add(ref _firstChar, startIndex), count).IndexOfAny(anyOf);
-                return result == -1 ? result : result + startIndex;
-            }
-            else if (anyOf.Length > 5)
-            {
-                // Use Probabilistic Map
-                return IndexOfCharArray(anyOf, startIndex, count);
-            }
-            else // anyOf.Length == 0
-            {
-                return -1;
-            }
-        }
-
-        private unsafe int IndexOfCharArray(char[] anyOf, int startIndex, int count)
-        {
-            // use probabilistic map, see InitializeProbabilisticMap
-            ProbabilisticMap map = default;
-            uint* charMap = (uint*)&map;
-
-            InitializeProbabilisticMap(charMap, anyOf);
-
-            fixed (char* pChars = &_firstChar)
-            {
-                char* pCh = pChars + startIndex;
-
-                while (count > 0)
-                {
-                    int thisChar = *pCh;
-
-                    if (IsCharBitSet(charMap, (byte)thisChar) &&
-                        IsCharBitSet(charMap, (byte)(thisChar >> 8)) &&
-                        ArrayContains((char)thisChar, anyOf))
-                    {
-                        return (int)(pCh - pChars);
-                    }
-
-                    count--;
-                    pCh++;
-                }
-
-                return -1;
-            }
-        }
-
-        private const int PROBABILISTICMAP_BLOCK_INDEX_MASK = 0x7;
-        private const int PROBABILISTICMAP_BLOCK_INDEX_SHIFT = 0x3;
-        private const int PROBABILISTICMAP_SIZE = 0x8;
-
-        // A probabilistic map is an optimization that is used in IndexOfAny/
-        // LastIndexOfAny methods. The idea is to create a bit map of the characters we
-        // are searching for and use this map as a "cheap" check to decide if the
-        // current character in the string exists in the array of input characters.
-        // There are 256 bits in the map, with each character mapped to 2 bits. Every
-        // character is divided into 2 bytes, and then every byte is mapped to 1 bit.
-        // The character map is an array of 8 integers acting as map blocks. The 3 lsb
-        // in each byte in the character is used to index into this map to get the
-        // right block, the value of the remaining 5 msb are used as the bit position
-        // inside this block.
-        private static unsafe void InitializeProbabilisticMap(uint* charMap, ReadOnlySpan<char> anyOf)
-        {
-            bool hasAscii = false;
-            uint* charMapLocal = charMap; // https://github.com/dotnet/runtime/issues/9040
-
-            for (int i = 0; i < anyOf.Length; ++i)
-            {
-                int c = anyOf[i];
-
-                // Map low bit
-                SetCharBit(charMapLocal, (byte)c);
-
-                // Map high bit
-                c >>= 8;
-
-                if (c == 0)
-                {
-                    hasAscii = true;
-                }
-                else
-                {
-                    SetCharBit(charMapLocal, (byte)c);
-                }
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.count, ExceptionResource.ArgumentOutOfRange_Count);
             }
 
-            if (hasAscii)
-            {
-                // Common to search for ASCII symbols. Just set the high value once.
-                charMapLocal[0] |= 1u;
-            }
-        }
+            int result = new ReadOnlySpan<char>(ref Unsafe.Add(ref _firstChar, startIndex), count).IndexOfAny(anyOf);
 
-        private static bool ArrayContains(char searchChar, char[] anyOf)
-        {
-            for (int i = 0; i < anyOf.Length; i++)
-            {
-                if (anyOf[i] == searchChar)
-                    return true;
-            }
-
-            return false;
-        }
-
-        private static unsafe bool IsCharBitSet(uint* charMap, byte value)
-        {
-            return (charMap[value & PROBABILISTICMAP_BLOCK_INDEX_MASK] & (1u << (value >> PROBABILISTICMAP_BLOCK_INDEX_SHIFT))) != 0;
-        }
-
-        private static unsafe void SetCharBit(uint* charMap, byte value)
-        {
-            charMap[value & PROBABILISTICMAP_BLOCK_INDEX_MASK] |= 1u << (value >> PROBABILISTICMAP_BLOCK_INDEX_SHIFT);
+            return result < 0 ? result : result + startIndex;
         }
 
        /*
@@ -225,16 +223,22 @@ namespace System
         * ========================================================
         *
         * Given a search string 'searchString', a target string 'value' to locate within the search string, and a comparer
-        * 'comparer', the comparer will return a set S of tuples '(startPos, endPos)' for which the below expression
+        * 'comparer', we ask the comparer to generate a set S of tuples '(startPos, endPos)' for which the below expression
         * returns true:
         *
         * >> bool result = searchString.Substring(startPos, endPos - startPos).Equals(value, comparer);
         *
-        * If the set S is empty (i.e., there is no combination of values 'startPos' and 'endPos' which makes the
+        * If the generated set S is empty (i.e., there is no combination of values 'startPos' and 'endPos' which makes the
         * above expression evaluate to true), then we say "'searchString' does not contain 'value'", and the expression
         * "searchString.Contains(value, comparer)" should evaluate to false. If the set S is non-empty, then we say
         * "'searchString' contains 'value'", and the expression "searchString.Contains(value, comparer)" should
         * evaluate to true.
+        *
+        * n.b. There may be other tuples '(startPos, endPos)' *not* present in the generated set S for which the above
+        * expression evaluates to true. We discount the existence of these values. Allowing any such values to factor
+        * into the logic below could result in splitting the search string in a manner inappropriate for the culture
+        * rules of the specified comparer. For the remainder of this discussion, when we refer to 'startPos' and
+        * 'endPos', we consider only tuples '(startPos, endPos)' as they may be present in the generated set S.
         *
         * Given a 'searchString', 'value', and 'comparer', the behavior of the IndexOf method is that it finds the
         * smallest possible 'endPos' for which there exists any corresponding 'startPos' which makes the above
@@ -316,66 +320,264 @@ namespace System
 
         public int IndexOf(string value, StringComparison comparisonType)
         {
-            return IndexOf(value, 0, this.Length, comparisonType);
+            return IndexOf(value, 0, Length, comparisonType);
         }
 
         public int IndexOf(string value, int startIndex, StringComparison comparisonType)
         {
-            return IndexOf(value, startIndex, this.Length - startIndex, comparisonType);
+            return IndexOf(value, startIndex, Length - startIndex, comparisonType);
         }
 
         public int IndexOf(string value, int startIndex, int count, StringComparison comparisonType)
         {
             // Parameter checking will be done by CompareInfo.IndexOf.
-
-            switch (comparisonType)
+            return comparisonType switch
             {
-                case StringComparison.CurrentCulture:
-                case StringComparison.CurrentCultureIgnoreCase:
-                    return CultureInfo.CurrentCulture.CompareInfo.IndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType));
+                StringComparison.CurrentCulture or StringComparison.CurrentCultureIgnoreCase => CultureInfo.CurrentCulture.CompareInfo.IndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.InvariantCulture or StringComparison.InvariantCultureIgnoreCase => CompareInfo.Invariant.IndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.Ordinal or StringComparison.OrdinalIgnoreCase => Ordinal.IndexOf(this, value, startIndex, count, comparisonType == StringComparison.OrdinalIgnoreCase),
+                _ => throw (value is null ? new ArgumentNullException(nameof(value)) : new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType))),
+            };
+        }
 
-                case StringComparison.InvariantCulture:
-                case StringComparison.InvariantCultureIgnoreCase:
-                    return CompareInfo.Invariant.IndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType));
+        /// <summary>
+        /// Reports the zero-based index of the first occurrence of the specified rune in the current String object.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the start of the current instance
+        /// if that rune is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int IndexOf(Rune value)
+        {
+            return IndexOf(value, StringComparison.Ordinal);
+        }
 
-                case StringComparison.Ordinal:
-                case StringComparison.OrdinalIgnoreCase:
-                    return Ordinal.IndexOf(this, value, startIndex, count, comparisonType == StringComparison.OrdinalIgnoreCase);
+        /// <summary>
+        /// Reports the zero-based index of the first occurrence of the specified rune in the current String object.
+        /// A parameter specifies the starting search position in the current string.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <param name="startIndex">The search starting position.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the start of the current instance
+        /// if that rune is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int IndexOf(Rune value, int startIndex)
+        {
+            return IndexOf(value, startIndex, StringComparison.Ordinal);
+        }
 
-                default:
-                    throw (value is null)
-                        ? new ArgumentNullException(nameof(value))
-                        : new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType));
-            }
+        /// <summary>
+        /// Reports the zero-based index of the first occurrence of the specified rune in the current String object.
+        /// Parameters specify the starting search position in the current string and the number of characters in the
+        /// current string to search.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <param name="startIndex">The search starting position.</param>
+        /// <param name="count">The number of character positions to examine.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the start of the current instance
+        /// if that rune is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int IndexOf(Rune value, int startIndex, int count)
+        {
+            return IndexOf(value, startIndex, count, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the first occurrence of the specified rune in the current String object.
+        /// A parameter specifies the type of search to use for the specified rune.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules for the search.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the start of the current instance
+        /// if that rune is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int IndexOf(Rune value, StringComparison comparisonType)
+        {
+            return IndexOf(value, 0, comparisonType);
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the first occurrence of the specified rune in the current String object.
+        /// Parameters specify the starting search position in the current string and the type of search to use for
+        /// the specified rune.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <param name="startIndex">The search starting position.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules for the search.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the start of the current instance
+        /// if that rune is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int IndexOf(Rune value, int startIndex, StringComparison comparisonType)
+        {
+            return IndexOf(value, startIndex, Length - startIndex, comparisonType);
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the first occurrence of the specified rune in the current String object.
+        /// Parameters specify the starting search position in the current string, the number of characters in the
+        /// current string to search, and the type of search to use for the specified rune.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <param name="startIndex">The search starting position.</param>
+        /// <param name="count">The number of character positions to examine.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules for the search.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the start of the current instance
+        /// if that rune is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public unsafe int IndexOf(Rune value, int startIndex, int count, StringComparison comparisonType)
+        {
+            ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(startIndex, Length);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(count, Length - startIndex);
+
+            // Convert value to span
+            ReadOnlySpan<char> valueChars = value.AsSpan(stackalloc char[Rune.MaxUtf16CharsPerRune]);
+
+            int subIndex = this.AsSpan(startIndex, count).IndexOf(valueChars, comparisonType);
+            return subIndex < 0 ? subIndex : startIndex + subIndex;
         }
 
         // Returns the index of the last occurrence of a specified character in the current instance.
         // The search starts at startIndex and runs backwards to startIndex - count + 1.
         // The character at position startIndex is included in the search.  startIndex is the larger
         // index within the string.
-        //
-        public int LastIndexOf(char value) => SpanHelpers.LastIndexOf(ref _firstChar, value, Length);
+        public int LastIndexOf(char value)
+            => SpanHelpers.LastIndexOfValueType(ref Unsafe.As<char, short>(ref _firstChar), (short)value, Length);
 
         public int LastIndexOf(char value, int startIndex)
         {
             return LastIndexOf(value, startIndex, startIndex + 1);
         }
 
-        public unsafe int LastIndexOf(char value, int startIndex, int count)
+        public int LastIndexOf(char value, int startIndex, int count)
         {
             if (Length == 0)
+            {
                 return -1;
+            }
 
             if ((uint)startIndex >= (uint)Length)
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.startIndex, ExceptionResource.ArgumentOutOfRange_IndexMustBeLess);
+            }
 
             if ((uint)count > (uint)startIndex + 1)
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_Count);
+            {
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.count, ExceptionResource.ArgumentOutOfRange_Count);
+            }
 
             int startSearchAt = startIndex + 1 - count;
-            int result = SpanHelpers.LastIndexOf(ref Unsafe.Add(ref _firstChar, startSearchAt), value, count);
+            int result = SpanHelpers.LastIndexOfValueType(ref Unsafe.As<char, short>(ref Unsafe.Add(ref _firstChar, startSearchAt)), (short)value, count);
 
-            return result == -1 ? result : result + startSearchAt;
+            return result < 0 ? result : result + startSearchAt;
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the last occurrence of the specified character in the current String object.
+        /// A parameter specifies the type of search to use for the specified character.
+        /// </summary>
+        /// <param name="value">The character to seek.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules for the search.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the end of the current instance
+        /// if that character is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int LastIndexOf(char value, StringComparison comparisonType)
+        {
+            return LastIndexOf(value, Length - 1, comparisonType);
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the last occurrence of the specified character in the current String object.
+        /// Parameters specify the starting search position in the current string and the type of search to use for
+        /// the specified character.
+        /// </summary>
+        /// <param name="value">The character to seek.</param>
+        /// <param name="startIndex">The search starting position. The search proceeds from <paramref name="startIndex"/> toward the beginning of this instance.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules for the search.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the end of the current instance
+        /// if that character is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int LastIndexOf(char value, int startIndex, StringComparison comparisonType)
+        {
+            return LastIndexOf(value, startIndex, startIndex + 1, comparisonType);
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the last occurrence of the specified character in the current String object.
+        /// Parameters specify the starting search position in the current string, the number of characters in the
+        /// current string to search, and the type of search to use for the specified character.
+        /// </summary>
+        /// <param name="value">The character to seek.</param>
+        /// <param name="startIndex">The search starting position. The search proceeds from <paramref name="startIndex"/> toward the beginning of this instance.</param>
+        /// <param name="count">The number of character positions to examine.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules for the search.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the end of the current instance
+        /// if that character is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int LastIndexOf(char value, int startIndex, int count, StringComparison comparisonType)
+        {
+            if (Length == 0)
+            {
+                return -1;
+            }
+
+            return comparisonType switch
+            {
+                StringComparison.CurrentCulture or StringComparison.CurrentCultureIgnoreCase => CultureInfo.CurrentCulture.CompareInfo.LastIndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.InvariantCulture or StringComparison.InvariantCultureIgnoreCase => CompareInfo.Invariant.LastIndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.Ordinal => LastIndexOf(value, startIndex, count),
+                StringComparison.OrdinalIgnoreCase => LastIndexOfCharOrdinalIgnoreCase(value, startIndex, count),
+                _ => throw new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType)),
+            };
+        }
+
+        private int LastIndexOfCharOrdinalIgnoreCase(char value, int startIndex, int count)
+        {
+            int startSearchAt = startIndex + 1 - count;
+
+            ArgumentOutOfRangeException.ThrowIfNegative(startIndex);
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(startIndex, Length);
+            ArgumentOutOfRangeException.ThrowIfNegative(count);
+            ArgumentOutOfRangeException.ThrowIfNegative(startSearchAt);
+
+            int subIndex;
+
+            if (char.IsAscii(value))
+            {
+                ref char startChar = ref Unsafe.Add(ref _firstChar, startSearchAt);
+
+                if (char.IsAsciiLetter(value))
+                {
+                    char valueLc = (char)(value | 0x20);
+                    char valueUc = (char)(value & ~0x20);
+                    /*
+                     * Potential optimization possible here if there was a
+                     * PackedSpanHelpers.LastIndexOfAnyIgnoreCase(ref startChar, valueLc, count)
+                     * method, which would be complex to implement
+                     */
+                    subIndex = SpanHelpers.LastIndexOfAnyChar(ref startChar, valueLc, valueUc, count);
+                }
+                else
+                {
+                    subIndex = SpanHelpers.LastIndexOfChar(ref startChar, value, count);
+                }
+            }
+            else
+            {
+                subIndex = Ordinal.LastIndexOfOrdinalIgnoreCase(this.AsSpan(startSearchAt, count), new ReadOnlySpan<char>(in value));
+            }
+
+            return subIndex < 0 ? subIndex : startSearchAt + subIndex;
         }
 
         // Returns the index of the last occurrence of any specified character in the current instance.
@@ -385,7 +587,12 @@ namespace System
         //
         public int LastIndexOfAny(char[] anyOf)
         {
-            return LastIndexOfAny(anyOf, this.Length - 1, this.Length);
+            if (anyOf is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.anyOf);
+            }
+
+            return new ReadOnlySpan<char>(ref _firstChar, Length).LastIndexOfAny(anyOf);
         }
 
         public int LastIndexOfAny(char[] anyOf, int startIndex)
@@ -393,67 +600,32 @@ namespace System
             return LastIndexOfAny(anyOf, startIndex, startIndex + 1);
         }
 
-        public unsafe int LastIndexOfAny(char[] anyOf, int startIndex, int count)
+        public int LastIndexOfAny(char[] anyOf, int startIndex, int count)
         {
-            if (anyOf == null)
-                throw new ArgumentNullException(nameof(anyOf));
+            if (anyOf is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.anyOf);
+            }
 
             if (Length == 0)
+            {
                 return -1;
+            }
 
             if ((uint)startIndex >= (uint)Length)
             {
-                throw new ArgumentOutOfRangeException(nameof(startIndex), SR.ArgumentOutOfRange_Index);
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.startIndex, ExceptionResource.ArgumentOutOfRange_IndexMustBeLess);
             }
 
             if ((count < 0) || ((count - 1) > startIndex))
             {
-                throw new ArgumentOutOfRangeException(nameof(count), SR.ArgumentOutOfRange_Count);
+                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.count, ExceptionResource.ArgumentOutOfRange_Count);
             }
 
-            if (anyOf.Length > 1)
-            {
-                return LastIndexOfCharArray(anyOf, startIndex, count);
-            }
-            else if (anyOf.Length == 1)
-            {
-                return LastIndexOf(anyOf[0], startIndex, count);
-            }
-            else // anyOf.Length == 0
-            {
-                return -1;
-            }
-        }
+            int startSearchAt = startIndex + 1 - count;
+            int result = new ReadOnlySpan<char>(ref Unsafe.Add(ref _firstChar, startSearchAt), count).LastIndexOfAny(anyOf);
 
-        private unsafe int LastIndexOfCharArray(char[] anyOf, int startIndex, int count)
-        {
-            // use probabilistic map, see InitializeProbabilisticMap
-            ProbabilisticMap map = default;
-            uint* charMap = (uint*)&map;
-
-            InitializeProbabilisticMap(charMap, anyOf);
-
-            fixed (char* pChars = &_firstChar)
-            {
-                char* pCh = pChars + startIndex;
-
-                while (count > 0)
-                {
-                    int thisChar = *pCh;
-
-                    if (IsCharBitSet(charMap, (byte)thisChar) &&
-                        IsCharBitSet(charMap, (byte)(thisChar >> 8)) &&
-                        ArrayContains((char)thisChar, anyOf))
-                    {
-                        return (int)(pCh - pChars);
-                    }
-
-                    count--;
-                    pCh--;
-                }
-
-                return -1;
-            }
+            return result < 0 ? result : result + startSearchAt;
         }
 
         // Returns the index of the last occurrence of any character in value in the current instance.
@@ -463,7 +635,7 @@ namespace System
         //
         public int LastIndexOf(string value)
         {
-            return LastIndexOf(value, this.Length - 1, this.Length, StringComparison.CurrentCulture);
+            return LastIndexOf(value, Length - 1, Length, StringComparison.CurrentCulture);
         }
 
         public int LastIndexOf(string value, int startIndex)
@@ -478,7 +650,7 @@ namespace System
 
         public int LastIndexOf(string value, StringComparison comparisonType)
         {
-            return LastIndexOf(value, this.Length - 1, this.Length, comparisonType);
+            return LastIndexOf(value, Length - 1, Length, comparisonType);
         }
 
         public int LastIndexOf(string value, int startIndex, StringComparison comparisonType)
@@ -489,29 +661,124 @@ namespace System
         public int LastIndexOf(string value, int startIndex, int count, StringComparison comparisonType)
         {
             // Parameter checking will be done by CompareInfo.LastIndexOf.
-
-            switch (comparisonType)
+            return comparisonType switch
             {
-                case StringComparison.CurrentCulture:
-                case StringComparison.CurrentCultureIgnoreCase:
-                    return CultureInfo.CurrentCulture.CompareInfo.LastIndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType));
-
-                case StringComparison.InvariantCulture:
-                case StringComparison.InvariantCultureIgnoreCase:
-                    return CompareInfo.Invariant.LastIndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType));
-
-                case StringComparison.Ordinal:
-                case StringComparison.OrdinalIgnoreCase:
-                    return CompareInfo.Invariant.LastIndexOf(this, value, startIndex, count, GetCompareOptionsFromOrdinalStringComparison(comparisonType));
-
-                default:
-                    throw (value is null)
-                        ? new ArgumentNullException(nameof(value))
-                        : new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType));
-            }
+                StringComparison.CurrentCulture or StringComparison.CurrentCultureIgnoreCase => CultureInfo.CurrentCulture.CompareInfo.LastIndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.InvariantCulture or StringComparison.InvariantCultureIgnoreCase => CompareInfo.Invariant.LastIndexOf(this, value, startIndex, count, GetCaseCompareOfComparisonCulture(comparisonType)),
+                StringComparison.Ordinal or StringComparison.OrdinalIgnoreCase => CompareInfo.Invariant.LastIndexOf(this, value, startIndex, count, GetCompareOptionsFromOrdinalStringComparison(comparisonType)),
+                _ => throw (value is null ? new ArgumentNullException(nameof(value)) : new ArgumentException(SR.NotSupported_StringComparison, nameof(comparisonType))),
+            };
         }
 
-        [StructLayout(LayoutKind.Explicit, Size = PROBABILISTICMAP_SIZE * sizeof(uint))]
-        private struct ProbabilisticMap { }
+        /// <summary>
+        /// Reports the zero-based index of the last occurrence of the specified rune in the current String object.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the end of the current instance
+        /// if that rune is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int LastIndexOf(Rune value)
+        {
+            return LastIndexOf(value, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the last occurrence of the specified rune in the current String object.
+        /// A parameter specifies the starting search position in the current string.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <param name="startIndex">The search starting position. The search proceeds from <paramref name="startIndex"/> toward the beginning of this instance.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the end of the current instance
+        /// if that rune is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int LastIndexOf(Rune value, int startIndex)
+        {
+            return LastIndexOf(value, startIndex, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the last occurrence of the specified rune in the current String object.
+        /// Parameters specify the starting search position in the current string and the number of characters in the
+        /// current string to search.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <param name="startIndex">The search starting position. The search proceeds from <paramref name="startIndex"/> toward the beginning of this instance.</param>
+        /// <param name="count">The number of character positions to examine.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the end of the current instance
+        /// if that rune is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int LastIndexOf(Rune value, int startIndex, int count)
+        {
+            return LastIndexOf(value, startIndex, count, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the last occurrence of the specified rune in the current String object.
+        /// A parameter specifies the type of search to use for the specified rune.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules for the search.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the end of the current instance
+        /// if that rune is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int LastIndexOf(Rune value, StringComparison comparisonType)
+        {
+            return LastIndexOf(value, Length - 1, comparisonType);
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the last occurrence of the specified rune in the current String object.
+        /// Parameters specify the starting search position in the current string and the type of search to use for
+        /// the specified rune.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <param name="startIndex">The search starting position. The search proceeds from <paramref name="startIndex"/> toward the beginning of this instance.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules for the search.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the end of the current instance
+        /// if that rune is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public int LastIndexOf(Rune value, int startIndex, StringComparison comparisonType)
+        {
+            return LastIndexOf(value, startIndex, startIndex + 1, comparisonType);
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the last occurrence of the specified rune in the current String object.
+        /// Parameters specify the starting search position in the current string, the number of characters in the
+        /// current string to search, and the type of search to use for the specified rune.
+        /// </summary>
+        /// <param name="value">The rune to seek.</param>
+        /// <param name="startIndex">The search starting position. The search proceeds from <paramref name="startIndex"/> toward the beginning of this instance.</param>
+        /// <param name="count">The number of character positions to examine.</param>
+        /// <param name="comparisonType">One of the enumeration values that specifies the rules for the search.</param>
+        /// <returns>
+        /// The zero-based index position of <paramref name="value"/> from the end of the current instance
+        /// if that rune is found, or a negative value (e.g. -1) if it is not.
+        /// </returns>
+        public unsafe int LastIndexOf(Rune value, int startIndex, int count, StringComparison comparisonType)
+        {
+            if (Length == 0)
+            {
+                return -1;
+            }
+
+            ArgumentOutOfRangeException.ThrowIfLessThan(startIndex, 0);
+            ArgumentOutOfRangeException.ThrowIfLessThan(count, 0);
+            ArgumentOutOfRangeException.ThrowIfLessThan(startIndex - count + 1, 0);
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(startIndex, Length);
+
+            // Convert value to span
+            ReadOnlySpan<char> valueChars = value.AsSpan(stackalloc char[Rune.MaxUtf16CharsPerRune]);
+
+            int startIndexFromZero = startIndex - count + 1;
+
+            int subIndex = this.AsSpan(startIndexFromZero, count).LastIndexOf(valueChars, comparisonType);
+            return subIndex < 0 ? subIndex : startIndexFromZero + subIndex;
+        }
     }
 }

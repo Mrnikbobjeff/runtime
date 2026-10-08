@@ -4,8 +4,9 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-public class BringUpTest
+public class BringUpTest_Array3
 {
     const int Pass = 100;
     const int Fail = -1;
@@ -18,7 +19,8 @@ public class BringUpTest
         return a[1];
     }
 
-    static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         if (Array3() != 5) return Fail;
         return Pass;

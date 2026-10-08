@@ -48,13 +48,13 @@ namespace System.Net.Primitives.Functional.Tests
         [Theory]
         [InlineData(MinAddress, new byte[] { 0, 0, 0, 0 })]
         [InlineData(MaxAddress, new byte[] { 0xFF, 0xFF, 0xFF, 0xFF })]
-        [InlineData(0x2414188f, new byte[] { 0x8f, 0x18, 0x14, 0x24 })]
-        [InlineData(0xFF, new byte[] { 0xFF, 0, 0, 0 })]
-        [InlineData(0xFF00FF, new byte[] { 0xFF, 0, 0xFF, 0 })]
-        [InlineData(0xFF00FF00, new byte[] { 0, 0xFF, 0, 0xFF })]
+        [InlineData(0x8f181424, new byte[] { 0x8f, 0x18, 0x14, 0x24 })]
+        [InlineData(0xFF000000, new byte[] { 0xFF, 0, 0, 0 })]
+        [InlineData(0xFF00FF00, new byte[] { 0xFF, 0, 0xFF, 0 })]
+        [InlineData(0x00FF00FF, new byte[] { 0, 0xFF, 0, 0xFF })]
         public static void Ctor_Long_Success(long address, byte[] expectedBytes)
         {
-            IPAddress ip = new IPAddress(address);
+            IPAddress ip = new IPAddress((uint)IPAddress.HostToNetworkOrder(unchecked((int)address)));
             Assert.Equal(expectedBytes, ip.GetAddressBytes());
             Assert.Equal(AddressFamily.InterNetwork, ip.AddressFamily);
         }
@@ -163,17 +163,34 @@ namespace System.Net.Primitives.Functional.Tests
             short s1 = (short)0x1350;
             short s2 = (short)0x5013;
 
-            Assert.Equal(l2, IPAddress.HostToNetworkOrder(l1));
-            Assert.Equal(l4, IPAddress.HostToNetworkOrder(l3));
-            Assert.Equal(i2, IPAddress.HostToNetworkOrder(i1));
-            Assert.Equal(i4, IPAddress.HostToNetworkOrder(i3));
-            Assert.Equal(s2, IPAddress.HostToNetworkOrder(s1));
+            if (BitConverter.IsLittleEndian)
+            {
+                Assert.Equal(l2, IPAddress.HostToNetworkOrder(l1));
+                Assert.Equal(l4, IPAddress.HostToNetworkOrder(l3));
+                Assert.Equal(i2, IPAddress.HostToNetworkOrder(i1));
+                Assert.Equal(i4, IPAddress.HostToNetworkOrder(i3));
+                Assert.Equal(s2, IPAddress.HostToNetworkOrder(s1));
 
-            Assert.Equal(l1, IPAddress.NetworkToHostOrder(l2));
-            Assert.Equal(l3, IPAddress.NetworkToHostOrder(l4));
-            Assert.Equal(i1, IPAddress.NetworkToHostOrder(i2));
-            Assert.Equal(i3, IPAddress.NetworkToHostOrder(i4));
-            Assert.Equal(s1, IPAddress.NetworkToHostOrder(s2));
+                Assert.Equal(l1, IPAddress.NetworkToHostOrder(l2));
+                Assert.Equal(l3, IPAddress.NetworkToHostOrder(l4));
+                Assert.Equal(i1, IPAddress.NetworkToHostOrder(i2));
+                Assert.Equal(i3, IPAddress.NetworkToHostOrder(i4));
+                Assert.Equal(s1, IPAddress.NetworkToHostOrder(s2));
+            }
+            else
+            {
+                Assert.Equal(l1, IPAddress.HostToNetworkOrder(l1));
+                Assert.Equal(l3, IPAddress.HostToNetworkOrder(l3));
+                Assert.Equal(i1, IPAddress.HostToNetworkOrder(i1));
+                Assert.Equal(i3, IPAddress.HostToNetworkOrder(i3));
+                Assert.Equal(s1, IPAddress.HostToNetworkOrder(s1));
+
+                Assert.Equal(l2, IPAddress.NetworkToHostOrder(l2));
+                Assert.Equal(l4, IPAddress.NetworkToHostOrder(l4));
+                Assert.Equal(i2, IPAddress.NetworkToHostOrder(i2));
+                Assert.Equal(i4, IPAddress.NetworkToHostOrder(i4));
+                Assert.Equal(s2, IPAddress.NetworkToHostOrder(s2));
+            }
         }
 
         [Fact]
@@ -192,7 +209,7 @@ namespace System.Net.Primitives.Functional.Tests
             Assert.True(IPAddress.IsLoopback(ip));
 
             ip = new IPAddress(IPAddress.Loopback.MapToIPv6().GetAddressBytes()); // IPv4 loopback mapped to IPv6
-            Assert.Equal(!PlatformDetection.IsNetFramework, IPAddress.IsLoopback(ip)); // https://github.com/dotnet/runtime/issues/28740
+            Assert.True(IPAddress.IsLoopback(ip)); // https://github.com/dotnet/runtime/issues/28740
         }
 
         [Fact]
@@ -231,6 +248,14 @@ namespace System.Net.Primitives.Functional.Tests
             Assert.True(IPAddress.Parse("2001::1").IsIPv6Teredo);
             Assert.False(IPAddress.Parse("Fe08::1").IsIPv6Teredo);
             Assert.False(IPV4Address1().IsIPv6Teredo);
+        }
+
+        [Fact]
+        public static void IsIPv6UniqueLocal_Get_Success()
+        {
+            Assert.True(IPAddress.Parse("FC00::1").IsIPv6UniqueLocal);
+            Assert.False(IPAddress.Parse("Fe08::1").IsIPv6UniqueLocal);
+            Assert.False(IPV4Address1().IsIPv6UniqueLocal);
         }
 
         [Fact]
@@ -279,9 +304,9 @@ namespace System.Net.Primitives.Functional.Tests
 
         public static IEnumerable<object[]> GetValidIPAddresses()
         {
-            return IPAddressParsing.ValidIpv4Addresses
-                .Concat(IPAddressParsing.ValidIpv6Addresses)
-                .Select(array => new object[] {IPAddress.Parse((string)array[0])});
+            return IPAddressParsingFormatting.ValidIpv4Addresses
+                .Concat(IPAddressParsingFormatting.ValidIpv6Addresses)
+                .Select(array => new object[] { IPAddress.Parse((string)array[0]) });
         }
 
         public static readonly object[][] GeneratedIPAddresses =
@@ -321,6 +346,38 @@ namespace System.Net.Primitives.Functional.Tests
             Assert.Throws<SocketException>(() => IPAddress.Broadcast.Address = MaxAddress - 1);
             Assert.Throws<SocketException>(() => IPAddress.Loopback.Address = MaxAddress - 1);
             Assert.Throws<SocketException>(() => IPAddress.None.Address = MaxAddress - 1);
+
+            Assert.Throws<SocketException>(() => IPAddress.IPv6Any.ScopeId = 1);
+            Assert.Throws<SocketException>(() => IPAddress.IPv6Loopback.ScopeId = 1);
+            Assert.Throws<SocketException>(() => IPAddress.IPv6None.ScopeId = 1);
+        }
+
+        [Fact]
+        public static void ScopeId_Throws_SocketException_IPv4Message()
+        {
+            IPAddress ip = IPV4Address1();
+            SocketException ex = Assert.Throws<SocketException>(() => _ = ip.ScopeId);
+            Assert.Equal(SocketError.OperationNotSupported, ex.SocketErrorCode);
+            Assert.Contains($"'{ip.AddressFamily}' {nameof(AddressFamily)}.", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public static void Address_Throws_SocketException_IPv6Message()
+        {
+            IPAddress ip = IPV6Address1();
+            SocketException ex = Assert.Throws<SocketException>(() => _ = ip.Address);
+            Assert.Equal(SocketError.OperationNotSupported, ex.SocketErrorCode);
+            Assert.Contains($"'{ip.AddressFamily}' {nameof(AddressFamily)}.", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+
+        [Fact]
+        public static void Address_Throws_SocketException_ReadOnlyMessage()
+        {
+            IPAddress ip1 = IPAddress.Loopback; // This is readonly
+            IPAddress ip2 = IPV4Address1();
+            SocketException ex = Assert.Throws<SocketException>(() => ip1.Address = ip2.Address);
+            Assert.Equal(SocketError.OperationNotSupported, ex.SocketErrorCode);
+            Assert.Contains("read-only", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
 #pragma warning restore 618
     }

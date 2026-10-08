@@ -2,12 +2,7 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
-using System.Linq;
-using System.Net.NetworkInformation;
 using System.Net.Security;
-using System.Net.Test.Common;
-using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
@@ -18,7 +13,9 @@ namespace System.Net.Http.Functional.Tests
 {
     public static class TestHelper
     {
-        public static int PassingTestTimeoutMilliseconds => 60 * 1000;
+        public static TimeSpan PassingTestTimeout => TimeSpan.FromMilliseconds(PassingTestTimeoutMilliseconds);
+        public const int PassingTestTimeoutMilliseconds = 60 * 1000;
+
         public static bool JsonMessageContainsKeyValue(string message, string key, string value)
         {
             // Deal with JSON encoding of '\' and '"' in value
@@ -40,9 +37,13 @@ namespace System.Net.Http.Functional.Tests
             bool chunkedUpload,
             string requestBody)
         {
-            // Verify that response body from the server was corrected received by comparing MD5 hash.
-            byte[] actualMD5Hash = ComputeMD5Hash(responseContent);
-            Assert.Equal(expectedMD5Hash, actualMD5Hash);
+            // [ActiveIssue("https://github.com/dotnet/runtime/issues/37669", TestPlatforms.Browser)]
+            if (!PlatformDetection.IsBrowser)
+            {
+                // Verify that response body from the server was corrected received by comparing MD5 hash.
+                byte[] actualMD5Hash = ComputeMD5Hash(responseContent);
+                Assert.Equal(expectedMD5Hash, actualMD5Hash);
+            }
 
             // Verify upload semantics: 'Content-Length' vs. 'Transfer-Encoding: chunked'.
             if (requestBody != null)
@@ -95,22 +96,11 @@ namespace System.Net.Http.Functional.Tests
             return TaskTimeoutExtensions.WhenAllOrAnyFailed(tasks, timeoutInMilliseconds);
         }
 
-#if NETCOREAPP
+#if NET
         public static Func<HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors, bool> AllowAllCertificates = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
 #else
         public static Func<HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors, bool> AllowAllCertificates = (_, __, ___, ____) => true;
 #endif
-
-        public static IPAddress GetIPv6LinkLocalAddress() =>
-            NetworkInterface
-                .GetAllNetworkInterfaces()
-                .Where(i => !i.Description.StartsWith("PANGP Virtual Ethernet"))    // This is a VPN adapter, but is reported as a regular Ethernet interface with
-                                                                                    // a valid link-local address, but the link-local address doesn't actually work.
-                                                                                    // So just manually filter it out.
-                .SelectMany(i => i.GetIPProperties().UnicastAddresses)
-                .Select(a => a.Address)
-                .Where(a => a.IsIPv6LinkLocal)
-                .FirstOrDefault();
 
         public static byte[] GenerateRandomContent(int size)
         {
@@ -118,5 +108,60 @@ namespace System.Net.Http.Functional.Tests
             new Random(42).NextBytes(data);
             return data;
         }
+
+        public static X509Certificate2 CreateServerSelfSignedCertificate(string name = "localhost")
+        {
+            using (RSA root = RSA.Create())
+            {
+                CertificateRequest req = new CertificateRequest(
+                    $"CN={name}",
+                    root,
+                    HashAlgorithmName.SHA256,
+                    RSASignaturePadding.Pkcs1);
+
+                req.CertificateExtensions.Add(new X509BasicConstraintsExtension(true, false, 0, true));
+                req.CertificateExtensions.Add(new X509SubjectKeyIdentifierExtension(req.PublicKey, false));
+                req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature | X509KeyUsageFlags.KeyEncipherment | X509KeyUsageFlags.DataEncipherment, false));
+                req.CertificateExtensions.Add(
+                    new X509EnhancedKeyUsageExtension(
+                            new OidCollection()
+                                {
+                                    new Oid("1.3.6.1.5.5.7.3.1", null),
+                                }, false));
+
+
+                SubjectAlternativeNameBuilder builder = new SubjectAlternativeNameBuilder();
+                builder.AddDnsName(name);
+                builder.AddIpAddress(IPAddress.Loopback);
+                builder.AddIpAddress(IPAddress.IPv6Loopback);
+                req.CertificateExtensions.Add(builder.Build());
+
+                DateTimeOffset start = DateTimeOffset.UtcNow.AddMinutes(-5);
+                DateTimeOffset end = start.AddMonths(1);
+
+                X509Certificate2 cert = req.CreateSelfSigned(start, end);
+                if (PlatformDetection.IsWindows)
+                {
+                    cert = X509CertificateLoader.LoadPkcs12(cert.Export(X509ContentType.Pfx), (string?)null);
+                }
+
+                return cert;
+            }
+        }
+
+#if NET
+        public static SocketsHttpHandler CreateSocketsHttpHandler(bool allowAllCertificates = false)
+        {
+            var handler = new SocketsHttpHandler();
+
+            // Browser doesn't support ServerCertificateCustomValidationCallback
+            if (allowAllCertificates && PlatformDetection.IsNotBrowser)
+            {
+                handler.SslOptions.RemoteCertificateValidationCallback = delegate { return true; };
+            }
+
+            return handler;
+        }
+#endif
     }
 }

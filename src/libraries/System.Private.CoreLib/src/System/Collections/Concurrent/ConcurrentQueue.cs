@@ -4,6 +4,7 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
+using System.Numerics;
 using System.Threading;
 
 namespace System.Collections.Concurrent
@@ -73,7 +74,7 @@ namespace System.Collections.Concurrent
         /// <param name="collection">
         /// The collection whose elements are copied to the new <see cref="ConcurrentQueue{T}"/>.
         /// </param>
-        /// <exception cref="System.ArgumentNullException">The <paramref name="collection"/> argument is null.</exception>
+        /// <exception cref="ArgumentNullException">The <paramref name="collection"/> argument is null.</exception>
         public ConcurrentQueue(IEnumerable<T> collection)
         {
             if (collection == null)
@@ -93,7 +94,7 @@ namespace System.Collections.Concurrent
                 int count = c.Count;
                 if (count > length)
                 {
-                    length = Math.Min(ConcurrentQueueSegment<T>.RoundUpToPowerOf2(count), MaxSegmentLength);
+                    length = (int)Math.Min(BitOperations.RoundUpToPowerOf2((uint)count), MaxSegmentLength);
                 }
             }
 
@@ -170,11 +171,11 @@ namespace System.Collections.Concurrent
         IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable<T>)this).GetEnumerator();
 
         /// <summary>
-        /// Attempts to add an object to the <see cref="Concurrent.IProducerConsumerCollection{T}"/>.
+        /// Attempts to add an object to the <see cref="IProducerConsumerCollection{T}"/>.
         /// </summary>
         /// <param name="item">The object to add to the <see
-        /// cref="Concurrent.IProducerConsumerCollection{T}"/>. The value can be a null
-        /// reference (Nothing in Visual Basic) for reference types.
+        /// cref="IProducerConsumerCollection{T}"/>. The value can be a null
+        /// reference (<see langword="Nothing" /> in Visual Basic) for reference types.
         /// </param>
         /// <returns>true if the object was added successfully; otherwise, false.</returns>
         /// <remarks>For <see cref="ConcurrentQueue{T}"/>, this operation will always add the object to the
@@ -187,7 +188,7 @@ namespace System.Collections.Concurrent
         }
 
         /// <summary>
-        /// Attempts to remove and return an object from the <see cref="Concurrent.IProducerConsumerCollection{T}"/>.
+        /// Attempts to remove and return an object from the <see cref="IProducerConsumerCollection{T}"/>.
         /// </summary>
         /// <param name="item">
         /// When this method returns, if the operation was successful, <paramref name="item"/> contains the
@@ -527,20 +528,18 @@ namespace System.Collections.Concurrent
 
             // If the expected sequence number is not yet written, we're still waiting for
             // an enqueuer to finish storing it.  Spin until it's there.
-            if ((segment._slots[i].SequenceNumber & segment._slotsMask) != expectedSequenceNumberAndMask)
+            SpinWait spinner = default;
+            // Must read SequenceNumber before reading Item, thus Volatile.Read
+            while ((Volatile.Read(ref segment._slots[i].SequenceNumber) & segment._slotsMask) != expectedSequenceNumberAndMask)
             {
-                SpinWait spinner = default;
-                while ((Volatile.Read(ref segment._slots[i].SequenceNumber) & segment._slotsMask) != expectedSequenceNumberAndMask)
-                {
-                    spinner.SpinOnce();
-                }
+                spinner.SpinOnce();
             }
 
             // Return the value from the slot.
             return segment._slots[i].Item!;
         }
 
-        private IEnumerator<T> Enumerate(ConcurrentQueueSegment<T> head, int headHead, ConcurrentQueueSegment<T> tail, int tailTail)
+        private static IEnumerator<T> Enumerate(ConcurrentQueueSegment<T> head, int headHead, ConcurrentQueueSegment<T> tail, int tailTail)
         {
             Debug.Assert(head._preservedForObservation);
             Debug.Assert(head._frozenForEnqueues);
@@ -598,7 +597,7 @@ namespace System.Collections.Concurrent
         /// <summary>Adds an object to the end of the <see cref="ConcurrentQueue{T}"/>.</summary>
         /// <param name="item">
         /// The object to add to the end of the <see cref="ConcurrentQueue{T}"/>.
-        /// The value can be a null reference (Nothing in Visual Basic) for reference types.
+        /// The value can be a null reference (<see langword="Nothing" /> in Visual Basic) for reference types.
         /// </param>
         public void Enqueue(T item)
         {
@@ -666,9 +665,28 @@ namespace System.Collections.Concurrent
         /// true if an element was removed and returned from the beginning of the
         /// <see cref="ConcurrentQueue{T}"/> successfully; otherwise, false.
         /// </returns>
-        public bool TryDequeue([MaybeNullWhen(false)] out T result) =>
-            _head.TryDequeue(out result) || // fast-path that operates just on the head segment
-            TryDequeueSlow(out result); // slow path that needs to fix up segments
+        public bool TryDequeue([MaybeNullWhen(false)] out T result)
+        {
+            // Get the current head
+            ConcurrentQueueSegment<T> head = _head;
+
+            // Try to take.  If we're successful, we're done.
+            if (head.TryDequeue(out result))
+            {
+                return true;
+            }
+
+            // Check to see whether this segment is the last. If it is, we can consider
+            // this to be a moment-in-time empty condition (even though between the TryDequeue
+            // check and this check, another item could have arrived).
+            if (head._nextSegment == null)
+            {
+                result = default;
+                return false;
+            }
+
+            return TryDequeueSlow(out result); // slow path that needs to fix up segments
+        }
 
         /// <summary>Tries to dequeue an item, removing empty segments as needed.</summary>
         private bool TryDequeueSlow([MaybeNullWhen(false)] out T item)
@@ -722,7 +740,7 @@ namespace System.Collections.Concurrent
         /// </summary>
         /// <param name="result">
         /// When this method returns, <paramref name="result"/> contains an object from
-        /// the beginning of the <see cref="Concurrent.ConcurrentQueue{T}"/> or default(T)
+        /// the beginning of the <see cref="ConcurrentQueue{T}"/> or default(T)
         /// if the operation failed.
         /// </param>
         /// <returns>true if and object was returned successfully; otherwise, false.</returns>

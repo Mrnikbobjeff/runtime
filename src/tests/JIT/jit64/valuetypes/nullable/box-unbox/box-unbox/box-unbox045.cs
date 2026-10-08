@@ -4,8 +4,10 @@
 
 using System.Runtime.InteropServices;
 using System;
+using Xunit;
 
-internal class NullableTest
+namespace box_unbox045;
+public class NullableTest
 {
     private static bool BoxUnboxToNQ(object o)
     {
@@ -17,7 +19,9 @@ internal class NullableTest
         return Helper.Compare((MixedAllStruct?)o, Helper.Create(default(MixedAllStruct)));
     }
 
-    private static int Main()
+    [Fact]
+    [OuterLoop]
+    public static int TestEntryPoint()
     {
         MixedAllStruct? s = Helper.Create(default(MixedAllStruct));
 

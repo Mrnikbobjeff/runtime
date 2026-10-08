@@ -5,6 +5,8 @@
 using System;
 using System.IO;
 using System.Threading;
+using Xunit;
+using TestLibrary;
 
 // Test Description:
 // Just basic heavy reading and writing from ThreadStatic members in normal threads and threadpools threads as well.
@@ -46,7 +48,8 @@ public class Sensor
 	[ThreadStatic]
 	static String SSS = "Olden Polynice";
 
-	public static int Main(string[] args)
+	[ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+	public static int TestEntryPoint()
 	{
 		Console.WriteLine("Hello NBA Fans!!");
 		Console.WriteLine("ThreadStatic test 2: Various reading and writing of Threadstatic variables.");

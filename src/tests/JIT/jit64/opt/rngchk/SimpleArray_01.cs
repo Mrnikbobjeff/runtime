@@ -3,13 +3,15 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
 namespace SimpleArray_01
 {
     public delegate void RngTest();
-    internal class Class1
+    public class Class1
     {
-        private static int Main()
+        [Fact]
+        public static int TestEntryPoint()
         {
             int retVal = 100;
             int testNum = 0;
@@ -76,7 +78,7 @@ namespace SimpleArray_01
         [MethodImplAttribute(MethodImplOptions.NoInlining)]
         public static void Test2()
         {
-            int[] numbers = new int[100]; ;
+            int[] numbers = new int[100];
             int index = 0;
             for (index = 0; index < 101; index++)
             {

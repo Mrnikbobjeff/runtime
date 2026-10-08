@@ -5,41 +5,44 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Runtime.InteropServices;
-using TestLibrary;
+using Xunit;
 
 #pragma warning disable CS0612, CS0618
 
-public class Tester
+[ActiveIssue("https://github.com/dotnet/runtime/issues/91388", typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.PlatformDoesNotSupportNativeTestAssets))]
+public class SafeArrayMarshallingTest
 {
-    public static int Main()
+    [ConditionalFact(typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsBuiltInComEnabled))]
+    [SkipOnMono("Requires COM support")]
+    public static int TestEntryPoint()
     {
         try
         {
             var boolArray = new bool[] { true, false, true, false, false, true };
             SafeArrayNative.XorBoolArray(boolArray, out var xorResult);
-            Assert.AreEqual(XorArray(boolArray), xorResult);
+            Assert.Equal(XorArray(boolArray), xorResult);
 
             var decimalArray = new decimal[] { 1.5M, 30.2M, 6432M, 12.5832M };
             SafeArrayNative.MeanDecimalArray(decimalArray, out var meanDecimalValue);
-            Assert.AreEqual(decimalArray.Average(), meanDecimalValue);
+            Assert.Equal(decimalArray.Average(), meanDecimalValue);
 
             SafeArrayNative.SumCurrencyArray(decimalArray, out var sumCurrencyValue);
-            Assert.AreEqual(decimalArray.Sum(), sumCurrencyValue);
+            Assert.Equal(decimalArray.Sum(), sumCurrencyValue);
 
             var strings = new [] {"ABCDE", "12345", "Microsoft"};
             var reversedStrings = strings.Select(str => Reverse(str)).ToArray();
 
             var ansiTest = strings.ToArray();
             SafeArrayNative.ReverseStringsAnsi(ansiTest);
-            Assert.AreAllEqual(reversedStrings, ansiTest);
+            AssertExtensions.CollectionEqual(reversedStrings, ansiTest);
 
             var unicodeTest = strings.ToArray();
             SafeArrayNative.ReverseStringsUnicode(unicodeTest);
-            Assert.AreAllEqual(reversedStrings, unicodeTest);
+            AssertExtensions.CollectionEqual(reversedStrings, unicodeTest);
 
             var bstrTest = strings.ToArray();
             SafeArrayNative.ReverseStringsBSTR(bstrTest);
-            Assert.AreAllEqual(reversedStrings, bstrTest);
+            AssertExtensions.CollectionEqual(reversedStrings, bstrTest);
 
             var blittableRecords = new SafeArrayNative.BlittableRecord[]
             {
@@ -50,23 +53,23 @@ public class Tester
                 new SafeArrayNative.BlittableRecord { a = 9 },
                 new SafeArrayNative.BlittableRecord { a = 15 },
             };
-            Assert.AreAllEqual(blittableRecords, SafeArrayNative.CreateSafeArrayOfRecords(blittableRecords));
+            AssertExtensions.CollectionEqual(blittableRecords, SafeArrayNative.CreateSafeArrayOfRecords(blittableRecords));
 
             var nonBlittableRecords = boolArray.Select(b => new SafeArrayNative.NonBlittableRecord{ b = b }).ToArray();
-            Assert.AreAllEqual(nonBlittableRecords, SafeArrayNative.CreateSafeArrayOfRecords(nonBlittableRecords));
+            AssertExtensions.CollectionEqual(nonBlittableRecords, SafeArrayNative.CreateSafeArrayOfRecords(nonBlittableRecords));
 
             var objects = new object[] { new object(), new object(), new object() };
             SafeArrayNative.VerifyIUnknownArray(objects);
             SafeArrayNative.VerifyIDispatchArray(objects);
 
             var variantInts = new object[] {1, 2, 3, 4, 5, 6, 7, 8, 9};
-            
+
             SafeArrayNative.MeanVariantIntArray(variantInts, out var variantMean);
-            Assert.AreEqual(variantInts.OfType<int>().Average(), variantMean);
+            Assert.Equal(variantInts.OfType<int>().Average(), variantMean);
 
             var dates = new DateTime[] { new DateTime(2008, 5, 1), new DateTime(2010, 1, 1) };
             SafeArrayNative.DistanceBetweenDates(dates, out var numDays);
-            Assert.AreEqual((dates[1] - dates[0]).TotalDays, numDays);
+            Assert.Equal((dates[1] - dates[0]).TotalDays, numDays);
 
             SafeArrayNative.XorBoolArrayInStruct(
                 new SafeArrayNative.StructWithSafeArray
@@ -75,7 +78,7 @@ public class Tester
                 },
                 out var structXor);
 
-            Assert.AreEqual(XorArray(boolArray), structXor);
+            Assert.Equal(XorArray(boolArray), structXor);
         }
         catch (Exception e)
         {
@@ -83,6 +86,114 @@ public class Tester
             return 101;
         }
         return 100;
+    }
+
+    [ConditionalFact(typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsBuiltInComEnabled))]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/129581", TestRuntimes.Mono)]
+    public static void MultidimensionalIntArray()
+    {
+        const int rows = 3;
+        const int cols = 4;
+
+        SafeArrayNative.Create2DIntSafeArray(rows, cols, out int[,] result);
+
+        Assert.Equal(rows, result.GetLength(0));
+        Assert.Equal(cols, result.GetLength(1));
+
+        for (int r = 0; r < rows; r++)
+        {
+            for (int c = 0; c < cols; c++)
+            {
+                Assert.Equal(r * cols + c, result[r, c]);
+            }
+        }
+    }
+
+    [ConditionalFact(typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsBuiltInComEnabled))]
+    public static void MultidimensionalIntArrayRoundTrip()
+    {
+        const int rows = 3;
+        const int cols = 4;
+
+        SafeArrayNative.Create2DIntSafeArray(rows, cols, out int[,] result);
+
+        SafeArrayNative.Verify2DIntSafeArray(result, rows, cols);
+    }
+
+    [ConditionalFact(typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsBuiltInComEnabled))]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/129581", TestRuntimes.Mono)]
+    public static void MultidimensionalBoolArray()
+    {
+        const int rows = 2;
+        const int cols = 3;
+
+        SafeArrayNative.Create2DBoolSafeArray(rows, cols, out bool[,] result);
+
+        Assert.Equal(rows, result.GetLength(0));
+        Assert.Equal(cols, result.GetLength(1));
+
+        for (int r = 0; r < rows; r++)
+        {
+            for (int c = 0; c < cols; c++)
+            {
+                Assert.Equal((r + c) % 2 == 0, result[r, c]);
+            }
+        }
+    }
+
+    [ConditionalFact(typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsBuiltInComEnabled))]
+    public static void MultidimensionalBoolArrayRoundTrip()
+    {
+        const int rows = 2;
+        const int cols = 3;
+
+        SafeArrayNative.Create2DBoolSafeArray(rows, cols, out bool[,] result);
+
+        SafeArrayNative.Verify2DBoolSafeArray(result, rows, cols);
+    }
+
+    [ConditionalFact(typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsBuiltInComEnabled))]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/129581", TestRuntimes.Mono)]
+    public static void MultidimensionalStringArray()
+    {
+        const int rows = 2;
+        const int cols = 3;
+
+        SafeArrayNative.Create2DStringSafeArray(rows, cols, out string[,] result);
+
+        Assert.Equal(rows, result.GetLength(0));
+        Assert.Equal(cols, result.GetLength(1));
+
+        for (int r = 0; r < rows; r++)
+        {
+            for (int c = 0; c < cols; c++)
+            {
+                Assert.Equal($"{r},{c}", result[r, c]);
+            }
+        }
+    }
+
+    [ConditionalFact(typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsBuiltInComEnabled))]
+    [ActiveIssue("https://github.com/dotnet/runtime/issues/129581", TestRuntimes.Mono)]
+    public static void MultidimensionalStringArrayRoundTrip()
+    {
+        const int rows = 2;
+        const int cols = 3;
+
+        SafeArrayNative.Create2DStringSafeArray(rows, cols, out string[,] result);
+
+        SafeArrayNative.Verify2DStringSafeArray(result, rows, cols);
+    }
+
+    [ConditionalFact(typeof(TestLibrary.PlatformDetection), nameof(TestLibrary.PlatformDetection.IsBuiltInComEnabled), nameof(TestLibrary.PlatformDetection.Is64BitProcess))]
+    [SkipOnMono("Requires COM support")]
+    public static void MultidimensionalIntPtrArray_MismatchedNativeElementSize()
+    {
+        // Native VT_I4 SAFEARRAY (4-byte elements) -> managed IntPtr[,] (8-byte elements).
+        Assert.Throws<SafeArrayTypeMismatchException>(() => SafeArrayNative.Create2DIntSafeArrayAsIntPtr(2, 2, out _));
+
+        // Managed IntPtr[,] (8-byte elements) -> native VT_I4 SAFEARRAY (4-byte elements).
+        Assert.Throws<SafeArrayTypeMismatchException>(() => SafeArrayNative.Verify2DIntSafeArrayAsIntPtr(new IntPtr[2, 2], 2, 2));
     }
 
     private static bool XorArray(bool[] values)
@@ -114,11 +225,14 @@ class SafeArrayNative
     public struct BlittableRecord
     {
         public int a;
+
+        public override string ToString() => $"BlittableRecord: {a}";
     }
 
     public struct NonBlittableRecord
     {
         public bool b;
+        public override string ToString() => $"NonBlittableRecord: {b}";
     }
 
     [DllImport(nameof(SafeArrayNative))]
@@ -215,4 +329,62 @@ class SafeArrayNative
 
     [DllImport(nameof(SafeArrayNative), PreserveSig = false)]
     public static extern void XorBoolArrayInStruct(StructWithSafeArray str, out bool result);
+
+    [DllImport(nameof(SafeArrayNative), PreserveSig = false)]
+    public static extern void Create2DIntSafeArray(
+        int rows,
+        int cols,
+        [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] out int[,] result
+    );
+
+    [DllImport(nameof(SafeArrayNative), PreserveSig = false)]
+    public static extern void Verify2DIntSafeArray(
+        [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] int[,] array,
+        int rows,
+        int cols
+    );
+
+    // Deliberately mismatched declarations on 64-bit - the managed element type is IntPtr (8 bytes)
+    // while the native SAFEARRAY element size is 4 bytes.
+    [DllImport(nameof(SafeArrayNative), PreserveSig = false, EntryPoint = "Create2DIntSafeArray")]
+    public static extern void Create2DIntSafeArrayAsIntPtr(
+        int rows,
+        int cols,
+        [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] out IntPtr[,] result
+    );
+
+    [DllImport(nameof(SafeArrayNative), PreserveSig = false, EntryPoint = "Verify2DIntSafeArray")]
+    public static extern void Verify2DIntSafeArrayAsIntPtr(
+        [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_I4)] IntPtr[,] array,
+        int rows,
+        int cols
+    );
+
+    [DllImport(nameof(SafeArrayNative), PreserveSig = false)]
+    public static extern void Create2DBoolSafeArray(
+        int rows,
+        int cols,
+        [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_BOOL)] out bool[,] result
+    );
+
+    [DllImport(nameof(SafeArrayNative), PreserveSig = false)]
+    public static extern void Verify2DBoolSafeArray(
+        [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_BOOL)] bool[,] array,
+        int rows,
+        int cols
+    );
+
+    [DllImport(nameof(SafeArrayNative), PreserveSig = false)]
+    public static extern void Create2DStringSafeArray(
+        int rows,
+        int cols,
+        [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_BSTR)] out string[,] result
+    );
+
+    [DllImport(nameof(SafeArrayNative), PreserveSig = false)]
+    public static extern void Verify2DStringSafeArray(
+        [MarshalAs(UnmanagedType.SafeArray, SafeArraySubType = VarEnum.VT_BSTR)] string[,] array,
+        int rows,
+        int cols
+    );
 }

@@ -116,10 +116,10 @@ namespace System.Linq.Parallel
         // then doesn't return elements it has already seen before.
         //
 
-        private class DistinctQueryOperatorEnumerator<TKey> : QueryOperatorEnumerator<TInputOutput, int>
+        private sealed class DistinctQueryOperatorEnumerator<TKey> : QueryOperatorEnumerator<TInputOutput, int>
         {
             private readonly QueryOperatorEnumerator<Pair<TInputOutput, NoKeyMemoizationRequired>, TKey> _source; // The data source.
-            private readonly Set<TInputOutput> _hashLookup; // The hash lookup, used to produce the distinct set.
+            private readonly HashSet<TInputOutput> _hashLookup; // The hash lookup, used to produce the distinct set.
             private readonly CancellationToken _cancellationToken;
             private Shared<int>? _outputLoopCount; // Allocated in MoveNext to avoid false sharing.
 
@@ -133,7 +133,7 @@ namespace System.Linq.Parallel
             {
                 Debug.Assert(source != null);
                 _source = source;
-                _hashLookup = new Set<TInputOutput>(comparer);
+                _hashLookup = new HashSet<TInputOutput>(comparer);
                 _cancellationToken = cancellationToken;
             }
 
@@ -150,13 +150,12 @@ namespace System.Linq.Parallel
                 TKey keyUnused = default!;
                 Pair<TInputOutput, NoKeyMemoizationRequired> current = default(Pair<TInputOutput, NoKeyMemoizationRequired>);
 
-                if (_outputLoopCount == null)
-                    _outputLoopCount = new Shared<int>(0);
+                _outputLoopCount ??= new Shared<int>(0);
 
                 while (_source.MoveNext(ref current, ref keyUnused))
                 {
                     if ((_outputLoopCount.Value++ & CancellationState.POLL_INTERVAL) == 0)
-                        _cancellationToken.ThrowIfCancellationRequested();;
+                        _cancellationToken.ThrowIfCancellationRequested();
 
                     // We ensure we never return duplicates by tracking them in our set.
                     if (_hashLookup.Add(current.First))
@@ -189,12 +188,14 @@ namespace System.Linq.Parallel
             return wrappedChild.Distinct(_comparer);
         }
 
-        private class OrderedDistinctQueryOperatorEnumerator<TKey> : QueryOperatorEnumerator<TInputOutput, TKey>
+        private sealed class OrderedDistinctQueryOperatorEnumerator<TKey> : QueryOperatorEnumerator<TInputOutput, TKey>
         {
             private readonly QueryOperatorEnumerator<Pair<TInputOutput, NoKeyMemoizationRequired>, TKey> _source; // The data source.
             private readonly Dictionary<Wrapper<TInputOutput>, TKey> _hashLookup; // The hash lookup, used to produce the distinct set.
             private readonly IComparer<TKey> _keyComparer; // Comparer to decide the key order.
+#pragma warning disable CA1859
             private IEnumerator<KeyValuePair<Wrapper<TInputOutput>, TKey>>? _hashLookupEnumerator; // Enumerates over _hashLookup.
+#pragma warning restore
             private readonly CancellationToken _cancellationToken;
 
             //---------------------------------------------------------------------------------------
@@ -220,7 +221,7 @@ namespace System.Linq.Parallel
             // Walks the single data source, skipping elements it has already seen.
             //
 
-            internal override bool MoveNext([MaybeNullWhen(false), AllowNull] ref TInputOutput currentElement, ref TKey currentKey)
+            internal override bool MoveNext([MaybeNullWhen(false), AllowNull] ref TInputOutput currentElement, [AllowNull] ref TKey currentKey)
             {
                 Debug.Assert(_source != null);
                 Debug.Assert(_hashLookup != null);
@@ -234,7 +235,7 @@ namespace System.Linq.Parallel
                     while (_source.MoveNext(ref elem, ref orderKey))
                     {
                         if ((i++ & CancellationState.POLL_INTERVAL) == 0)
-                            _cancellationToken.ThrowIfCancellationRequested();;
+                            _cancellationToken.ThrowIfCancellationRequested();
 
                         // For each element, we track the smallest order key for that element that we saw so far
                         TKey oldEntry;
@@ -271,10 +272,7 @@ namespace System.Linq.Parallel
                 Debug.Assert(_source != null);
                 _source.Dispose();
 
-                if (_hashLookupEnumerator != null)
-                {
-                    _hashLookupEnumerator.Dispose();
-                }
+                _hashLookupEnumerator?.Dispose();
             }
         }
     }

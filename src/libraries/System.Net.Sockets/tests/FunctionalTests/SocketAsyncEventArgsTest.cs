@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System;
 using System.Buffers;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,6 +10,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.DotNet.XUnitExtensions;
 using Xunit;
 
 namespace System.Net.Sockets.Tests
@@ -69,7 +71,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task Dispose_WhileInUse_DisposeDelayed()
         {
             using (var listen = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
@@ -103,7 +105,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(false)]
         [InlineData(true)]
         public async Task ExecutionContext_FlowsIfNotSuppressed(bool suppressed)
@@ -122,38 +124,36 @@ namespace System.Net.Sockets.Tests
                 using (Socket server = await acceptTask)
                 using (var receiveSaea = new SocketAsyncEventArgs())
                 {
-                    if (suppressed)
+                    using (suppressed ? ExecutionContext.SuppressFlow() : default)
                     {
-                        ExecutionContext.SuppressFlow();
+                        var local = new AsyncLocal<int>();
+                        local.Value = 42;
+                        int threadId = Environment.CurrentManagedThreadId;
+
+                        var mres = new ManualResetEventSlim();
+                        receiveSaea.SetBuffer(new byte[1], 0, 1);
+                        receiveSaea.Completed += delegate
+                        {
+                            Assert.NotEqual(threadId, Environment.CurrentManagedThreadId);
+                            Assert.Equal(suppressed ? 0 : 42, local.Value);
+                            mres.Set();
+                        };
+
+                        Assert.True(client.ReceiveAsync(receiveSaea));
+                        server.Send(new byte[1]);
+                        mres.Wait();
                     }
-
-                    var local = new AsyncLocal<int>();
-                    local.Value = 42;
-                    int threadId = Environment.CurrentManagedThreadId;
-
-                    var mres = new ManualResetEventSlim();
-                    receiveSaea.SetBuffer(new byte[1], 0, 1);
-                    receiveSaea.Completed += delegate
-                    {
-                        Assert.NotEqual(threadId, Environment.CurrentManagedThreadId);
-                        Assert.Equal(suppressed ? 0 : 42, local.Value);
-                        mres.Set();
-                    };
-
-                    Assert.True(client.ReceiveAsync(receiveSaea));
-                    server.Send(new byte[1]);
-                    mres.Wait();
                 }
             }
         }
 
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         public async Task ExecutionContext_SocketAsyncEventArgs_Ctor_Default_FlowIsNotSuppressed()
         {
             await ExecutionContext_SocketAsyncEventArgs_Ctors(() => new SocketAsyncEventArgs(), false);
         }
 
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [InlineData(true)]
         [InlineData(false)]
         public async Task ExecutionContext_SocketAsyncEventArgs_Ctor_UnsafeSuppressExecutionContextFlow(bool suppressed)
@@ -358,7 +358,7 @@ namespace System.Net.Sockets.Tests
                     tcs2 = new TaskCompletionSource();
                     Assert.True(client.ReceiveAsync(receiveSaea));
 
-                    server.Send(new byte[1]);
+                    await server.SendAsync(new byte[1]);
                     await Task.WhenAll(tcs1.Task, tcs2.Task);
 
                     receiveSaea.Completed -= handler2;
@@ -367,7 +367,7 @@ namespace System.Net.Sockets.Tests
                     tcs2 = new TaskCompletionSource();
                     Assert.True(client.ReceiveAsync(receiveSaea));
 
-                    server.Send(new byte[1]);
+                    await server.SendAsync(new byte[1]);
                     await tcs1.Task;
 
                     Assert.False(tcs2.Task.IsCompleted);
@@ -422,6 +422,151 @@ namespace System.Net.Sockets.Tests
 
                     Socket.CancelConnectAsync(connectSaea);
                 }
+            }
+        }
+
+        [ConditionalTheory]
+        [InlineData(false, 1)]
+        [InlineData(false, 10_000)]
+        [InlineData(true, 1)]           // This should fit with SYN flag
+        [InlineData(true, 10_000)]      // This should be too big to fit completely to first packet.
+        [SkipOnPlatform(TestPlatforms.Wasi, "Wasi doesn't support FastOpen")]
+        public async Task ConnectAsync_WithData_OK(bool useFastOpen, int size)
+        {
+            if (useFastOpen && PlatformDetection.IsWindows && !PlatformDetection.IsWindows10OrLater)
+            {
+                // Old Windows versions do not support fast open and SetSocketOption fails with error.
+                throw new SkipTestException("TCP fast open is not supported");
+            }
+
+            using (var listen = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+            {
+                listen.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+                listen.Listen();
+
+                var client = new Socket(SocketType.Stream, ProtocolType.Tcp);
+                if (useFastOpen)
+                {
+                    listen.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.FastOpen, 1);
+                    client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.FastOpen, 1);
+                }
+
+                var sendBuffer = new byte[size];
+                var receiveBuffer = new byte[size * 2];
+                Random.Shared.NextBytes(sendBuffer);
+
+                var connectSaea = new SocketAsyncEventArgs();
+                var tcs = new TaskCompletionSource<SocketError>();
+                connectSaea.Completed += (s, e) => tcs.SetResult(e.SocketError);
+                connectSaea.RemoteEndPoint = listen.LocalEndPoint;
+                connectSaea.SetBuffer(sendBuffer, 0, size);
+
+                bool pending = client.ConnectAsync(connectSaea);
+                if (!pending) tcs.SetResult(connectSaea.SocketError);
+                Socket serverSocket = await listen.AcceptAsync();
+                await tcs.Task;
+
+                Assert.Equal(size, connectSaea.BytesTransferred);
+                // Close the client so we can get easily check the data on server side
+                client.Shutdown(SocketShutdown.Send);
+
+                int offset = 0;
+                int readBytes;
+                do
+                {
+                    readBytes = await serverSocket.ReceiveAsync(new Memory<byte>(receiveBuffer, offset, receiveBuffer.Length - offset), default);
+                    offset += readBytes;
+                }
+                while (readBytes != 0);
+                Assert.Equal(size, offset);
+                Assert.True(new ReadOnlySpan<byte>(receiveBuffer, 0, offset).SequenceEqual(sendBuffer));
+
+                serverSocket.Send(new byte[10]);
+                serverSocket.Close();
+                client.Close();
+
+                // DO second round so TFO has chance to get cookies set up
+
+                tcs = new TaskCompletionSource<SocketError>();
+                client = new Socket(SocketType.Stream, ProtocolType.Tcp);
+                if (useFastOpen)
+                {
+                    client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.FastOpen, 1);
+                }
+                connectSaea = new SocketAsyncEventArgs();
+                connectSaea.Completed += (s, e) => tcs.SetResult(e.SocketError);
+                connectSaea.RemoteEndPoint = listen.LocalEndPoint;
+                connectSaea.SetBuffer(new byte[size], 0, size);
+
+                pending = client.ConnectAsync(connectSaea);
+                if (!pending) tcs.SetResult(connectSaea.SocketError);
+                serverSocket = await listen.AcceptAsync();
+                await tcs.Task;
+                Assert.Equal(size, connectSaea.BytesTransferred);
+                await client.SendAsync(new byte[1]);
+                // Close the client so we can get easily check the data on server side
+                client.Shutdown(SocketShutdown.Send);
+
+                offset = 0;
+                readBytes = 0;
+                do
+                {
+                    readBytes = await serverSocket.ReceiveAsync(new Memory<byte>(receiveBuffer, offset, receiveBuffer.Length - offset), default);
+                    offset += readBytes;
+                }
+                while (readBytes != 0);
+                // We should also get data from the extra Send
+                Assert.Equal(size + 1, offset);
+
+                serverSocket.Close();
+            }
+        }
+
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        [InlineData(false, 1)]
+        [InlineData(false, 10_000)]
+        [InlineData(true, 1)]           // This should fit with SYN flag
+        [InlineData(true, 10_000)]      // This should be too big to fit completely to first packet.
+        public async Task Connect_WithData_OK(bool useFastOpen, int size)
+        {
+            if (useFastOpen && PlatformDetection.IsWindows && !PlatformDetection.IsWindows10OrLater)
+            {
+                // Old Windows versions do not support fast open and SetSocketOption fails with error.
+                throw new SkipTestException("TCP fast open is not supported");
+            }
+
+            using (var listen = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+            {
+                listen.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+                listen.Listen();
+
+                var client = new Socket(SocketType.Stream, ProtocolType.Tcp);
+                if (useFastOpen)
+                {
+                    listen.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.FastOpen, 1);
+                    client.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.FastOpen, 1);
+                }
+
+                var sendBuffer = new byte[size];
+                var receiveBuffer = new byte[size * 2];
+                Random.Shared.NextBytes(sendBuffer);
+
+                Task<Socket> serverTask = listen.AcceptAsync();
+                // use sync extension
+                client.Connect(listen.LocalEndPoint, sendBuffer, TestSettings.PassingTestTimeout);
+                Socket serverSocket = await serverTask;
+
+                client.Shutdown(SocketShutdown.Send);
+
+                int offset = 0;
+                int readBytes = 0;
+                do
+                {
+                    readBytes = await serverSocket.ReceiveAsync(new Memory<byte>(receiveBuffer, offset, receiveBuffer.Length - offset), default);
+                    offset += readBytes;
+                }
+                while (readBytes != 0);
+                Assert.Equal(size, offset);
             }
         }
 
@@ -543,7 +688,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [OuterLoop]
-        [Fact]
+        [ConditionalFact(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
         [PlatformSpecific(TestPlatforms.Windows)]  // Unix platforms don't yet support receiving data with AcceptAsync.
         public void AcceptAsync_WithReceiveBuffer_Success()
         {
@@ -561,7 +706,7 @@ namespace System.Net.Sockets.Tests
                 const int acceptBufferSize = acceptBufferOverheadSize + acceptBufferDataSize;
 
                 byte[] sendBuffer = new byte[acceptBufferDataSize];
-                new Random().NextBytes(sendBuffer);
+                Random.Shared.NextBytes(sendBuffer);
 
                 SocketAsyncEventArgs acceptArgs = new SocketAsyncEventArgs();
                 acceptArgs.Completed += OnAcceptCompleted;
@@ -577,22 +722,16 @@ namespace System.Net.Sockets.Tests
                     client.Shutdown(SocketShutdown.Both);
                 }
 
-                Assert.True(
-                    accepted.WaitOne(TestSettings.PassingTestTimeout), "Test completed in allotted time");
+                Assert.True(accepted.WaitOne(TestSettings.PassingTestTimeout), "Test completed in allotted time");
 
-                Assert.Equal(
-                    SocketError.Success, acceptArgs.SocketError);
+                Assert.Equal(SocketError.Success, acceptArgs.SocketError);
 
-                Assert.Equal(
-                    acceptBufferDataSize, acceptArgs.BytesTransferred);
+                Assert.Equal(acceptBufferDataSize, acceptArgs.BytesTransferred);
 
-                Assert.Equal(
-                    new ArraySegment<byte>(sendBuffer),
-                    new ArraySegment<byte>(acceptArgs.Buffer, 0, acceptArgs.BytesTransferred));
+                AssertExtensions.SequenceEqual(sendBuffer.AsSpan(), acceptArgs.Buffer.AsSpan(0, acceptArgs.BytesTransferred));
             }
         }
 
-        [OuterLoop]
         [Fact]
         [PlatformSpecific(TestPlatforms.Windows)]  // Unix platforms don't yet support receiving data with AcceptAsync.
         public void AcceptAsync_WithTooSmallReceiveBuffer_Failure()
@@ -609,7 +748,7 @@ namespace System.Net.Sockets.Tests
                 byte[] buffer = new byte[1];
                 acceptArgs.SetBuffer(buffer, 0, buffer.Length);
 
-                AssertExtensions.Throws<ArgumentException>(null, () => server.AcceptAsync(acceptArgs));
+                AssertExtensions.Throws<ArgumentException>("Count", () => server.AcceptAsync(acceptArgs));
             }
         }
 
@@ -637,6 +776,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/107981", TestPlatforms.Wasi)]
         public async Task SocketConnectAsync_IPAddressAny_SocketAsyncEventArgsReusableAfterFailure()
         {
             var e = new SocketAsyncEventArgs();
@@ -855,7 +995,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [OuterLoop("Involves GC and finalization")]
-        [Theory]
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsPreciseGcSupported))]
         [InlineData(false)]
         [InlineData(true)]
         public void Finalizer_InvokedWhenNoLongerReferenced(bool afterAsyncOperation)
@@ -901,6 +1041,197 @@ namespace System.Net.Sockets.Tests
                 GC.WaitForPendingFinalizers();
                 return cwt.Count() == 0; // validate that the cwt becomes empty
             }, 30_000));
+        }
+
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsMultithreadingSupported))]
+        [InlineData(false)]
+        [InlineData(true)]
+        public async Task SendTo_DifferentEP_Success(bool ipv4)
+        {
+            IPAddress address = ipv4 ? IPAddress.Loopback : IPAddress.IPv6Loopback;
+            IPEndPoint remoteEp = new IPEndPoint(address, 0);
+
+            using Socket receiver1 = new Socket(address.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+            using Socket receiver2 = new Socket(address.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+            using Socket sender = new Socket(address.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+
+            receiver1.BindToAnonymousPort(address);
+            receiver2.BindToAnonymousPort(address);
+
+            byte[] sendBuffer = new byte[32];
+            var receiveInternalBuffer = new byte[sendBuffer.Length];
+            ArraySegment<byte> receiveBuffer = new ArraySegment<byte>(receiveInternalBuffer, 0, receiveInternalBuffer.Length);
+
+            using SocketAsyncEventArgs saea = new SocketAsyncEventArgs();
+            ManualResetEventSlim mres = new ManualResetEventSlim(false);
+
+            saea.SetBuffer(sendBuffer);
+            saea.RemoteEndPoint = receiver1.LocalEndPoint;
+            saea.Completed += delegate { mres.Set(); };
+            if (sender.SendToAsync(saea))
+            {
+                // did not finish synchronously.
+                mres.Wait();
+            }
+
+            SocketReceiveFromResult result = await receiver1.ReceiveFromAsync(receiveBuffer, remoteEp).WaitAsync(TestSettings.PassingTestTimeout);
+            Assert.Equal(sendBuffer.Length, result.ReceivedBytes);
+            mres.Reset();
+
+
+            saea.RemoteEndPoint = receiver2.LocalEndPoint;
+            if (sender.SendToAsync(saea))
+            {
+                // did not finish synchronously.
+                mres.Wait();
+            }
+
+            result = await receiver2.ReceiveFromAsync(receiveBuffer, remoteEp).WaitAsync(TestSettings.PassingTestTimeout);
+            Assert.Equal(sendBuffer.Length, result.ReceivedBytes);
+        }
+
+        [ConditionalFact(typeof(DualModeBase), nameof(DualModeBase.LocalhostIsBothIPv4AndIPv6))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/124079", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [SkipOnPlatform(TestPlatforms.Wasi, "Wasi doesn't support DualMode")]
+        public void Connect_Parallel_Success()
+        {
+            using PortBlocker portBlocker = new PortBlocker(() =>
+            {
+                Socket socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
+                socket.DualMode = false;
+                socket.BindToAnonymousPort(IPAddress.IPv6Loopback);
+                return socket;
+            });
+            Socket a = portBlocker.MainSocket;
+            // the port blocker did not call Socket.Bind so we called bind() but we did not update properties on Socket
+            Socket b  = new Socket(portBlocker.SecondarySocket.SafeHandle);
+
+            a.Listen(1);
+            b.Listen(1);
+            Task<Socket> t1 = a.AcceptAsync();
+            Task<Socket> t2 = b.AcceptAsync();
+
+            var mres = new ManualResetEventSlim();
+            SocketAsyncEventArgs saea = new SocketAsyncEventArgs();
+            saea.RemoteEndPoint = new DnsEndPoint("localhost", portBlocker.Port);
+            saea.Completed += (_, _) => mres.Set();
+            if (Socket.ConnectAsync(a.SocketType, a.ProtocolType, saea, ConnectAlgorithm.Parallel))
+            {
+                mres.Wait(TestSettings.PassingTestTimeout);
+            }
+            // we should see attemopt to both sockets
+            Task.WaitAll(new Task[] { t1, t2 }, TestSettings.PassingTestTimeout);
+            Assert.True(saea.ConnectSocket.Connected);
+        }
+
+        [ConditionalFact(typeof(DualModeBase), nameof(DualModeBase.LocalhostIsBothIPv4AndIPv6))]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/124079", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [SkipOnPlatform(TestPlatforms.Wasi, "Wasi doesn't support DualMode")]
+        public void Connect_Parallel_Fails()
+        {
+            var mres = new ManualResetEventSlim();
+            SocketAsyncEventArgs saea = new SocketAsyncEventArgs();
+            // A bound but non-listening port can time out instead of refusing connections on macOS.
+            saea.RemoteEndPoint = new DnsEndPoint("localhost", DualModeBase.UnusedPort);
+            saea.Completed += (_, _) => mres.Set();
+            if (Socket.ConnectAsync(SocketType.Stream, ProtocolType.Tcp, saea, ConnectAlgorithm.Parallel))
+            {
+                Assert.True(mres.Wait(TestSettings.PassingTestLongTimeout), "Completed did not get called in time");
+            }
+            // we should see attemopt to both sockets
+            Assert.Null(saea.ConnectSocket);
+            Assert.NotEqual(SocketError.Success, saea.SocketError);
+        }
+
+        [ConditionalTheory(typeof(DualModeBase), nameof(DualModeBase.LocalhostIsBothIPv4AndIPv6))]
+        [InlineData(true)]
+        [InlineData(false)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/124079", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/127986", TestPlatforms.Android)]
+        [SkipOnPlatform(TestPlatforms.Wasi, "Wasi doesn't support DualMode")]
+        public void Connect_Parallel_FailsOver(bool preferIPv6)
+        {
+            using PortBlocker portBlocker = new PortBlocker(() =>
+            {
+                Socket socket = new Socket(AddressFamily.InterNetworkV6, SocketType.Stream, ProtocolType.Tcp);
+                socket.DualMode = false;
+                socket.BindToAnonymousPort(IPAddress.IPv6Loopback);
+                return socket;
+            });
+            Socket a = portBlocker.MainSocket;
+            Socket b = new Socket(portBlocker.SecondarySocket.SafeHandle);
+
+            if (preferIPv6)
+            {
+                a.Listen(1);
+            }
+            else
+            {
+                b.Listen(1);
+            }
+
+            var mres = new ManualResetEventSlim();
+            SocketAsyncEventArgs saea = new SocketAsyncEventArgs();
+            saea.RemoteEndPoint = new DnsEndPoint("localhost", portBlocker.Port);
+            saea.Completed += (_, _) => mres.Set();
+
+            if (Socket.ConnectAsync(a.SocketType, a.ProtocolType, saea, ConnectAlgorithm.Parallel))
+            {
+                mres.Wait(TestSettings.PassingTestTimeout);
+            }
+            // we should see attempt to both sockets
+            Assert.NotNull(saea.ConnectSocket);
+            Assert.True(saea.ConnectSocket.Connected);
+            if (preferIPv6)
+            {
+                Assert.Equal(AddressFamily.InterNetworkV6, saea.ConnectSocket.AddressFamily);
+                Assert.Equal(a.LocalEndPoint, saea.ConnectSocket.RemoteEndPoint);
+            }
+            else
+            {
+                Assert.Equal(AddressFamily.InterNetwork, saea.ConnectSocket.AddressFamily);
+                Assert.Equal(b.LocalEndPoint, saea.ConnectSocket.RemoteEndPoint);
+            }
+        }
+    }
+
+    internal static class ConnectExtensions
+    {
+        internal static void Connect(this Socket socket, EndPoint ep, Memory<byte> buffer, int timeout)
+        {
+            Assert.False(OperatingSystem.IsWasi()); // wait below requires threading
+
+            var re = new ManualResetEventSlim();
+            var saea = new SocketAsyncEventArgs();
+            saea.SetBuffer(buffer);
+            saea.RemoteEndPoint = ep;
+            saea.Completed += (_, __) => re.Set();
+            if (socket.ConnectAsync(saea))
+            {
+                re.Wait(timeout);
+            }
+            Assert.True(socket.Connected);
+        }
+
+        internal static Task ConnectAsync(this Socket socket, EndPoint ep, Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var tcs = new TaskCompletionSource<SocketError>(cancellationToken);
+            var saea = new SocketAsyncEventArgs();
+            saea.SetBuffer(buffer);
+            saea.RemoteEndPoint = ep;
+
+            saea.Completed += (s, e) =>
+            {
+                Console.WriteLine("saea.Completed called with {0} transferrred = {1} from {2}", e.SocketError, e.BytesTransferred, buffer.Length);
+                tcs.SetResult(e.SocketError);
+            };
+
+            if (!socket.ConnectAsync(saea))
+            {
+                tcs.SetResult(saea.SocketError);
+            }
+
+            return tcs.Task;
         }
     }
 }

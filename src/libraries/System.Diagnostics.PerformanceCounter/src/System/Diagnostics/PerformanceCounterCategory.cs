@@ -1,12 +1,12 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
-using System.ComponentModel;
 using System;
-using System.Threading;
 using System.Collections;
+using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.CompilerServices;
+using System.Threading;
 
 namespace System.Diagnostics
 {
@@ -43,8 +43,7 @@ namespace System.Diagnostics
         /// </summary>
         public PerformanceCounterCategory(string categoryName, string machineName)
         {
-            if (categoryName == null)
-                throw new ArgumentNullException(nameof(categoryName));
+            ArgumentNullException.ThrowIfNull(categoryName);
 
             if (categoryName.Length == 0)
                 throw new ArgumentException(SR.Format(SR.InvalidParameter, nameof(categoryName), categoryName), nameof(categoryName));
@@ -74,12 +73,7 @@ namespace System.Diagnostics
                 if (value.Length == 0)
                     throw new ArgumentException(SR.Format(SR.InvalidProperty, nameof(CategoryName), value), nameof(value));
 
-                // the lock prevents a race between setting CategoryName and MachineName, since this permission
-                // checks depend on both pieces of info.
-                lock (this)
-                {
-                    _categoryName = value;
-                }
+                _categoryName = value;
             }
         }
 
@@ -93,8 +87,7 @@ namespace System.Diagnostics
                 if (_categoryName == null)
                     throw new InvalidOperationException(SR.CategoryNameNotSet);
 
-                if (_categoryHelp == null)
-                    _categoryHelp = PerformanceCounterLib.GetCategoryHelp(_machineName, _categoryName);
+                _categoryHelp ??= PerformanceCounterLib.GetCategoryHelp(_machineName, _categoryName);
 
                 return _categoryHelp;
             }
@@ -138,12 +131,7 @@ namespace System.Diagnostics
                 if (!SyntaxCheck.CheckMachineName(value))
                     throw new ArgumentException(SR.Format(SR.InvalidProperty, nameof(MachineName), value), nameof(value));
 
-                // the lock prevents a race between setting CategoryName and MachineName, since this permission
-                // checks depend on both pieces of info.
-                lock (this)
-                {
-                    _machineName = value;
-                }
+                _machineName = value;
             }
         }
 
@@ -152,8 +140,7 @@ namespace System.Diagnostics
         /// </summary>
         public bool CounterExists(string counterName)
         {
-            if (counterName == null)
-                throw new ArgumentNullException(nameof(counterName));
+            ArgumentNullException.ThrowIfNull(counterName);
 
             if (_categoryName == null)
                 throw new InvalidOperationException(SR.CategoryNameNotSet);
@@ -174,11 +161,8 @@ namespace System.Diagnostics
         /// </summary>
         public static bool CounterExists(string counterName, string categoryName, string machineName)
         {
-            if (counterName == null)
-                throw new ArgumentNullException(nameof(counterName));
-
-            if (categoryName == null)
-                throw new ArgumentNullException(nameof(categoryName));
+            ArgumentNullException.ThrowIfNull(counterName);
+            ArgumentNullException.ThrowIfNull(categoryName);
 
             if (categoryName.Length == 0)
                 throw new ArgumentException(SR.Format(SR.InvalidParameter, nameof(categoryName), categoryName), nameof(categoryName));
@@ -190,15 +174,18 @@ namespace System.Diagnostics
         }
 
         /// <summary>
-        ///     Registers one extensible performance category of type NumberOfItems32 with the system
+        /// Registers one extensible performance category with counter type NumberOfItems32 with the system
         /// </summary>
-        [Obsolete("This method has been deprecated.  Please use System.Diagnostics.PerformanceCounterCategory.Create(string categoryName, string categoryHelp, PerformanceCounterCategoryType categoryType, string counterName, string counterHelp) instead.  https://go.microsoft.com/fwlink/?linkid=14202")]
+        [Obsolete("This overload of PerformanceCounterCategory.Create has been deprecated. Use System.Diagnostics.PerformanceCounterCategory.Create(string categoryName, string categoryHelp, PerformanceCounterCategoryType categoryType, string counterName, string counterHelp) instead.")]
         public static PerformanceCounterCategory Create(string categoryName, string categoryHelp, string counterName, string counterHelp)
         {
             CounterCreationData customData = new CounterCreationData(counterName, counterHelp, PerformanceCounterType.NumberOfItems32);
             return Create(categoryName, categoryHelp, PerformanceCounterCategoryType.Unknown, new CounterCreationDataCollection(new CounterCreationData[] { customData }));
         }
 
+        /// <summary>
+        /// Registers one extensible performance category of the specified category type with counter type NumberOfItems32 with the system
+        /// </summary>
         public static PerformanceCounterCategory Create(string categoryName, string categoryHelp, PerformanceCounterCategoryType categoryType, string counterName, string counterHelp)
         {
             CounterCreationData customData = new CounterCreationData(counterName, counterHelp, PerformanceCounterType.NumberOfItems32);
@@ -206,9 +193,9 @@ namespace System.Diagnostics
         }
 
         /// <summary>
-        ///     Registers the extensible performance category with the system on the local machine
+        /// Registers the extensible performance category with the system on the local machine
         /// </summary>
-        [Obsolete("This method has been deprecated.  Please use System.Diagnostics.PerformanceCounterCategory.Create(string categoryName, string categoryHelp, PerformanceCounterCategoryType categoryType, CounterCreationDataCollection counterData) instead.  https://go.microsoft.com/fwlink/?linkid=14202")]
+        [Obsolete("This overload of PerformanceCounterCategory.Create has been deprecated. Use System.Diagnostics.PerformanceCounterCategory.Create(string categoryName, string categoryHelp, PerformanceCounterCategoryType categoryType, CounterCreationDataCollection counterData) instead.")]
         public static PerformanceCounterCategory Create(string categoryName, string categoryHelp, CounterCreationDataCollection counterData)
         {
             return Create(categoryName, categoryHelp, PerformanceCounterCategoryType.Unknown, counterData);
@@ -253,8 +240,7 @@ namespace System.Diagnostics
         // there is an idential copy of CheckValidCategory in PerformnaceCounterInstaller
         internal static void CheckValidCategory(string categoryName)
         {
-            if (categoryName == null)
-                throw new ArgumentNullException(nameof(categoryName));
+            ArgumentNullException.ThrowIfNull(categoryName);
 
             if (!CheckValidId(categoryName, MaxCategoryNameLength))
                 throw new ArgumentException(SR.Format(SR.PerfInvalidCategoryName, 1, MaxCategoryNameLength));
@@ -267,8 +253,7 @@ namespace System.Diagnostics
 
         internal static void CheckValidCounter(string counterName)
         {
-            if (counterName == null)
-                throw new ArgumentNullException(nameof(counterName));
+            ArgumentNullException.ThrowIfNull(counterName);
 
             if (!CheckValidId(counterName, MaxCounterNameLength))
                 throw new ArgumentException(SR.Format(SR.PerfInvalidCounterName, 1, MaxCounterNameLength));
@@ -299,8 +284,8 @@ namespace System.Diagnostics
 
         internal static void CheckValidHelp(string help)
         {
-            if (help == null)
-                throw new ArgumentNullException(nameof(help));
+            ArgumentNullException.ThrowIfNull(help);
+
             if (help.Length > MaxHelpLength)
                 throw new ArgumentException(SR.Format(SR.PerfInvalidHelp, 0, MaxHelpLength));
         }
@@ -311,7 +296,7 @@ namespace System.Diagnostics
             Hashtable h = new Hashtable();
             for (int i = 0; i < counterData.Count; i++)
             {
-                if (counterData[i].CounterName == null || counterData[i].CounterName.Length == 0)
+                if (string.IsNullOrEmpty(counterData[i].CounterName))
                 {
                     throw new ArgumentException(SR.InvalidCounterName);
                 }
@@ -367,7 +352,7 @@ namespace System.Diagnostics
                     h.Add(counterData[i].CounterName, string.Empty);
 
                     // Ensure that all counter help strings aren't null or empty
-                    if (counterData[i].CounterHelp == null || counterData[i].CounterHelp.Length == 0)
+                    if (string.IsNullOrEmpty(counterData[i].CounterHelp))
                     {
                         counterData[i].CounterHelp = counterData[i].CounterName;
                     }
@@ -420,8 +405,7 @@ namespace System.Diagnostics
         /// </summary>
         public static bool Exists(string categoryName, string machineName)
         {
-            if (categoryName == null)
-                throw new ArgumentNullException(nameof(categoryName));
+            ArgumentNullException.ThrowIfNull(categoryName);
 
             if (categoryName.Length == 0)
                 throw new ArgumentException(SR.Format(SR.InvalidParameter, nameof(categoryName), categoryName), nameof(categoryName));
@@ -470,8 +454,7 @@ namespace System.Diagnostics
         /// </summary>
         public PerformanceCounter[] GetCounters(string instanceName)
         {
-            if (instanceName == null)
-                throw new ArgumentNullException(nameof(instanceName));
+            ArgumentNullException.ThrowIfNull(instanceName);
 
             if (_categoryName == null)
                 throw new InvalidOperationException(SR.CategoryNameNotSet);
@@ -528,8 +511,7 @@ namespace System.Diagnostics
         /// </summary>
         public bool InstanceExists(string instanceName)
         {
-            if (instanceName == null)
-                throw new ArgumentNullException(nameof(instanceName));
+            ArgumentNullException.ThrowIfNull(instanceName);
 
             if (_categoryName == null)
                 throw new InvalidOperationException(SR.CategoryNameNotSet);
@@ -553,11 +535,8 @@ namespace System.Diagnostics
         /// </summary>
         public static bool InstanceExists(string instanceName, string categoryName, string machineName)
         {
-            if (instanceName == null)
-                throw new ArgumentNullException(nameof(instanceName));
-
-            if (categoryName == null)
-                throw new ArgumentNullException(nameof(categoryName));
+            ArgumentNullException.ThrowIfNull(instanceName);
+            ArgumentNullException.ThrowIfNull(categoryName);
 
             if (categoryName.Length == 0)
                 throw new ArgumentException(SR.Format(SR.InvalidParameter, nameof(categoryName), categoryName), nameof(categoryName));

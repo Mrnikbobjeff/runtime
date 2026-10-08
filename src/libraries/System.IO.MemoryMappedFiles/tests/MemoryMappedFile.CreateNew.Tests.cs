@@ -103,6 +103,7 @@ namespace System.IO.MemoryMappedFiles.Tests
         /// <summary>
         /// Test the exceptional behavior when attempting to create a map so large it's not supported.
         /// </summary>
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51375", TestPlatforms.Browser)]
         [PlatformSpecific(TestPlatforms.AnyUnix & ~TestPlatforms.OSX)] // Because of the file-based backing, OS X pops up a warning dialog about being out-of-space (even though we clean up immediately)
         [Fact]
         public void TooLargeCapacity_Unix()
@@ -112,7 +113,7 @@ namespace System.IO.MemoryMappedFiles.Tests
             // due to differences in OS behaviors and Unix not actually having a notion of
             // a view separate from a map.  It could also come from CreateNew, depending
             // on what backing store is being used.
-            Assert.Throws<IOException>(() =>
+            AssertExtensions.ThrowsAny<IOException, ArgumentOutOfRangeException>(() =>
             {
                 using (MemoryMappedFile mmf = MemoryMappedFile.CreateNew(null, (IntPtr.Size == 4) ? uint.MaxValue : long.MaxValue))
                 {
@@ -141,7 +142,7 @@ namespace System.IO.MemoryMappedFiles.Tests
         [Theory]
         [MemberData(nameof(CreateValidMapNames))]
         [InlineData(null)]
-        public void ValidMapNames_Windows(string name)
+        public void ValidMapNames_Windows(string? name)
         {
             using (MemoryMappedFile mmf = MemoryMappedFile.CreateNew(name, 4096))
             {
@@ -187,6 +188,7 @@ namespace System.IO.MemoryMappedFiles.Tests
             new MemoryMappedFileAccess[] { MemoryMappedFileAccess.Read, MemoryMappedFileAccess.ReadExecute, MemoryMappedFileAccess.ReadWrite, MemoryMappedFileAccess.ReadWriteExecute, MemoryMappedFileAccess.CopyOnWrite },
             new MemoryMappedFileOptions[] { MemoryMappedFileOptions.None, MemoryMappedFileOptions.DelayAllocatePages },
             new HandleInheritability[] { HandleInheritability.None, HandleInheritability.Inheritable })]
+        [ActiveIssue("https://github.com/dotnet/runtime/issues/51375", TestPlatforms.iOS | TestPlatforms.tvOS | TestPlatforms.MacCatalyst)]
         public void ValidArgumentCombinations(
             string mapName, long capacity, MemoryMappedFileAccess access, MemoryMappedFileOptions options, HandleInheritability inheritability)
         {
@@ -259,7 +261,7 @@ namespace System.IO.MemoryMappedFiles.Tests
         [Theory]
         [MemberData(nameof(CreateValidMapNames))]
         [InlineData(null)]
-        public void DataNotPersistedBetweenMaps_Windows(string name)
+        public void DataNotPersistedBetweenMaps_Windows(string? name)
         {
             // Write some data to a map newly created with the specified name
             using (MemoryMappedFile mmf = MemoryMappedFile.CreateNew(name, 4096))

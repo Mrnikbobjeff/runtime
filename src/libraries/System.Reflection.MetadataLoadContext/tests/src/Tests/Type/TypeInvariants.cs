@@ -75,7 +75,7 @@ namespace System.Reflection.Tests
             else if (type.IsGenericParameter)
                 type.TestGenericParameterInvariants();
             else
-                Assert.True(false, "Type does not identify as any of the known flavors: " + type);
+                Assert.Fail("Type does not identify as any of the known flavors: " + type);
         }
 
         internal static void TestTypeDefinitionInvariants(this Type type)
@@ -135,7 +135,7 @@ namespace System.Reflection.Tests
             else if (type.IsVariableBoundArray())
                 type.TestMdArrayInvariants();
             else
-                Assert.True(false, "Array type does not identify as either Sz or VariableBound: " + type);
+                Assert.Fail("Array type does not identify as either Sz or VariableBound: " + type);
 
             BindingFlags bf = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly;
             MemberInfo[] mems;
@@ -380,9 +380,30 @@ namespace System.Reflection.Tests
             TestUtils.AssertNewObjectReturnedEachTime(() => type.GetTypeInfo().ImplementedInterfaces);
             CustomAttributeTests.ValidateCustomAttributesAllocatesFreshObjectsEachTime(() => type.CustomAttributes);
 
+            // Verify that Type[] returning methods return actual Type[] arrays, not internal implementation types (RoType[], etc.)
+            // This prevents ArrayTypeMismatchException when using Span APIs
+            Assert.Equal(typeof(Type[]), type.GenericTypeArguments.GetType());
+            Assert.Equal(typeof(Type[]), type.GetTypeInfo().GenericTypeParameters.GetType());
+            Assert.Equal(typeof(Type[]), type.GetGenericArguments().GetType());
+            Assert.Equal(typeof(Type[]), type.GetInterfaces().GetType());
+#if NET
+            if (type.IsFunctionPointer)
+            {
+                Assert.Equal(typeof(Type[]), type.GetFunctionPointerParameterTypes().GetType());
+                Assert.Equal(typeof(Type[]), type.GetFunctionPointerCallingConventions().GetType());
+            }
+#endif
+
             const BindingFlags bf = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.FlattenHierarchy;
             foreach (MemberInfo mem in type.GetMember("*", MemberTypes.All, bf))
             {
+                // Workaround: Do not try to test Array.Initialize, since one of its locals is a function pointer.
+                // Delete this workaround when https://github.com/dotnet/runtime/issues/69273 is addressed.
+                if (mem.DeclaringType == mem.DeclaringType.Assembly.GetType("System.Array") && mem.Name == "Initialize")
+                {
+                    continue;
+                }
+
                 string s = mem.ToString();
                 Assert.Equal(type, mem.ReflectedType);
                 Type declaringType = mem.DeclaringType;
@@ -395,7 +416,7 @@ namespace System.Reflection.Tests
                 {
                     ICustomAttributeProvider icp = mem;
                     Assert.Throws<InvalidOperationException>(() => icp.IsDefined(null, inherit: false));
-                    Assert.Throws<InvalidOperationException>(() => icp.GetCustomAttributes(null, inherit: false)); ;
+                    Assert.Throws<InvalidOperationException>(() => icp.GetCustomAttributes(null, inherit: false));
                     Assert.Throws<InvalidOperationException>(() => icp.GetCustomAttributes(inherit: false));
 
                     if (mem is MethodBase mb)
@@ -603,7 +624,7 @@ namespace System.Reflection.Tests
             Assert.True(position >= 0);
             GenericParameterAttributes attributes = type.GenericParameterAttributes;
 
-            Assert.Equal<Type>(Array.Empty<Type>(), type.GetGenericArguments());
+            Assert.Equal<Type>(Type.EmptyTypes, type.GetGenericArguments());
 
             Assert.False(type.IsByRefLike());
 

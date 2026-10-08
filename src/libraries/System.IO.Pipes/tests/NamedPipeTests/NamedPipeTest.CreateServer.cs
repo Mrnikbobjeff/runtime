@@ -9,7 +9,7 @@ namespace System.IO.Pipes.Tests
     /// <summary>
     /// Tests for the constructors for NamedPipeServerStream
     /// </summary>
-    public class NamedPipeTest_CreateServer : NamedPipeTestBase
+    public class NamedPipeTest_CreateServer
     {
         [Theory]
         [InlineData(PipeDirection.In)]
@@ -31,12 +31,12 @@ namespace System.IO.Pipes.Tests
         [InlineData(PipeDirection.Out)]
         public static void ZeroLengthPipeName_Throws_ArgumentException(PipeDirection direction)
         {
-            AssertExtensions.Throws<ArgumentException>(null, () => new NamedPipeServerStream(""));
-            AssertExtensions.Throws<ArgumentException>(null, () => new NamedPipeServerStream("", direction));
-            AssertExtensions.Throws<ArgumentException>(null, () => new NamedPipeServerStream("", direction, 2));
-            AssertExtensions.Throws<ArgumentException>(null, () => new NamedPipeServerStream("", direction, 3, PipeTransmissionMode.Byte));
-            AssertExtensions.Throws<ArgumentException>(null, () => new NamedPipeServerStream("", direction, 3, PipeTransmissionMode.Byte, PipeOptions.None));
-            AssertExtensions.Throws<ArgumentException>(null, () => new NamedPipeServerStream("", direction, 3, PipeTransmissionMode.Byte, PipeOptions.None, 0, 0));
+            AssertExtensions.Throws<ArgumentException>("pipeName", () => new NamedPipeServerStream(""));
+            AssertExtensions.Throws<ArgumentException>("pipeName", () => new NamedPipeServerStream("", direction));
+            AssertExtensions.Throws<ArgumentException>("pipeName", () => new NamedPipeServerStream("", direction, 2));
+            AssertExtensions.Throws<ArgumentException>("pipeName", () => new NamedPipeServerStream("", direction, 3, PipeTransmissionMode.Byte));
+            AssertExtensions.Throws<ArgumentException>("pipeName", () => new NamedPipeServerStream("", direction, 3, PipeTransmissionMode.Byte, PipeOptions.None));
+            AssertExtensions.Throws<ArgumentException>("pipeName", () => new NamedPipeServerStream("", direction, 3, PipeTransmissionMode.Byte, PipeOptions.None, 0, 0));
         }
 
         [Theory]
@@ -52,27 +52,32 @@ namespace System.IO.Pipes.Tests
             AssertExtensions.Throws<ArgumentOutOfRangeException>("pipeName", () => new NamedPipeServerStream(reservedName, direction, 1));
             AssertExtensions.Throws<ArgumentOutOfRangeException>("pipeName", () => new NamedPipeServerStream(reservedName, direction, 1, PipeTransmissionMode.Byte));
             AssertExtensions.Throws<ArgumentOutOfRangeException>("pipeName", () => new NamedPipeServerStream(reservedName, direction, 1, PipeTransmissionMode.Byte, PipeOptions.None));
-            AssertExtensions.Throws<ArgumentOutOfRangeException>("pipeName", () => new NamedPipeServerStream(reservedName, direction, 1, PipeTransmissionMode.Byte, PipeOptions.None, 0, 0));}
-
-        [Fact]
-        public static void Create_PipeName()
-        {
-            new NamedPipeServerStream(GetUniquePipeName()).Dispose();
+            AssertExtensions.Throws<ArgumentOutOfRangeException>("pipeName", () => new NamedPipeServerStream(reservedName, direction, 1, PipeTransmissionMode.Byte, PipeOptions.None, 0, 0));
         }
 
         [Fact]
+        [SkipOnPlatform(TestPlatforms.LinuxBionic, "SElinux blocks UNIX sockets in our CI environment")]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "iOS/tvOS blocks binding to UNIX sockets")]
+        public static void Create_PipeName()
+        {
+            new NamedPipeServerStream(PipeStreamConformanceTests.GetUniquePipeName()).Dispose();
+        }
+
+        [Fact]
+        [SkipOnPlatform(TestPlatforms.LinuxBionic, "SElinux blocks UNIX sockets in our CI environment")]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "iOS/tvOS blocks binding to UNIX sockets")]
         public static void Create_PipeName_Direction_MaxInstances()
         {
-            new NamedPipeServerStream(GetUniquePipeName(), PipeDirection.Out, 1).Dispose();
+            new NamedPipeServerStream(PipeStreamConformanceTests.GetUniquePipeName(), PipeDirection.Out, 1).Dispose();
         }
 
         [Fact]
         [PlatformSpecific(TestPlatforms.Windows)] // can't access SafePipeHandle on Unix until after connection created
         public static void CreateWithNegativeOneServerInstances_DefaultsToMaxServerInstances()
         {
-            // When passed -1 as the maxnumberofserverisntances, the NamedPipeServerStream.Windows class
+            // When passed -1 as the maxNumberOfServerInstances, the NamedPipeServerStream.Windows class
             // will translate that to the platform specific maximum number (255)
-            using (var server = new NamedPipeServerStream(GetUniquePipeName(), PipeDirection.InOut, -1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
+            using (var server = new NamedPipeServerStream(PipeStreamConformanceTests.GetUniquePipeName(), PipeDirection.InOut, -1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
             using (var server2 = new NamedPipeServerStream(PipeDirection.InOut, false, true, server.SafePipeHandle))
             using (var server3 = new NamedPipeServerStream(PipeDirection.InOut, false, true, server.SafePipeHandle))
             {
@@ -158,7 +163,7 @@ namespace System.IO.Pipes.Tests
         [InlineData(PipeDirection.Out)]
         public static void InvalidPipeHandle_Throws_ArgumentException(PipeDirection direction)
         {
-            SafePipeHandle pipeHandle = new SafePipeHandle(new IntPtr(-1), true);
+            using SafePipeHandle pipeHandle = new SafePipeHandle(new IntPtr(-1), true);
             AssertExtensions.Throws<ArgumentException>("safePipeHandle", () => new NamedPipeServerStream(direction, false, true, pipeHandle));
         }
 
@@ -197,7 +202,7 @@ namespace System.IO.Pipes.Tests
         public static void Windows_CreateFromDisposedServerHandle_Throws_ObjectDisposedException(PipeDirection direction)
         {
             // The pipe is closed when we try to make a new Stream with it
-            var pipe = new NamedPipeServerStream(GetUniquePipeName(), direction, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            var pipe = new NamedPipeServerStream(PipeStreamConformanceTests.GetUniquePipeName(), direction, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
             SafePipeHandle handle = pipe.SafePipeHandle;
             pipe.Dispose();
             Assert.Throws<ObjectDisposedException>(() => new NamedPipeServerStream(direction, true, true, pipe.SafePipeHandle).Dispose());
@@ -205,9 +210,11 @@ namespace System.IO.Pipes.Tests
 
         [Fact]
         [PlatformSpecific(TestPlatforms.AnyUnix)] // accessing SafePipeHandle on Unix fails for a non-connected stream
+        [SkipOnPlatform(TestPlatforms.LinuxBionic, "SElinux blocks UNIX sockets in our CI environment")]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "iOS/tvOS blocks binding to UNIX sockets")]
         public static void Unix_GetHandleOfNewServerStream_Throws_InvalidOperationException()
         {
-            using (var pipe = new NamedPipeServerStream(GetUniquePipeName(), PipeDirection.Out, 1, PipeTransmissionMode.Byte))
+            using (var pipe = new NamedPipeServerStream(PipeStreamConformanceTests.GetUniquePipeName(), PipeDirection.Out, 1, PipeTransmissionMode.Byte))
             {
                 Assert.Throws<InvalidOperationException>(() => pipe.SafePipeHandle);
             }
@@ -221,7 +228,7 @@ namespace System.IO.Pipes.Tests
         public static void Windows_CreateFromAlreadyBoundHandle_Throws_ArgumentException(PipeDirection direction)
         {
             // The pipe is already bound
-            using (var pipe = new NamedPipeServerStream(GetUniquePipeName(), direction, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
+            using (var pipe = new NamedPipeServerStream(PipeStreamConformanceTests.GetUniquePipeName(), direction, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
             {
                 AssertExtensions.Throws<ArgumentException>("handle", () => new NamedPipeServerStream(direction, true, true, pipe.SafePipeHandle));
             }
@@ -231,7 +238,7 @@ namespace System.IO.Pipes.Tests
         [PlatformSpecific(TestPlatforms.Windows)] // NumberOfServerInstances > 1 isn't supported and has undefined behavior on Unix
         public static void ServerCountOverMaxServerInstances_Throws_IOException()
         {
-            string uniqueServerName = GetUniquePipeName();
+            string uniqueServerName = PipeStreamConformanceTests.GetUniquePipeName();
             using (NamedPipeServerStream server = new NamedPipeServerStream(uniqueServerName, PipeDirection.Out, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
             {
                 Assert.Throws<IOException>(() => new NamedPipeServerStream(uniqueServerName));
@@ -242,11 +249,24 @@ namespace System.IO.Pipes.Tests
         [PlatformSpecific(TestPlatforms.Windows)] // NumberOfServerInstances > 1 isn't supported and has undefined behavior on Unix
         public static void Windows_ServerCloneWithDifferentDirection_Throws_UnauthorizedAccessException()
         {
-            string uniqueServerName = GetUniquePipeName();
+            string uniqueServerName = PipeStreamConformanceTests.GetUniquePipeName();
             using (NamedPipeServerStream server = new NamedPipeServerStream(uniqueServerName, PipeDirection.In, 2, PipeTransmissionMode.Byte, PipeOptions.Asynchronous))
             {
                 Assert.Throws<UnauthorizedAccessException>(() => new NamedPipeServerStream(uniqueServerName, PipeDirection.Out));
             }
         }
+
+        [Fact]
+        [SkipOnPlatform(TestPlatforms.LinuxBionic, "SElinux blocks UNIX sockets in our CI environment")]
+        [SkipOnPlatform(TestPlatforms.iOS | TestPlatforms.tvOS, "iOS/tvOS blocks binding to UNIX sockets")]
+        public static void PipeOptions_FirstPipeInstanceWithSameNameReuse_Throws_UnauthorizedAccessException()
+        {
+            string uniqueServerName = PipeStreamConformanceTests.GetUniquePipeName();
+            using (NamedPipeServerStream server = new NamedPipeServerStream(uniqueServerName, PipeDirection.In, 2, PipeTransmissionMode.Byte, PipeOptions.FirstPipeInstance))
+            {
+                Assert.Throws<UnauthorizedAccessException>(() => new NamedPipeServerStream(uniqueServerName, PipeDirection.In, 2, PipeTransmissionMode.Byte, PipeOptions.FirstPipeInstance));
+            }
+        }
+
     }
 }

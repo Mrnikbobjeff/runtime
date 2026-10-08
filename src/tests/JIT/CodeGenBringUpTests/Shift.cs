@@ -5,8 +5,9 @@
 
 using System;
 using System.Runtime.CompilerServices;
+using Xunit;
 
-public class Test
+public class Test_Shift
 {
     [MethodImpl(MethodImplOptions.NoInlining)]
     static ulong shl64(ulong shift, int count)
@@ -51,7 +52,8 @@ public class Test
         return x;
     }
 
-    public static int Main()
+    [Fact]
+    public static int TestEntryPoint()
     {
         const int Pass = 100;
         const int Fail = -1;

@@ -36,10 +36,10 @@
 ** operations against a single handle at the same time or block their
 ** access to Close and Dispose unless you are very comfortable with the
 ** semantics of passing an invalid (or possibly invalidated and
-** reallocated) to the unamanged routines you marshal your handle to
+** reallocated) to the unmanaged routines you marshal your handle to
 ** (and the effects of closing such a handle while those calls are in
 ** progress). The runtime cannot protect you from undefined program
-** behvior that might result from such scenarios. You have been warned.
+** behavior that might result from such scenarios. You have been warned.
 **
 **
 ===========================================================*/
@@ -146,11 +146,11 @@ namespace System.Runtime.InteropServices
             // Save last error from P/Invoke in case the implementation of
             // ReleaseHandle trashes it (important because this ReleaseHandle could
             // occur implicitly as part of unmarshaling another P/Invoke).
-            int lastError = Marshal.GetLastWin32Error();
+            int lastError = Marshal.GetLastPInvokeError();
 
             ReleaseHandle();
 
-            Marshal.SetLastWin32Error(lastError);
+            Marshal.SetLastPInvokeError(lastError);
             GC.SuppressFinalize(this);
         }
 
