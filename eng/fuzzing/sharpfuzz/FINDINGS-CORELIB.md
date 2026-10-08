@@ -1783,3 +1783,194 @@ These were raised by the first versions of the targets and turned out to be docu
 - Campaigns were short (30–60 minutes per target) and shared 12 hardware threads.
 - Guard pages (`SHARPFUZZ_GUARD=1`, see `Guarded.cs`) catch reads and writes just past the ends of
   spans the harness allocates, not overruns inside the framework's own arrays or buffers.
+
+
+---
+
+## Consolidated triage — all confirmed findings, with model verdict (appended 2026-10-08, unsorted)
+
+_The full per-wave finding tables (every hardening gap, public bug and informational item) are in the wave sections above. This appendix is the consolidated triage of the confirmed memory-safety findings with their adversarial-refutation verdicts and their classification against the .NET vulnerability model, pulled in verbatim from TRIAGE-MSRC.md for manual sorting._
+
+# Worst offenders — MSRC triage sheet
+
+Confirmed memory-safety findings from the unsafe-code review (verification pass 2026-10-05).
+Only items that **survived** adversarial re-review are here. The 5 refuted false positives and 9
+downgraded (not-memory-unsafe-as-shipped) items are NOT in this list — see the "Verification pass"
+section of FINDINGS-CORELIB.md for those.
+
+Confirmation level: independent source + caller + native tracing, adversarially re-reviewed.
+**Not executed.** Nothing here was run or reproduced (except B64URL-AVX2-1, which is crash-backed by
+the fuzzer). The `MSRC?` column is for your decision.
+
+Severity is my rough guess (CVSS-ish): H = out-of-bounds write / UAF on a normal path; M = OOB write/UAF
+that needs a race, a nonstandard caller, or an untrusted local source; L = OOB read, small / bounded /
+needs malformed trusted-only input.
+
+---
+
+## Tier 1 — confirmed memory-unsafe, reachable on an ordinary single-threaded path
+
+| ID | Class | Sev | Platform | File:line | Precondition / reachability | Suggested fix | MSRC? |
+|----|-------|-----|----------|-----------|------------------------------|---------------|-------|
+| AOT-16-1 | OOB **write** | H | NativeAOT (all OS) | `coreclr/nativeaot/System.Private.CoreLib/src/Internal/Runtime/CompilerHelpers/InteropHelpers.cs:37-55` → `System/Runtime/InteropServices/PInvokeMarshal.cs:489-525` | Marshal a struct with `[MarshalAs(ByValTStr, SizeConst=N)]` ANSI field holding a **non-ASCII** string (`Marshal.StructureToPtr` or ordinary P/Invoke). Writes up to `(N-1)*maxBytesPerChar + 1` bytes into the N-byte inline field. No race. CoreCLR's `CSTRMarshaler` passes the capacity and is bounded; AOT omits it. | pass N as the destination capacity to the conversion; truncate + terminate in-buffer | [ ] |
+| NETB-22-1 | OOB **write** (native heap) + OOB read | H | Windows | `System.Net.Sockets/.../SocketAsyncEventArgs.Windows.cs:981-992, 549-550, 1253-1259` | Reuse one `SocketAsyncEventArgs` from an IPv4 `ReceiveMessageFrom(Async)` to an IPv6 one. The sockaddr block is allocated once (no realloc) but the length/capacity are always set to the current family's max → WSARecvMsg writes ~12 bytes past a 16-byte block; copy-back reads OOB. | reallocate when the needed size grows, or always allocate the max and recheck per op | [ ] |
+| CLSYS1-22/16-1 | OOB **write** (kernel → uninit pointers) | H | Unix | `System.Private.CoreLib/.../IO/RandomAccess.Unix.cs:58-99` (async: `SafeFileHandle.ThreadPoolValueTaskSource.cs:106`) | `RandomAccess.Read/ReadAsync(SafeFileHandle, IReadOnlyList<Memory<byte>>, long)` with a custom `IReadOnlyList` whose `Count` returns a larger value on the syscall's re-read (lines 79/89) than during the iovec fill. **No race needed.** Kernel writes file bytes through uninitialized `IOVector.Base`. | cache `Count` once; size, fill, and pass the syscall count from that single value (the write path already does) | [ ] |
+| CRYPTO-7-1 | use-after-free **read** | M–H | Windows | `System.Security.Cryptography/.../X509Certificates/ChainPal.Windows.cs:63-103`; `X509Chain.cs:52-58, 77-85` | `X509Chain.Build`, then dispose `chain.SafeHandle` (same handle is public), then read `chain.ChainStatus` (lazy, not materialized during Build) → dereferences the freed `CERT_CHAIN_CONTEXT`. Single-threaded. | wrap both getters in `DangerousAddRef`/`Release` like `CertificatePal.InvokeWithCertContext` | [ ] |
+| CLTEXT-22-1 | OOB **write** + read | M | Browser/WASM | `System.Private.CoreLib/.../Globalization/CultureData.Browser.cs:42-60`; `src/mono/browser/runtime/globalization-locale.ts:32-37, 64-69` | A culture/locale name ~81-85 chars that `Intl.getCanonicalLocales` rejects: the JS "forward malformed name" paths write past the 80-char dst in wasm linear memory and return `resultLength > 80`; managed `new string(buffer, 0, resultLength)` then over-reads the stack buffer. | bound the JS forward paths by `dstMaxLength`; check `resultLength <= 80` in managed | [ ] |
+| FMT-9/16-1 | OOB **read** (1 byte) | L–M | all | `System.Reflection.Metadata/.../Utilities/MemoryBlock.cs:473-505` | Reading a **malformed WinMD** image whose #Strings offset == heap length, or whose last string is unterminated. Guard `i > limit` should be `i >= limit`; reads `*p` at `Pointer + Length`. Reachable via `StringHeap.EqualsRaw`/`BinarySearchRaw` ← `MetadataReader.WinMD.cs`. Faults only if the heap ends on a page boundary of a native buffer. | change guard to `i >= limit`; check `offset + asciiString.Length < Length` before the final read | [ ] |
+| CLTEXT-16-1 | OOB **read** (stack) | L–M | all (ICU) | `System.Private.CoreLib/.../Globalization/CultureData.Icu.cs:241-249` (native `pal_localeStringData.c:214-402`) | A locale whose display/language/country string is **exactly 100 UTF-16 units**: ICU sets `U_STRING_NOT_TERMINATED_WARNING` (still `U_SUCCESS`) and writes no NUL into the `stackalloc char[100]`; `new string(buffer)` over-reads the stack. Partly rests on ICU's documented truncation behavior; the in-repo native side gives no terminator. | use the bounded span + `IndexOf('\0')` pattern already at lines 320-331 | [ ] |
+| B64URL-AVX2-1 | OOB access (crash-backed) | ? | x64 AVX2 | `System.Private.CoreLib/.../Buffers/Text/Base64Helper/Base64DecoderHelper.cs` (Avx2Decode, Base64Url UTF-8) | **The only crash-backed item.** 156 guard-page AVs under the fuzzer in `Base64Url.DecodeFromUtf8`'s AVX2 path with short destinations. Open step: replay the saved inputs (`/root/sharpfuzz/out-b64g/base64guard/*/crashes`) on stock RC1 — that replay belongs with MSRC. | (pending root-cause; hand crash inputs to MSRC) | [ ] |
+
+## Tier 2 — confirmed, but only under a concurrency race or unordered finalization
+
+These need a not-thread-safe object used concurrently, or a Dispose/GC in a specific window. Vendors
+often treat these as lower priority or "documented misuse," but each is a real missing guard. (CLSYS1-23-1
+is the exception — it is concurrent-by-design runtime code, so its ABA race is in scope.)
+
+| ID | Class | Platform | File:line | Trigger window | MSRC? |
+|----|-------|----------|-----------|----------------|-------|
+| CLSYS1-23-1 | double-handout → aliased OVERLAPPED | Windows | `Threading/Win32ThreadPoolNativeOverlapped.cs:48-62, 161-173` | ABA on the lock-free free list under concurrent alloc/free (Windows thread pool). No tag/hazard pointer. | [ ] |
+| NETA-7-3 | GCHandle double-free | all (QUIC) | `System.Net.Quic/.../Internal/MsQuicSafeHandle.cs:112-134`; `QuicStream.cs:196-257` | connection SafeHandle closed between StreamOpen and the ctor's `DangerousAddRef`; ctor catch + finalizer both `Free` the same GCHandle copy. | [ ] |
+| OS2-22-1 | write-after-free | Windows | `System.Diagnostics.Process/.../Process.Multiplexing.Windows.cs:213-339` | `Process.ReadAllText/ReadAllBytes`: a non-EOF pipe error or buffer-growth OOM while the sibling pipe's overlapped read is pending → buffers freed/returned, kernel completes into them. | [ ] |
+| OS2-7-1 | use-after-free r/w | Windows | `System.Diagnostics.PerformanceCounter/.../CounterSetInstanceCounterDataSet.cs:15-188` | a `CounterData` used after its owning dataset is Disposed/finalized (it holds a raw `long*`, no owner ref). | [ ] |
+| OS2-7-2 | use-after-free read | Windows | `System.DirectoryServices.AccountManagement/.../AuthZSet.cs:153-470` | enumerate `GetAuthorizationGroups()` results after disposing the `PrincipalSearchResult` (SID pointers into a freed block; no parent disposed-check). | [ ] |
+| OS1-7-1 | handle-recycle (wrong kernel object) | Windows | `System.Diagnostics.Process/.../Process.Windows.cs:468-491` | concurrent `Process.Dispose`/GC during `Kill`/priority/affinity via the non-owning handle alias (only when `_haveProcessHandle`; the originally-filed `GetProcessById().Kill()` repro was wrong). | [ ] |
+| OS1-7-2 | handle-recycle | Windows | `System.Diagnostics.Process/.../SafeProcessHandle.Windows.cs:53-62, 777-788` | concurrent Dispose/GC during `Resume()` (raw `_mainThreadHandle`, no AddRef, TOCTOU). | [ ] |
+| NETB-7/22-2 | UAF read / OOB read | Android, tvOS | `System.Net.Security/.../NegotiateAuthenticationPal.ManagedNtlm.cs:483-508` | caller-supplied `ChannelBinding` read without AddRef (dispose race) or a subclass whose `Size` overstates its buffer. Read-only. | [ ] |
+| NETB-7-5 | dangling native handle | macOS | `System.Net.Security/.../Pal.OSX/SafeDeleteSslContext.cs:368-399` | an intermediate cert with a private key: the reloaded copy is unrooted before the native `SslSetCertificate`; GC in the window → dangling `SecCertificateRef`. | [ ] |
+| CRYPTOI-7-1 | use-after-close (fd recycle) | Unix (OpenSSL) | `Common/.../Interop.Ssl.cs:124-125, 181-186, 659-702` | dispose/finalize the socket handle out of order with the SSL handle (experimental `LowLevelTlsDiagId` API); SslShutdown writes to a closed/recycled fd. | [ ] |
+
+## Tier 3 — confirmed, but gated on an untrusted source, a specific RID, or safe-code misuse
+
+| ID | Class | Gate | File:line | MSRC? |
+|----|-------|------|-----------|-------|
+| OS2-16-1 | OOB read + wild read | **untrusted** LDAP/SAM server returning a malformed short `objectSid` | `System.DirectoryServices.AccountManagement/.../Utils.cs:183-266, 827-860` (dup in `System.DirectoryServices/.../ActiveDirectory/Utils.cs`) | [ ] |
+| CRYPTOI-9-1 | OOB read | **third-party** NCrypt KSP returning an inconsistent ML-KEM blob | `Common/.../MLKem.Windows.cs:14-50` | [ ] |
+| DECL1-22-2 | OOB r/w of libsasl array | **linux-arm32** only (`ulong` for C `unsigned long`) | `Common/src/Interop/Linux/OpenLdap/Interop.Ldap.cs:31-40`; `LdapPal.Linux.cs:190-233` | [ ] |
+| CLSYS2-1/8-3 | dangling span (read) | safe-code footgun: copy a `FileSystemEntry`, return its `FileName` | `System.Private.CoreLib/.../IO/Enumeration/FileSystemEntry.Unix.cs:24-30, 96-109` | [ ] |
+
+## Unresolved-native — managed read is real; safety hinges on an external guarantee
+
+Route to MSRC as questions, each with the exact behavior that must be checked. Not re-listed here;
+see the "Verification pass" section of FINDINGS-CORELIB.md: MIX-16-3, DECL3-16/19-2, CLSYS2-16/19-4,
+OS2-2-1, OS2-16-2, NETA-9/16-1, NETA-7/22-4, CRYPTO-16-2, NETB-20/22-7.
+
+---
+
+Triage guidance (my read): Tier 1 is where the MSRC case is strongest — AOT-16-1 (OOB write, no race,
+GA next month) is the clearest. B64URL-AVX2-1 is the only one with actual crashes. Tier 2 is genuine
+but concurrency-gated; vendors vary on whether racing a non-thread-safe type counts. Tier 3 and the
+unresolved-native set are worth reporting but are either trust-gated or need a vendor to confirm the
+platform behavior. None of these has a reproducer — MSRC validates those in a controlled setting.
+
+---
+
+# Assessed against the .NET vulnerability model (2026-10-05)
+
+Checked against dotnet/core `security-foundations/vulnerability-theory.md` and
+`baseline-security-assumptions.md`. The model's deciding tests:
+- **Taint:** a memory-safety defect is a *vulnerability* when **tainted data** (provenance beyond the
+  authority boundary — network, untrusted files, certificates, serialized/parsed untrusted input)
+  drives it, or when an actor **across an authority boundary** (another local user, a remote peer)
+  gains unintended privilege/DoS.
+- **Out of scope:** "Vulnerability reports that are predicated on an invariant being violated are
+  closed as won't fix or by design." That covers data races on non-thread-safe types,
+  use-after-dispose, and caller-supplied implementations that break a contract. In-process
+  composition is not a security boundary, and **loaded assemblies/metadata are fully trusted**
+  (malformed-assembly reports are out of scope — loading already implies code execution).
+
+This re-sorts the confirmed list. Severity letters from the tiers above are unchanged; what changes
+is **whether the model treats it as a vulnerability at all.**
+
+## A1 — Take to MSRC (strongest, each still caveated)
+
+Applying the model strictly, only these two clear the bar as plausible vulnerabilities worth the
+vendor's time — and each carries one caveat that could still disqualify it.
+
+| ID | Why it clears the bar | The caveat that could still kill it | MSRC? |
+|----|-----------------------|-------------------------------------|-------|
+| B64URL-AVX2-1 | genuinely-untrusted input (base64 tokens/URLs/network) → OOB **write** of attacker-controlled decoded bytes; crash-backed, so reachability is proven under *some* buffer sizing | real one-shot callers size the destination with `GetMaxDecodedLength` (slack), so the overshoot may be unreachable outside the fuzzer's exact-sized guard-paged buffers. Confirm a *realistic* caller sizes tight before filing. | [ ] |
+| DECL3-16/19-2 | a certificate is genuinely untrusted data (the reason cert validation exists); malformed legacy basic-constraints → OOB **read** (infoleak) reachable from any cert's `Extensions` | it is a read, not a write (confidentiality, not RCE), and it depends on CryptoAPI actually yielding a zero-length `SubjectType.pbData` for a decodable cert. If CryptoAPI never does, it's unreachable. | [ ] |
+
+## A2 — Demoted: a boundary exists only under a narrow / unusual condition
+
+Previously in bucket A / A?. Each *could* be a vulnerability, but only if an uncommon precondition
+holds; by default the model treats them as out of scope. **Don't file unless the precondition is
+confirmed for a real deployment.**
+
+| ID | Would-be driver | Why it's demoted (the precondition that's usually false) | MSRC? |
+|----|-----------------|----------------------------------------------------------|-------|
+| AOT-16-1 | tainted string → `ByValTStr` ANSI struct → native | OOB write is real, but needs a specific, niche pattern: a network/file-tainted string marshalled through that exact struct shape on NativeAOT. If the marshalled strings are app-controlled it's in-process → out. | [ ] |
+| OS2-16-1 | `objectSid` from a directory | in almost all deployments the directory (your DC) is **trusted infrastructure**; a "malicious directory" isn't a realistic actor (if the DC is compromised, it's over anyway). Only genuinely untrusted/third-party LDAP makes it relevant. | [ ] |
+| NETA-9/16-1 | HTTP request body (remote) | ~20 years with no CVE strongly suggests http.sys never returns ≥2 inline entity chunks, i.e. the OOB write is never reached. | [ ] |
+| CLTEXT-22-1 | tainted culture/locale name | OOB write, but confined to the **WASM sandbox** (can't reach host RCE), and in many Blazor apps the culture comes from the user's own browser → no cross-boundary attacker. | [ ] |
+| CLTEXT-16-1 | tainted locale name | needs the attacker to pick a valid locale whose ICU display string is *exactly* 100 UTF-16 units; a read (infoleak) if hit. | [ ] |
+| OS2-16-2 | untrusted PE/version resource | needs an app that runs `FileVersionInfo.GetVersionInfo` on attacker-supplied files **and** version.dll to return an unterminated/undersized value; a read. | [ ] |
+| NETB-20/22-7 | TLS wire data (remote) | UAF only if `nw_framer_deliver_input` retains the input pointer across its async completion (macOS Network.framework behavior). | [ ] |
+
+## B — In scope: cross-user DoS / integrity (boundary crossing, not memory-corruption)
+
+| ID | Why | MSRC? |
+|----|-----|-------|
+| OS1-11-1 | the product's own ACL makes the shared perf-counter mapping writable by **Authenticated Users**; a lower-privileged local user can corrupt counter values or plant offset-cycles that hang/stack-overflow another user's process — a cross-authority integrity/availability grant. (Not OOB — alignment and offsets are guarded — but *is* a boundary-crossing DoS/integrity issue, which the model counts.) | [ ] |
+
+## C — Out of scope by the model: invariant / contract violation by a trusted in-process component
+
+Real missing guards (worth a hardening PR), but the model closes these "by design" — they need a
+data race on a not-thread-safe type, use-after-dispose, or a caller-supplied implementation that
+breaks a contract, all in-process / fully trusted.
+
+- **Dispose / lifetime misuse:** CRYPTO-7-1 (use after disposing the chain handle), OS2-7-1, OS2-7-2,
+  OS1-7-1, OS1-7-2, NETB-7-5, CRYPTOI-7-1.
+- **Concurrent misuse of a non-thread-safe type:** OS2-22-1, NETA-7-3, NETB-7/22-2.
+- **Caller-supplied implementation breaking a contract:** CLSYS1-22/16-1 (unstable `IReadOnlyList.Count`).
+- **In-process API footgun:** CLSYS2-1/8-3 (copy a `FileSystemEntry`, return its `FileName`).
+- **Exception — stays a candidate:** CLSYS1-23-1. The thread-pool OVERLAPPED free list is
+  **concurrent-by-design**, so its ABA race is a genuine defect, not misuse. Keep in play.
+
+## D — Out of scope: malformed *loaded* / trusted artifact
+
+- **FMT-9/16-1** and **CLSYS2-9-5** — malformed WinMD / assembly metadata. Loading an assembly is
+  full trust. *Caveat:* `System.Reflection.Metadata` can also read a file purely as **data** (no
+  code load); if a tool parses an **untrusted** .winmd as data, FMT-9/16-1 moves to bucket A. Decide
+  per consumer.
+- **CRYPTOI-9-1** — a third-party NCrypt KSP is an in-process loaded provider (trusted).
+- **CRYPTO-16-2** — CNG property values from a provider (trusted); the `SetProperty` round-trip is
+  in-process.
+- **MIX-16-3** — registering perf-counter names is admin-gated (fully trusted).
+- **CLSYS2-16/19-4** — the username comes from the OS token (trusted, not tainted).
+
+## N — Reliability / correctness defects, memory-safety but no boundary-crossing driver
+
+- **NETB-22-1** — the WSARecvMsg OOB write is driven by the app's own SAEA-reuse + family-size
+  bookkeeping, not by any attacker-controlled data; a remote peer cannot choose to trigger it. Serious
+  integrity defect, but no tainted driver → likely **reliability**, not a vuln, under the model.
+  (Still worth fixing — SAEA reuse is a supported, encouraged pattern, so this is not caller misuse.)
+- **DECL1-22-2** — the arm32 SASL struct-size mismatch is a layout bug that manifests on the platform
+  regardless of attacker data; correctness bug, linux-arm32 only.
+- **OS2-2-1** — serial driver / pin-lifetime timing; reliability.
+
+## Bottom line for triage
+
+Applied strictly, the model disqualifies the large majority of the confirmed findings, and the honest
+security yield is small:
+
+- **Take to MSRC (A1): two**, each with a caveat that must clear first — **B64URL-AVX2-1** (OOB write,
+  untrusted input, crash-backed; confirm a realistic caller sizes the destination tight) and
+  **DECL3-16/19-2** (cert OOB read; confirm CryptoAPI yields the zero-length field). B64URL is the
+  only one that is both a write primitive and reachable from genuinely untrusted data, so it is the
+  single most defensible item and the one with RCE potential.
+- **One lower-severity model-clean item (B): OS1-11-1**, a cross-user DoS/integrity issue (not memory
+  corruption).
+- **Demoted (A2): seven** that need an uncommon precondition to be a real boundary — file only if that
+  precondition is confirmed for a real deployment; otherwise they are out of scope.
+- **Out of scope (C/D/N): everything else** — invariant violations (races, dispose, broken caller
+  contracts), trusted in-process components/providers, malformed loaded assemblies/metadata, and
+  reliability bugs with no boundary-crossing driver. These are legitimate **hardening PRs**, but by
+  .NET's own definition they are **not** security vulnerabilities and would come back "by design /
+  won't fix (security)" if sent to MSRC.
+
+Blunt version: of ~21 confirmed memory-safety findings, realistically **one or two** are worth MSRC
+(and even those carry a live caveat). The durable value of the campaign is the hardening PRs, not the
+vulnerability reports — which is the normal result of holding "unsafe-code smells" to a rigorous
+vulnerability definition.
